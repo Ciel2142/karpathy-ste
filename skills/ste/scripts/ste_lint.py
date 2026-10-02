@@ -511,7 +511,8 @@ IRREGULAR_PARTICIPLES = tuple(
     "done made put set cut shut hit let read seen known shown given taken written broken "
     "chosen driven drawn thrown held kept left lost met paid said sent sold told thought "
     "brought bought caught taught found built spent won worn torn begun run become gone "
-    "come".split()
+    "come been bent stuck hidden lit split spread blown frozen hung struck fallen grown "
+    "swollen stood felt meant burst".split()
 )
 _PARTICIPLES = frozenset(IRREGULAR_PARTICIPLES)
 # First words that end in -ing but are not gerunds. GERUND also skips a first word in

@@ -697,7 +697,8 @@ class WarningRuleTest(unittest.TestCase):
             "done made put set cut shut hit let read seen known shown given taken written "
             "broken chosen driven drawn thrown held kept left lost met paid said sent sold "
             "told thought brought bought caught taught found built spent won worn torn "
-            "begun run become gone come".split()
+            "begun run become gone come been bent stuck hidden lit split spread blown "
+            "frozen hung struck fallen grown swollen stood felt meant burst".split()
         )
         self.assertEqual(ste_lint.IRREGULAR_PARTICIPLES, expected)
         self.assertEqual(len(set(expected)), len(expected))
@@ -705,6 +706,19 @@ class WarningRuleTest(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertIn("PASSIVE", codes(f"It is {word} now."))
                 self.assertIn("PERFECT", codes(f"It has {word} now."))
+
+    def test_been_and_technical_participles_are_participles(self):
+        self.assertEqual(
+            messages("The pump has been closed.", "PERFECT"),
+            [("W", 'possible perfect tense: "has been"')],
+        )
+        self.assertEqual(
+            messages("The pump has been closed.", "PASSIVE"),
+            [("W", 'possible passive: "been closed"')],
+        )
+        self.assertEqual(
+            messages("The hose is stuck.", "PASSIVE"), [("W", 'possible passive: "is stuck"')]
+        )
 
     def test_verb_warnings_skip_masked_tokens(self):
         for text, rule in (
