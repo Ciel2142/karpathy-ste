@@ -580,8 +580,8 @@ def _check(sentence, procedure):
             message += f' (as a conjunction "{form} that": use IF)'
         yield "E", "WORD", message
     words = _words(text)
-    first = words[0].lower() if words else ""
-    if first.endswith("ing") and first not in _NON_GERUNDS and not words[0].isupper():
+    lead = words[0].lower() if words else ""
+    if lead.endswith("ing") and lead not in _NON_GERUNDS and not words[0].isupper():
         yield "W", "GERUND", f'possible gerund: "{words[0]}"'
     for first, second in zip(words, words[1:]):
         verb, after, pair = first.lower(), second.lower(), f'"{first} {second}"'
