@@ -1,9 +1,10 @@
 # STE-80 live run: profile vs baseline
 
-Verdict: pass, with a weak test. The profiled answer has 0 errors, as the spec requires. The baseline
+Verdict: pass, with a weak test. The profiled answer has 0 errors, as the spec says. The baseline
 has 0 errors too, so on this subject and model the error rules (`LENGTH`, `CONTRACTION`, `WORD`) did
-not discriminate between the two answers. The profile shows in the warnings (4 against 0) and in the
-protocol (the profiled subagent linted its own draft, per the controller, the main session).
+not discriminate between the two answers. The profile shows in the warnings (4 against 0; 3 of the 4
+mark a construct to change) and in the protocol (the profiled subagent linted its own draft, per the
+controller, the main session, so it iterated against the same lint that scores it).
 
 - **Date:** 2026-10-02. **Model:** claude-sonnet in both runs (version string not recorded).
   **Lint version:** `5dfed3f` (`git log -1 --format=%h -- skills/ste/scripts/ste_lint.py`).
@@ -19,8 +20,12 @@ protocol (the profiled subagent linted its own draft, per the controller, the ma
 
 | Run | Sentences | Errors | Warnings | Exit code |
 | --- | --- | --- | --- | --- |
-| Profile (Appendix A, 582 words) | 42 | 0 | 0 | 0 |
-| Baseline (Appendix B, 570 words) | 39 | 0 | 4 | 0 |
+| Profile, Appendix A: 582 words (wc -w) | 42 | 0 | 0 | 0 |
+| Baseline, Appendix B: 570 words (wc -w) | 39 | 0 | 4 | 0 |
+
+Re-run at `3971a88` (the lint after the wave `ste` fixes): profile 0 errors, 0 warnings; baseline
+0 errors, 5 warnings. The new warning is `23:46  W PASSIVE  possible passive: "is split"`, because
+`split` joined the irregular participles. Sentence counts and the statistics below are unchanged.
 
 To reproduce, save the fenced text of each appendix as `profile.md` and `baseline.md`, then run from the
 repository root (both lint runs exit 0). "Sentences" are depth-0 sentences from `tokenize`; text in parentheses is not counted.
