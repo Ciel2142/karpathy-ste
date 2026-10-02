@@ -23,7 +23,7 @@ controller, the main session, so it iterated against the same lint that scores i
 | Profile, Appendix A: 582 words (wc -w) | 42 | 0 | 0 | 0 |
 | Baseline, Appendix B: 570 words (wc -w) | 39 | 0 | 4 | 0 |
 
-Re-run at `3971a88` (the lint after the wave `ste` fixes): profile 0 errors, 0 warnings; baseline
+Re-run at `8a9d241` (the lint after the wave `ste` fixes): profile 0 errors, 0 warnings; baseline
 0 errors, 5 warnings. The new warning is `23:46  W PASSIVE  possible passive: "is split"`, because
 `split` joined the irregular participles. Sentence counts and the statistics below are unchanged.
 
