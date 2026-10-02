@@ -1,0 +1,108 @@
+version: 2
+feature: explain-skills
+spec: docs/superpowers/specs/2026-10-02-explain-skills-design.md
+coverage: waived
+waves:
+  - id: ste
+    slice: domain
+    goal: >-
+      The STE-80 prose profile exists as a user-only skill reachable by path, with a
+      lint that errors only on deterministic rules, and a live run proves zero errors.
+    done_when: >-
+      `cd skills/ste && python3 -m unittest discover -s tests` prints OK;
+      `docs/superpowers/spikes/2026-10-02-ste-live-run.md` records a zero-error lint
+      of a subagent's STE-80 output plus the baseline count; the user runs `/ste`
+      successfully.
+    status: pending
+    depends_on: []
+    owns:
+      - skills/ste/
+      - ~/.claude/skills/ste (symlink)
+      - docs/superpowers/spikes/2026-10-02-ste-live-run.md
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/ste && python3 -m unittest discover -s tests
+      - python3 skills/ste/scripts/ste_lint.py tests/fixtures/clean.md; exit code 0
+      - python3 skills/ste/scripts/ste_lint.py --html tests/fixtures/artifact.html; exit code 0
+      - live-run note present with zero errors and a baseline count
+
+  - id: video-spike
+    slice: cohesive
+    goal: >-
+      Answer spec §8.1 with measurements against every §8.3 criterion, in a findings
+      note, so the video rung can be planned or permanently dropped.
+    done_when: >-
+      `docs/superpowers/spikes/2026-10-02-video-pipeline.md` exists with a
+      pass / fail / inconclusive recommendation, the measured render time per video
+      minute, install footprint, TTS verdict, iteration count, Node version used and
+      license confirmation; spike code stays gitignored.
+    status: pending
+    depends_on: []
+    owns:
+      - spike-video/
+      - docs/superpowers/spikes/2026-10-02-video-pipeline.md
+    risk: low
+    plan: null
+    acceptance:
+      - findings note present and complete per spec §8.3
+      - a playable mp4 of about 45 s with narration aligned to three scenes, produced by one command, or a recorded reason it could not be
+
+  - id: explain-sheet
+    slice: vertical
+    goal: >-
+      `/explain <file> --as sheet` builds a self-contained, cited, verified sheet
+      artifact from a real file.
+    done_when: >-
+      Live run 1 (`/explain skills/ste/SKILL.md --as sheet`) yields an output
+      directory where `verify.sh index.html` exits 0, the review tiles show no layout
+      defect, `sheet.png` opens, and the provenance block is filled with the correct
+      dirty flag.
+    status: pending
+    depends_on: [ste]
+    owns:
+      - skills/explain/SKILL.md
+      - skills/explain/rungs/sheet.md
+      - skills/explain/templates/sheet.html
+      - skills/explain/scripts/
+      - ~/.claude/skills/explain (symlink)
+    risk: low
+    plan: null
+    acceptance:
+      - skills/explain/scripts/verify.sh <run-1 dir>/index.html; exit code 0
+      - skills/explain/scripts/snapshot.sh <run-1 dir>/index.html <run-1 dir>/sheet.png 1920 1080 2; tiles present with asserted sizes
+      - rung line printed as specified in spec §5.2
+
+  - id: explain-page
+    slice: vertical
+    goal: >-
+      `/explain <subject>` builds a verified interactive page, and the router picks the
+      rung by content shape for a code question in a CodeGraph-indexed repo.
+    done_when: >-
+      Live run 2 (`--as page` on an existing spec or plan) and live run 3 (no `--as`,
+      code question, expected rung pre-declared) both pass: `verify.sh` exits 0 at
+      both page viewports, tiles reviewed, three run-3 claims spot-checked against
+      `path:line`.
+    status: pending
+    depends_on: [explain-sheet]
+    owns:
+      - skills/explain/rungs/page.md
+      - skills/explain/templates/page.html
+    risk: low
+    plan: null
+    acceptance:
+      - skills/explain/scripts/verify.sh <run-2 dir>/index.html; exit code 0
+      - skills/explain/scripts/verify.sh <run-3 dir>/index.html; exit code 0
+      - run-3 rung line matches the pre-declared expectation
+
+deferred:
+  - capability: video rung (spec §8.4 pass path)
+    waits_for: [video-spike findings note, user decision on fold-in]
+    reason: >-
+      The stack, narration path, scene components and render budget cannot be
+      specified until the spike measures them against spec §8.3; planning now would
+      invent those decisions.
+
+approval:
+  required: false
+  reason: null
