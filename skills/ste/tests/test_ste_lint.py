@@ -183,9 +183,9 @@ class SkippedTest(unittest.TestCase):
         self.assertEqual([(s.text, s.line, s.col) for s in result], [("Open the valve.", 4, 1)])
 
     def test_byte_order_mark_does_not_hide_frontmatter(self):
-        result = sentences("﻿---\ntitle: A. B.\n---\nOpen the valve.")
+        result = sentences("\ufeff---\ntitle: A. B.\n---\nOpen the valve.")
         self.assertEqual([(s.text, s.line, s.col) for s in result], [("Open the valve.", 4, 1)])
-        self.assertEqual([(s.text, s.col) for s in sentences("﻿Open.")], [("Open.", 1)])
+        self.assertEqual([(s.text, s.col) for s in sentences("\ufeffOpen.")], [("Open.", 1)])
 
     def test_fenced_code_blocks_skipped(self):
         cases = (
