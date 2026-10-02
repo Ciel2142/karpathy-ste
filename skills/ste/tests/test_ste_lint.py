@@ -142,6 +142,25 @@ class BlockTest(unittest.TestCase):
             [("ul-item", ["Item text.", "More item text."]), ("para", ["After the list."])],
         )
 
+    def test_blockquote_lines_are_classified_without_their_markers(self):
+        result = ste_lint.tokenize("> - Open the valve\n> - Close the door\n> - Stop the pump")
+        self.assertEqual(
+            [(b.kind, [(s.text, s.line, s.col) for s in b.sentences]) for b in result],
+            [
+                ("ul-item", [("Open the valve", 1, 5)]),
+                ("ul-item", [("Close the door", 2, 5)]),
+                ("ul-item", [("Stop the pump", 3, 5)]),
+            ],
+        )
+        self.assertEqual(blocks("> A.\n>\n> B."), [("para", ["A."]), ("para", ["B."])])
+        self.assertEqual(
+            blocks("> Intro.\n> ```\n> code. here\n> ```\n> After."),
+            [("para", ["Intro."]), ("para", ["After."])],
+        )
+        self.assertEqual(
+            blocks("```md\n> ```\n> code. here\n> ```\n```\nAfter."), [("para", ["After."])]
+        )
+
     def test_numbered_line_inside_paragraph_is_not_a_list_item(self):
         self.assertEqual(
             blocks("It was released in\n2024. It added a pump."),

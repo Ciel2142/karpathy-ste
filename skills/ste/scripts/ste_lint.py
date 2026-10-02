@@ -40,6 +40,7 @@ class Block:
     sentences: list[Sentence]
 
 
+_BLOCKQUOTE = re.compile(r"^(?:[ \t]{0,3}>[ \t]?)+")
 _FENCE = re.compile(r"[ \t]*(`{3,}|~{3,})")
 _HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 _ITEM = re.compile(r"([ \t]*)(?:(\d{1,9})[.)]|[-*+])([ \t]+|$)")
@@ -62,18 +63,21 @@ def tokenize(text: str) -> list[Block]:
     """Split Markdown or plain text into paragraph and list-item blocks. Frontmatter,
     fenced code, headings and table rows yield none; line numbers count through them."""
     lines = text.split("\n")
-    layout, fence = _Layout(), None
+    layout, fence = _Layout(), None  # fence: (opening run, opened inside a blockquote)
     for idx in range(_frontmatter_end(lines), len(lines)):
-        line = lines[idx].rstrip("\r")
-        bare = line.strip()
+        raw = lines[idx].rstrip("\r")
+        # Blockquote markers become spaces: columns stay exact, the content is classified.
+        line = _BLOCKQUOTE.sub(lambda m: " " * len(m.group()), raw)
         if fence:
-            if len(bare) >= len(fence) and bare == fence[0] * len(bare):
+            bare = (line if fence[1] else raw).strip()
+            if len(bare) >= len(fence[0]) and bare == fence[0][0] * len(bare):
                 fence = None
             continue
+        bare = line.strip()
         indent = _width(line[: len(line) - len(line.lstrip())])
         opener = _FENCE.match(line)
         if opener:
-            fence = opener.group(1)
+            fence = (opener.group(1), line != raw)
             layout.brk(indent)
         elif not bare:
             layout.brk()
