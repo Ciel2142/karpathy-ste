@@ -292,6 +292,16 @@ class SkippedTest(unittest.TestCase):
                 self.assertEqual(blocks(text), [("para", ["Before."]), ("para", ["After."])])
                 self.assertEqual(sentences(text)[-1].line, text.count("\n") + 1)
 
+    def test_backtick_run_with_a_later_backtick_on_its_line_is_not_a_fence(self):
+        self.assertEqual(
+            blocks("```x``` is inline code. Then stop.\n\nAfter."),
+            [("para", ["```x``` is inline code.", "Then stop."]), ("para", ["After."])],
+        )
+        self.assertEqual(  # a tilde fence may hold a backtick in its info string
+            blocks("Before.\n~~~ `x`\nrm a. b\n~~~\nAfter."),
+            [("para", ["Before."]), ("para", ["After."])],
+        )
+
     def test_heading_lines_skipped(self):
         text = "# Title\n## Sub. Title\n###### Deep\nOpen the valve.\n\n#hashtag is text."
         self.assertEqual(

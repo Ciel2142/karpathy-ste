@@ -47,7 +47,7 @@ class Block:
 
 
 _BLOCKQUOTE = re.compile(r"^(?:[ \t]{0,3}>[ \t]?)+")
-_FENCE = re.compile(r"[ \t]*(`{3,}|~{3,})")
+_FENCE = re.compile(r"[ \t]*(`{3,}(?!.*`)|~{3,})")  # no backtick after a ``` opener
 _HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 _ITEM = re.compile(r"([ \t]*)(?:(\d{1,9})[.)]|[-*+])([ \t]+|$)")
 _URL = re.compile(r"(?<![\w@./])(?:(?:https?|file)://|www\.)[^\s<>`]+", re.IGNORECASE)
