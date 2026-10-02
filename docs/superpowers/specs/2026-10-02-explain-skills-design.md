@@ -71,11 +71,12 @@ Out of scope:
     rungs/video.md                     final wave, only if the spike passes
     templates/sheet.html
     templates/page.html
+    video/                             final wave: Remotion sources (package.json, scenes), versioned
     scripts/snapshot.sh                html -> png + review tiles (headless Chrome, sips)
-    scripts/verify.sh                  self-containment, title status, citations, lint
+    scripts/verify.sh                  self-containment, render status, citations, lint
     scripts/cite_check.py              every citation resolves to its path, line and snippet
   spike-video/                         throwaway, gitignored
-  video-workspace/                     final wave, gitignored (deps installed once)
+  video-workspace/                     final wave, gitignored: installed deps and renders only
   out/                                 artifacts, gitignored, never committed
 
 ~/.claude/skills/ste     -> ~/karpathy/skills/ste
@@ -104,6 +105,10 @@ Technical English, STE-80) for the `/` menu, but with `disable-model-invocation:
 the harness never selects the skill on its own. `explain` and live-run subagents use
 the profile by path (§3).
 
+Invocation contract: `/ste <text or request>` rewrites the given text, or answers the
+given request, in STE-80. A bare `/ste` rewrites Claude's previous answer in STE-80.
+The profile applies to that one answer; it does not persist for the session.
+
 ### 4.2 The STE-80 profile
 
 The value of the skill over a bare prompt is that the definition of "80% STE" is fixed
@@ -111,8 +116,10 @@ and does not drift between sessions. Source for every rule and dictionary entry:
 ASD-STE100 Issue 9 (2025-01-15), public PDF at
 `https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf`. The PDF is AES-protected
 with an empty password; its text extracts with
-`uv run --with pypdf --with cryptography python3` (434 pages). `SKILL.md` cites the rule
-number next to each rule and the dictionary line next to each substitution.
+`uv run --with pypdf --with cryptography python3` (434 pages). `SKILL.md` records the
+PDF URL, its sha256 and that extraction command, cites the rule number next to each
+rule, and cites the Issue 9 printed page label (for example `2-1-E7`) next to each
+substitution — never a line number of the extraction, which is ephemeral.
 
 Kept (structural rules and verb rules, verified in Issue 9):
 
@@ -143,9 +150,11 @@ Kept (structural rules and verb rules, verified in Issue 9):
   `enough -> SUFFICIENT`. Not entries, so not in the table: `in order to` (Issue 9 has
   only `order -> SEQUENCE / TELL`). Meaning-dependent words stay guidance only and out
   of the lint: `ABOUT` is approved as "concerned with", while `APPROXIMATELY` is the
-  approved word for quantity. At implementation time the remaining entries are taken
-  from the extracted dictionary text and cited by line; an entry that cannot be found
-  there is dropped, not guessed.
+  approved word for quantity. A word enters the table only when every dictionary sense
+  of it (all parts of speech) is unapproved: `attempt` (n, v) qualifies; `close` does
+  not, because `close (v)` is approved. At implementation time the remaining entries
+  are taken from the extracted dictionary text and cited by page label; an entry that
+  cannot be found there is dropped, not guessed.
 
 Relaxed (the 20%):
 
@@ -179,32 +188,47 @@ python3 ste_lint.py [--html] [FILE]
 
 #### 4.3.1 Text model (both modes)
 
-- Units: a sentence ends at `.`, `!`, `?` followed by whitespace or end of text, with a
-  small abbreviation allowlist (`e.g.`, `i.e.`, `etc.`, `vs.`, `Mr.`, `Dr.`, `No.`). A
-  list item is always its own sentence and its own block, with or without a final
-  period. A blank line ends a paragraph block.
+- Sentence boundaries: `.`, `!`, `?` followed by whitespace or end of text, also when
+  a closing `)`, `"`, `*` or `_` sits between the terminator and the whitespace
+  (so `**Note.** Next step` is two sentences). Abbreviation allowlist: `e.g.`, `i.e.`,
+  `etc.`, `vs.`, `Mr.`, `Dr.`, `No.`. The end of a list item is an additional
+  boundary, with or without a final period; an item may hold several sentences, each
+  counted on its own. A blank line ends a paragraph block; every list item is its own
+  block.
 - Skipped entirely: YAML frontmatter, fenced code blocks, headings (`#` lines), table
-  rows (`|` lines), URLs. Inline code spans are replaced by one placeholder token, so
-  they count as one word and are never checked.
-- Word cap: 25 by default; 20 for items of a numbered (ordered) list, because numbered
-  steps are procedures.
+  rows (`|` lines), URLs.
+- Tokens that count as one word, per Issue 9 Section 8: an inline code span; text in
+  parentheses (Rule 8.5 — the parenthetical is also linted as a sentence of its own);
+  quoted text in `"…"` or `“…”` (8.6, kept verbatim and not checked by `WORD` or
+  `CONTRACTION`); a number followed by a unit from the script's unit list (8.6, for
+  example `10 mA`, `3 s`, `25 %`); hyphenated words, abbreviations and alphanumeric
+  identifiers are single whitespace tokens already.
+- Word cap: 25. Items of an ordered list are procedures by intent, not by proof, so a
+  21–25 word item is the warning `LENGTH-PROC`, never an error.
 
 #### 4.3.2 `--html` mode
 
 Standard-library `html.parser`. Skipped elements: `script`, `style`, `svg`, `pre`,
-`code`, `cite`, `noscript`, `template`, and any element with `data-ste="skip"`. Block
-elements (`p`, `li`, `h1`–`h6`, `td`, `th`, `dt`, `dd`, `summary`, `figcaption`,
-`div`, `section`) delimit blocks; headings and table cells are skipped like their
-Markdown counterparts; `li` inside `ol` takes the 20-word cap; inline `code` becomes
-the placeholder token.
+`code`, `cite`, `nav`, `noscript`, `template`, and any element with `data-ste="skip"`
+together with its subtree. Every non-inline element is a block boundary; the inline
+set is `a`, `abbr`, `b`, `cite`, `code`, `em`, `i`, `kbd`, `mark`, `q`, `s`, `small`,
+`span`, `strong`, `sub`, `sup`, `time`, `u`, `var`. Headings and table cells are skipped
+like their Markdown counterparts; `li` inside `ol` takes the `LENGTH-PROC` band;
+inline `code` becomes the placeholder token. Because `html.parser` emits no end tag for
+an omitted `</li>`, `</td>` or `</p>`, a skipped or block region also ends when its
+parent ends; the templates close every element explicitly so this path is rarely
+needed. The templates mark every non-prose primitive `data-ste="skip"`: annotated
+examples (their samples are deliberately non-STE), trees, timelines, bar labels and
+status-table cells.
 
 #### 4.3.3 Rules
 
 | Rule | Severity | Detection |
 |---|---|---|
-| `LENGTH` | error | sentence word count over the cap (§4.3.1) |
+| `LENGTH` | error | sentence over 25 words, counted per §4.3.1 |
 | `CONTRACTION` | error | `n't`, `'ll`, `'re`, `'ve`, `'d`, `'m`, and `'s` only in `it's`, `he's`, `she's`, `that's`, `what's`, `there's`, `here's`, `let's`, `who's`, `where's`, `how's` |
 | `WORD` | error | an entry of the substitution table, whole-word, case-insensitive; message names the approved alternative |
+| `LENGTH-PROC` | warning | an ordered-list item of 21–25 words (procedures should stay at 20, Rule 5.1) |
 | `PARAGRAPH` | warning | more than 6 sentences in a block that is not a list |
 | `PERFECT` | warning | `has`, `have`, `had` followed by a participle |
 | `PROGRESSIVE` | warning | a form of `be` followed by an `-ing` word |
@@ -230,25 +254,30 @@ detection; that needs part-of-speech tagging and would be noisy.
 
 ### 4.5 Verification
 
-- `tests/test_ste_lint.py` (standard `unittest`, run with `python3 -m unittest`):
+- `tests/test_ste_lint.py` (standard `unittest`; run from `skills/ste/` with
+  `python3 -m unittest discover -s tests`):
   - for every error rule, one input that must produce that specific rule code,
     asserted by rule code, not by "some finding exists";
   - for every warning rule, one input that must produce it as a warning and must not
     change the exit code;
   - must-not-error inputs: "The pump has fixed blades.", "The cause of the noise is
     landing gear vibration.", "The valve is closed.", a seven-item numbered procedure,
-    an eight-item bulleted list without final periods, a backticked banned word;
+    an eight-item bulleted list without final periods, a 24-word ordered-list item, a
+    backticked banned word, a quoted banned word (`the label says "ensure"`), a
+    parenthetical that pushes a naive count past 25, `10 mA` counted as one word, and
+    `**Note.** Next step.` counted as two sentences;
   - clean inputs taken from Issue 9 rule examples, cited by rule number, that must
     produce no findings at all;
-  - an HTML fixture exercising skipped elements, block boundaries, `ol` caps and
+  - an HTML fixture exercising skipped elements, a `nav` with twelve links, implicit
+    `</li>` closes, `data-ste="skip"` subtrees, `ol` items in the 21–25 band and
     `<cite>` skipping;
   - exit-code checks for 0, 1, and 2.
 - Each assertion is validated against the broken state (the rule disabled or the input
   altered) before it counts, per the house rule on coverage assertions.
 - One live run: a subagent that reads `SKILL.md` by path explains a real subject in
   STE-80; the output is linted and must have zero errors. A baseline run without the
-  profile is linted for comparison and both counts are recorded in the spike/notes
-  file.
+  profile is linted for comparison and both counts are recorded in
+  `docs/superpowers/spikes/<date>-ste-live-run.md`.
 
 ## 5. Skill `explain`
 
@@ -260,15 +289,22 @@ User-only, via `/explain` (§3). Arguments arrive in `$ARGUMENTS`:
 /explain <subject> [--as ste|sheet|page|video]
 ```
 
+Argument parsing: the last `--as <rung>` pair in `$ARGUMENTS` wins and is removed;
+the rest, trimmed, is the subject. An unknown rung is an error that prints the four
+valid names. Empty `$ARGUMENTS` is a usage error that prints the `argument-hint`.
+
 Subject resolution, in order:
 
-1. A path that exists: a file is read in full; a directory is mapped (tree plus key
-   files; CodeGraph when a `.codegraph/` index exists, per the global instructions).
-2. A subject that looks like a path (contains `/` or ends in a file extension) but does
-   not exist is an error; it is never silently treated as a topic.
-3. `this`: the last file read or written in the conversation; if there is none, the
+1. A path candidate — the subject starts with `/`, `~` or `.`, or its first
+   `/`-separated component exists in the current directory — that exists: a file is
+   read in full; a directory is mapped (tree plus key files; CodeGraph when a
+   `.codegraph/` index exists, per the global instructions). A path candidate that
+   does not exist is an error; it is never silently treated as a topic. Subjects such
+   as `TCP/IP`, `CI/CD` or `Next.js` are not path candidates and fall through to
+   topics.
+2. `this`: the last file read or written in the conversation; if there is none, the
    last substantial turn (an explanation, a review, a plan), labelled "conversation".
-4. Otherwise a topic string. Claude uses its own knowledge and, when the user allows,
+3. Otherwise a topic string. Claude uses its own knowledge and, when the user allows,
    web lookups. Provenance then states "model knowledge" or lists the URLs; it never
    pretends a source was read.
 
@@ -290,7 +326,8 @@ section on a page.
 Rules:
 
 - The rung line is always printed before building, including under `--as`:
-  `Rung: sheet (chosen|forced) — <reason> — subject: <resolved subject>`.
+  `Rung: sheet (chosen|forced) — <reason> — subject: <resolved subject> (<kind>)`,
+  where kind is file, directory, conversation or topic.
 - `video` is offered by the router only when `rungs/video.md` exists. `--as video`
   without it builds a `page` whose steps player carries the would-be narration as step
   captions, and says so.
@@ -307,25 +344,31 @@ Rules:
    read first. Every claim carries a citation rendered as
    `<cite data-path="…" data-line="…" data-snippet="…">path:line "snippet"</cite>`,
    where the snippet is at most 12 words copied verbatim from that line; `cite_check.py`
-   verifies all three. Provenance (title block or footer) carries: the resolved subject
-   and its kind (file, directory, topic, conversation); the repo root, commit hash and
-   a `dirty` flag when the subject is inside a git repository; the date. The
-   provenance element also carries `data-root="<absolute repo root, or the subject's
-   directory when there is no repo>"`, which `cite_check.py` uses to resolve paths. A
-   "conversation" subject is marked "unverified", and any file it mentions is re-read
-   and cited. URL citations carry a snippet found in the fetched page at build time;
-   they are not re-verified later and no copies are saved.
+   verifies all three. For a file or directory subject every panel (sheet) or section
+   (page) must contain at least one `<cite>`; content with no source does not belong
+   in a grounded artifact. Provenance (title block or footer) carries: the resolved
+   subject and its kind (file, directory, topic, conversation); the repo root, commit
+   hash and a `dirty` flag when the subject is inside a git repository, where `dirty`
+   means `git status --porcelain` printed anything; the date. A cited file that git
+   does not track is marked "untracked" in the citation. The provenance element also
+   carries `data-root="<absolute repo root, or the subject's directory when there is
+   no repo>"`, which `cite_check.py` uses to resolve paths; a path citation without it
+   fails. A "conversation" subject is marked "unverified", and any file it mentions is
+   re-read and cited. URL citations carry a snippet found in the fetched page at build
+   time; they are not re-verified later and no copies are saved.
 3. One self-contained file. Inline CSS and JS, system fonts, no CDN, no build step.
    Opens from `file://` offline. Survives being sent as one file over Telegram or email.
    Checked statically by `verify.sh`.
 4. Verified before handoff, in two layers. First `verify.sh` (§5.5) must exit 0.
    Then Claude reads the review tiles from `snapshot.sh` and checks what a script
    cannot: readable hierarchy, sensible layout, nothing misleading. Fix, re-run both.
-5. Discardable output. `~/karpathy/out/YYYY-MM-DD-HHMM-<rung>-<slug>/` where `slug`
-   is the kebab-cased subject, at most 40 characters. A directory is never overwritten;
-   a re-run creates a new one. Contents: `index.html`; `sheet.png` and `review/` tiles
-   for sheets; `review/` tiles for pages; `video.mp4` and `narration.md` for videos.
-   Gitignored, never committed, safe to delete wholesale.
+5. Discardable output. `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/` where
+   `slug` is the kebab-cased subject, at most 40 characters. A directory is never
+   overwritten; a re-run creates a new one. Contents: `index.html`; for sheets
+   `sheet.png` (share render) and `review/sheet-NN.png` tiles; for pages
+   `page-1440x6000.png`, `page-500x844.png` and their `review/page-<WxH>-NN.png`
+   tiles; for videos `video.mp4` and `narration.md`. Gitignored, never committed, safe
+   to delete wholesale.
 6. Handoff: print the path; when running interactively for the user, `open
    index.html` (sheet, page) or `open video.mp4` (video); skip `open` inside subagents.
 7. Language: artifacts are in English unless the user asks otherwise.
@@ -345,16 +388,26 @@ snapshot.sh <input.html> <output.png> [width=1920] [height=1080] [scale=2]
   --screenshot=<output> file://<absolute input>`.
 - Success is judged by the PNG existing and being non-empty, not by stderr, which
   always carries display-link noise on macOS.
-- Bounded: a watchdog polls for the PNG and kills Chrome once it exists or after a
-  timeout (default 60 s), so a Chrome process that does not exit cannot hang the skill
-  (macOS has no `timeout(1)`).
-- Review tiles: the PNG is cropped with `sips -c … --cropOffset …` into tiles of at
-  most 1920x1080 pixels, written to `<output dir>/review/NN.png`. A 3840x2160 sheet
-  gives 4 tiles; a 1440x6000 page gives 6. Claude reads the tiles, never the full
-  render, because large images are downscaled before the model sees them and 14 px
-  text in a tall render becomes unreadable.
+- Bounded: Chrome runs in the background; a watchdog polls for the PNG and kills
+  Chrome once it exists or after a timeout (default 60 s). This is mandatory, not
+  insurance: with a fresh `--user-data-dir` Chrome 154 writes the PNG and then does not
+  exit (reproduced on this Mac), and macOS has no `timeout(1)`.
+- Review tiles: the PNG is first padded by one pixel on every side with
+  `sips --padToHeightWidth`, then cropped with `sips -c H W --cropOffset (y+1) (x+1)`
+  into tiles of at most 1920x1080 pixels, written to `<output dir>/review/<png
+  stem>-NN.png`. The padding exists because `sips` treats `--cropOffset 0 0` as "no
+  offset" and crops the centre, and returns the whole image for a crop flush with the
+  bottom edge (both reproduced). The script asserts the PNG's and every tile's
+  dimensions with `sips -g pixelWidth -g pixelHeight` and fails if any differ from the
+  expected size; the last row of tiles is clamped to the image. A 3840x2160 sheet gives
+  4 tiles; a 1440x6000 page gives 6. Claude reads the tiles, never the full render,
+  because large images are downscaled before the model sees them and 14 px text in a
+  tall render becomes unreadable.
 - Chrome's `--screenshot` captures the window only; a tall window (for example
-  `1440 6000 1`) is how a long page is captured.
+  `1440 6000 1`) is how a long page is captured. Headless Chrome clamps the viewport
+  to a minimum width of 500 px (reproduced: `390,844` yields `innerWidth` 500), so the
+  phone render is requested at `500 844 1`. Page renders are taken with `#verify` on
+  the URL so that expanded details and stacked step states reach the tiles.
 
 ### 5.5 `scripts/verify.sh` and `scripts/cite_check.py`
 
@@ -364,19 +417,36 @@ verify.sh <index.html>
 
 Runs four checks, reports each, exits non-zero if any failed:
 
-1. Self-containment (static): fail on any `src`, `href` (except `<a href>`),
-   `@import` or `url(` that points to `http://`, `https://` or `//`.
-2. Render status: headless Chrome `--dump-dom` of `file://<index.html>#verify`; the
-   `<title>` must be exactly `OK`. In `#verify` mode the template (§6, §7) expands all
-   `<details>`, stacks all step states, then measures and writes failures into the
-   title: `OVERFLOW:<panel>` (content exceeds its box on either axis), `CANVAS`
-   (document exceeds the fixed canvas, sheet only), `HSCROLL` (document wider than the
-   viewport), `SMALLTEXT:<px>` (smallest computed font size below the rung's minimum:
-   14 px page, 12 px sheet), `JSERROR` (any `window.onerror`).
+1. Self-containment: parse the HTML (`html.parser`), never the raw text, so that
+   escaped code samples showing `<script src="https://…">` do not trip it. Fail on any
+   `src`, `srcset` or `poster` attribute on any element, any `href` on an element other
+   than `a`, and any `@import` or `url(` inside `<style>` or a `style` attribute, whose
+   target starts with `http://`, `https://` or `//`.
+2. Render status: the template declares its rung in `<meta name="explain-rung"
+   content="sheet|page">`; `verify.sh` reads it and dumps the DOM once per viewport —
+   sheet `1920,1080`; page `1440,900` and `500,844` — with headless Chrome
+   `--dump-dom --window-size=W,H --hide-scrollbars --user-data-dir=<temp>` of
+   `file://<index.html>#verify`. Chrome is backgrounded, stdout is polled for
+   `</html>`, then Chrome is killed (it does not exit on its own after the dump;
+   reproduced). Each dump must contain `<html data-verify="OK">`. The guard script
+   (§6, §7) runs synchronously inside the `load` handler — no `requestAnimationFrame`,
+   no timers, both of which were seen to miss the dump — expands all `<details>` and
+   stacks all step states when `#verify` is present, measures, and writes the result
+   into the `data-verify` attribute of `<html>`: `OK`, or a `;`-joined list of
+   `OVERFLOW:<panel>` (content exceeds its box on either axis), `CANVAS` (document
+   exceeds the fixed canvas constants, sheet only), `HSCROLL` (document wider than the
+   viewport), `SMALLTEXT:<px>` (smallest computed font size of a rendered element that
+   has its own text, below the rung's minimum: 14 px page, 12 px sheet), `JSERROR`
+   (any `window.onerror`). Measurements compare against canvas constants and
+   `innerWidth`, never `innerHeight`, which headless Chrome reports 87 px short of the
+   requested height. The attribute is written on every load so the ribbons and the
+   status are always present; `document.title` is never touched, so a browser tab
+   shows the artifact's title, not "OK".
 3. Citations: `cite_check.py <index.html>` reads every `<cite>`; resolves `data-path`
-   against the provenance root; fails if the file is missing, the line is out of range,
-   or the whitespace-normalized snippet is not on that line. Prints one line per failed
-   citation. URL citations are skipped.
+   against `data-root`; fails if `data-root` is absent, the file is missing, the line
+   is out of range, or the whitespace-normalized snippet is not on that line; for file
+   and directory subjects also fails any panel or section that holds no `<cite>`.
+   Prints one line per failure. URL citations are skipped.
 4. Prose: `ste_lint.py --html <index.html>` exit 0.
 
 ### 5.6 Size discipline
@@ -413,25 +483,35 @@ The reference is `docs/superpowers/specs/assets/2026-10-02-ste-reference-sheet.j
   6. rule list — short STE sentences, bulleted
 - Palette and type: ink, muted, and line grays; one emphasis blue (approved,
   highlights); one alarm red (not approved, errors); light-gray box fill; system sans
-  and system mono. No web fonts. Smallest font size 12 px.
+  and system mono. No web fonts. Smallest font size 12 px, set explicitly for every
+  element the template uses, including `code`, `pre` and `button`, whose Chrome
+  defaults (13 px, 13.33 px) would otherwise decide the measurement.
 - Authoring rules (`rungs/sheet.md`): one question per panel; at most 250 words per
   panel, no minimum; limits as bars; all prose STE-80; no empty panel; panel A is the
-  map.
-- Guard script (inline, about 30 lines): on load, measures every panel on both axes and
-  the document against the canvas; draws an absolutely positioned red ribbon on any
-  failing panel (an in-flow ribbon inside an `overflow: hidden` panel would be clipped
-  and invisible); sets `document.title` to `OK` or the failure list (§5.5 item 2). Zero
-  cost when everything fits. `#verify` adds nothing on a sheet beyond the measurements.
+  map; every panel cites at least once for a file or directory subject (§5.3 item 2).
+- Lint markers: the template carries `<meta name="explain-rung" content="sheet">`
+  and marks the non-prose primitives — annotated example, tree, timeline, bar labels,
+  status-table cells — with `data-ste="skip"`, so the lint reads only the prose.
+- Guard script (inline, about 30 lines): synchronously inside the `load` handler,
+  measures every panel on both axes and the document against the canvas constants
+  (1920x1080), the smallest rendered font size, and JS errors; draws an absolutely
+  positioned red ribbon on any failing panel (an in-flow ribbon inside an
+  `overflow: hidden` panel would be clipped and invisible); writes `OK` or the failure
+  list into `<html data-verify>` (§5.5 item 2) and never touches `document.title`.
+  Zero cost when everything fits. `#verify` adds nothing on a sheet beyond the
+  measurements.
 - Export: `snapshot.sh index.html sheet.png 1920 1080 2`, which also writes the review
-  tiles.
+  tiles `review/sheet-NN.png`.
 
 ## 7. Rung `page`
 
 Same visual family, no fixed canvas; responsive single file read in a browser.
 
-- Structure: sticky section navigation; STE-80 prose; code blocks captioned with
-  `path:line`; `<details>` for expandable walkthroughs; provenance footer; smallest
-  font size 14 px.
+- Structure: sticky section navigation (`nav`, skipped by the lint); STE-80 prose;
+  code blocks captioned with `path:line`; `<details>` for expandable walkthroughs;
+  provenance footer; `<meta name="explain-rung" content="page">`; smallest font size
+  14 px, set explicitly for every element the template uses, including `code`, `pre`
+  and `button`; every section cites at least once for a file or directory subject.
 - Steps player: previous/next through a sequence of states with a diagram that changes
   per step. This is the one interactive pattern that justifies choosing `page` over
   `sheet` for flows, PRs, and wave plans. In the video fallback (§5.2) the narration
@@ -440,14 +520,16 @@ Same visual family, no fixed canvas; responsive single file read in a browser.
   `templates/page.html`: box-and-arrow flow, sequence, layered architecture. Mermaid is
   excluded because keeping the file self-contained would mean inlining about 2.5 MB.
 - Budget: vanilla JS under about 200 lines including the guard; no frameworks.
-- Guard script and `#verify` mode: with `#verify` in the URL the page opens every
-  `<details>` and renders all step states stacked, then measures horizontal overflow,
-  smallest font size and JS errors and writes the status into `document.title`
-  (§5.5 item 2). Without `#verify` the page behaves normally.
-- Verification viewports: `1440x900` (above the fold), `1440x6000` (full flow),
-  `390x844` (phone), each rendered with `snapshot.sh` at scale 1 and reviewed as
-  tiles. Usable on all three means: title `OK`, navigation and steps player reachable
-  in the tiles.
+- Guard script and `#verify` mode: synchronously inside the `load` handler, with
+  `#verify` in the URL the page opens every `<details>` and renders all step states
+  stacked; with or without it, the guard then measures horizontal overflow against
+  `innerWidth`, the smallest rendered font size and JS errors and writes the status
+  into `<html data-verify>` (§5.5 item 2). `document.title` is never touched.
+- Verification: `verify.sh` dumps at `1440,900` and `500,844` (the headless minimum
+  width; §5.4) and both must report `data-verify="OK"`. `snapshot.sh` renders
+  `1440 6000 1` and `500 844 1`, both with `#verify`, and Claude reviews the tiles;
+  there is no separate 1440x900 render because it is tile 1 of the tall one. Usable
+  means: both statuses `OK`, navigation and steps player visible in the tiles.
 - Shared palette is duplicated in both templates because self-contained files cannot
   import; `rungs/sheet.md` and `rungs/page.md` both say "change both".
 
@@ -464,6 +546,8 @@ into a narrated mp4 reliably enough to be a skill?
    v4.0 (remotion.dev/docs/ffmpeg) through a platform compositor package that npm
    fetches once; no system ffmpeg is needed. Remotion on Node 25 is unverified: no
    `engines` block prevents the install, runtime behaviour is measured by the spike.
+   If Node 25 breaks it, the spike may install an LTS through Homebrew `node@22`
+   (keg-only, so the default `node` is unchanged) and must record that in the findings.
 2. Narration baseline: macOS `say` to WAV (`--file-format=WAVE
    --data-format=LEI16@22050`, verified), durations read with `afinfo` (verified).
    Each scene's `durationInFrames` is computed from its clip length plus padding, so
@@ -491,17 +575,19 @@ and the user decides whether to extend it.
 - One command from script to playable mp4; narration aligned to scenes; no manual step.
 - Render time at most 2 minutes of rendering per minute of video on this Mac.
 - Kokoro runs under a uv-managed Python 3.12 or 3.13 in its own venv.
-- Scene code renders within two iterations.
+- Scene code renders within two iterations: it is written once and rendered; one
+  round of fixes is allowed; if a third is needed, the criterion fails.
 - License: Remotion's LICENSE.md grants free use to "an individual", "a for-profit
   organization with up to 3 employees", non-profits, and evaluation; the user's use
   falls inside that, confirmed at spike time.
 
 ### 8.4 Outcomes
 
-- Pass: the final wave adds `rungs/video.md`, the scene components,
-  `scripts/narrate.sh` and `scripts/render.sh`, and a persistent
-  `~/karpathy/video-workspace/` where dependencies are installed once and each
-  artifact is a composition rendered into `out/`. The spike code is not the
+- Pass: the final wave adds `rungs/video.md`, the Remotion sources (package.json,
+  scene components, compositions) under `skills/explain/video/` (versioned),
+  `scripts/narrate.sh` and `scripts/render.sh`, and a gitignored
+  `~/karpathy/video-workspace/` holding only the installed dependencies and renders;
+  each artifact is a composition rendered into `out/`. The spike code is not the
   deliverable, but the final wave may start from it.
 - Fail: `video` stays hidden from the router and `--as video` keeps the page fallback
   (§5.2); the reason is recorded in the spike note.
@@ -521,8 +607,9 @@ Skills count as done only when proven on this machine.
   3. `/explain <a code question>` with no `--as`, in a CodeGraph-indexed repo. The
      expected rung and reason are written into the plan before the run and compared
      with the printed rung line.
-  Each run passes when: `verify.sh` exits 0 (self-contained, title `OK`, every
-  citation resolves, lint has zero errors); Claude's tile review finds no layout
+  Each run passes when: `verify.sh` exits 0 (self-contained, `data-verify="OK"` at
+  every viewport, every citation resolves and every panel or section cites, lint has
+  zero errors); Claude's tile review finds no layout
   defect; the artifact opens from `file://`; the provenance block is filled, with the
   `dirty` flag correct for the subject's repo state.
 - `video`: §8.3 for the spike; after fold-in, one live `/explain --as video` run.
@@ -552,7 +639,11 @@ Each wave is one plan of at most 10 tasks; one feature branch spans all waves.
 | Rung choice | by content shape | the ladder is not monotonic: video loses to page for anything searched or revisited |
 | Grounding | citations with verbatim snippets, machine-checked | a path list on the title block let dangling and stale references pass |
 | Verification | `verify.sh` first, tile review second | PNG-only review cannot see horizontal overflow, font size, JS errors or later states |
-| Review images | tiles of at most 1920x1080 | full renders are downscaled before the model sees them |
+| Status channel | `<html data-verify>`, never `document.title` | a title written on every load shows "OK" in the user's browser tab |
+| Chrome lifecycle | background + poll + kill for every invocation | Chrome 154 does not exit after `--dump-dom`, nor after `--screenshot` with a fresh profile (reproduced) |
+| Phone viewport | 500x844 | headless Chrome clamps width to 500 px; 390 would be a crop of a 500 px layout (reproduced) |
+| Review images | tiles of at most 1920x1080, cut from a 1 px-padded image | full renders are downscaled before the model sees them; `sips` centre-crops at offset 0 0 and returns the whole image at the bottom edge (reproduced) |
+| Word counting | Issue 9 Section 8 tokens | parentheticals, quotes and number+unit are one word each; naive counts error on correct STE |
 | Sheet ratio | 16:9 at 1920x1080 | sheets travel as images on screens and phones, not paper |
 | Sheet decoration | frame + title block, no zone rulers | ruler letters collided with panel letters; nothing functional lost |
 | Renderer | headless Chrome CLI + `sips` | already installed, zero dependencies, verified |
