@@ -1,6 +1,6 @@
 ---
 name: explain
-description: Use when the user invokes /explain — explain a subject (file, directory, `this`, or topic) in the best artifact rung: chat text, a one-page sheet, an interactive page, or a narrated video.
+description: Use when the user invokes /explain — explain a subject (file, directory, `this`, or topic) in the best rung, from chat text to a one-page sheet, an interactive page, or a narrated video.
 disable-model-invocation: true
 argument-hint: "<subject> [--as ste|sheet|page|video]"
 ---
@@ -14,11 +14,11 @@ the artifact. Only the user starts it, with `/explain`.
 
 Syntax: `/explain <subject> [--as ste|sheet|page|video]`. The arguments arrive in `$ARGUMENTS`.
 
-1. Find the last `--as <rung>` pair in `$ARGUMENTS`. The last pair wins. Remove it.
-2. Trim the rest. The result is the subject.
-3. If the rung is not `ste`, `sheet`, `page` or `video`, stop with an error. List these
-   four names in the error.
-4. If `$ARGUMENTS` is empty, stop with a usage error. Print the `argument-hint`.
+1. If `$ARGUMENTS` is empty, stop with a usage error. Print the `argument-hint`.
+2. Find the last `--as <rung>` pair in `$ARGUMENTS`. The last pair wins. Remove it.
+3. If `--as` is present and its value is not `ste`, `sheet`, `page` or `video`, stop with
+   an error. List these four names in the error.
+4. Trim the rest. The result is the subject.
 
 ## Subject resolution
 
@@ -61,7 +61,9 @@ Before you build, print this line, also under `--as`:
 - A forced rung can be too small for the content, for example a sheet for more than 6
   facets. Keep the 6 most important facets. List the dropped facets in the title block
   under "Not covered".
-- The `ste` rung gives chat text only. It makes no output directory.
+- The `ste` rung gives chat text only. It makes no output directory. Write that text under
+  the STE profile: read `~/.claude/skills/ste/SKILL.md` by path. The Build procedure
+  applies to the artifact rungs only.
 
 ## Conventions
 
@@ -74,6 +76,7 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
    The snippet has at most 12 words, copied verbatim from that line. For a file or a
    directory subject, each panel or section (a `<section>` element) holds at least one
    `<cite>`. Mark a cited file that git does not track as "untracked".
+   A path citation fails `cite_check.py` if the provenance element has no `data-root`.
    A URL citation has a `data-path` that starts with `http://` or `https://`.
    Its snippet comes from the page that you fetched.
    Provenance is an element with `id="provenance"` in the title block or the footer.
