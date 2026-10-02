@@ -191,10 +191,11 @@ python3 ste_lint.py [--html] [FILE]
 - Sentence boundaries: `.`, `!`, `?` followed by whitespace or end of text, also when
   a closing `)`, `"`, `*` or `_` sits between the terminator and the whitespace
   (so `**Note.** Next step` is two sentences). Abbreviation allowlist: `e.g.`, `i.e.`,
-  `etc.`, `vs.`, `Mr.`, `Dr.`, `No.`. The end of a list item is an additional
-  boundary, with or without a final period; an item may hold several sentences, each
-  counted on its own. A blank line ends a paragraph block; every list item is its own
-  block.
+  `etc.`, `vs.`, `Mr.`, `Dr.`, `No.`. `etc.` followed by whitespace and a capital
+  letter ends a sentence (amended 2026-10-02 after wave ste). The end of a list item
+  is an additional boundary, with or without a final period; an item may hold several
+  sentences, each counted on its own. A blank line ends a paragraph block; every list
+  item is its own block.
 - Skipped entirely: YAML frontmatter, fenced code blocks, headings (`#` lines), table
   rows (`|` lines), URLs.
 - Tokens that count as one word, per Issue 9 Section 8: an inline code span; text in
@@ -214,7 +215,9 @@ together with its subtree. Every non-inline element is a block boundary; the inl
 set is `a`, `abbr`, `b`, `cite`, `code`, `em`, `i`, `kbd`, `mark`, `q`, `s`, `small`,
 `span`, `strong`, `sub`, `sup`, `time`, `u`, `var`. Headings and table cells are skipped
 like their Markdown counterparts; `li` inside `ol` takes the `LENGTH-PROC` band;
-inline `code` becomes the placeholder token. Because `html.parser` emits no end tag for
+inline `code` becomes the placeholder token. `<q>` is quoted text (one word,
+unchecked); `<svg>` is skipped without being a boundary; `<title>` is skipped like
+headings (amended 2026-10-02 after wave ste). Because `html.parser` emits no end tag for
 an omitted `</li>`, `</td>` or `</p>`, a skipped or block region also ends when its
 parent ends; the templates close every element explicitly so this path is rarely
 needed. The templates mark every non-prose primitive `data-ste="skip"`: annotated
@@ -227,13 +230,13 @@ status-table cells.
 |---|---|---|
 | `LENGTH` | error | sentence over 25 words, counted per §4.3.1 |
 | `CONTRACTION` | error | `n't`, `'ll`, `'re`, `'ve`, `'d`, `'m`, and `'s` only in `it's`, `he's`, `she's`, `that's`, `what's`, `there's`, `here's`, `let's`, `who's`, `where's`, `how's` |
-| `WORD` | error | an entry of the substitution table, whole-word, case-insensitive; message names the approved alternative |
+| `WORD` | error | an entry of the substitution table and, for verb entries, its regular inflections (amended 2026-10-02 after wave ste), whole-word, case-insensitive; message names the approved alternative |
 | `LENGTH-PROC` | warning | an ordered-list item of 21–25 words (procedures should stay at 20, Rule 5.1) |
 | `PARAGRAPH` | warning | more than 6 sentences in a block that is not a list |
 | `PERFECT` | warning | `has`, `have`, `had` followed by a participle |
 | `PROGRESSIVE` | warning | a form of `be` followed by an `-ing` word |
 | `PASSIVE` | warning | a form of `be` followed by an `-ed` word or a listed irregular participle |
-| `GERUND` | warning | a sentence that starts with an `-ing` word |
+| `GERUND` | warning | a sentence that starts with an `-ing` word, except an all-capitals first word or a listed non-gerund (`during`, `something`, …) (amended 2026-10-02 after wave ste) |
 
 The verb heuristics are warnings because they fire on correct STE: "the pump has fixed
 blades" (participle as adjective after approved `HAVE`), "the cause is landing gear
@@ -644,6 +647,7 @@ Each wave is one plan of at most 10 tasks; one feature branch spans all waves.
 | Phone viewport | 500x844 | headless Chrome clamps width to 500 px; 390 would be a crop of a 500 px layout (reproduced) |
 | Review images | tiles of at most 1920x1080, cut from a 1 px-padded image | full renders are downscaled before the model sees them; `sips` centre-crops at offset 0 0 and returns the whole image at the bottom edge (reproduced) |
 | Word counting | Issue 9 Section 8 tokens | parentheticals, quotes and number+unit are one word each; naive counts error on correct STE |
+| WORD verb inflections | enumerated regular forms | an unapproved verb is unapproved in every form; still deterministic (amended 2026-10-02 after wave ste) |
 | Sheet ratio | 16:9 at 1920x1080 | sheets travel as images on screens and phones, not paper |
 | Sheet decoration | frame + title block, no zone rulers | ruler letters collided with panel letters; nothing functional lost |
 | Renderer | headless Chrome CLI + `sips` | already installed, zero dependencies, verified |
