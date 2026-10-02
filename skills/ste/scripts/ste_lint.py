@@ -54,6 +54,7 @@ _BOUNDARY = re.compile(r"[.!?]+[)\"”*_]*(?=\s|$)")
 _CLOSERS = ")\"”*_"
 _OPENERS = "(\"“*_["
 _QUOTES = {'"': '"', "“": "”"}
+_QUOTE_OPEN = re.compile(r"(?<![^\s(\[{*_—–])[\"“]")  # at a token start, so 2" stays literal
 
 
 def tokenize(text: str) -> list[Block]:
@@ -234,7 +235,7 @@ def _spans(s):
         if end is None and s[i] == "(":
             end = _close(s, i, jump, "(", ")")
             kind = "link" if s[i - 1 : i] == "]" else "paren"
-        elif end is None and s[i] in _QUOTES:
+        elif end is None and _QUOTE_OPEN.match(s, i):
             end, kind = _close(s, i, jump, None, _QUOTES[s[i]]), "quote"
         if end is None:
             i += 1

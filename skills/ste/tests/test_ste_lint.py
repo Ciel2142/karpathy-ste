@@ -234,6 +234,12 @@ class OneWordTokenTest(unittest.TestCase):
             [(text, 8, "Push the § button and the § key.")],
         )
 
+    def test_quote_opens_only_at_start_of_token(self):
+        self.assertEqual(
+            [(s.text, s.checkable) for s in sentences('Cut the 2" pipe. Then say "go".')],
+            [('Cut the 2" pipe.', 'Cut the 2" pipe.'), ('Then say "go".', "Then say §.")],
+        )
+
     def test_number_followed_by_unit_is_one_word(self):
         cases = {
             "Apply 10 mA for 3 s at 25 % and 1.5 kg.": (8, "Apply § for § at § and §."),
