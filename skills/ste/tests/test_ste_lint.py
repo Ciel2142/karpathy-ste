@@ -968,6 +968,18 @@ class HtmlTest(unittest.TestCase):
         (only,) = html_sentences("<p>Run <code>make. ensure</code> before you start the pump.</p>")
         self.assertEqual((only.words, only.checkable), (7, "Run § before you start the pump."))
 
+    def test_skipped_code_adds_no_placeholder(self):
+        (only,) = html_sentences('<p>Run <code data-ste="skip">make</code> now.</p>')
+        self.assertEqual((only.text, only.words, only.checkable), ("Run now.", 2, "Run now."))
+
+    def test_byte_order_mark_is_not_a_column(self):
+        page = "﻿<p>Don't stop.</p>\n"
+        self.assertEqual([(s.line, s.col) for s in html_sentences(page)], [(1, 4)])
+        self.assertEqual(
+            run_main(["--html"], stdin=page),
+            (1, '1:4  E CONTRACTION  contraction "Don\'t"\n1 errors, 0 warnings\n', ""),
+        )
+
     def test_q_is_quoted_text_one_unchecked_word(self):
         html = "<p>The label says <q>ensure the seal</q> and <q>Don't touch</q>.</p>"
         self.assertEqual([f for f in html_findings(html) if f.severity == "E"], [])

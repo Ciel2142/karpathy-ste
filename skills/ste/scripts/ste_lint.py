@@ -314,6 +314,7 @@ def html_to_blocks(html: str) -> list[Block]:
     and masking of `tokenize`. Skipped elements (with their subtree), headings and
     table cells yield none; inline `code` is one masked word, `q` is quoted text (one
     word, unchecked), `cite` adds nothing."""
+    html = html.removeprefix("﻿")  # a byte order mark is not text
     parser = _HtmlText(html)
     parser.feed(html)
     parser.close()
@@ -339,8 +340,10 @@ class _HtmlText(HTMLParser):
         if tag not in _HTML_INLINE and tag != "br" and not skipping:
             self._flush()
         dropped = skipping or ("data-ste", "skip") in attrs  # this element and its subtree
-        if tag in ("br", "code") and not skipping:  # br is a space; code is one masked word
-            self._mark(" " if tag == "br" else MASK)
+        if tag == "br" and not skipping:  # br is a space (a void element has no subtree)
+            self._mark(" ")
+        elif tag == "code" and not dropped:  # inline code is one masked word
+            self._mark(MASK)
         elif tag == "q" and not dropped:  # q opens quoted text: one word, unchecked
             self._mark("“")
         if tag not in _HTML_VOID:
