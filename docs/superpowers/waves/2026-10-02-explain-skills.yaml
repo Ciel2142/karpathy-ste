@@ -13,7 +13,7 @@ waves:
       `docs/superpowers/spikes/2026-10-02-ste-live-run.md` records a zero-error lint
       of a subagent's STE-80 output plus the baseline count; the user runs `/ste`
       successfully.
-    status: pending
+    status: in_progress
     depends_on: []
     owns:
       - skills/ste/
@@ -37,7 +37,7 @@ waves:
       pass / fail / inconclusive recommendation, the measured render time per video
       minute, install footprint, TTS verdict, iteration count, Node version used and
       license confirmation; spike code stays gitignored.
-    status: pending
+    status: done
     depends_on: []
     owns:
       - spike-video/
