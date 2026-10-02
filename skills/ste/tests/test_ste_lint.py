@@ -133,6 +133,26 @@ class SentenceBoundaryTest(unittest.TestCase):
             with self.subTest(text=text):  # inside emphasis markers
                 self.assertEqual(texts(text), [text.removesuffix(" Then stop."), "Then stop."])
 
+    def test_etc_before_whitespace_and_a_capital_letter_ends_a_sentence(self):
+        self.assertEqual(
+            texts("Check the hoses, pumps, etc. Then install the cover."),
+            ["Check the hoses, pumps, etc.", "Then install the cover."],
+        )
+        self.assertEqual(
+            texts("Check the parts (hoses, pumps, etc.) Then stop."),
+            ["Check the parts (hoses, pumps, etc.)", "hoses, pumps, etc.", "Then stop."],
+        )
+        merged = "Check " + "valve " * 13 + "etc. " + sentence_of(15)  # 15 + 15 words
+        self.assertNotIn("LENGTH", codes(merged))
+        for text in (
+            "Use pumps, valves, etc. and clamps.",
+            "Use a solvent, e.g. Acetone, on the part.",
+            "Use the solvent, i.e. Acetone, on the part.",
+            "Ask Mr. Jones and Dr. Smith about pump No. A2 vs. B4 now.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(texts(text), [text])
+
     def test_abbreviation_allowlist_is_exact_and_case_sensitive(self):
         self.assertEqual(
             ste_lint.ABBREVIATIONS, ("e.g.", "i.e.", "etc.", "vs.", "Mr.", "Dr.", "No.")

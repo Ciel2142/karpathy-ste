@@ -15,8 +15,9 @@ from html.parser import HTMLParser
 
 MASK = "§"  # stands for one one-word token in Sentence.checkable
 
-# A "." after one of these does not end a sentence. Case-sensitive, but the
-# first three may also start a sentence capitalised.
+# A "." after one of these does not end a sentence, except `etc.` before whitespace
+# and a capital letter. Case-sensitive, but the first three may also start a
+# sentence capitalised.
 ABBREVIATIONS = ("e.g.", "i.e.", "etc.", "vs.", "Mr.", "Dr.", "No.")
 _ABBREVIATIONS = frozenset(ABBREVIATIONS + ("E.g.", "I.e.", "Etc."))
 
@@ -209,13 +210,17 @@ def _count_words(checkable):
 
 
 def _is_abbreviation(s, match):
-    """True when the boundary match is the "." of an allowlisted abbreviation."""
+    """True when the boundary match is the "." of an allowlisted abbreviation. `etc.`
+    followed by whitespace and a capital letter still ends its sentence."""
     if match.group().rstrip(_CLOSERS) != ".":
         return False
     start = match.start()
     while start and not s[start - 1].isspace():
         start -= 1
-    return s[start : match.start() + 1].lstrip(_OPENERS) in _ABBREVIATIONS
+    word = s[start : match.start() + 1].lstrip(_OPENERS)
+    if word in ("etc.", "Etc.") and s[match.end() :].lstrip()[:1].isupper():
+        return False
+    return word in _ABBREVIATIONS
 
 
 def _boundary_view(s, spans):
