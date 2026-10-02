@@ -825,7 +825,9 @@ class HtmlTest(unittest.TestCase):
             "a", "abbr", "b", "cite", "code", "em", "i", "kbd", "mark", "q", "s", "small",
             "span", "strong", "sub", "sup", "time", "u", "var",
         )
-        first = {"cite": "Open the now.", "code": "Open the § now."}  # skipped / masked
+        first = {  # cite: skipped; code: masked; q: quoted
+            "cite": "Open the now.", "code": "Open the § now.", "q": "Open the “valve” now."
+        }
         for tag in inline:
             with self.subTest(tag=tag):
                 self.assertEqual(
@@ -841,6 +843,18 @@ class HtmlTest(unittest.TestCase):
         self.assertNotIn("WORD", html_codes("<p>Run <code>ensure</code> now.</p>"))
         (only,) = html_sentences("<p>Run <code>make. ensure</code> before you start the pump.</p>")
         self.assertEqual((only.words, only.checkable), (7, "Run § before you start the pump."))
+
+    def test_q_is_quoted_text_one_unchecked_word(self):
+        html = "<p>The label says <q>ensure the seal</q> and <q>Don't touch</q>.</p>"
+        self.assertEqual([f for f in html_findings(html) if f.severity == "E"], [])
+        (only,) = html_sentences(html)
+        self.assertEqual((only.words, only.checkable), (6, "The label says § and §."))
+        quote = " ".join(["valve"] * 30)
+        self.assertNotIn("LENGTH", html_codes(f"<p>The label says <q>{quote}</q>.</p>"))
+        self.assertEqual(  # the quote marks sit at the tags
+            [(s.text, s.line, s.col) for s in html_sentences("<p><q>Stop</q> is it.</p>")],
+            [("“Stop” is it.", 1, 4)],
+        )
 
     def test_cite_contributes_nothing(self):
         html = '<p>The pump starts <cite data-path="x" data-line="1">ensure it</cite>.</p>'

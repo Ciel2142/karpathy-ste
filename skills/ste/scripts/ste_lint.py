@@ -306,7 +306,8 @@ _CHARREF = re.compile(r"&(?:#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?
 def html_to_blocks(html: str) -> list[Block]:
     """Split an HTML document into paragraph and list-item blocks with the splitter
     and masking of `tokenize`. Skipped elements (with their subtree), headings and
-    table cells yield none; inline `code` is one masked word, `cite` adds nothing."""
+    table cells yield none; inline `code` is one masked word, `q` is quoted text (one
+    word, unchecked), `cite` adds nothing."""
     parser = _HtmlText(html)
     parser.feed(html)
     parser.close()
@@ -331,19 +332,22 @@ class _HtmlText(HTMLParser):
         if tag == "li":  # an omitted </li> never arrives: a new item ends the open one
             self._end("li", scope=("ol", "ul"))
         skipping = self._skipping()
+        dropped = skipping or ("data-ste", "skip") in attrs  # this element and its subtree
         if tag in ("br", "code") and not skipping:  # br is a space; code is one masked word
-            line, col0 = self.getpos()
-            self._add(" " if tag == "br" else MASK, [(line, col0 + 1)])
+            self._mark(" " if tag == "br" else MASK)
+        elif tag == "q" and not dropped:  # q opens quoted text: one word, unchecked
+            self._mark("“")
         if tag not in _HTML_VOID:
-            skip = tag in _HTML_SKIP or tag in _HTML_NO_TEXT or ("data-ste", "skip") in attrs
-            self.stack.append((tag, skipping or skip))
+            skip = tag in _HTML_SKIP or tag in _HTML_NO_TEXT
+            self.stack.append((tag, dropped or skip))
 
     def handle_endtag(self, tag):
         if tag in _HTML_VOID:
             return
         if tag not in _HTML_INLINE:
             self._flush()
-        self._end(tag)
+        if self._end(tag) == ("q", False):  # close the quote that the <q> tag opened
+            self._mark("”")
 
     def handle_data(self, data):
         if not self._skipping():
@@ -360,13 +364,21 @@ class _HtmlText(HTMLParser):
 
     def _end(self, tag, scope=()):
         """Close the innermost open `tag` and every element opened inside it (an end
-        tag also ends children whose end tag was omitted); stop at a `scope` element."""
+        tag also ends children whose end tag was omitted); stop at a `scope` element.
+        Return the closed entry, or None."""
         for k in range(len(self.stack) - 1, -1, -1):
             if self.stack[k][0] == tag:
+                entry = self.stack[k]
                 del self.stack[k:]
-                return
+                return entry
             if self.stack[k][0] in scope:
-                return
+                return None
+        return None
+
+    def _mark(self, char):
+        """Add `char` at the position of the tag that the parser is at."""
+        line, col0 = self.getpos()
+        self._add(char, [(line, col0 + 1)])
 
     def _add(self, text, positions):
         if not self.chars:
