@@ -596,6 +596,26 @@ class WarningRuleTest(unittest.TestCase):
         self.assert_warning("**Opening** it is easy.", "GERUND", 'possible gerund: "Opening"')
         self.assertNotIn("GERUND", codes("Check the landing gear."))
 
+    def test_gerund_exempts_an_all_capitals_word_and_the_listed_non_gerunds(self):
+        self.assertEqual(
+            ste_lint.NON_GERUNDS,
+            (
+                "during", "something", "nothing", "anything", "everything", "thing",
+                "bring", "string", "spring", "morning", "evening",
+            ),
+        )
+        exempt = [f"{word.capitalize()} is here." for word in ste_lint.NON_GERUNDS] + [
+            "WARNING: Do not touch the blade.",
+            "During the approach, keep the speed constant.",
+            "RING the bell.",
+        ]
+        for text in exempt:
+            with self.subTest(text=text):
+                self.assertNotIn("GERUND", codes(text))
+        self.assert_warning(
+            "Running the pump is necessary.", "GERUND", 'possible gerund: "Running"'
+        )
+
     def test_irregular_participle_list_is_exact_and_used_by_perfect_and_passive(self):
         expected = tuple(
             "done made put set cut shut hit let read seen known shown given taken written "

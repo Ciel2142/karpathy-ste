@@ -77,9 +77,9 @@ class CleanFixtureTest(unittest.TestCase):
     def test_safety_instructions_give_the_signal_word_then_the_risk(self):
         safety = [
             block for block in ste_lint.tokenize(self.text)
-            if block.sentences[0].text.startswith("CAUTION: ")
+            if block.sentences[0].text.startswith(("WARNING: ", "CAUTION: "))
         ]
-        self.assertGreaterEqual(len(safety), 2)  # Rule 7.1, then Rules 7.2 and 7.3
+        self.assertGreaterEqual(len(safety), 5)  # Rule 7.1 (2), then Rules 7.2 and 7.3 (3)
         for block in safety:
             with self.subTest(text=block.sentences[0].text):
                 self.assertGreaterEqual(len(block.sentences), 2)  # the risk is a second sentence
@@ -119,9 +119,6 @@ class WarningsOnlyFixtureTest(unittest.TestCase):
                     *self.row_of("The valve is closed."),
                     "W", "PASSIVE", 'possible passive: "is closed"',
                 ),
-                (*self.row_of("WARNING: Always keep"), "W", "GERUND", 'possible gerund: "WARNING"'),
-                (*self.row_of("WARNING: Do not swallow"), "W", "GERUND", 'possible gerund: "WARNING"'),
-                (*self.row_of("WARNING: While you use"), "W", "GERUND", 'possible gerund: "WARNING"'),
             ],
         )
 

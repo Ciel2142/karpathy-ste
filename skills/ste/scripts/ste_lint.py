@@ -482,6 +482,13 @@ IRREGULAR_PARTICIPLES = tuple(
     "come".split()
 )
 _PARTICIPLES = frozenset(IRREGULAR_PARTICIPLES)
+# First words that end in -ing but are not gerunds. GERUND also skips a first word in
+# all capitals, such as the signal word of "WARNING: ..." (Rule 7.1).
+NON_GERUNDS = tuple(
+    "during something nothing anything everything thing bring string spring morning "
+    "evening".split()
+)
+_NON_GERUNDS = frozenset(NON_GERUNDS)
 _BE = frozenset("am is are was were be been being".split())
 _HAVE = frozenset(("has", "have", "had"))
 _CONTRACTION_ENDS = ("n't", "'ll", "'re", "'ve", "'d", "'m")
@@ -531,7 +538,8 @@ def _check(sentence, procedure):
         approved = SUBSTITUTIONS[_WORD_KEYS[m.lastindex - 1]]
         yield "E", "WORD", f'"{m.group()}" is not approved; use {approved}'
     words = _words(text)
-    if words and words[0].lower().endswith("ing"):
+    first = words[0].lower() if words else ""
+    if first.endswith("ing") and first not in _NON_GERUNDS and not words[0].isupper():
         yield "W", "GERUND", f'possible gerund: "{words[0]}"'
     for first, second in zip(words, words[1:]):
         verb, after, pair = first.lower(), second.lower(), f'"{first} {second}"'

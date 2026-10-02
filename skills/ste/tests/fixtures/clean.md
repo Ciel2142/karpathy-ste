@@ -95,11 +95,21 @@ electrical connector connects the actuator assembly to the aircraft electrical s
 ## Rule 7.1 — a word that identifies the level of risk
 <!-- Issue 9, page 1-7-2 -->
 
+WARNING: Always keep your hands and feet away from the blade. When the motor operates, the
+blade turns and can cause injury.
+
 CAUTION: Do not use bleach or cleansers that contain chlorine to clean the unit. These
 cleaning agents can cause corrosion.
 
 ## Rules 7.2 and 7.3 — the command or the condition first, then the risk
 <!-- Issue 9, pages 1-7-3 and 1-7-4 -->
+
+WARNING: Do not swallow the solvent. Always make sure that you know the safety precautions
+and first aid instructions for solvents. Solvents are poisonous and can cause injury or
+death.
+
+WARNING: While you use the spray paint, point the spray away from your face. The spray paint
+can cause injury to your eyes.
 
 CAUTION: When you assemble the unit, do not let the parts fall. If they fall, permanent
 damage to the parts can occur.
