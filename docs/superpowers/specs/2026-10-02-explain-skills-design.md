@@ -654,4 +654,5 @@ Each wave is one plan of at most 10 tasks; one feature branch spans all waves.
 | Diagrams | inline SVG, no Mermaid | self-contained file rule |
 | Video stack | Remotion first | keeps the whole ladder on web tech; bundled encoder; computed sync from clip durations |
 | Narration | `say` baseline, Kokoro on uv Python 3.12 | zero-install proof first; quality gate before fold-in |
+| Narrator voice | Kokoro `af_heart` (`say` stays the fallback) | the user compared both spike renders and chose Kokoro (decided 2026-10-03 after the video spike) |
 | manim | excluded | heavy install, poor fit for code and architecture content |

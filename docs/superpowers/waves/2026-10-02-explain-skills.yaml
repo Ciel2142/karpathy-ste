@@ -97,7 +97,8 @@ waves:
 
 deferred:
   - capability: video rung (spec §8.4 pass path)
-    waits_for: [video-spike findings note, user decision on fold-in]
+    waits_for: [user decision on fold-in]
+    decided: narrator voice = Kokoro `af_heart`, `say` as fallback (user, 2026-10-03)
     reason: >-
       The stack, narration path, scene components and render budget cannot be
       specified until the spike measures them against spec §8.3; planning now would
