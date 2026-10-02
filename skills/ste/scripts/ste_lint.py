@@ -51,6 +51,7 @@ _NUMBER_UNIT = re.compile(
     + r")(?!\w)"
 )
 _BOUNDARY = re.compile(r"[.!?]+[)\"”*_]*(?=\s|$)")
+_TAIL = re.compile(r"[.!?]+[)\"”*_]*$")  # a terminator and closers that end a token
 _CLOSERS = ")\"”*_"
 _OPENERS = "(\"“*_["
 _QUOTES = {'"': '"', "“": "”"}
@@ -209,13 +210,12 @@ def _is_abbreviation(s, match):
 
 
 def _boundary_view(s, spans):
-    """s with token interiors blanked; a terminator just inside ( ) or quotes stays."""
+    """s with token interiors blanked; a terminator run that ends a ( ) or quote stays."""
     view = list(s)
     for a, b, kind in spans:
         if kind in ("paren", "quote"):
-            a, b = a + 1, b - 1
-            while b > a and s[b - 1] in ".!?":
-                b -= 1
+            tail = _TAIL.search(s, a + 1, b - 1)
+            a, b = a + 1, tail.start() if tail else b - 1
         view[a:b] = "x" * (b - a)
     return "".join(view)
 

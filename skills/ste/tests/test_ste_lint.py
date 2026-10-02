@@ -37,6 +37,9 @@ class SentenceBoundaryTest(unittest.TestCase):
             'Set it to "OFF." Then wait.': ['Set it to "OFF."', "Then wait."],
             "Set it to “OFF.” Then wait.": ["Set it to “OFF.”", "Then wait."],
             "(Stop the pump.) Then wait.": ["(Stop the pump.)", "Stop the pump.", "Then wait."],
+            '(Set it to "Off.") Then go.': ['(Set it to "Off.")', 'Set it to "Off."', "Then go."],
+            "(**Stop.**) Then go.": ["(**Stop.**)", "**Stop.**", "Then go."],
+            '"(Stop.)" Then go.': ['"(Stop.)"', "Then go."],
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
