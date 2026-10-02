@@ -63,7 +63,7 @@ The number in parentheses is the Issue 9 rule.
 ### Procedures and safety text
 
 - Write instructions in the imperative (5.3).
-- Safety text: start with `WARNING:` or `CAUTION:` (7.1), then a clear and simple command
+- Safety text: start with `WARNING:` or `CAUTION:` (7.1), then a clear and accurate command
   or condition (7.2), then the risk or the possible result in a second sentence (7.3).
 
 ### Verbs and voice
@@ -78,8 +78,8 @@ The number in parentheses is the Issue 9 rule.
   - The passive voice in procedures. In descriptive text, use the passive only when the
     agent is unknown (3.6).
 - Use the active voice, with the agent named (3.6).
-- `HAVE` is an approved main verb, "to possess as a part or quality" (`2-1-H3`). Only
-  `have` as an auxiliary is excluded (3.4).
+- `HAVE` is an approved main verb, "to possess as a part or quality" (`2-1-H3`). `have`
+  as an auxiliary (3.4) and `have to` (`2-1-H3`: use the imperative) are not approved.
 
 ### Words
 
@@ -88,8 +88,8 @@ The number in parentheses is the Issue 9 rule.
 - Multi-word nouns: at most 3 words (2.1). Break a longer one with prepositions such as
   `of`, `on`, `in`, `for` (2.1). A longer technical name that cannot be divided stays
   whole (2.2).
-- Replace every word of the substitution table, in any of its forms (`provides`,
-  `allowed`), with its approved alternative.
+- Replace every word of the substitution table, in any of its inflected forms
+  (`provides`, `utilized`), with its approved alternative.
 
 ### Correct STE that looks wrong
 
@@ -150,6 +150,9 @@ speech). Replace it with the approved alternative. `Page` is the Issue 9 page la
 `in the event of` is listed under the entry `event (n)`, whose non-STE example is "In the
 event of a sudden dropping of pressure". Where an entry gives more than one alternative,
 the table names the general one.
+
+`provided (that)` and `providing (that)` are conjunctions: use IF (`2-1-P16`, `2-1-P17`).
+`PERFORMANCE (n)` and `INDICATION (n)` are approved words.
 
 Dropped candidates (not in the table):
 
