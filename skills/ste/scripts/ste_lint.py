@@ -316,7 +316,7 @@ def html_to_blocks(html: str) -> list[Block]:
     and masking of `tokenize`. Skipped elements (with their subtree), headings and
     table cells yield none; inline `code` is one masked word, `q` is quoted text (one
     word, unchecked), `cite` adds nothing."""
-    html = html.removeprefix("﻿")  # a byte order mark is not text
+    html = html.removeprefix("\ufeff")  # a byte order mark is not text
     parser = _HtmlText(html)
     parser.feed(html)
     parser.close()
