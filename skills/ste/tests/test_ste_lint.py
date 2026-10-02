@@ -1,5 +1,6 @@
 """Tests for ste_lint: the text model (spec section 4.3.1, Issue 9 Section 8), the
-rules (section 4.3.3) and the command line (section 4.3)."""
+`--html` mode (section 4.3.2), the rules (section 4.3.3) and the command line
+(section 4.3)."""
 
 import contextlib
 import dataclasses
@@ -17,6 +18,7 @@ import ste_lint  # noqa: E402
 from ste_lint import Sentence  # noqa: E402
 
 SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "artifact.html"
 TABLE_ROW = re.compile(r"^\| ([a-z ]+) \| ([A-Z ]+) \| 2-1-[A-Z]\d+ \|$")
 USAGE = "usage: ste_lint.py [--html] [FILE]\n"
 
@@ -69,6 +71,26 @@ def run_main_on_file(text):
         path = Path(tmp) / "draft.md"
         path.write_text(text, encoding="utf-8")
         return run_main([str(path)])
+
+
+def html_blocks(html):
+    return [(b.kind, [s.text for s in b.sentences]) for b in ste_lint.html_to_blocks(html)]
+
+
+def html_sentences(html):
+    return [s for b in ste_lint.html_to_blocks(html) for s in b.sentences]
+
+
+def html_findings(html):
+    return ste_lint.lint(ste_lint.html_to_blocks(html))
+
+
+def html_codes(html):
+    return [f.rule for f in html_findings(html)]
+
+
+def html_messages(html, rule):
+    return [(f.severity, f.message) for f in html_findings(html) if f.rule == rule]
 
 
 class SentenceBoundaryTest(unittest.TestCase):
@@ -670,6 +692,222 @@ class SubstitutionTableTest(unittest.TestCase):
         self.assertEqual(ste_lint.SUBSTITUTIONS, table)
 
 
+class HtmlTest(unittest.TestCase):
+    """Spec section 4.3.2: `html_to_blocks`, the text model of `--html` mode."""
+
+    def test_skip_set_elements_drop_their_whole_subtree(self):
+        skip = ("script", "style", "svg", "pre", "code", "cite", "nav", "noscript", "template")
+        for tag in skip:
+            with self.subTest(tag=tag):
+                html = f"<p>Open the valve.</p><{tag}><b>Ensure</b> it.</{tag}><p>Close it.</p>"
+                masked = [("para", ["§"])] if tag == "code" else []  # code: one masked word
+                self.assertEqual(
+                    html_blocks(html),
+                    [("para", ["Open the valve."]), *masked, ("para", ["Close it."])],
+                )
+                self.assertNotIn("WORD", html_codes(html))
+
+    def test_data_ste_skip_drops_any_element_with_its_subtree(self):
+        html = (
+            '<div data-ste="skip"><p>Ensure the seal.</p><ul><li>Verify it</ul></div>'
+            '<p>Open <span data-ste="skip">ensure</span>the valve.</p>'
+            '<p data-ste="prose">Close it.</p>'
+        )
+        self.assertEqual(
+            html_blocks(html), [("para", ["Open the valve."]), ("para", ["Close it."])]
+        )
+        self.assertNotIn("WORD", html_codes(html))
+        void = '<p>Open it.<img data-ste="skip" src="v">Ensure it.<br data-ste="skip">Stop.</p>'
+        self.assertEqual(
+            html_blocks(void), [("para", ["Open it."]), ("para", ["Ensure it.", "Stop."])]
+        )
+        self.assertIn("WORD", html_codes(void))  # a void element has no subtree to skip
+
+    def test_headings_and_table_cells_yield_no_blocks(self):
+        for tag in ("h1", "h2", "h3", "h4", "h5", "h6", "th", "td"):
+            with self.subTest(tag=tag):
+                html = f"<{tag}>Ensure the <b>seal</b>.</{tag}><p>Open the valve.</p>"
+                self.assertEqual(html_blocks(html), [("para", ["Open the valve."])])
+                self.assertNotIn("WORD", html_codes(html))
+        table = "<table><tr><th>Verify<td>Ensure it<tr><td>Obtain it</table><p>After it.</p>"
+        self.assertEqual(html_blocks(table), [("para", ["After it."])])
+
+    def test_nav_with_twelve_links_yields_no_text(self):
+        words = (
+            "Ensure", "Utilize", "Verify", "Obtain", "Perform", "Provide",
+            "Modify", "Terminate", "Commence", "Indicate", "Replenish", "Attempt",
+        )
+        links = "".join(f'<a href="#s{n}">{word}</a> ' for n, word in enumerate(words, 1))
+        html = f"<nav>{links}</nav><p>Open the valve.</p>"
+        self.assertEqual(html_blocks(html), [("para", ["Open the valve."])])
+        self.assertEqual(html_codes(html.replace("nav>", "div>")).count("WORD"), 12)
+
+    def test_implicit_li_close_keeps_items_apart(self):
+        item = " ".join(["Check"] + ["valve"] * 14)  # 15 words, no final period
+        html = f"<ul><li>{item}<li>{item}</ul><p>After the list.</p>"
+        self.assertEqual(
+            [(b.kind, [s.words for s in b.sentences]) for b in ste_lint.html_to_blocks(html)],
+            [("ul-item", [15]), ("ul-item", [15]), ("para", [3])],
+        )
+        self.assertNotIn("LENGTH", html_codes(html))
+        self.assertEqual(
+            html_blocks("<ol><li>Open it<ul><li>Note it</ul><li>Close it</ol>"),
+            [("ol-item", ["Open it"]), ("ul-item", ["Note it"]), ("ol-item", ["Close it"])],
+        )
+        self.assertEqual(
+            html_blocks('<ol><li data-ste="skip">Ensure it<li>Close the valve</ol>'),
+            [("ol-item", ["Close the valve"])],
+        )
+
+    def test_ol_items_take_the_length_proc_band(self):
+        html = f"<ol><li>{sentence_of(23)}</li><li>{sentence_of(12)}</li></ol>"
+        self.assertEqual([b.kind for b in ste_lint.html_to_blocks(html)], ["ol-item", "ol-item"])
+        self.assertEqual(
+            html_messages(html, "LENGTH-PROC"),
+            [("W", "procedure step has 23 words (keep to 20, Rule 5.1)")],
+        )
+        self.assertEqual(html_codes(f"<ol><li><p>{sentence_of(21)}</p></ol>"), ["LENGTH-PROC"])
+        self.assertEqual(html_codes(f"<ol><li>{sentence_of(26)}</ol>"), ["LENGTH"])
+
+    def test_ul_items_are_ul_item_and_other_text_is_para(self):
+        html = (
+            f"<ul><li>{sentence_of(23)}</ul><div>{sentence_of(23)}</div>"
+            f"<li>{sentence_of(23)}</li>"
+        )
+        self.assertEqual(
+            [b.kind for b in ste_lint.html_to_blocks(html)], ["ul-item", "para", "para"]
+        )
+        self.assertNotIn("LENGTH-PROC", html_codes(html))
+
+    def test_inline_elements_do_not_split_a_sentence(self):
+        self.assertEqual(
+            html_blocks("<p>Open the <b>valve</b>. Close it.</p>"),
+            [("para", ["Open the valve.", "Close it."])],
+        )
+        inline = (
+            "a", "abbr", "b", "cite", "code", "em", "i", "kbd", "mark", "q", "s", "small",
+            "span", "strong", "sub", "sup", "time", "u", "var",
+        )
+        first = {"cite": "Open the now.", "code": "Open the § now."}  # skipped / masked
+        for tag in inline:
+            with self.subTest(tag=tag):
+                self.assertEqual(
+                    html_blocks(f"<p>Open the <{tag}>valve</{tag}> now. Close it.</p>"),
+                    [("para", [first.get(tag, "Open the valve now."), "Close it."])],
+                )
+        self.assertEqual(
+            html_blocks("<p>Push <button>Stop</button> now.</p>"),
+            [("para", ["Push"]), ("para", ["Stop"]), ("para", ["now."])],
+        )
+
+    def test_inline_code_is_one_masked_word(self):
+        self.assertNotIn("WORD", html_codes("<p>Run <code>ensure</code> now.</p>"))
+        (only,) = html_sentences("<p>Run <code>make. ensure</code> before you start the pump.</p>")
+        self.assertEqual((only.words, only.checkable), (7, "Run § before you start the pump."))
+
+    def test_cite_contributes_nothing(self):
+        html = '<p>The pump starts <cite data-path="x" data-line="1">ensure it</cite>.</p>'
+        (only,) = html_sentences(html)
+        self.assertEqual((only.text, only.words), ("The pump starts .", 3))
+        self.assertNotIn("WORD", html_codes(html))
+
+    def test_entities_are_unescaped_before_counting(self):
+        (only,) = html_sentences("<p>Set&nbsp;the pump &amp; the fan to 10&nbsp;mA.</p>")
+        self.assertEqual(
+            (only.text, only.words, only.checkable),
+            ("Set the pump & the fan to 10 mA.", 7, "Set the pump & the fan to §."),
+        )
+        numeric = (("<p>&#69;nsure it.</p>", "Ensure"), ("<p>&#x65;nsure it.</p>", "ensure"))
+        for html, word in numeric:
+            with self.subTest(html=html):
+                self.assertEqual(
+                    html_messages(html, "WORD"),
+                    [("E", f'"{word}" is not approved; use MAKE SURE')],
+                )
+
+    def test_line_and_col_of_the_first_sentence(self):
+        html = "<!doctype html>\n<body>\n  <p>\n    Open the valve. Close it.\n  </p>\n</body>\n"
+        self.assertEqual(
+            [(s.text, s.line, s.col) for s in html_sentences(html)],
+            [("Open the valve.", 4, 5), ("Close it.", 4, 21)],
+        )
+        cases = {
+            "<p>Open the valve.</p>": [("Open the valve.", 1, 4)],
+            "<p>A &amp; B. Close it.</p>": [("A & B.", 1, 4), ("Close it.", 1, 15)],
+            "<p>Stop. <b>Open</b> it.</p>": [("Stop.", 1, 4), ("Open it.", 1, 13)],
+            "<p><code>make</code> builds it.</p>": [("§ builds it.", 1, 4)],
+        }
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                self.assertEqual([(s.text, s.line, s.col) for s in html_sentences(html)], expected)
+
+    def test_br_is_whitespace_and_whitespace_runs_collapse(self):
+        html = "<p>In the event\n\t of a leak,<br>stop<br/>the pump.</p>"
+        self.assertEqual(html_blocks(html), [("para", ["In the event of a leak, stop the pump."])])
+        self.assertEqual(
+            html_messages(html, "WORD"), [("E", '"In the event of" is not approved; use IF')]
+        )
+
+    def test_comments_and_doctype_are_ignored(self):
+        html = "<!doctype html><!-- Ensure it. --><p>Open the<!-- x --> valve.</p>"
+        self.assertEqual(html_blocks(html), [("para", ["Open the valve."])])
+
+
+class HtmlFixtureTest(unittest.TestCase):
+    """Spec section 4.5: the `--html` fixture, tests/fixtures/artifact.html."""
+
+    def setUp(self):
+        self.text = FIXTURE.read_text(encoding="utf-8")
+
+    def row_of(self, text, needle):
+        """1-based line and column of the first `needle` in `text`."""
+        lines = text.splitlines()
+        row = next(n for n, line in enumerate(lines, 1) if needle in line)
+        return row, lines[row - 1].index(needle) + 1
+
+    def test_fixture_yields_the_prose_blocks_only(self):
+        self.assertEqual(
+            [(b.kind, b.sentences[0].text) for b in ste_lint.html_to_blocks(self.text)],
+            [
+                ("para", "The fuel pump"),
+                ("para", "The fuel pump moves fuel from the tank to the engine."),
+                ("ul-item", "The tank holds the fuel"),
+                ("ul-item", "The pump moves the fuel"),
+                ("ul-item", "The filter removes dirt from the fuel"),
+                ("para", "Do these steps to adjust the pressure."),
+                (
+                    "ol-item",
+                    "Turn the adjustment screw on the left side of the pressure regulator "
+                    "clockwise until the gauge shows the correct value for the system.",
+                ),
+                ("ol-item", "Close the drain valve and remove the filter cover with the wrench."),
+                ("para", "The pump starts when the engine starts ."),
+                ("para", "Run § to test the pump."),
+            ],
+        )
+
+    def test_fixture_has_no_errors_and_exactly_one_length_proc(self):
+        found = html_findings(self.text)
+        self.assertEqual([f for f in found if f.severity == "E"], [])
+        procs = [f for f in found if f.rule == "LENGTH-PROC"]
+        self.assertEqual(
+            [(f.line, f.col, f.message) for f in procs],
+            [
+                (
+                    *self.row_of(self.text, "Turn the adjustment"),
+                    "procedure step has 23 words (keep to 20, Rule 5.1)",
+                )
+            ],
+        )
+
+    def test_fixture_without_the_skip_attribute_has_word_errors(self):
+        self.assertEqual(self.text.count(' data-ste="skip"'), 1)
+        broken = self.text.replace(' data-ste="skip"', "")
+        errors = [f for f in html_findings(broken) if f.severity == "E"]
+        self.assertIn("WORD", [f.rule for f in errors])
+        self.assertEqual({f.line for f in errors}, {self.row_of(broken, "Utilize the wrench")[0]})
+
+
 class CommandLineTest(unittest.TestCase):
     def test_finding_is_a_frozen_dataclass_with_the_brief_fields(self):
         names = [f.name for f in dataclasses.fields(ste_lint.Finding)]
@@ -718,9 +956,29 @@ class CommandLineTest(unittest.TestCase):
         )
 
     def test_exit_2_and_usage_for_a_bad_flag_or_two_files(self):
-        for argv in (["--html"], ["-x"], ["--help"], ["--html", "draft.md"], ["a.md", "b.md"]):
+        for argv in (
+            ["-x"], ["--help"], ["--html", "-x"], ["a.md", "b.md"], ["--html", "a.html", "b.html"]
+        ):
             with self.subTest(argv=argv):
                 self.assertEqual(run_main(argv), (2, "", USAGE))
+
+    def test_html_flag_lints_the_fixture_with_no_errors(self):
+        expected = ste_lint.format_findings(html_findings(FIXTURE.read_text(encoding="utf-8")))
+        fixture = str(FIXTURE)
+        for argv in (["--html", fixture], [fixture, "--html"], ["--html", "--html", fixture]):
+            with self.subTest(argv=argv):
+                code, out, err = run_main(argv)
+                self.assertEqual((code, err), (0, ""))
+                self.assertRegex(out.splitlines()[-1], r"^0 errors, \d+ warnings$")
+                self.assertEqual(out, expected)
+
+    def test_html_flag_reads_stdin_through_html_to_blocks(self):
+        page = "<nav><a>Ensure</a></nav>\n<p>Don't stop.</p>\n"
+        self.assertEqual(
+            run_main(["--html"], stdin=page),
+            (1, '2:4  E CONTRACTION  contraction "Don\'t"\n1 errors, 0 warnings\n', ""),
+        )
+        self.assertIn("E WORD", run_main([], stdin=page)[1])  # Markdown mode reads the nav
 
     def test_exit_2_for_missing_or_unreadable_file(self):
         with tempfile.TemporaryDirectory() as tmp:

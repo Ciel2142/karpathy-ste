@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- An /explain sheet in miniature: the --html fixture of spec section 4.5. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>The fuel pump</title>
+  <style>
+    /* ensure that the links wrap */
+    nav a { margin-right: 0.5em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Utilize the fuel pump</h1>
+    <nav>
+      <a href="#s1">Ensure</a>
+      <a href="#s2">Utilize</a>
+      <a href="#s3">Verify</a>
+      <a href="#s4">Obtain</a>
+      <a href="#s5">Perform</a>
+      <a href="#s6">Provide</a>
+      <a href="#s7">Modify</a>
+      <a href="#s8">Terminate</a>
+      <a href="#s9">Commence</a>
+      <a href="#s10">Indicate</a>
+      <a href="#s11">Replenish</a>
+      <a href="#s12">Attempt</a>
+    </nav>
+  </header>
+  <main>
+    <section id="s1">
+      <h2>Ensure the flow</h2>
+      <p>The fuel pump moves fuel from the tank to the engine. It has two blades and one
+        electric motor. The motor turns the blades at a constant speed.</p>
+      <ul>
+        <li>The tank holds the fuel
+        <li>The pump moves the fuel
+        <li>The filter removes dirt from the fuel
+      </ul>
+    </section>
+    <section id="s2">
+      <h2>Verify the pressure</h2>
+      <div class="example" data-ste="skip">
+        <p>Utilize the wrench to modify the setting.</p>
+      </div>
+      <p>Do these steps to adjust the pressure.</p>
+      <ol>
+        <li>Turn the adjustment screw on the left side of the pressure regulator clockwise until the gauge shows the correct value for the system.</li>
+        <li>Close the drain valve and remove the filter cover with the wrench.</li>
+      </ol>
+      <p>The pump starts when the engine starts <cite data-path="x" data-line="1">ensure</cite>.</p>
+      <pre>ensure_pressure(); verify(seal)</pre>
+      <svg viewBox="0 0 120 40" role="img">
+        <title>Ensure the flow</title>
+        <rect x="2" y="2" width="116" height="36"/>
+        <text x="8" y="24">Verify the pressure</text>
+      </svg>
+      <table>
+        <tr><th>Ensure</th><th>Verify</th></tr>
+        <tr><td>Obtain the key</td><td>Perform the test</td></tr>
+      </table>
+      <p>Run <code>ensure</code> to test the pump.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -2,13 +2,16 @@
 
 Spec: docs/superpowers/specs/2026-10-02-explain-skills-design.md, section 4.3
 (`ste_lint.py`). `tokenize` (4.3.1 "Text model") turns Markdown or plain text
-into `Block`s of `Sentence`s with Issue 9 Section 8 word counts; `lint` applies
-the 4.3.3 rules to them; `main` is the command line.
+into `Block`s of `Sentence`s with Issue 9 Section 8 word counts, and
+`html_to_blocks` (4.3.2) does the same for HTML; `lint` applies the 4.3.3 rules
+to them; `main` is the command line.
 """
 
 import re
 import sys
 from dataclasses import dataclass
+from html import unescape
+from html.parser import HTMLParser
 
 MASK = "§"  # stands for one one-word token in Sentence.checkable
 
@@ -288,6 +291,133 @@ def _close(s, i, jump, opener, closer):
     return None
 
 
+# --html mode (section 4.3.2). The element sets are exact; every element that is
+# not inline starts and ends a block.
+_HTML_SKIP = frozenset("script style svg pre code cite nav noscript template".split())
+_HTML_NO_TEXT = frozenset("h1 h2 h3 h4 h5 h6 th td".split())  # as Markdown headings, tables
+_HTML_INLINE = frozenset(
+    "a abbr b cite code em i kbd mark q s small span strong sub sup time u var".split()
+)
+_HTML_VOID = frozenset("area base br col embed hr img input link meta source track wbr".split())
+# A character reference, as html.unescape finds it (Lib/html/__init__.py).
+_CHARREF = re.compile(r"&(?:#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)")
+
+
+def html_to_blocks(html: str) -> list[Block]:
+    """Split an HTML document into paragraph and list-item blocks with the splitter
+    and masking of `tokenize`. Skipped elements (with their subtree), headings and
+    table cells yield none; inline `code` is one masked word, `cite` adds nothing."""
+    parser = _HtmlText(html)
+    parser.feed(html)
+    parser.close()
+    return parser.blocks
+
+
+class _HtmlText(HTMLParser):
+    """Collects the characters of each block with their (line, col) in the source."""
+
+    def __init__(self, source):
+        super().__init__(convert_charrefs=True)
+        self.source = source
+        self.line_starts = [0] + [m.end() for m in re.finditer("\n", source)]
+        self.stack = []  # open elements: (tag, inside a skipped subtree)
+        self.chars = []  # the open block: (character, (line, col)) pairs
+        self.kind = "para"  # the kind of the open block
+        self.blocks = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in _HTML_INLINE and tag != "br":
+            self._flush()
+        if tag == "li":  # an omitted </li> never arrives: a new item ends the open one
+            self._end("li", scope=("ol", "ul"))
+        skipping = self._skipping()
+        if tag in ("br", "code") and not skipping:  # br is a space; code is one masked word
+            line, col0 = self.getpos()
+            self._add(" " if tag == "br" else MASK, [(line, col0 + 1)])
+        if tag not in _HTML_VOID:
+            skip = tag in _HTML_SKIP or tag in _HTML_NO_TEXT or ("data-ste", "skip") in attrs
+            self.stack.append((tag, skipping or skip))
+
+    def handle_endtag(self, tag):
+        if tag in _HTML_VOID:
+            return
+        if tag not in _HTML_INLINE:
+            self._flush()
+        self._end(tag)
+
+    def handle_data(self, data):
+        if not self._skipping():
+            line, col0 = self.getpos()  # 0-based column of the first character of `data`
+            start = self.line_starts[line - 1] + col0
+            self._add(data, _source_positions(self.source, start, line, col0 + 1, len(data)))
+
+    def close(self):
+        super().close()
+        self._flush()
+
+    def _skipping(self):
+        return bool(self.stack) and self.stack[-1][1]
+
+    def _end(self, tag, scope=()):
+        """Close the innermost open `tag` and every element opened inside it (an end
+        tag also ends children whose end tag was omitted); stop at a `scope` element."""
+        for k in range(len(self.stack) - 1, -1, -1):
+            if self.stack[k][0] == tag:
+                del self.stack[k:]
+                return
+            if self.stack[k][0] in scope:
+                return
+
+    def _add(self, text, positions):
+        if not self.chars:
+            self.kind = self._kind()
+        self.chars += zip(text, positions)
+
+    def _kind(self):
+        """'ol-item' or 'ul-item' inside an li of that list, else 'para'."""
+        item = False
+        for tag, _ in reversed(self.stack):
+            item = item or tag == "li"
+            if item and tag in ("ol", "ul"):
+                return f"{tag}-item"
+        return "para"
+
+    def _flush(self):
+        """End the open block; keep it when it has a sentence with words."""
+        chars, self.chars = self.chars, []
+        sentences = _sentences(*_collapse(chars)) if chars else []
+        if sentences:
+            self.blocks.append(Block(self.kind, sentences))
+
+
+def _collapse(chars):
+    """Join (character, position) pairs into text, each whitespace run one space,
+    and the list of positions that `_sentences` takes."""
+    text, pos = [], []
+    for ch, at in chars:
+        if ch.isspace():
+            if not text or text[-1] == " ":
+                continue
+            ch = " "
+        text.append(ch)
+        pos.append(at)
+    return "".join(text), pos
+
+
+def _source_positions(source, i, line, col, count):
+    """(line, col) of each of the first `count` characters that html.unescape makes
+    of source[i:], which starts at (line, col); a character reference's characters
+    all sit at its "&"."""
+    pos = []
+    while len(pos) < count and i < len(source):
+        ref = _CHARREF.match(source, i)
+        raw = ref.group() if ref else source[i]
+        pos += [(line, col)] * (len(unescape(raw)) if ref else 1)
+        line, col = (line + 1, 1) if raw == "\n" else (line, col + len(raw))
+        i += len(raw)
+    return pos[:count] + [(line, col)] * (count - len(pos))
+
+
 # Rules (section 4.3.3). Only deterministic rules are errors; heuristics warn.
 
 
@@ -422,20 +552,22 @@ def format_findings(findings: list[Finding]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    """Lint FILE (argv[0]) or stdin; return 0 (no errors), 1 (errors) or 2 (usage)."""
-    if len(argv) > 1 or any(arg.startswith("-") for arg in argv):
+    """Lint FILE or stdin, as HTML with --html; return 0 (no errors), 1 (errors) or 2
+    (usage)."""
+    args = [arg for arg in argv if arg != "--html"]  # --html may repeat or follow FILE
+    if len(args) > 1 or any(arg.startswith("-") for arg in args):
         print("usage: ste_lint.py [--html] [FILE]", file=sys.stderr)
         return 2
     try:
-        if argv:
-            with open(argv[0], encoding="utf-8-sig") as handle:
+        if args:
+            with open(args[0], encoding="utf-8-sig") as handle:
                 text = handle.read()
         else:
             text = sys.stdin.read()
     except (OSError, UnicodeDecodeError) as err:  # missing, unreadable or not UTF-8
         print(err, file=sys.stderr)
         return 2
-    findings = lint(tokenize(text))
+    findings = lint(html_to_blocks(text) if "--html" in argv else tokenize(text))
     sys.stdout.write(format_findings(findings))
     return 1 if any(f.severity == "E" for f in findings) else 0
 
