@@ -33,7 +33,7 @@ page; with pypdf 6.19.0, `wc -l /tmp/ste9.txt` gives 27253.
 ```bash
 curl -fsSL -o /tmp/ste9.pdf https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf
 shasum -a 256 /tmp/ste9.pdf
-uv run --with pypdf --with cryptography python3 -c 'import pathlib, pypdf; r = pypdf.PdfReader("/tmp/ste9.pdf"); r.decrypt(""); pathlib.Path("/tmp/ste9.txt").write_text("".join(f"\n=====PAGE {i}=====\n{p.extract_text()}" for i, p in enumerate(r.pages, 1)), encoding="utf-8")'
+uv run --with pypdf==6.19.0 --with cryptography python3 -c 'import pathlib, pypdf; r = pypdf.PdfReader("/tmp/ste9.pdf"); r.decrypt(""); pathlib.Path("/tmp/ste9.txt").write_text("".join(f"\n=====PAGE {i}=====\n{p.extract_text()}" for i, p in enumerate(r.pages, 1)), encoding="utf-8")'
 ```
 
 Citation convention: a rule cites its Issue 9 rule number, for example (5.1). A dictionary
@@ -88,15 +88,17 @@ The number in parentheses is the Issue 9 rule.
 - Multi-word nouns: at most 3 words (2.1). Break a longer one with prepositions such as
   `of`, `on`, `in`, `for` (2.1). A longer technical name that cannot be divided stays
   whole (2.2).
-- Replace every word of the substitution table, in any of its inflected forms
-  (`provides`, `utilized`), with its approved alternative.
+- Replace every word of the substitution table, and the regular inflections of its verbs
+  (`ensures`, `utilized`, `performing`), with the approved alternative; the lint checks
+  exactly these forms.
 
 ### Correct STE that looks wrong
 
 Do not "correct" these:
 
 - "The pump has fixed blades." — "has" is `HAVE` as a main verb, not an auxiliary (3.4).
-  `fix (v)` is unapproved, so "fixed blades" is correct only as a technical noun (1.6).
+  `fix (v)` is unapproved in Issue 9; the example illustrates the verb-form rule; the lint
+  warns PERFECT here — keep the construct.
 - "landing gear vibration" — "landing" is an `-ing` modifier in a technical noun (3.5),
   `VIBRATION (n)` is approved (`2-1-V3`), and the noun has 3 words (2.1).
 - "The valve is closed." — "closed" is the past participle of the approved `CLOSE (v)`
@@ -152,7 +154,8 @@ event of a sudden dropping of pressure". Where an entry gives more than one alte
 the table names the general one.
 
 `provided (that)` and `providing (that)` are conjunctions: use IF (`2-1-P16`, `2-1-P17`).
-`PERFORMANCE (n)` and `INDICATION (n)` are approved words.
+`PERFORMANCE (n)` (`2-1-P4`) and `INDICATION (n)` (`2-1-I8`) are approved words in their
+approved meaning (1.3).
 
 Dropped candidates (not in the table):
 
@@ -173,8 +176,9 @@ Dropped candidates (not in the table):
 1. Draft the answer under this profile.
 2. For any text of more than five sentences, or any text that will land in an artifact or
    a document: write the draft to a temporary file, run
-   `python3 ~/.claude/skills/ste/scripts/ste_lint.py <file>`, fix every error, review every
-   warning, and then answer.
+   `python3 ~/.claude/skills/ste/scripts/ste_lint.py <file>`, and fix every error. Keep the
+   constructs listed under "Correct STE that looks wrong"; change everything else the
+   warnings name. Then answer.
 3. Short chat answers skip the lint.
 4. Keep technical names verbatim in backticks. Do not rewrite them.
 5. `explain` runs `ste_lint.py --html` on its final `index.html` as part of `verify.sh`,
