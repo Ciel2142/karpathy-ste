@@ -514,14 +514,70 @@ class ErrorRuleTest(unittest.TestCase):
             [("E", '"In the event of" is not approved; use IF')],
         )
 
-    def test_word_matches_the_exact_table_forms_only(self):
+    def test_word_matches_the_regular_inflections_of_verb_rows(self):
+        text = (
+            "The script ensures that the seal is tight. The pump provides pressure and "
+            "requires a filter. The team utilized the port and performed the test."
+        )
+        self.assertEqual(
+            messages(text, "WORD"),
+            [
+                ("E", '"ensures" is not approved; use MAKE SURE'),
+                ("E", '"provides" is not approved; use GIVE'),
+                ("E", '"requires" is not approved; use NECESSARY'),
+                ("E", '"utilized" is not approved; use USE'),
+                ("E", '"performed" is not approved; use DO'),
+            ],
+        )
+        for form in ("Provided", "providing"):
+            with self.subTest(form=form):
+                self.assertEqual(
+                    messages(f"{form} that the part is available, install it.", "WORD"),
+                    [
+                        (
+                            "E",
+                            f'"{form}" is not approved; use GIVE '
+                            f'(as a conjunction "{form.lower()} that": use IF)',
+                        )
+                    ],
+                )
+
+    def test_verb_rows_and_their_inflections_are_a_closed_generated_set(self):
+        expected = {
+            "allow": ("allows", "allowed", "allowing"),
+            "attempt": ("attempts", "attempted", "attempting"),
+            "commence": ("commences", "commenced", "commencing"),
+            "ensure": ("ensures", "ensured", "ensuring"),
+            "indicate": ("indicates", "indicated", "indicating"),
+            "modify": ("modifies", "modified", "modifying"),
+            "obtain": ("obtains", "obtained", "obtaining"),
+            "perform": ("performs", "performed", "performing"),
+            "provide": ("provides", "provided", "providing"),
+            "reduce": ("reduces", "reduced", "reducing"),
+            "replenish": ("replenishes", "replenished", "replenishing"),
+            "require": ("requires", "required", "requiring"),
+            "terminate": ("terminates", "terminated", "terminating"),
+            "utilize": ("utilizes", "utilized", "utilizing"),
+            "verify": ("verifies", "verified", "verifying"),
+        }
+        self.assertEqual(ste_lint.VERB_ROWS, expected)
+        for verb, forms in expected.items():
+            for form in forms:
+                with self.subTest(form=form):
+                    (found,) = messages(f"Then {form} the part.", "WORD")
+                    approved = ste_lint.SUBSTITUTIONS[verb]
+                    self.assertTrue(found[1].startswith(f'"{form}" is not approved; use {approved}'))
+        for row in set(ste_lint.SUBSTITUTIONS) - set(expected):  # adjectives, phrases, ...
+            for suffix in ("s", "es", "d", "ed", "ing"):
+                with self.subTest(form=row + suffix):
+                    self.assertNotIn("WORD", codes(f"Then {row}{suffix} the part."))
+
+    def test_word_does_not_match_derived_or_longer_words(self):
         for text in (
-            "Provided that the part is available, install it.",
-            "Providing that the part is available, install it.",
-            "The pump provides pressure.",
-            "The team utilized the port.",
             "The allowable load is 5 kN.",
             "Record the utilization of the pump.",
+            "The terminator is on the bus.",
+            "The address is allowlisted.",
             "The performance and the indication are correct.",
             "Add the address to the allow-list.",
             "Re-verify the torque.",

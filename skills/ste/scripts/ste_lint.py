@@ -448,36 +448,62 @@ class Finding:
 
 
 # The substitution table of SKILL.md (a test keeps the two equal): unapproved
-# form -> approved alternative. Each comment is the Issue 9 page label.
+# form -> approved alternative. Each comment is the Issue 9 page label and the
+# part of speech of the Issue 9 entry.
 SUBSTITUTIONS = {
-    "additional": "MORE",  # 2-1-A8
-    "allow": "LET",  # 2-1-A12
-    "appropriate": "APPLICABLE",  # 2-1-A17
-    "attempt": "TRY",  # 2-1-A22
-    "commence": "START",  # 2-1-C12
-    "due to": "BECAUSE OF",  # 2-1-D19
-    "enough": "SUFFICIENT",  # 2-1-E7
-    "ensure": "MAKE SURE",  # 2-1-E7
-    "however": "BUT",  # 2-1-H6
-    "in the event of": "IF",  # 2-1-E10
-    "indicate": "SHOW",  # 2-1-I8
-    "modify": "CHANGE",  # 2-1-M8
-    "obtain": "GET",  # 2-1-O1
-    "perform": "DO",  # 2-1-P3
-    "prior to": "BEFORE",  # 2-1-P12
-    "proper": "CORRECT",  # 2-1-P15
-    "provide": "GIVE",  # 2-1-P16
-    "reduce": "DECREASE",  # 2-1-R6
-    "replenish": "FILL",  # 2-1-R11
-    "require": "NECESSARY",  # 2-1-R12
-    "simultaneously": "AT THE SAME TIME",  # 2-1-S12
-    "terminate": "STOP",  # 2-1-T3
-    "therefore": "THUS",  # 2-1-T4
-    "utilize": "USE",  # 2-1-U8
-    "verify": "MAKE SURE",  # 2-1-V2
-    "via": "THROUGH",  # 2-1-V2
-    "whether": "IF",  # 2-1-W4
+    "additional": "MORE",  # 2-1-A8 (adj)
+    "allow": "LET",  # 2-1-A12 (v)
+    "appropriate": "APPLICABLE",  # 2-1-A17 (adj)
+    "attempt": "TRY",  # 2-1-A22 (n), (v)
+    "commence": "START",  # 2-1-C12 (v)
+    "due to": "BECAUSE OF",  # 2-1-D19 (prep)
+    "enough": "SUFFICIENT",  # 2-1-E7 (adj)
+    "ensure": "MAKE SURE",  # 2-1-E7 (v)
+    "however": "BUT",  # 2-1-H6 (adv)
+    "in the event of": "IF",  # 2-1-E10, under event (n)
+    "indicate": "SHOW",  # 2-1-I8 (v)
+    "modify": "CHANGE",  # 2-1-M8 (v)
+    "obtain": "GET",  # 2-1-O1 (v)
+    "perform": "DO",  # 2-1-P3 (v)
+    "prior to": "BEFORE",  # 2-1-P12 (prep)
+    "proper": "CORRECT",  # 2-1-P15 (adj)
+    "provide": "GIVE",  # 2-1-P16 (v)
+    "reduce": "DECREASE",  # 2-1-R6 (v)
+    "replenish": "FILL",  # 2-1-R11 (v)
+    "require": "NECESSARY",  # 2-1-R12 (v)
+    "simultaneously": "AT THE SAME TIME",  # 2-1-S12 (adv)
+    "terminate": "STOP",  # 2-1-T3 (v)
+    "therefore": "THUS",  # 2-1-T4 (adv)
+    "utilize": "USE",  # 2-1-U8 (v)
+    "verify": "MAKE SURE",  # 2-1-V2 (v)
+    "via": "THROUGH",  # 2-1-V2 (prep)
+    "whether": "IF",  # 2-1-W4 (conj)
 }
+
+
+def _inflections(verb):
+    """The regular -s/-es, -d/-ed and -ing forms of `verb`: a final "e" drops before
+    -ed and -ing, and a final consonant + "y" becomes -ies and -ied."""
+    if verb.endswith("e"):
+        return verb + "s", verb + "d", verb[:-1] + "ing"
+    if verb.endswith("y") and verb[-2] not in "aeiou":
+        return verb[:-1] + "ies", verb[:-1] + "ied", verb + "ing"
+    third = verb + ("es" if verb.endswith(("s", "sh", "ch", "x", "z")) else "s")
+    return third, verb + "ed", verb + "ing"
+
+
+# The rows whose Issue 9 entry is a verb, with the regular inflections that WORD also
+# matches (a closed set; the input is never stemmed). The other rows match exactly.
+VERB_ROWS = {
+    verb: _inflections(verb)
+    for verb in (
+        "allow attempt commence ensure indicate modify obtain perform provide reduce "
+        "replenish require terminate utilize verify"
+    ).split()
+}
+_ROW_OF = {key: key for key in SUBSTITUTIONS}  # every form that WORD matches -> its row
+_ROW_OF.update((form, verb) for verb, forms in VERB_ROWS.items() for form in forms)
+_CONJUNCTIONS = ("provided", "providing")  # also "provided (that)" (conj): use IF
 
 # Irregular past participles for PERFECT and PASSIVE; any -ed word counts too.
 IRREGULAR_PARTICIPLES = tuple(
@@ -502,12 +528,12 @@ _CONTRACTED_S = frozenset(
 )
 _LETTERS = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")  # a word with inner apostrophes
 _EDGE = re.compile(r"^[\W_]+|[\W_]+$")  # non-alphanumeric characters at a token's edge
-_WORD_KEYS = sorted(SUBSTITUTIONS, key=len, reverse=True)
+_WORD_FORMS = sorted(_ROW_OF, key=len, reverse=True)
 # A table form as a whole word: not inside a longer word or a hyphenated compound
-# (Issue 9 Rule 8.7); group k matches _WORD_KEYS[k - 1].
+# (Issue 9 Rule 8.7); group k matches _WORD_FORMS[k - 1].
 _WORD = re.compile(
     r"(?<![^\W_])(?<![^\W_]-)(?:"
-    + "|".join(f"({re.escape(key)})" for key in _WORD_KEYS)
+    + "|".join(f"({re.escape(form)})" for form in _WORD_FORMS)
     + r")(?![^\W_])(?!-[^\W_])",
     re.IGNORECASE,
 )
@@ -540,8 +566,11 @@ def _check(sentence, procedure):
         if token.endswith(_CONTRACTION_ENDS) or token in _CONTRACTED_S:
             yield "E", "CONTRACTION", f'contraction "{m.group()}"'
     for m in _WORD.finditer(text):
-        approved = SUBSTITUTIONS[_WORD_KEYS[m.lastindex - 1]]
-        yield "E", "WORD", f'"{m.group()}" is not approved; use {approved}'
+        form = _WORD_FORMS[m.lastindex - 1]
+        message = f'"{m.group()}" is not approved; use {SUBSTITUTIONS[_ROW_OF[form]]}'
+        if form in _CONJUNCTIONS:
+            message += f' (as a conjunction "{form} that": use IF)'
+        yield "E", "WORD", message
     words = _words(text)
     first = words[0].lower() if words else ""
     if first.endswith("ing") and first not in _NON_GERUNDS and not words[0].isupper():
