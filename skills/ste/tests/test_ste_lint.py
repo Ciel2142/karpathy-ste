@@ -235,9 +235,22 @@ class OneWordTokenTest(unittest.TestCase):
                     "Turn the knob (clockwise, two turns) slowly.",
                     1, 1, 5, "Turn the knob § slowly.",
                 ),
-                Sentence("clockwise, two turns", 1, 16, 3, "clockwise, two turns"),
+                Sentence("clockwise, two turns", 1, 16, 3, "clockwise, two turns", depth=1),
             ],
         )
+
+    def test_parenthetical_sentences_carry_their_depth(self):
+        result = sentences("Open it (fast). Close it (slow). Stop.")
+        self.assertEqual(
+            [(s.text, s.depth) for s in result],
+            [
+                ("Open it (fast).", 0), ("fast", 1),
+                ("Close it (slow).", 0), ("slow", 1),
+                ("Stop.", 0),
+            ],
+        )
+        nested = sentences("Check the valve (the one (V2) on the left) first.")
+        self.assertEqual([s.depth for s in nested], [0, 1, 2])
 
     def test_nested_parentheses_use_the_outermost_pair(self):
         text = "Check the valve (the one (V2) on the left) first."

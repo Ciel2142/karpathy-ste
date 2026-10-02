@@ -32,6 +32,7 @@ class Sentence:
     col: int  # 1-based column of its first character
     words: int  # count per section 4.3.1 / Issue 9 Section 8
     checkable: str  # `text` with each one-word token replaced by MASK
+    depth: int = 0  # 0: a written sentence; n: emitted from inside n nested parentheses
 
 
 @dataclass(frozen=True)
@@ -163,19 +164,19 @@ def _join(segment):
     return "".join(parts), pos
 
 
-def _sentences(s, pos):
+def _sentences(s, pos, depth=0):
     """Split one run of text into sentences; parentheticals follow their sentence."""
     spans = _spans(s)
     view = _boundary_view(s, spans)
     ends = [m.end() for m in _BOUNDARY.finditer(view) if not _is_abbreviation(s, m)]
     result, start = [], 0
     for end in ends + [len(s)]:
-        result += _sentence(s, pos, spans, start, end)
+        result += _sentence(s, pos, spans, start, end, depth)
         start = end
     return result
 
 
-def _sentence(s, pos, spans, start, end):
+def _sentence(s, pos, spans, start, end, depth):
     """The sentence in s[start:end], if it has words, then its parentheticals."""
     start += len(s[start:end]) - len(s[start:end].lstrip())
     end = start + len(s[start:end].strip())
@@ -188,10 +189,10 @@ def _sentence(s, pos, spans, start, end):
     words = _count_words(checkable)
     if not words:
         return []
-    result = [Sentence(s[start:end], *pos[start], words, checkable)]
+    result = [Sentence(s[start:end], *pos[start], words, checkable, depth)]
     for a, b, kind in inner:
         if kind == "paren":
-            result += _sentences(s[a + 1 : b - 1], pos[a + 1 : b - 1])
+            result += _sentences(s[a + 1 : b - 1], pos[a + 1 : b - 1], depth + 1)
     return result
 
 
