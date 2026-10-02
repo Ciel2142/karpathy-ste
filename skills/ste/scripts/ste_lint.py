@@ -624,8 +624,11 @@ def main(argv: list[str]) -> int:
                 text = handle.read()
         else:
             text = sys.stdin.read()
-    except (OSError, UnicodeDecodeError) as err:  # missing, unreadable or not UTF-8
+    except OSError as err:  # missing or unreadable; the message names the file
         print(err, file=sys.stderr)
+        return 2
+    except UnicodeDecodeError as err:  # not UTF-8
+        print(f"{args[0] if args else '<stdin>'}: {err}", file=sys.stderr)
         return 2
     findings = lint(html_to_blocks(text) if "--html" in argv else tokenize(text))
     sys.stdout.write(format_findings(findings))

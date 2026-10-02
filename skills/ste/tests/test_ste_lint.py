@@ -1207,6 +1207,15 @@ class CommandLineTest(unittest.TestCase):
                     self.assertEqual((code, out), (2, ""))
                     self.assertNotEqual(err, "")
 
+    def test_decode_error_names_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "binary.md"
+            binary.write_bytes(b"\xff\xfe Open the valve.")
+            code, out, err = run_main([str(binary)])
+        self.assertEqual((code, out), (2, ""))
+        self.assertTrue(err.startswith(f"{binary}: "), err)
+        self.assertIn("can't decode", err)
+
     def test_reads_stdin_when_no_file_is_given(self):
         self.assertEqual(
             run_main([], stdin="Don't stop.\n"),
