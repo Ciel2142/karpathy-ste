@@ -13,7 +13,7 @@ waves:
       `docs/superpowers/spikes/2026-10-02-ste-live-run.md` records a zero-error lint
       of a subagent's STE-80 output plus the baseline count; the user runs `/ste`
       successfully.
-    status: in_progress
+    status: done
     depends_on: []
     owns:
       - skills/ste/
