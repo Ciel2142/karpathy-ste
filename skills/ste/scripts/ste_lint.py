@@ -57,10 +57,11 @@ _NUMBER_UNIT = re.compile(
     + "|".join(re.escape(unit) for unit in sorted(UNITS, key=len, reverse=True))
     + r")(?!\w)"
 )
-_BOUNDARY = re.compile(r"[.!?]+[)\"”*_]*(?=\s|$)")
-_TAIL = re.compile(r"[.!?]+[)\"”*_]*$")  # a terminator and closers that end a token
 _CLOSERS = ")\"”*_"
 _OPENERS = "(\"“*_["
+_TERMINATORS = f"[.!?]+[{re.escape(_CLOSERS)}]*"  # a terminator run, then any closers
+_BOUNDARY = re.compile(_TERMINATORS + r"(?=\s|$)")
+_TAIL = re.compile(_TERMINATORS + "$")  # a terminator and closers that end a token
 _QUOTES = {'"': '"', "“": "”"}
 _QUOTE_OPEN = re.compile(r"(?<![^\s(\[{*_—–])[\"“]")  # at a token start, so 2" stays literal
 
@@ -289,6 +290,7 @@ def _close(s, i, jump, opener, closer):
         if j in jump:
             j = jump[j][0]
             continue
+        # A quote passes opener=None: s[j] == None is never true, so quotes do not nest.
         depth += (s[j] == opener) - (s[j] == closer)
         if not depth:
             return j + 1
