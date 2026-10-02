@@ -535,10 +535,11 @@ _LETTERS = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")  # a word with inner apo
 _EDGE = re.compile(r"^[\W_]+|[\W_]+$")  # non-alphanumeric characters at a token's edge
 _WORD_FORMS = sorted(_ROW_OF, key=len, reverse=True)
 # A table form as a whole word: not inside a longer word or a hyphenated compound
-# (Issue 9 Rule 8.7); group k matches _WORD_FORMS[k - 1].
+# (Issue 9 Rule 8.7); the words of a phrase may be apart by any whitespace run;
+# group k matches _WORD_FORMS[k - 1].
 _WORD = re.compile(
     r"(?<![^\W_])(?<![^\W_]-)(?:"
-    + "|".join(f"({re.escape(form)})" for form in _WORD_FORMS)
+    + "|".join("(" + re.escape(form).replace(r"\ ", r"\s+") + ")" for form in _WORD_FORMS)
     + r")(?![^\W_])(?!-[^\W_])",
     re.IGNORECASE,
 )
@@ -571,8 +572,8 @@ def _check(sentence, procedure):
         if token.endswith(_CONTRACTION_ENDS) or token in _CONTRACTED_S:
             yield "E", "CONTRACTION", f'contraction "{m.group()}"'
     for m in _WORD.finditer(text):
-        form = _WORD_FORMS[m.lastindex - 1]
-        message = f'"{m.group()}" is not approved; use {SUBSTITUTIONS[_ROW_OF[form]]}'
+        form, found = _WORD_FORMS[m.lastindex - 1], " ".join(m.group().split())
+        message = f'"{found}" is not approved; use {SUBSTITUTIONS[_ROW_OF[form]]}'
         if form in _CONJUNCTIONS:
             message += f' (as a conjunction "{form} that": use IF)'
         yield "E", "WORD", message

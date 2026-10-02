@@ -514,6 +514,13 @@ class ErrorRuleTest(unittest.TestCase):
             [("E", '"In the event of" is not approved; use IF')],
         )
 
+    def test_word_multi_word_entries_match_across_any_whitespace_run(self):
+        for text in ("Then prior  to use, stop.", "Then prior\tto use, stop."):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    messages(text, "WORD"), [("E", '"prior to" is not approved; use BEFORE')]
+                )
+
     def test_word_matches_the_regular_inflections_of_verb_rows(self):
         text = (
             "The script ensures that the seal is tight. The pump provides pressure and "
