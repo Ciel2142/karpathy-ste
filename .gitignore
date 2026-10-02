@@ -1,0 +1,5 @@
+out/
+spike-video/
+video-workspace/
+node_modules/
+.DS_Store
