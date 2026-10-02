@@ -129,6 +129,9 @@ class SentenceBoundaryTest(unittest.TestCase):
                     texts(f"{abbr} use this tool. Then stop."),
                     [f"{abbr} use this tool.", "Then stop."],
                 )
+        for text in ("Use *e.g.* this tool. Then stop.", "Use _i.e._ this tool. Then stop."):
+            with self.subTest(text=text):  # inside emphasis markers
+                self.assertEqual(texts(text), [text.removesuffix(" Then stop."), "Then stop."])
 
     def test_abbreviation_allowlist_is_exact_and_case_sensitive(self):
         self.assertEqual(
@@ -357,6 +360,7 @@ class OneWordTokenTest(unittest.TestCase):
             "Apply 10 mA for 3 s at 25 % and 1.5 kg.": (8, "Apply § for § at § and §."),
             "Feed 10 cats.": (3, "Feed 10 cats."),
             "Cut 10 inches.": (3, "Cut 10 inches."),
+            "Put the A4 in the tray.": (6, "Put the A4 in the tray."),  # A4: not a number
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
@@ -419,6 +423,22 @@ class CountingTest(unittest.TestCase):
             [(s.text, s.line, s.col) for s in sentences("Open.\r\nClose.")],
             [("Open.", 1, 1), ("Close.", 2, 1)],
         )
+
+    def test_rules_see_the_words_that_the_tokenizer_counts(self):
+        """`_words` (the rules) and `_count_words` (the tokenizer) agree on every sentence."""
+        edge_cases = (
+            "Run `make build. now` and `` a ` b `` here.",  # code spans
+            'Push the "Emergency Stop (red)" button and the “Reset Now” key.',  # quotes
+            "Apply 10 mA for 3 s at 25 % and 1.5 kg.",  # numbers with units
+            "See https://x.y/z.html and www.example.com/a.b now.",  # URLs: no words
+            "Check the valve (the one (V2) on the left) first.",  # parentheticals
+            "Open the **main** valve — slowly - then … _stop_.",  # emphasis, dashes
+            '"Checking" is the label (on the left).',  # a masked first word
+        )
+        for text in edge_cases:
+            for s in sentences(text):
+                with self.subTest(sentence=s.text):
+                    self.assertEqual(len(ste_lint._words(s.checkable)), s.words)
 
 
 class ErrorRuleTest(unittest.TestCase):
@@ -485,6 +505,11 @@ class ErrorRuleTest(unittest.TestCase):
             "The performance and the indication are correct.",
             "Add the address to the allow-list.",
             "Re-verify the torque.",
+            "The tank is shallow.",  # a table form at the end of a longer word
+            "Discard the improper seal.",
+            "The board can censure the crew.",
+            "Ignore the trivia.",
+            "They exterminate the pests.",
         ):
             with self.subTest(text=text):
                 self.assertNotIn("WORD", codes(text))
@@ -541,12 +566,18 @@ class WarningRuleTest(unittest.TestCase):
             "They had taken the cover off.", "PERFECT", 'possible perfect tense: "had taken"'
         )
         self.assertNotIn("PERFECT", codes("The pump has two blades."))
+        for verb in ("has", "have", "had"):
+            with self.subTest(verb=verb):
+                self.assertIn("PERFECT", codes(f"They {verb} adjusted the valve."))
 
     def test_progressive_warning_for_be_and_ing_word(self):
         self.assert_warning(
             "The pump is running.", "PROGRESSIVE", 'possible progressive: "is running"'
         )
         self.assertNotIn("PROGRESSIVE", codes("The pump is in the ring."))
+        for verb in ("am", "is", "are", "was", "were", "be", "been", "being"):
+            with self.subTest(verb=verb):
+                self.assertIn("PROGRESSIVE", codes(f"It {verb} running."))
 
     def test_passive_warning_for_be_and_participle(self):
         self.assert_warning("The valve is closed.", "PASSIVE", 'possible passive: "is closed"')
@@ -554,6 +585,9 @@ class WarningRuleTest(unittest.TestCase):
             "The cover was **taken** off.", "PASSIVE", 'possible passive: "was taken"'
         )
         self.assertNotIn("PASSIVE", codes("The valve is open."))
+        for verb in ("am", "is", "are", "was", "were", "be", "been", "being"):
+            with self.subTest(verb=verb):
+                self.assertIn("PASSIVE", codes(f"It {verb} closed."))
 
     def test_gerund_warning_for_sentence_that_starts_with_ing_word(self):
         self.assert_warning(
@@ -699,7 +733,10 @@ class HtmlTest(unittest.TestCase):
         skip = ("script", "style", "svg", "pre", "code", "cite", "nav", "noscript", "template")
         for tag in skip:
             with self.subTest(tag=tag):
-                html = f"<p>Open the valve.</p><{tag}><b>Ensure</b> it.</{tag}><p>Close it.</p>"
+                html = (
+                    f"<p>Open the valve.</p><{tag}><b>Ensure</b> it <code>x</code>.</{tag}>"
+                    "<p>Close it.</p>"
+                )
                 masked = [("para", ["§"])] if tag == "code" else []  # code: one masked word
                 self.assertEqual(
                     html_blocks(html),
@@ -979,6 +1016,15 @@ class CommandLineTest(unittest.TestCase):
             (1, '2:4  E CONTRACTION  contraction "Don\'t"\n1 errors, 0 warnings\n', ""),
         )
         self.assertIn("E WORD", run_main([], stdin=page)[1])  # Markdown mode reads the nav
+
+    def test_byte_order_mark_of_a_file_is_not_a_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page = Path(tmp) / "page.html"
+            page.write_text("﻿<p>Don't stop.</p>\n", encoding="utf-8")
+            self.assertEqual(
+                run_main(["--html", str(page)]),
+                (1, '1:4  E CONTRACTION  contraction "Don\'t"\n1 errors, 0 warnings\n', ""),
+            )
 
     def test_exit_2_for_missing_or_unreadable_file(self):
         with tempfile.TemporaryDirectory() as tmp:
