@@ -63,7 +63,7 @@ _QUOTE_OPEN = re.compile(r"(?<![^\s(\[{*_—–])[\"“]")  # at a token start, 
 def tokenize(text: str) -> list[Block]:
     """Split Markdown or plain text into paragraph and list-item blocks. Frontmatter,
     fenced code, headings and table rows yield none; line numbers count through them."""
-    lines = text.split("\n")
+    lines = text.removeprefix("﻿").split("\n")  # a byte order mark is not text
     layout, fence = _Layout(), None  # fence: (opening run, opened inside a blockquote)
     for idx in range(_frontmatter_end(lines), len(lines)):
         raw = lines[idx].rstrip("\r")
