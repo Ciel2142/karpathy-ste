@@ -176,8 +176,8 @@ def _sentence(s, pos, spans, start, end):
     end = start + len(s[start:end].strip())
     inner = [span for span in spans if start <= span[0] and span[1] <= end]
     parts, k = [], start
-    for a, b, _ in inner:
-        parts += [s[k:a], MASK]
+    for a, b, kind in inner:
+        parts += [s[k:a], "" if kind == "url" else MASK]  # URLs are skipped: no word
         k = b
     checkable = "".join(parts) + s[k:end]
     words = _count_words(checkable)

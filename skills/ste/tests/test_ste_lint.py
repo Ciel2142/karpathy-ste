@@ -182,18 +182,19 @@ class SkippedTest(unittest.TestCase):
         text = "| Step | Action. |\n|---|---|\n| 1. | Open. |\nAfter the table."
         self.assertEqual([(s.text, s.line) for s in sentences(text)], [("After the table.", 4)])
 
-    def test_urls_are_one_word_and_never_a_boundary(self):
+    def test_urls_count_no_words_and_are_never_a_boundary(self):
         result = sentences("See https://x.y/z.html. Then stop.")
         self.assertEqual(
             [(s.text, s.words, s.checkable) for s in result],
-            [("See https://x.y/z.html.", 2, "See §."), ("Then stop.", 2, "Then stop.")],
+            [("See https://x.y/z.html.", 1, "See ."), ("Then stop.", 2, "Then stop.")],
         )
         for url in ("http://a.b/c?d=1.2", "file:///tmp/a.b.txt", "www.example.com/a.b"):
             with self.subTest(url=url):
                 self.assertEqual(
                     [(s.words, s.checkable) for s in sentences(f"Open {url} now.")],
-                    [(3, "Open § now.")],
+                    [(2, "Open  now.")],
                 )
+        self.assertEqual(ste_lint.tokenize("https://x.y/a.b"), [])
 
 
 class OneWordTokenTest(unittest.TestCase):
