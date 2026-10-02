@@ -133,6 +133,22 @@ class SentenceBoundaryTest(unittest.TestCase):
             with self.subTest(text=text):  # inside emphasis markers
                 self.assertEqual(texts(text), [text.removesuffix(" Then stop."), "Then stop."])
 
+    def test_question_or_exclamation_before_a_closer_ends_a_sentence(self):
+        self.assertEqual(texts('Ask "Is it hot?" Then wait.'), ['Ask "Is it hot?"', "Then wait."])
+        self.assertEqual(
+            texts("Stop it (now!) Then wait."), ["Stop it (now!)", "now!", "Then wait."]
+        )
+
+    def test_abbreviation_in_parentheses_does_not_split(self):
+        self.assertEqual(
+            texts("Use a solvent (e.g.) on the part. Then stop."),
+            ["Use a solvent (e.g.) on the part.", "e.g.", "Then stop."],
+        )
+        self.assertEqual(
+            texts("Use a solvent (e.g. acetone) on the part. Then stop."),
+            ["Use a solvent (e.g. acetone) on the part.", "e.g. acetone", "Then stop."],
+        )
+
     def test_etc_before_whitespace_and_a_capital_letter_ends_a_sentence(self):
         self.assertEqual(
             texts("Check the hoses, pumps, etc. Then install the cover."),
@@ -255,6 +271,18 @@ class BlockTest(unittest.TestCase):
             blocks("```md\n> ```\n> code. here\n> ```\n```\nAfter."), [("para", ["After."])]
         )
 
+    def test_heading_fence_or_table_row_closes_an_open_list_item(self):
+        for between in ("# Next", "```\ncode. here\n```", "| a | b |"):
+            with self.subTest(between=between):  # the indented line no longer continues it
+                self.assertEqual(
+                    blocks(f"- Open the valve\n{between}\n  Close the door."),
+                    [("ul-item", ["Open the valve"]), ("para", ["Close the door."])],
+                )
+        self.assertEqual(  # a blank line alone keeps the item open
+            blocks("- Open the valve\n\n  Close the door."),
+            [("ul-item", ["Open the valve", "Close the door."])],
+        )
+
     def test_numbered_line_inside_paragraph_is_not_a_list_item(self):
         self.assertEqual(
             blocks("It was released in\n2024. It added a pump."),
@@ -372,6 +400,12 @@ class OneWordTokenTest(unittest.TestCase):
             ],
         )
 
+    def test_parenthesised_url_is_one_word_without_an_inner_sentence(self):
+        self.assertEqual(
+            [(s.text, s.words, s.checkable) for s in sentences("Read the guide (https://x.y) now.")],
+            [("Read the guide (https://x.y) now.", 5, "Read the guide § now.")],
+        )
+
     def test_quoted_text_is_one_word_kept_verbatim_and_masked(self):
         text = 'Push the "Emergency Stop (red)" button and the “Reset Now” key.'
         self.assertEqual(
@@ -466,7 +500,9 @@ class CountingTest(unittest.TestCase):
             '"Checking" is the label (on the left).',  # a masked first word
         )
         for text in edge_cases:
-            for s in sentences(text):
+            found = sentences(text)
+            self.assertNotEqual(found, [], text)  # the comparison below is not vacuous
+            for s in found:
                 with self.subTest(sentence=s.text):
                     self.assertEqual(len(ste_lint._words(s.checkable)), s.words)
 
@@ -990,7 +1026,7 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual((only.text, only.words, only.checkable), ("Run now.", 2, "Run now."))
 
     def test_byte_order_mark_is_not_a_column(self):
-        page = "﻿<p>Don't stop.</p>\n"
+        page = "\ufeff<p>Don't stop.</p>\n"
         self.assertEqual([(s.line, s.col) for s in html_sentences(page)], [(1, 4)])
         self.assertEqual(
             run_main(["--html"], stdin=page),
@@ -1186,7 +1222,7 @@ class CommandLineTest(unittest.TestCase):
     def test_byte_order_mark_of_a_file_is_not_a_column(self):
         with tempfile.TemporaryDirectory() as tmp:
             page = Path(tmp) / "page.html"
-            page.write_text("﻿<p>Don't stop.</p>\n", encoding="utf-8")
+            page.write_text("\ufeff<p>Don't stop.</p>\n", encoding="utf-8")
             self.assertEqual(
                 run_main(["--html", str(page)]),
                 (1, '1:4  E CONTRACTION  contraction "Don\'t"\n1 errors, 0 warnings\n', ""),
