@@ -865,6 +865,20 @@ class HtmlTest(unittest.TestCase):
         table = "<table><tr><th>Verify<td>Ensure it<tr><td>Obtain it</table><p>After it.</p>"
         self.assertEqual(html_blocks(table), [("para", ["After it."])])
 
+    def test_title_is_skipped_like_a_heading(self):
+        html = "<head><title>Verify the layout</title></head><p>Open the valve.</p>"
+        self.assertEqual(html_blocks(html), [("para", ["Open the valve."])])
+        self.assertNotIn("WORD", html_codes(html))
+
+    def test_inline_svg_is_skipped_without_a_block_boundary(self):
+        icon = '<svg viewBox="0 0 8 8"><title>Stop</title><path d="M0 0h8v8H0z"/></svg>'
+        self.assertEqual(
+            html_blocks(f"<p>Push the {icon} button.</p>"), [("para", ["Push the button."])]
+        )
+        words = " ".join(["valve"] * 14)
+        html = f"<p>Check {words} {icon} {words} now.</p>"  # 30 words around the icon
+        self.assertEqual(html_messages(html, "LENGTH"), [("E", "sentence has 30 words (max 25)")])
+
     def test_nav_with_twelve_links_yields_no_text(self):
         words = (
             "Ensure", "Utilize", "Verify", "Obtain", "Perform", "Provide",
@@ -1015,8 +1029,7 @@ class HtmlFixtureTest(unittest.TestCase):
     def test_fixture_yields_the_prose_blocks_only(self):
         self.assertEqual(
             [(b.kind, b.sentences[0].text) for b in ste_lint.html_to_blocks(self.text)],
-            [
-                ("para", "The fuel pump"),
+            [  # the <title> is skipped like a heading
                 ("para", "The fuel pump moves fuel from the tank to the engine."),
                 ("ul-item", "The tank holds the fuel"),
                 ("ul-item", "The pump moves the fuel"),

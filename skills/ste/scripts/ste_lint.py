@@ -297,11 +297,12 @@ def _close(s, i, jump, opener, closer):
 
 
 # --html mode (section 4.3.2). The element sets are exact; every element that is
-# not inline starts and ends a block.
+# not inline starts and ends a block, except inside a skipped subtree.
 _HTML_SKIP = frozenset("script style svg pre code cite nav noscript template".split())
-_HTML_NO_TEXT = frozenset("h1 h2 h3 h4 h5 h6 th td".split())  # as Markdown headings, tables
-_HTML_INLINE = frozenset(
-    "a abbr b cite code em i kbd mark q s small span strong sub sup time u var".split()
+# As Markdown headings and table rows; a title counts as one word (Rule 8.6).
+_HTML_NO_TEXT = frozenset("h1 h2 h3 h4 h5 h6 th td title".split())
+_HTML_INLINE = frozenset(  # svg: an inline icon is skipped, not a block boundary
+    "a abbr b cite code em i kbd mark q s small span strong sub sup svg time u var".split()
 )
 _HTML_VOID = frozenset("area base br col embed hr img input link meta source track wbr".split())
 # A character reference, as html.unescape finds it (Lib/html/__init__.py).
@@ -332,11 +333,11 @@ class _HtmlText(HTMLParser):
         self.blocks = []
 
     def handle_starttag(self, tag, attrs):
-        if tag not in _HTML_INLINE and tag != "br":
-            self._flush()
         if tag == "li":  # an omitted </li> never arrives: a new item ends the open one
             self._end("li", scope=("ol", "ul"))
-        skipping = self._skipping()
+        skipping = self._skipping()  # a skipped subtree adds nothing and ends no block
+        if tag not in _HTML_INLINE and tag != "br" and not skipping:
+            self._flush()
         dropped = skipping or ("data-ste", "skip") in attrs  # this element and its subtree
         if tag in ("br", "code") and not skipping:  # br is a space; code is one masked word
             self._mark(" " if tag == "br" else MASK)
@@ -349,10 +350,10 @@ class _HtmlText(HTMLParser):
     def handle_endtag(self, tag):
         if tag in _HTML_VOID:
             return
-        if tag not in _HTML_INLINE:
-            self._flush()
         if self._end(tag) == ("q", False):  # close the quote that the <q> tag opened
             self._mark("”")
+        if tag not in _HTML_INLINE and not self._skipping():
+            self._flush()
 
     def handle_data(self, data):
         if not self._skipping():
