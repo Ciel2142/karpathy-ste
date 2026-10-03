@@ -108,22 +108,17 @@ class VerifyTest(unittest.TestCase):
 
     # --- check 1: self-containment ---------------------------------------------
 
-    def test_remote_script_and_stylesheet_fail_self_containment(self):
+    def test_remote_script_and_stylesheet_fail_check_1_and_all_four_lines_print(self):
+        # The .invalid host fails DNS at once and "load" still fires: no network use.
         proc, _ = self.verify_fixture("verify-remote.html", timeout=20)
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("self-contained: FAIL 2 remote reference(s)\n", proc.stdout)
-        self.assertIn("  script src=https://example.com/x.js\n", proc.stdout)
-        self.assertIn("  link href=https://example.com/x.css\n", proc.stdout)
-        self.assert_no_chrome_left()
-
-    def test_all_four_checks_print_when_the_first_fails(self):
-        proc, _ = self.verify_fixture("verify-remote.html", timeout=20)
-        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("  script src=https://example.invalid/x.js\n", proc.stdout)
+        self.assertIn("  link href=https://example.invalid/x.css\n", proc.stdout)
         lines = self.check_lines(proc.stdout)
         self.assertEqual(len(lines), 4, proc.stdout)
         for line, prefix in zip(lines, CHECKS):
             self.assertTrue(line.startswith(prefix), (line, prefix))
-        self.assertTrue(lines[0].startswith("self-contained: FAIL"), lines[0])
         self.assertEqual(lines[2:], ["citations: ok", "prose: ok"])
         self.assert_no_chrome_left()
 
