@@ -341,10 +341,10 @@ class OutputTest(TranscriptCase):
         before and after lists)."""
         text = self.generate(self.retargeted())
         for shown in (
-            "<p>Four checks before handoff</p>",
+            "<p>Three or four checks before handoff</p>",
             "<li>Self-contained: no remote links</li>",
             "<li>Open the page by hand</li>",
-            "<li>Read four result lines</li>",
+            "<li>Read one line for each check</li>",
             "Without verify.sh",
             "With verify.sh",
         ):

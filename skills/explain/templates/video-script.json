@@ -15,56 +15,58 @@
       "component": "title",
       "props": {
         "title": "How verify.sh checks an artifact",
-        "subtitle": "Four checks before handoff",
+        "subtitle": "Three or four checks before handoff",
         "cue": "This video explains"
       },
-      "narration": "This video explains the check script. The script runs four checks on every artifact. It runs them before handoff.",
+      "narration": "This video explains the check script. It runs four checks on a sheet or a page, and three on a video. It runs them before handoff.",
       "cites": [
-        { "path": "scripts/verify.sh", "line": 2, "snippet": "the four checks an explain artifact must pass" }
+        { "path": "scripts/verify.sh", "line": 2, "snippet": "the four checks an explain artifact must pass" },
+        { "path": "scripts/verify.sh", "line": 7, "snippet": "(sheet, page: four; video: three)" }
       ]
     },
     {
       "id": "checks",
       "component": "bullets-appear",
       "props": {
-        "title": "The four checks",
+        "title": "The checks",
         "bullets": [
           { "text": "Self-contained: no remote links", "cue": "The first check" },
-          { "text": "Render: Chrome loads the page", "cue": "The second check" },
-          { "text": "Citations: each line holds", "cue": "The third check" },
-          { "text": "Prose: the lint finds no errors", "cue": "The fourth check" }
+          { "text": "Citations: each line holds", "cue": "The second check" },
+          { "text": "Prose: the lint finds no errors", "cue": "The third check" },
+          { "text": "Render: a sheet or a page only", "cue": "A sheet or a page" }
         ]
       },
-      "narration": "The first check looks for remote links. The second check loads the page in Chrome. The third check tests each citation. The fourth check lints the prose.",
+      "narration": "The first check looks for remote links. The second check tests each citation. The third check lints the prose. A sheet or a page also gets a render check, which loads the page in Chrome.",
       "cites": [
         { "path": "scripts/verify.sh", "line": 12, "snippet": "self-contained: ok" },
-        { "path": "scripts/verify.sh", "line": 16, "snippet": "citations: ok" }
+        { "path": "scripts/verify.sh", "line": 16, "snippet": "citations: ok" },
+        { "path": "scripts/verify.sh", "line": 21, "snippet": "a page two (1440x900, 500x844); a video none." }
       ]
     },
     {
       "id": "tools",
       "component": "diagram-with-highlight-walk",
       "props": {
-        "title": "Who does each check",
+        "title": "The order of the checks",
         "nodes": [
-          { "id": "verify", "label": "verify.sh", "sub": "runs all four", "cell": "a2" },
-          { "id": "chrome", "label": "Chrome", "sub": "renders the page", "cell": "b1" },
+          { "id": "verify", "label": "verify.sh", "sub": "runs each check", "cell": "a2" },
+          { "id": "chrome", "label": "Chrome", "sub": "sheet and page only", "cell": "b1" },
           { "id": "cites", "label": "cite_check", "sub": "reads cited lines", "cell": "b2" },
           { "id": "lint", "label": "ste_lint", "sub": "checks the prose", "cell": "b3" }
         ],
         "edges": [
           { "from": "verify", "to": "chrome", "label": "render" },
-          { "from": "verify", "to": "cites", "label": "citations" },
-          { "from": "verify", "to": "lint", "label": "prose" }
+          { "from": "chrome", "to": "cites", "label": "citations" },
+          { "from": "cites", "to": "lint", "label": "prose" }
         ],
         "walk": [
           { "node": "verify", "cue": "The script calls" },
           { "node": "chrome", "cue": "Chrome renders" },
-          { "node": "cites", "cue": "The cite checker" },
-          { "node": "lint", "cue": "The lint tool" }
+          { "node": "cites", "cue": "Then the cite checker" },
+          { "node": "lint", "cue": "Last the lint tool" }
         ]
       },
-      "narration": "The script calls three helpers. Chrome renders the page. The cite checker reads each cited line. The lint tool checks the prose.",
+      "narration": "The script calls its helpers in a fixed order. Chrome renders a sheet or a page. Then the cite checker reads each cited line. Last the lint tool checks the prose.",
       "cites": [
         { "path": "scripts/verify.sh", "line": 37, "snippet": "Google Chrome" },
         { "path": "scripts/verify.sh", "line": 39, "snippet": "CITE_CHECK=" },
@@ -99,11 +101,11 @@
         },
         "after": {
           "heading": "With verify.sh",
-          "lines": ["Run one command", "Read four result lines"]
+          "lines": ["Run one command", "Read one line for each check"]
         },
         "cue": "Now one command"
       },
-      "narration": "Without the script, a person checks each item by hand. Now one command runs all four checks and prints the result.",
+      "narration": "Without the script, a person checks each item by hand. Now one command runs every check and prints one line for each.",
       "cites": [
         { "path": "scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed" }
       ]

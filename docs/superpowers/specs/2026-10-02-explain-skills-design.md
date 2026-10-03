@@ -331,12 +331,12 @@ Rules:
 - The rung line is always printed before building, including under `--as`:
   `Rung: sheet (chosen|forced) — <reason> — subject: <resolved subject> (<kind>)`,
   where kind is file, directory, conversation or topic.
-- `video` is offered by the router only when `rungs/video.md` exists. `--as video`
-  without it builds a `page` whose steps player carries the would-be narration as step
-  captions, and says so.
-- A forced rung that does not fit the content (a sheet with more than 6 facets) keeps
-  the 6 most important facets and lists the dropped ones in the title block under
-  "Not covered".
+- `video` is offered by the router only when `rungs/video.md` exists. Before 2026-10-04,
+  `--as video` without it built a `page` whose steps player carries the would-be narration as
+  step captions. Amended 2026-10-04 (wave explain-video): `--as video` without it prints the
+  rung line, says that the rung is not available, and offers `sheet` or `ste`; no page fallback.
+- A forced rung that does not fit the content (a sheet with more than 6 facets) keeps the 6
+  most important facets and lists the dropped ones in the title block under "Not covered".
 - The `ste` rung produces chat text only; it creates no output directory.
 
 ### 5.3 Conventions for every artifact rung
@@ -367,13 +367,13 @@ Rules:
 4. Verified before handoff, in two layers. First `verify.sh` (§5.5) must exit 0.
    Then Claude reads the review tiles from `snapshot.sh` and checks what a script
    cannot: readable hierarchy, sensible layout, nothing misleading. Fix, re-run both.
-5. Discardable output. `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/` where `slug` is the
-   kebab-cased subject, at most 40 characters. A directory is never overwritten; a re-run creates
-   a new one. Contents: `index.html`; for sheets `sheet.png` (share render) and
-   `review/sheet-NN.png` tiles; for pages `page-1440x6000.png`, `page-500x844.png` and their
-   `review/page-<WxH>-NN.png` tiles; for videos (amended 2026-10-04: wave explain-video)
-   `script.json`, `index.html` (the transcript), `video.mp4`, `narration.md`, `audio/`, `build/`,
-   `review/still-NN-<scene>[-k].png`. Gitignored, never committed, safe to delete wholesale.
+5. Discardable output. `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/` where `slug` is the kebab-cased
+   subject (for a path, its basename without the extension), at most 40 characters. A new run creates a
+   new directory; the fix loop of a rung stays in it (amended 2026-10-04). Contents: `index.html`; for
+   sheets `sheet.png` (share render) and `review/sheet-NN.png` tiles; for pages `page-1440x6000.png`,
+   `page-500x844.png` and their `review/page-<WxH>-NN.png` tiles; for videos (amended 2026-10-04: wave
+   explain-video) `script.json`, `index.html` (the transcript), `video.mp4`, `narration.md`, `audio/`,
+   `build/`, `review/still-NN-<scene>[-k].png`. Gitignored, never committed, safe to delete wholesale.
 6. Handoff: print the path; when running interactively for the user, `open
    index.html` (sheet, page) or `open video.mp4` (video); skip `open` inside subagents.
 7. Language: artifacts are in English unless the user asks otherwise.

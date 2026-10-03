@@ -1,4 +1,4 @@
-// Palette duplicated from templates/sheet.html: change both.
+// Palette duplicated in templates/sheet.html, page.html and video.html: change all four.
 export const theme = {
   ink: "#1b2129",
   muted: "#5b6570",

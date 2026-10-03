@@ -9,8 +9,8 @@ Choose a page when the content has state to explore: a step-through flow, a befo
 toggles. Choose it also when the content has more than 6 facets. The steps player is the one
 pattern that makes `page` better than `sheet` for flows, PRs and wave plans.
 
-If `--as video` falls back to `page`, the narration becomes the step captions. Write one step for
-each narrated beat.
+`--as video` builds a video (`rungs/video.md`) and never falls back to a page. For a narrative
+on a page, write one step for each beat of the story.
 
 ## 2. Plan the sections
 
