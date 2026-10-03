@@ -1,0 +1,455 @@
+#!/usr/bin/env node
+// script.json contract for the explain video rung: one validator, one timeline builder.
+//
+//   build-timeline.mjs --check <script.json> --root <data-root>
+//       validate; exit 0 silently, or one "FAIL <where>: <cause>" line per cause and exit 1
+//   build-timeline.mjs <script.json> <durations.json> <engine> <out.json> [--root <data-root>]
+//       write the timeline JSON for the Remotion app (engine: say | kokoro)
+//
+// Exit 2 on a usage error. FAIL lines go to stdout. Build mode does not re-run the
+// budgets: render.sh runs --check first.
+import fs from "node:fs";
+import path from "node:path";
+
+const FPS = 30;
+const WIDTH = 1280;
+const HEIGHT = 720;
+const LEAD_FRAMES = 15;
+const TAIL_FRAMES = 36;
+const MIN_CUE_GAP = 15;
+const MAX_NARRATION_WORDS = 45;
+const MAX_CODE_LINES = 14;
+const MAX_COLUMNS = 72;
+const TAB_COLUMNS = 4;
+const ENGINES = ["say", "kokoro"];
+const KINDS = ["file", "directory", "topic", "conversation"];
+const CELLS = ["a", "b", "c"].flatMap((col) => ["1", "2", "3"].map((row) => col + row));
+const USAGE =
+  "usage: build-timeline.mjs --check <script.json> --root <data-root>\n" +
+  "       build-timeline.mjs <script.json> <durations.json> <engine: say|kokoro> <out.json> [--root <data-root>]\n";
+
+// ---------- small helpers ----------
+
+const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+const isInt = (v) => Number.isInteger(v);
+const isUrl = (s) => /^https?:\/\//.test(s);
+const charLength = (s) => [...s].length;
+const wordCount = (s) => s.split(/\s+/).filter(Boolean).length;
+const isWordChar = (c) => c !== undefined && /[\p{L}\p{N}_]/u.test(c);
+const q = (s) => JSON.stringify(s);
+
+const readJson = (file, label) => {
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    return { fail: `FAIL script: cannot read ${label} ${file}: ${err.code ?? err.message}` };
+  }
+  try {
+    return { value: JSON.parse(text) };
+  } catch (err) {
+    return { fail: `FAIL script: ${label} ${file} is not valid JSON: ${err.message}` };
+  }
+};
+
+// ---------- props shapes ----------
+// A shape maps each prop to a spec: str {max, optional}, int, cell, obj {shape}, arr {item, min, max}.
+
+const str = (max, optional = false) => ({ t: "str", max, optional });
+const int = { t: "int" };
+const cue = str(Infinity);
+const arr = (item, min = 0, max = Infinity) => ({ t: "arr", item, min, max });
+const obj = (shape) => ({ t: "obj", shape });
+const cell = { t: "cell" };
+
+const SHAPES = {
+  title: { title: str(50), subtitle: str(80), cue },
+  "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(36), cue }), 2, 4) },
+  "diagram-with-highlight-walk": {
+    title: str(Infinity),
+    nodes: arr(obj({ id: str(Infinity), label: str(14), sub: str(24, true), cell }), 2, 7),
+    edges: arr(obj({ from: str(Infinity), to: str(Infinity), label: str(10, true) })),
+    walk: arr(obj({ node: str(Infinity), cue })),
+  },
+  "code-with-line-highlights": {
+    title: str(Infinity),
+    source: obj({ path: str(Infinity), from: int, to: int }),
+    highlights: arr(obj({ from: int, to: int, cue })),
+  },
+  "before-after": {
+    title: str(Infinity),
+    before: obj({ heading: str(36), lines: arr(str(36, true), 0, 10) }),
+    after: obj({ heading: str(36), lines: arr(str(36, true), 0, 10) }),
+    cue,
+  },
+};
+
+// Cues of a component in the order its author listed them (defensive: props may be malformed).
+const list = (v) => (Array.isArray(v) ? v : []);
+const cuesOf = (component, props) => {
+  const p = isObject(props) ? props : {};
+  const pick = (items, key) => list(items).map((item) => item?.[key]);
+  const raw =
+    component === "title" || component === "before-after"
+      ? [p.cue]
+      : component === "bullets-appear"
+        ? pick(p.bullets, "cue")
+        : component === "diagram-with-highlight-walk"
+          ? pick(p.walk, "cue")
+          : component === "code-with-line-highlights"
+            ? pick(p.highlights, "cue")
+            : [];
+  return raw.filter((c) => typeof c === "string" && c !== "");
+};
+
+// Check a value against a spec; `fail(cause)` records one cause.
+const checkSpec = (value, spec, where, fail) => {
+  if (spec.t === "str") {
+    if (typeof value !== "string") return fail(`${where} must be a string`);
+    if (value === "" && !spec.optional) return fail(`${where} is empty`);
+    const n = charLength(value);
+    if (n > spec.max) fail(`${where} is ${n} chars (max ${spec.max})`);
+  } else if (spec.t === "int") {
+    if (!isInt(value)) fail(`${where} must be an integer`);
+  } else if (spec.t === "cell") {
+    if (!CELLS.includes(value)) fail(`${where} ${q(value)} must be one of a1 to c3`);
+  } else if (spec.t === "obj") {
+    checkShape(value, spec.shape, where, fail);
+  } else if (spec.t === "arr") {
+    if (!Array.isArray(value)) return fail(`${where} must be an array`);
+    if (value.length < spec.min || value.length > spec.max) {
+      const range = spec.max === Infinity ? `at least ${spec.min}` : `${spec.min} to ${spec.max}`;
+      fail(`${where} has ${value.length} items (needs ${range})`);
+    }
+    value.forEach((item, i) => checkSpec(item, spec.item, `${where}[${i}]`, fail));
+  }
+};
+
+const checkShape = (value, shape, where, fail) => {
+  if (!isObject(value)) return fail(`${where || "props"} must be an object`);
+  const at = (key) => (where ? `${where}.${key}` : key);
+  for (const [key, spec] of Object.entries(shape)) {
+    if (!(key in value)) {
+      if (!spec.optional) fail(`missing prop ${q(at(key))}`);
+    } else {
+      checkSpec(value[key], spec, at(key), fail);
+    }
+  }
+  for (const key of Object.keys(value)) if (!(key in shape)) fail(`unexpected prop ${q(at(key))}`);
+};
+
+// ---------- cues ----------
+
+// Positions where `cue` occurs in `narration` between word boundaries.
+const cueMatches = (narration, cueText) => {
+  const hits = [];
+  for (let i = narration.indexOf(cueText); i >= 0; i = narration.indexOf(cueText, i + 1)) {
+    if (!isWordChar(narration[i - 1]) && !isWordChar(narration[i + cueText.length])) hits.push(i);
+  }
+  return hits;
+};
+
+const atSentenceStart = (narration, offset) => offset === 0 || /[.!?]\s+$/.test(narration.slice(0, offset));
+
+// Cue text rules: found, unique, at a sentence start, in narration order.
+// The 15-frame distance needs the real clip length, so build mode checks it (see buildScenes).
+const checkCues = (scene, fail) => {
+  const { narration, component, props } = scene;
+  if (typeof narration !== "string" || narration.trim() === "") return;
+  let previous = -1;
+  for (const cueText of cuesOf(component, props)) {
+    const hits = cueMatches(narration, cueText);
+    if (hits.length === 0) fail(`cue ${q(cueText)} is not in the narration`);
+    else if (hits.length > 1) fail(`cue ${q(cueText)} is not unique in the narration`);
+    else if (!atSentenceStart(narration, hits[0])) fail(`cue ${q(cueText)} is not at a sentence start`);
+    else if (hits[0] <= previous) fail(`cue ${q(cueText)} is out of narration order`);
+    if (hits.length === 1) previous = hits[0];
+  }
+};
+
+// ---------- code source ----------
+
+const columns = (line) => charLength(line) + (TAB_COLUMNS - 1) * (line.split("\t").length - 1);
+
+// Lines of <root>/<file>, one entry per line, no trailing newline.
+const readSourceLines = (root, file) => {
+  const text = fs.readFileSync(path.join(root, file), "utf8");
+  const lines = text.split("\n").map((l) => l.replace(/\r$/, ""));
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+};
+
+const sourceOk = (props) =>
+  isObject(props?.source) &&
+  typeof props.source.path === "string" &&
+  isInt(props.source.from) &&
+  isInt(props.source.to);
+
+const checkCode = (props, root, fail) => {
+  if (!sourceOk(props)) return;
+  const { path: file, from, to } = props.source;
+  if (from < 1 || from > to) return fail(`source range ${from}-${to} is not a valid line range`);
+  if (to - from + 1 > MAX_CODE_LINES) fail(`source range ${from}-${to} is ${to - from + 1} lines (max ${MAX_CODE_LINES})`);
+  let lines;
+  try {
+    lines = readSourceLines(root, file);
+  } catch {
+    return fail(`source.path ${file} cannot be read under the data root`);
+  }
+  if (to > lines.length) {
+    fail(`source.to ${to} is outside ${file} (${lines.length} lines)`);
+  } else {
+    for (let n = from; n <= to; n++) {
+      const cols = columns(lines[n - 1]);
+      if (cols > MAX_COLUMNS) fail(`line ${n} is ${cols} columns (max ${MAX_COLUMNS})`);
+    }
+  }
+  list(props.highlights).forEach((h, i) => {
+    if (isInt(h?.from) && isInt(h?.to) && (h.from > h.to || h.from < from || h.to > to)) {
+      fail(`highlights[${i}] range ${h.from}-${h.to} is outside the source range ${from}-${to}`);
+    }
+  });
+};
+
+// ---------- diagram references and cells ----------
+
+const checkDiagram = (props, fail) => {
+  const nodes = list(props.nodes).filter(isObject);
+  const ids = new Set(nodes.map((n) => n.id));
+  const cellOwner = new Map();
+  list(props.nodes).forEach((n, i) => {
+    if (!isObject(n) || !CELLS.includes(n.cell)) return;
+    if (cellOwner.has(n.cell)) fail(`nodes[${i}].cell ${q(n.cell)} is already used by nodes[${cellOwner.get(n.cell)}]`);
+    else cellOwner.set(n.cell, i);
+  });
+  list(props.edges).forEach((e, i) => {
+    for (const end of ["from", "to"]) {
+      if (isObject(e) && typeof e[end] === "string" && !ids.has(e[end])) fail(`edges[${i}].${end} ${q(e[end])} is not a node id`);
+    }
+  });
+  list(props.walk).forEach((w, i) => {
+    if (isObject(w) && typeof w.node === "string" && !ids.has(w.node)) fail(`walk[${i}].node ${q(w.node)} is not a node id`);
+  });
+};
+
+// ---------- scene and script checks ----------
+
+const CITE_SHAPE = { path: str(Infinity), line: int, snippet: str(Infinity) };
+
+const checkCites = (cites, subjectKind, fail) => {
+  if (!Array.isArray(cites)) return fail("cites must be an array");
+  if (cites.length === 0 && (subjectKind === "file" || subjectKind === "directory")) {
+    fail(`no cites (subject kind ${subjectKind})`);
+  }
+  cites.forEach((c, i) => {
+    const where = `cites[${i}]`;
+    if (!isObject(c)) return fail(`${where} must be an object`);
+    const url = typeof c.path === "string" && isUrl(c.path);
+    const shape = { ...CITE_SHAPE, line: { ...int, optional: url } };
+    checkShape(c, shape, where, fail);
+    if (isInt(c.line) && c.line < 1) fail(`${where}.line must be 1 or more`);
+  });
+};
+
+const SCENE_KEYS = ["id", "component", "props", "narration", "cites"];
+
+const checkScene = (scene, where, root, subjectKind, report) => {
+  const fail = (cause) => report(where, cause);
+  if (!isObject(scene)) return fail("must be an object");
+  for (const key of SCENE_KEYS) if (!(key in scene) && key !== "cites") fail(`missing ${q(key)}`);
+  for (const key of Object.keys(scene)) if (!SCENE_KEYS.includes(key)) fail(`unexpected key ${q(key)}`);
+  if ("id" in scene && (typeof scene.id !== "string" || scene.id === "")) fail("id must be a non-empty string");
+
+  if ("narration" in scene) {
+    if (typeof scene.narration !== "string" || scene.narration.trim() === "") fail("narration is empty");
+    else if (wordCount(scene.narration) > MAX_NARRATION_WORDS) {
+      fail(`narration is ${wordCount(scene.narration)} words (max ${MAX_NARRATION_WORDS})`);
+    }
+  }
+  checkCites(scene.cites ?? [], subjectKind, fail);
+
+  if ("component" in scene) {
+    const shape = SHAPES[scene.component];
+    if (!shape) return fail(`unknown component ${q(scene.component)}`);
+    if ("props" in scene) {
+      checkShape(scene.props, shape, "", fail);
+      if (isObject(scene.props)) {
+        checkCues(scene, fail);
+        if (scene.component === "diagram-with-highlight-walk") checkDiagram(scene.props, fail);
+        if (scene.component === "code-with-line-highlights") checkCode(scene.props, root, fail);
+      }
+    }
+  }
+};
+
+const sceneWhere = (scene, index) =>
+  typeof scene?.id === "string" && scene.id !== "" ? `scene ${scene.id}` : `scene #${index + 1}`;
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const validDate = (s) => {
+  const d = new Date(s);
+  return DATE.test(s) && !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
+};
+
+const checkHeader = (script, report) => {
+  const fail = (cause) => report("script", cause);
+  for (const key of Object.keys(script)) {
+    if (!["title", "subject", "provenance", "scenes"].includes(key)) fail(`unexpected key ${q(key)}`);
+  }
+  checkSpec(script.title, str(Infinity), "title", fail);
+  checkShape(script.subject, { text: str(Infinity), kind: str(Infinity) }, "subject", fail);
+  if (isObject(script.subject) && typeof script.subject.kind === "string" && !KINDS.includes(script.subject.kind)) {
+    fail(`subject.kind ${q(script.subject.kind)} must be one of ${KINDS.join(", ")}`);
+  }
+  const prov = script.provenance;
+  checkShape(
+    prov,
+    { root: str(Infinity), commit: str(Infinity), dirty: str(Infinity), date: str(Infinity), source: str(Infinity), not_covered: str(Infinity, true) },
+    "provenance",
+    fail,
+  );
+  if (isObject(prov)) {
+    if (typeof prov.dirty === "string" && !["dirty", "no"].includes(prov.dirty)) fail(`provenance.dirty ${q(prov.dirty)} must be dirty or no`);
+    if (typeof prov.date === "string" && prov.date !== "" && !validDate(prov.date)) fail(`provenance.date ${q(prov.date)} must be YYYY-MM-DD`);
+  }
+};
+
+// Every cause, as FAIL lines, in document order.
+const validate = (script, root) => {
+  const lines = [];
+  const report = (where, cause) => lines.push(`FAIL ${where}: ${cause}`);
+  if (!isObject(script)) return ["FAIL script: top level must be an object"];
+  checkHeader(script, report);
+  if (!Array.isArray(script.scenes)) {
+    report("script", "scenes must be an array");
+    return lines;
+  }
+  const count = script.scenes.length;
+  if (count < 3 || count > 8) report("script", `${count} scenes (needs 3 to 8)`);
+  const kind = script.subject?.kind;
+  const seen = new Set();
+  script.scenes.forEach((scene, i) => {
+    const id = scene?.id;
+    if (typeof id === "string" && id !== "") {
+      if (seen.has(id)) report("script", `duplicate scene id ${q(id)}`);
+      seen.add(id);
+    }
+    checkScene(scene, sceneWhere(scene, i), root, kind, report);
+  });
+  return lines;
+};
+
+// ---------- build mode ----------
+
+const buildScenes = (script, durations, engine, root, fail) => {
+  const clips = isObject(durations?.scenes) ? durations.scenes : {};
+  let from = 0;
+  const out = [];
+  list(script?.scenes).forEach((scene, i) => {
+    const where = sceneWhere(scene, i);
+    const bad = (cause) => fail(`FAIL ${where}: ${cause}`);
+    if (!isObject(scene) || typeof scene.id !== "string" || typeof scene.narration !== "string" || !isObject(scene.props)) {
+      return bad("needs id, narration and props to build");
+    }
+    const seconds = clips[scene.id];
+    if (seconds === undefined) return bad("no duration in durations.json");
+    if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
+      return bad(`duration ${q(seconds)} must be a positive number of seconds`);
+    }
+    const clipFrames = Math.ceil(seconds * FPS);
+    const props = { ...scene.props };
+    if (scene.component === "code-with-line-highlights") {
+      if (!sourceOk(props) || root === undefined) return bad("cannot read source lines (needs source and --root)");
+      try {
+        props.lines = readSourceLines(root, props.source.path).slice(props.source.from - 1, props.source.to);
+      } catch {
+        return bad(`source.path ${props.source.path} cannot be read under the data root`);
+      }
+    }
+    const cueFrames = {};
+    let previous = null;
+    for (const cueText of cuesOf(scene.component, scene.props)) {
+      const hits = cueMatches(scene.narration, cueText);
+      if (hits.length === 0) {
+        bad(`cue ${q(cueText)} is not in the narration`);
+        continue;
+      }
+      const frame = LEAD_FRAMES + Math.round((hits[0] / scene.narration.length) * clipFrames);
+      // The 15-frame distance is checked here, not by --check: it needs the real clip length.
+      if (previous !== null && frame - previous < MIN_CUE_GAP) {
+        bad(`cue ${q(cueText)} is ${frame - previous} frames after the previous cue (minimum ${MIN_CUE_GAP})`);
+      }
+      cueFrames[cueText] = frame;
+      previous = frame;
+    }
+    const durationInFrames = LEAD_FRAMES + clipFrames + TAIL_FRAMES;
+    out.push({
+      id: scene.id,
+      component: scene.component,
+      props,
+      from,
+      durationInFrames,
+      leadFrames: LEAD_FRAMES,
+      audioFrames: clipFrames,
+      audio: `audio/${scene.id}.${engine}.wav`,
+      cueFrames,
+    });
+    from += durationInFrames;
+  });
+  return out;
+};
+
+// ---------- command line ----------
+
+const usageError = (msg) => {
+  process.stderr.write(`build-timeline.mjs: ${msg}\n${USAGE}`);
+  process.exit(2);
+};
+
+const parseArgs = (argv) => {
+  const positional = [];
+  let check = false;
+  let root;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--check") check = true;
+    else if (argv[i] === "--root") {
+      root = argv[++i];
+      if (root === undefined) usageError("--root needs a value");
+    } else if (argv[i].startsWith("--")) usageError(`unknown option ${argv[i]}`);
+    else positional.push(argv[i]);
+  }
+  return { check, root, positional };
+};
+
+const finish = (failures) => {
+  for (const line of failures) console.log(line);
+  process.exit(failures.length === 0 ? 0 : 1);
+};
+
+const main = () => {
+  const { check, root, positional } = parseArgs(process.argv.slice(2));
+  if (check) {
+    if (positional.length !== 1 || root === undefined) usageError("--check needs <script.json> and --root <data-root>");
+    const script = readJson(positional[0], "script");
+    if (script.fail) finish([script.fail]);
+    finish(validate(script.value, root));
+  }
+  if (positional.length !== 4) usageError("build mode needs <script.json> <durations.json> <engine> <out.json>");
+  const [scriptFile, durationsFile, engine, outFile] = positional;
+  if (!ENGINES.includes(engine)) usageError(`engine must be say or kokoro, got ${q(engine)}`);
+  const script = readJson(scriptFile, "script");
+  const durations = readJson(durationsFile, "durations");
+  const failures = [script.fail, durations.fail].filter(Boolean);
+  if (failures.length > 0) finish(failures);
+  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line));
+  if (failures.length > 0) finish(failures);
+  const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
+  try {
+    fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
+    fs.writeFileSync(outFile, JSON.stringify({ fps: FPS, width: WIDTH, height: HEIGHT, totalFrames, engine, scenes }, null, 2) + "\n");
+  } catch (err) {
+    finish([`FAIL script: cannot write ${outFile}: ${err.code ?? err.message}`]);
+  }
+};
+
+main();

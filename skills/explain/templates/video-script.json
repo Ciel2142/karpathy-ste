@@ -1,0 +1,112 @@
+{
+  "title": "How verify.sh checks an artifact",
+  "subject": { "text": "scripts/verify.sh", "kind": "file" },
+  "provenance": {
+    "root": "skills/explain",
+    "commit": "9376c80",
+    "dirty": "no",
+    "date": "2026-10-03",
+    "source": "scripts/verify.sh and scripts/cite_check.py",
+    "not_covered": "The Chrome flags, the process cleanup and the lint rules."
+  },
+  "scenes": [
+    {
+      "id": "intro",
+      "component": "title",
+      "props": {
+        "title": "How verify.sh checks an artifact",
+        "subtitle": "Four checks before handoff",
+        "cue": "This video explains"
+      },
+      "narration": "This video explains the check script. The script runs four checks on every artifact. It runs them before handoff.",
+      "cites": [
+        { "path": "scripts/verify.sh", "line": 2, "snippet": "the four checks an explain artifact must pass" }
+      ]
+    },
+    {
+      "id": "checks",
+      "component": "bullets-appear",
+      "props": {
+        "title": "The four checks",
+        "bullets": [
+          { "text": "Self-contained: no remote links", "cue": "The first check" },
+          { "text": "Render: Chrome loads the page", "cue": "The second check" },
+          { "text": "Citations: each line holds", "cue": "The third check" },
+          { "text": "Prose: the lint finds no errors", "cue": "The fourth check" }
+        ]
+      },
+      "narration": "The first check looks for remote links. The second check loads the page in Chrome. The third check tests each citation. The fourth check lints the prose.",
+      "cites": [
+        { "path": "scripts/verify.sh", "line": 12, "snippet": "self-contained: ok" },
+        { "path": "scripts/verify.sh", "line": 16, "snippet": "citations: ok" }
+      ]
+    },
+    {
+      "id": "tools",
+      "component": "diagram-with-highlight-walk",
+      "props": {
+        "title": "Who does each check",
+        "nodes": [
+          { "id": "verify", "label": "verify.sh", "sub": "runs all four", "cell": "a2" },
+          { "id": "chrome", "label": "Chrome", "sub": "renders the page", "cell": "b1" },
+          { "id": "cites", "label": "cite_check", "sub": "reads cited lines", "cell": "b2" },
+          { "id": "lint", "label": "ste_lint", "sub": "checks the prose", "cell": "b3" }
+        ],
+        "edges": [
+          { "from": "verify", "to": "chrome", "label": "render" },
+          { "from": "verify", "to": "cites", "label": "citations" },
+          { "from": "verify", "to": "lint", "label": "prose" }
+        ],
+        "walk": [
+          { "node": "verify", "cue": "The script calls" },
+          { "node": "chrome", "cue": "Chrome renders" },
+          { "node": "cites", "cue": "The cite checker" },
+          { "node": "lint", "cue": "The lint tool" }
+        ]
+      },
+      "narration": "The script calls three helpers. Chrome renders the page. The cite checker reads each cited line. The lint tool checks the prose.",
+      "cites": [
+        { "path": "scripts/verify.sh", "line": 37, "snippet": "Google Chrome" },
+        { "path": "scripts/verify.sh", "line": 39, "snippet": "CITE_CHECK=" },
+        { "path": "scripts/verify.sh", "line": 40, "snippet": "STE_LINT=" }
+      ]
+    },
+    {
+      "id": "setup",
+      "component": "code-with-line-highlights",
+      "props": {
+        "title": "The settings at the top",
+        "source": { "path": "scripts/verify.sh", "from": 35, "to": 40 },
+        "highlights": [
+          { "from": 37, "to": 37, "cue": "The first path" },
+          { "from": 39, "to": 40, "cue": "The next two paths" }
+        ]
+      },
+      "narration": "The script starts with its settings. The first path names the Chrome binary. The next two paths name the helper scripts.",
+      "cites": [
+        { "path": "scripts/verify.sh", "line": 37, "snippet": "CHROME=" },
+        { "path": "scripts/verify.sh", "line": 40, "snippet": "ste_lint.py" }
+      ]
+    },
+    {
+      "id": "result",
+      "component": "before-after",
+      "props": {
+        "title": "What the script changes",
+        "before": {
+          "heading": "Without verify.sh",
+          "lines": ["Open the page by hand", "Click each citation", "Read the prose twice"]
+        },
+        "after": {
+          "heading": "With verify.sh",
+          "lines": ["Run one command", "Read four result lines"]
+        },
+        "cue": "Now one command"
+      },
+      "narration": "Without the script, a person checks each item by hand. Now one command runs all four checks and prints the result.",
+      "cites": [
+        { "path": "scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed" }
+      ]
+    }
+  ]
+}
