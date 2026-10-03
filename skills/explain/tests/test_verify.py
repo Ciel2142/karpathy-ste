@@ -35,6 +35,12 @@ def fixture(name):
         return handle.read()
 
 
+def replace_once(case, text, anchor, replacement):
+    """Replace an anchor that must occur exactly once in text."""
+    case.assertEqual(text.count(anchor), 1, "anchor %r" % anchor)
+    return text.replace(anchor, replacement)
+
+
 class VerifyTest(unittest.TestCase):
 
     def setUp(self):
@@ -183,18 +189,44 @@ class VerifyTest(unittest.TestCase):
         self.assert_no_chrome_left()
 
     def test_page_rung_dumps_two_viewports(self):
-        # A data-verify attribute already in the source keeps its place before lang
-        # when the guard rewrites it: attribute order must not matter.
+        # The guard sets data-verify="pending" before lang at parse time (the source
+        # tag stays attribute-free) and rewrites it in place on load: attribute order
+        # in the dump must not matter.
+        pending = (
+            "<script>\n"
+            "var h = document.documentElement, lang = h.getAttribute(\"lang\");\n"
+            "h.removeAttribute(\"lang\");\n"
+            "h.setAttribute(\"data-verify\", \"pending\");\n"
+            "h.setAttribute(\"lang\", lang);\n"
+        )
         proc, _ = self.verify_fixture(
             "verify-good.html",
-            edit=lambda html: html.replace('content="sheet"', 'content="page"').replace(
-                '<html lang="en">', '<html data-verify="pending" lang="en">'),
+            edit=lambda html: replace_once(
+                self, replace_once(self, html, 'content="sheet"', 'content="page"'),
+                "<script>\n", pending),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(
             proc.stdout,
             "self-contained: ok\nrender 1440x900: ok\nrender 500x844: ok\n"
             "citations: ok\nprose: ok\n",
+        )
+        self.assert_no_chrome_left()
+
+    def test_data_verify_preset_in_the_source_fails_without_a_dump(self):
+        # A static data-verify="OK" on the source <html> would pass check 2 with no
+        # guard at all; any value in the source is refused before Chrome starts.
+        def edit(html):
+            html = replace_once(self, html, '<html lang="en">',
+                                '<html lang="en" data-verify="OK">')
+            start, end = html.index("<script>"), html.index("</script>") + len("</script>")
+            return html[:start] + html[end:]
+        proc, _ = self.verify_fixture("verify-good.html", edit=edit)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            self.check_lines(proc.stdout),
+            ["self-contained: ok", "render 1920x1080: FAIL data-verify preset in source",
+             "citations: ok", "prose: ok"],
         )
         self.assert_no_chrome_left()
 

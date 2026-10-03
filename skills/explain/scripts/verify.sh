@@ -12,6 +12,7 @@
 #   self-contained: ok | FAIL <n> remote reference(s)
 #   render <W>x<H>: ok | FAIL data-verify="<value>" | FAIL no data-verify attribute
 #                      | FAIL timeout | FAIL Chrome not found
+#                      | FAIL data-verify preset in source
 #   citations: ok | FAIL <n> failure(s) | FAIL cite_check exit <code>
 #   prose: ok | FAIL <n> error(s) | FAIL lint usage error (exit 2) | FAIL lint exit <code>
 # Detail lines follow a failing check, indented by two spaces: each remote reference
@@ -19,6 +20,10 @@
 # "style css=<fragment>" for <style> text), each cite_check failure, each lint error.
 # A sheet has one render line (1920x1080); a page has two (1440x900, 500x844).
 # Every check runs even after an earlier one failed.
+#
+# Only the guard may write data-verify. If the source <html> start tag already carries
+# a data-verify attribute (any value), check 2 fails for each viewport without a dump:
+# a static data-verify="OK" would otherwise pass with no guard at all.
 #
 # Check 2 loads file://<index.html>#verify in headless Chrome with --dump-dom. Chrome
 # 154 prints the DOM and then never exits, and macOS has no timeout(1): Chrome runs in
@@ -110,7 +115,9 @@ indent() {
 
 # Parse the HTML with html.parser (never the raw text, so escaped code samples
 # are text, not markup). Line 1: "rung=<content of the first explain-rung meta>",
-# or "rung-missing". Every further line is one remote reference (check 1).
+# or "rung-missing". Line 2: "preset=yes" if the first <html> start tag has a
+# data-verify attribute, else "preset=no". Every further line is one remote
+# reference (check 1).
 scan() {
     python3 - "$1" <<'PY'
 import re
@@ -142,11 +149,14 @@ class Scanner(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.rung = None
+        self.preset = None   # data-verify on the first <html> start tag
         self.refs = []
         self.in_style = False
 
     def handle_starttag(self, tag, attrs):
         values = [(name, value or "") for name, value in attrs]
+        if tag == "html" and self.preset is None:
+            self.preset = any(name == "data-verify" for name, _ in values)
         if tag == "meta" and self.rung is None:
             named = dict(values)
             if named.get("name", "").strip().lower() == "explain-rung":
@@ -185,6 +195,7 @@ scanner = Scanner()
 scanner.feed(html)
 scanner.close()
 print("rung-missing" if scanner.rung is None else "rung=" + scanner.rung)
+print("preset=yes" if scanner.preset else "preset=no")
 for ref in scanner.refs:
     print(" ".join(ref.split()))
 PY
@@ -194,6 +205,10 @@ PY
 render_check() {
     local width=$1 height=$2 n=$3
     local label="render ${width}x${height}:" dump="$work/dump-$n.html" polls=0 tag value
+    if [ "$preset" = "preset=yes" ]; then
+        echo "$label FAIL data-verify preset in source"
+        return 1
+    fi
     if [ ! -x "$CHROME" ]; then
         echo "$label FAIL Chrome not found"
         echo "  $CHROME"
@@ -254,8 +269,9 @@ url=$(file_url "$input_abs")
 max_polls=$((timeout * 5))   # one poll every 0.2 s
 
 scanned=$(scan "$input_abs") || usage "cannot parse $input_abs"
-rung_line=$(printf '%s\n' "$scanned" | head -n 1)
-refs=$(printf '%s\n' "$scanned" | sed '1d')
+rung_line=$(printf '%s\n' "$scanned" | sed -n 1p)
+preset=$(printf '%s\n' "$scanned" | sed -n 2p)
+refs=$(printf '%s\n' "$scanned" | sed '1,2d')
 case "$rung_line" in
     rung=sheet) viewports="1920x1080" ;;
     rung=page) viewports="1440x900 500x844" ;;
