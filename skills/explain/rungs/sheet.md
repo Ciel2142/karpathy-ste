@@ -4,9 +4,9 @@ This file holds only what is specific to the sheet rung. `SKILL.md` has the gene
 ## 1. When a sheet
 
 A sheet is one fixed page of at most 6 facets. It holds reference material that the reader looks
-at many times. It exports to a PNG for sharing.
+at many times. The canvas has a fixed size of 1920x1080 CSS pixels. The sheet exports to a PNG for sharing.
 
-The facet cap is 6. A forced `--as sheet` can bring more than 6 facets. Keep the 6 most important
+The facet cap is 6. A forced `--as sheet` can give more than 6 facets. Keep the 6 most important
 facets. Write the dropped facets in `<p class="not-covered">`, as `Not covered:` and a list of the
 facets. Write `Not covered: none` if you dropped nothing.
 
@@ -26,14 +26,21 @@ facets. Write `Not covered: none` if you dropped nothing.
 
 1. Copy `~/.claude/skills/explain/templates/sheet.html` to `<output-dir>/index.html`.
 2. Write the sheet title in `<title>` and in `.tb-title`.
-3. Delete the demo content of each panel body and the author comments. Keep all ids, all classes,
-   the `<style>` block and both guard scripts.
-4. Set the panel count:
-   - 6 panels: keep all panels. 5 panels: delete panel F. Add the class `tall` to `.title-block`.
+3. Delete the demo content of each panel body and the author comments. Keep the classes, the
+   `<style>` block and both guard scripts. Keep the ids and the `.tag` letters, but re-letter
+   them if you delete a panel (step 4).
+4. Set the panel count. Panel F is the `.over-title` panel: it sits in the last 3 columns of
+   row 2, above the title block. Delete panels in this order: F first, then C.
+   - 6 panels: keep all panels.
+   - 5 panels: delete panel F. Add the class `tall` to `.title-block`.
    - 4 panels: delete panels F and C. Add `tall` to `.title-block`. Change A and B to
      `span-6`. Change the id and the `.tag` of old D to C, and of old E to D.
-5. Each row adds up to 12 columns (`span-3` to `span-12`). In row 2 the title block takes the
-   last 3 columns. Thus the panels in row 2 add up to 9.
+   Plan the content so that the panels that remain are the panels that hold the questions.
+   Put the least important questions in F and C. Move content before you delete a panel.
+5. The span classes are `span-3`, `span-4`, `span-5`, `span-6`, `span-7`, `span-8`, `span-9`
+   and `span-12`. There is no `span-10` or `span-11`. Each row of panels adds up to 12 columns.
+   In row 2 the title block takes the last 3 columns. Thus the panels D and E add up to 9
+   columns, and panel F sits above the title block.
 
 Put one primitive in each `.panel-body`.
 
@@ -42,7 +49,7 @@ Put one primitive in each `.panel-body`.
 | tree | `ul.tree`, `.root`, `.what` | The map. Always panel A. |
 | annotated example | `.sample`, `.markers`, `pre`, `.hl`, `dl.legend` | Code, sentences or messages with keys. |
 | status table | `table.status`, `td.yes`, `td.no` | Rows with a check or a cross. |
-| limits bars | `.limit`, `.limit-head`, `.bar`, `.ticks` | A number against its maximum. |
+| limits bars | `.limit`, `.limit-head`, `.bar`, `.ticks` | A limit drawn as a bar on a tick scale. |
 | timeline | `ol.timeline`, `.when`, `.what` | An ordered flow of up to 6 nodes. |
 | rule list | `ul.rules` | Short rules, one for each `<li>`. |
 
@@ -51,10 +58,12 @@ Put one primitive in each `.panel-body`.
 - Annotated example: write one `<li>` in `.markers` for each line of the `<pre>`. Write an
   empty `<li>` for a line without a key. Escape `<` and `>` in the sample.
 - Every font size is 12 px or more. Do not add a rule that sets a smaller size.
-- Bar: set `--value` and `--max` on `.bar`. Write the tick labels from 0 to `--max` at equal
-  steps. Keep the `max N` label in `.limit-head`.
+- Bar: `--value` on `.bar` is the limit itself, for example 6. `--max` is the end of the tick
+  scale, for example 8. The label in `.limit-head` is `max 6 panels`: it shows the limit, not
+  the scale end. Write the tick labels in `ol.ticks` from 0 to `--max` at equal steps.
+  `verify.sh` cannot find a wrong bar. Check each bar by eye in the tiles.
 - The title block has `.tb-title`, a `<dl>` of key and value pairs, `#provenance` (section 4)
-  and `.not-covered`. Put `data-ste="skip"` on both `<dl>` blocks. Keep each value short. A
+  and `p.not-covered`. Put `data-ste="skip"` on both `<dl>` blocks. Keep each value short. A
   value wraps and never truncates. The guard reports `OVERFLOW:title` if the block overflows.
 
 ## 4. Provenance recipe
@@ -68,22 +77,29 @@ git status --porcelain
 git ls-files --error-unmatch <path>
 ```
 
-- `--show-toplevel` gives the repo root. Write it in `data-root` of `#provenance`. Without a repo,
-  write the directory of the subject there, and write `none` and `no` as Commit and Dirty.
-- `--short HEAD` gives the Commit value (7 or more characters). If `git status --porcelain` prints
-  anything, write `dirty` as the Dirty value. If not, write `no`.
-- If `git ls-files --error-unmatch <path>` exits with a non-zero code, git does not track the
-  file. Add the word `untracked` to each `<cite>` for that file.
+- `--show-toplevel` gives the repo root. Write it in `data-root` of `#provenance`. For a topic
+  or a conversation, write the current directory in `data-root`.
+- `--short HEAD` gives the Commit value (7 or more characters). For a topic outside a repo,
+  write `none` as Commit and `no` as Dirty.
+- If `git status --porcelain` prints anything, write the literal `dirty` as the Dirty value.
+  If it prints nothing, write `no`.
 - Set `data-kind` to `file`, `directory`, `topic` or `conversation`. Write the date as `YYYY-MM-DD`.
-- Topic: write `model knowledge` as the Source, or list the URLs that you read. Conversation:
-  write `unverified` in the Subject cell, and re-read and cite each file that it names.
+- Subject cell: `<path> (file)`, `<path> (directory)`, `<topic> (topic)` or
+  `conversation (unverified)`. For a conversation, re-read and cite each file that it names.
+- Source cell: for a file or a directory, write the repo root. For a topic, write
+  `model knowledge` or the list of URLs that you read. Never write `model knowledge` for a file.
 
-A citation has this form. The path is relative to `data-root`. The snippet has at most 12
-words, copied verbatim from that line.
+A citation has this form. The path is relative to `data-root`. `data-line` is a 1-based line
+number. The snippet has at most 12 words, copied verbatim from that one line. Escape `"`, `&`
+and `<` inside the attribute (`&quot;`, `&amp;`, `&lt;`).
 
 ```
 <cite data-path="src/app.py" data-line="12" data-snippet="def main(argv):">src/app.py:12 "def main(argv):"</cite>
 ```
+
+If `git ls-files --error-unmatch <path>` exits with a non-zero code, git does not track the
+file. Write the word `untracked` inside the `<cite>` text, after the snippet, in each
+`<cite>` for that file.
 
 ## 5. Write the prose
 
@@ -94,8 +110,11 @@ Write all prose in STE-80. These notes come from the lint of the `ste` skill.
 - Keep icons and `<img>` out of sentences. Put them in a separate element.
 - Write a quote as `“…”` or as `<q>…</q>`. The lint counts a quote as one word.
 - Start a safety text with `WARNING:` and put it in its own `<p>`.
-- The lint does not read headings, table cells, `<cite>`, `<code>`, `<title>` or any
+- The lint does not read headings, table cells, `<cite>`, the `<title>` element or any
   `data-ste="skip"` subtree.
+- The lint reads `.tb-title`, `.panel-head .caption` and `p.not-covered` as prose. An
+  unapproved word there fails the prose check. A long `Not covered` list can be a sentence
+  of 26 words or more, which is an error. Inline `<code>` outside a skip counts as one word.
 - A step of 21 to 25 words in an `<ol>` is a warning. A sentence of 26 words or more, in
   any place, is an error.
 
@@ -107,6 +126,7 @@ Do these steps in the output directory, in this order.
    the detail lines name.
 2. Run `~/.claude/skills/explain/scripts/snapshot.sh index.html sheet.png 1920 1080 2`. It writes
    `sheet.png` (3840x2160) and the tiles `review/sheet-01.png` to `review/sheet-04.png`.
+   The output directory then holds `index.html`, `sheet.png` and `review/sheet-01..04.png`.
 3. Read the four tiles with the Read tool. Never read `sheet.png`.
 4. Look for these faults. Clipped text. An empty panel. A red ribbon (`OVERFLOW:<letter>`).
    A bar without its `max N` label. A hierarchy that the reader cannot see. Text that gives
@@ -116,5 +136,6 @@ Do these steps in the output directory, in this order.
    when you run for the user directly. Never run `open` inside a subagent.
 
 ## 7. Shared palette
-The template comment says that `templates/page.html` carries the same palette block. Change
-both. If `page.html` does not exist yet, change `sheet.html` only.
+
+The palette block is duplicated in `templates/page.html`. Change both.
+While `page.html` does not exist, change `sheet.html` only.
