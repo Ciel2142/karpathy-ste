@@ -400,9 +400,10 @@ button { font-family: var(--sans); }
   <div class="panel-body">
     <!-- primitive: rule list. Short STE sentences, one rule per <li>. This is prose. -->
     <!-- Citation pattern: <cite data-path="src/app.py" data-line="12" data-snippet="def
-         main(argv):">src/app.py:12 "def main(argv):"</cite>. The path is relative to
-         data-root; the snippet is at most 12 words, verbatim from that line. A URL
-         citation starts data-path with https:// and is not checked again. -->
+         main(argv):">app.py:12 "def main(argv):"</cite>. data-path is the full path,
+         relative to data-root; the visible name is its basename (or a longer tail if two
+         cited files have that basename). The snippet is at most 12 words, verbatim from
+         that line. A URL citation starts data-path with https:// and is not checked again. -->
     <ul class="rules">
       <li>Answer one question in each panel.</li>
       <li>Show a limit as a bar.</li>

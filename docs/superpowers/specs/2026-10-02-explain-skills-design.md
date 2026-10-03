@@ -345,8 +345,10 @@ Rules:
    `index.html` passes `ste_lint.py --html` with zero errors.
 2. Grounded and checkable. When the subject is code or a repo file, the real source is
    read first. Every claim carries a citation rendered as
-   `<cite data-path="…" data-line="…" data-snippet="…">path:line "snippet"</cite>`,
-   where the snippet is at most 12 words copied verbatim from that line; `cite_check.py`
+   `<cite data-path="…" data-line="…" data-snippet="…">name:line "snippet"</cite>`,
+   where the snippet is at most 12 words copied verbatim from that line. The visible
+   text may shorten the path to the file's basename, or to a longer tail that is unique
+   on the artifact, while `data-path` keeps the full root-relative path. `cite_check.py`
    verifies all three. For a file or directory subject every panel (sheet) or section
    (page) must contain at least one `<cite>`; content with no source does not belong
    in a grounded artifact. Provenance (title block or footer) carries: the resolved
@@ -447,9 +449,10 @@ Runs four checks, reports each, exits non-zero if any failed:
    shows the artifact's title, not "OK".
 3. Citations: `cite_check.py <index.html>` reads every `<cite>`; resolves `data-path`
    against `data-root`; fails if `data-root` is absent, the file is missing, the line
-   is out of range, or the whitespace-normalized snippet is not on that line; for file
-   and directory subjects also fails any panel or section that holds no `<cite>`.
-   Prints one line per failure. URL citations are skipped.
+   is out of range, the whitespace-normalized snippet is not on that line, or the
+   visible text lacks `<basename>:<line>`; for file and directory subjects also fails
+   any panel or section that holds no `<cite>`. Prints one line per failure. URL
+   citations are skipped.
 4. Prose: `ste_lint.py --html <index.html>` exit 0.
 
 ### 5.6 Size discipline

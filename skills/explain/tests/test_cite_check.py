@@ -212,6 +212,47 @@ class TestCites(CiteCheckCase):
         self.assertEqual(self.run_check(section(cite(path="bin.txt", snippet="au lait"))), [])
 
 
+def shown(text, path="src.txt", line="1", snippet="alpha beta"):
+    """A <cite> with correct attributes and the given visible text (markup allowed)."""
+    attrs = {"data-path": path, "data-line": line, "data-snippet": snippet}
+    attrs = " ".join('%s="%s"' % (k, v) for k, v in attrs.items() if v is not None)
+    return "<cite %s>%s</cite>" % (attrs, text)
+
+
+class TestVisibleText(CiteCheckCase):
+    LACKS = 'cite 1 (src.txt:1): visible text lacks "src.txt:1"'
+
+    def test_visible_text_without_basename_fails(self):
+        out = self.run_check(section(shown(':1 "alpha beta"')))
+        self.assertEqual(out, [self.LACKS])
+
+    def test_visible_text_with_basename_passes(self):
+        self.write("sub/dir/src.txt", SOURCE)
+        for text in (
+            'src.txt:1 "alpha beta"',
+            'dir/src.txt:1 "alpha beta"',
+            '<code>src.txt</code>:1 <q>alpha beta</q>',
+        ):
+            with self.subTest(text=text):
+                body = section(shown(text, path="sub/dir/src.txt"))
+                self.assertEqual(self.run_check(body), [])
+
+    def test_visible_line_prefix_does_not_match(self):
+        """`src.txt:12` holds `src.txt:1` as a substring, so a plain `in` test passes it.
+        The regex guard `(?![0-9])` rejects a digit after the line number."""
+        out = self.run_check(section(shown('src.txt:12 "alpha beta"')))
+        self.assertEqual(out, [self.LACKS])
+
+    def test_visible_check_runs_without_data_root(self):
+        out = self.run_check(section(shown(':1 "alpha beta"')), root=None)
+        self.assertEqual(out, [self.LACKS, "cite 1 (src.txt:1): data-root missing"])
+
+    def test_url_cite_visible_text_is_free(self):
+        url = "https://example.com/a/b.html"
+        body = section(shown("any text", path=url, line=None) + shown("", path=url))
+        self.assertEqual(self.run_check(body), [])
+
+
 class TestSections(CiteCheckCase):
     def test_file_kind_section_without_cite_fails(self):
         out = self.run_check(section(cite(), ident="a") + section("<p>no source</p>", ident="b"))

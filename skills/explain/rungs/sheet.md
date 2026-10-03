@@ -86,8 +86,7 @@ git ls-files --error-unmatch <path>
 - `--show-toplevel` gives the repo root. Write it in `data-root` of `#provenance`.
 - If `git rev-parse --show-toplevel` fails, `data-root` is the subject's directory (file,
   directory) or the current directory (topic, conversation). Commit is `none` and Dirty is `no`.
-- A topic without files has the same values, also inside a repository: `data-root` is the
-  current directory, Commit is `none` and Dirty is `no`.
+  A topic without files has the same values, also inside a repository.
 - `--short HEAD` gives the Commit value (7 or more characters).
 - If `git status --porcelain` prints anything, write the literal `dirty` as the Dirty value.
   If it prints nothing, write `no`.
@@ -98,18 +97,19 @@ git ls-files --error-unmatch <path>
   files of a git repo, also write the repo root. For any other topic, write `model knowledge` or
   the list of URLs that you read. Never write `model knowledge` for a file.
 
-A citation has this form. The path is relative to `data-root`. `data-line` is a 1-based line
-number. The snippet has at most 12 words, copied verbatim from that one line. Escape `"`, `&`
-and `<` inside the attribute (`&quot;`, `&amp;`, `&lt;`).
+A citation has this form. `data-path` is the full path, relative to `data-root`. `data-line` is a
+1-based line number. The snippet has at most 12 words, copied verbatim from that one line. Escape
+`"`, `&` and `<` inside the attribute (`&quot;`, `&amp;`, `&lt;`). The visible text is
+`name:line "snippet"`, where `name` is the basename of `data-path`, or a longer tail if two cited
+files have that basename.
 
 ```
-<cite data-path="src/app.py" data-line="12" data-snippet="def main(argv):">src/app.py:12 "def main(argv):"</cite>
+<cite data-path="src/app.py" data-line="12" data-snippet="def main(argv):">app.py:12 "def main(argv):"</cite>
 ```
 
-Run `git ls-files --error-unmatch <path>` from the repo root. `<path>` is the `data-path`
-value of the `<cite>`. If the command exits with a non-zero code, git does not track the
-file. Write the word `untracked` inside the `<cite>` text, after the snippet, in each
-`<cite>` for that file.
+Run `git ls-files --error-unmatch <path>` from the repo root. `<path>` is the `data-path` value
+of the `<cite>`. If the command exits with a non-zero code, git does not track the file. Write
+the word `untracked` inside the `<cite>` text, after the snippet, in each `<cite>` for that file.
 
 ## 5. Write the prose
 

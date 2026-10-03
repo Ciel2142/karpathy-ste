@@ -26,15 +26,17 @@ class _Section:
 
 
 class _Collector(HTMLParser):
-    """Collects the provenance attributes, every <cite> and every <section>."""
+    """Collects the provenance attributes, every <cite> with its text, and every <section>."""
 
     def __init__(self):
         super().__init__()
         self.provenance = None
         self.cites = []
+        self.cite_texts = []
         self.sections = []
         self._open = []
         self._heading_into = None
+        self._in_cite = False
 
     def handle_starttag(self, tag, attrs):
         values = {name: (value or "") for name, value in attrs}
@@ -46,6 +48,8 @@ class _Collector(HTMLParser):
             self._open.append(section)
         elif tag == "cite":
             self.cites.append(values)
+            self.cite_texts.append("")
+            self._in_cite = True
             for section in self._open:
                 section.has_cite = True
         elif tag in HEADINGS and self._open and not self._open[-1].heading:
@@ -54,12 +58,16 @@ class _Collector(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "section" and self._open:
             self._open.pop()
+        elif tag == "cite":
+            self._in_cite = False
         elif tag in HEADINGS:
             self._heading_into = None
 
     def handle_data(self, data):
         if self._heading_into is not None:
             self._heading_into.heading += data
+        if self._in_cite:
+            self.cite_texts[-1] += data
 
 
 def _normalize(text):
@@ -76,8 +84,19 @@ def _read_lines(path):
     return text.split("\n")
 
 
-def _check_cite(number, values, root):
-    """Return the failure messages for one non-URL-skipped citation."""
+def _visible_failure(label, path, line_text, text):
+    """The visible text must hold `<basename>:<line>` as one token (not `app.py:77` for 7).
+
+    The line is escaped: it is not yet known to be an integer here."""
+    name = os.path.basename(path)
+    token = re.escape(name) + ":" + re.escape(line_text) + r"(?![0-9])"
+    if re.search(token, _normalize(text)):
+        return []
+    return ['%s: visible text lacks "%s:%s"' % (label, name, line_text)]
+
+
+def _check_cite(number, values, root, text):
+    """Return the failure messages for one citation; a URL citation has none."""
     path = values.get("data-path", "").strip()
     line_text = values.get("data-line", "").strip()
     snippet = values.get("data-snippet", "")
@@ -95,7 +114,7 @@ def _check_cite(number, values, root):
     ]
     if missing:
         return ["%s: %s missing" % (label, ", ".join(missing))]
-    failures = []
+    failures = _visible_failure(label, path, line_text, text)
     words = len(snippet.split())
     if words > MAX_WORDS:
         failures.append("%s: snippet has %d words (max %d)" % (label, words, MAX_WORDS))
@@ -147,8 +166,9 @@ def check(html, html_dir):
         data_root = provenance.get("data-root", "").strip()
         if data_root:
             root = os.path.join(html_dir, data_root)
-    for number, values in enumerate(collector.cites, start=1):
-        failures.extend(_check_cite(number, values, root))
+    cites = zip(collector.cites, collector.cite_texts)
+    for number, (values, text) in enumerate(cites, start=1):
+        failures.extend(_check_cite(number, values, root, text))
     if kind in SECTION_KINDS:
         for number, section in enumerate(collector.sections, start=1):
             if not section.has_cite:

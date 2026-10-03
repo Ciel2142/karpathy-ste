@@ -35,7 +35,7 @@ each narrated beat.
 
 | Primitive | Markup | Use it for |
 |---|---|---|
-| captioned code | `figure.code > figcaption > code` (`path:line`), then `pre > code` | Source lines. |
+| captioned code | `figure.code > figcaption > code` (`name:line`), then `pre > code` | Source lines. |
 | walkthrough | `details.walk > summary`, then `p` | A long proof or a second example. |
 | diagram | `figure.diagram.flow`, `.sequence` or `.layers`, with a `<figcaption>` | A flow, an exchange, a stack. |
 | steps player | `div.player[data-player]`, `button[data-prev]`, `button[data-next]`, `span.caption[data-counter]`, `figure.step[data-step="n"]` | A state that changes in steps. |
@@ -52,8 +52,9 @@ each narrated beat.
 ## 4. Diagram patterns
 
 Each diagram is an inline SVG. Keep `viewBox`, `role="img"`, the `<title>` and `data-ste="skip"`.
-Write SVG text at 18 units on a `viewBox` of 600 units. At 500 px wide, this is about 14 px. Keep
-the `viewBox` width at 600 and grow only the height.
+Write SVG text at 18 units on a `viewBox` of 600 units. At 500 px wide, this is about 14 px. In the
+steps player, the SVG is narrower (about 441 px at 500 px wide), thus use 20 units there or an
+`ol.track`. Keep the `viewBox` width at 600 and grow only the height.
 
 Keep each marker `id` unique in the page. A player with one SVG for each step also needs a unique
 `<title id>` and `aria-labelledby` id in each SVG. The HTML comments in the template give the
@@ -95,11 +96,13 @@ content that you cut. Write `none` only when the page explains every facet.
 Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to a page.
 
 - The lint does not read `nav`. It reads each `summary` and each step caption.
-- The `figcaption` of a code figure holds `path:line` in `<code>`, thus the lint does not read it.
+- The `figcaption` of a code figure holds `name:line` in `<code>`, not in a `<cite>`, thus neither
+  the lint nor `cite_check.py` reads it.
 - A sentence of 26 words or more is an error in any place.
 - Cite each claim one time. When several sentences of one paragraph come from one source line,
   one `<cite>` at the end of the paragraph covers them. A sentence from another line gets its own
-  `<cite>`. Keep a snippet near 6 words. The visible text stays `path:line "snippet"`.
+  `<cite>`. Keep a snippet near 6 words. The visible text is `name:line "snippet"`, where `name` is
+  the basename or a unique longer tail, and `data-path` keeps the full path.
 
 ## 7. Verify and export
 
