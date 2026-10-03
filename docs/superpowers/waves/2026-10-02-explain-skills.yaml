@@ -97,14 +97,44 @@ waves:
       - skills/explain/scripts/verify.sh <run-3 dir>/index.html; exit code 0
       - run-3 rung line matches the pre-declared expectation
 
-deferred:
-  - capability: video rung (spec §8.4 pass path)
-    waits_for: [user decision on fold-in]
-    decided: narrator voice = Kokoro `af_heart`, `say` as fallback (user, 2026-10-03)
-    reason: >-
-      The stack, narration path, scene components and render budget cannot be
-      specified until the spike measures them against spec §8.3; planning now would
-      invent those decisions.
+  - id: explain-video
+    slice: vertical
+    goal: >-
+      `/explain <subject> --as video` builds a narrated mp4 (Kokoro `af_heart`) plus a
+      cited transcript page by one command after the script is written, with the same
+      grounding and prose checks as the other rungs.
+    done_when: >-
+      A Claude-side live run and the user's own `--as video` run both produce a playable
+      `video.mp4` whose `render.sh` summary prints every stage ok, whose `verify.sh
+      index.html` exits 0, whose stills show the right scene at each cue; three transcript
+      claims spot-checked at `path:line`.
+    status: in_progress   # plan v2 approved by the user, 2026-10-03
+    depends_on: [explain-page]
+    owns:
+      - skills/explain/video/
+      - skills/explain/rungs/video.md
+      - skills/explain/templates/video.html
+      - skills/explain/scripts/narrate.sh
+      - skills/explain/scripts/render.sh
+      - skills/explain/scripts/video-workspace.sh
+      - skills/explain/scripts/verify.sh   # one rung branch only
+      - skills/explain/SKILL.md            # three lines (rung exists; build steps 3-6; one cut)
+      - skills/explain/rungs/sheet.md §7 and rungs/page.md §8 palette notes (one line each)
+      - docs/superpowers/specs/…-explain-skills-design.md §5.3 item 5 (video contents, dated amendment)
+      - ~/karpathy/video-workspace/ (gitignored; EXPLAIN_VIDEO_WORKSPACE override)
+    risk: high   # external dependencies: npm registry, 350 MB model download, uv venv, licence
+    plan: docs/superpowers/plans/2026-10-03-explain-skills-video.md
+    decided: >-
+      narrator Kokoro `af_heart`, `say` as the automatic, labelled fallback when Kokoro fails
+      and on request (user, 2026-10-03); first-run setup runs by itself after printing its
+      costs (user, 2026-10-03); fold-in (user, 2026-10-03); plan revised after three Opus
+      reviews (spec, tech, adversarial) before approval
+    acceptance:
+      - skills/explain/scripts/render.sh <live-run dir> prints nine ok lines and the render ratio
+      - skills/explain/scripts/verify.sh <live-run dir>/index.html; exit code 0
+      - rung line printed as `Rung: video (forced) — --as video …`; stills read as tiles
+
+deferred: []
 
 approval:
   required: false
