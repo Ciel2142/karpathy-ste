@@ -145,4 +145,3 @@ Do these steps in the output directory, in this order.
 ## 7. Shared palette
 
 The palette block is duplicated in `templates/page.html`. Change both.
-While `page.html` does not exist, change `sheet.html` only.

@@ -30,9 +30,8 @@ Use the first rule that applies.
    - A path candidate that exists: read a file in full. Map a directory: its tree and its
      key files. If a `.codegraph/` index exists, use CodeGraph.
    - A path candidate that does not exist is an error. A missing path is never a topic.
-2. `this`: the last file that you read or wrote in the conversation. If there is none,
-   use the last substantial turn (an explanation, a review, or a plan). Label it
-   "conversation".
+2. `this`: the last file that you read or wrote in the conversation. If there is none, use the
+   last substantial turn (an explanation, a review, or a plan). Label it "conversation".
 3. Otherwise the subject is a topic. Use your own knowledge. Use web lookups only if the
    user says yes. Provenance states "model knowledge" or lists the URLs. Never claim
    that you read a source that you did not read.
@@ -58,10 +57,11 @@ Before you build, print this line, also under `--as`:
 names the flag and tells if the content fits the rung. Then follow these rules:
 
 - Offer `video` only if `rungs/video.md` exists. If it does not exist, `--as video` changes
-  to `page`, whose steps player shows the narration as step captions. Say so.
-- For `sheet` or `page` (also a `page` from the video fallback): if `rungs/<rung>.md` does
-  not exist, print the rung line. Say that the rung is not available yet. Stop. Offer
-  `sheet` or `ste`. While `rungs/page.md` does not exist, `--as video` also stops here.
+  to `page`, whose steps player shows the narration as step captions. Print this rung line:
+  `Rung: page (forced) — --as video, rungs/video.md absent, narration as step captions — subject: …`
+- If `rungs/<rung>.md` does not exist for the chosen rung (also a `page` from the video
+  fallback), print the rung line. Say that the rung is not available yet. Stop. Offer
+  `sheet` or `ste`.
 - A forced rung can be too small for the content, for example a sheet for more than 6
   facets. Keep the 6 most important facets. List the dropped facets in the title block
   under "Not covered".
@@ -73,32 +73,39 @@ names the flag and tells if the content fits the rung. Then follow these rules:
 
 These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 
-1. Prose: follow the STE profile. The final `index.html` passes `ste_lint.py --html`
-   with 0 errors.
+1. Prose: follow the STE profile. The final `index.html` passes `ste_lint.py --html` with 0 errors.
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
-   `<cite data-path="…" data-line="…" data-snippet="…">path:line "snippet"</cite>`.
-   The snippet has at most 12 words, copied verbatim from that line. For a file or a
-   directory subject, each panel or section (a `<section>` element) holds at least one
-   `<cite>`. Mark a cited file that git does not track as "untracked".
-   A path citation fails `cite_check.py` if the provenance element has no `data-root`.
-   A URL citation has a `data-path` that starts with `http://` or `https://`.
-   Its snippet comes from the page that you fetched.
-   Provenance is an element with `id="provenance"` in the title block or the footer.
-   It gives the subject, its kind and the date. For a subject in a git repository, it
-   also gives the root, the commit hash and a `dirty` flag (`git status --porcelain`
-   printed something). It carries `data-root="<absolute repo root>"` and
-   `data-kind="file|directory|topic|conversation"`. If `git rev-parse --show-toplevel`
-   fails, `data-root` is the subject's directory (file, directory) or the current
-   directory (topic, conversation). Commit is `none` and Dirty is `no`.
-   Mark a "conversation" subject "unverified", and re-read and cite each file that it mentions.
+   `<cite data-path="…" data-line="…" data-snippet="…">path:line "snippet"</cite>`. The
+   snippet has at most 12 words, copied verbatim from that line. For a file or a directory
+   subject, each panel or section (a `<section>` element) holds at least one `<cite>`. Mark a
+   cited file that git does not track as "untracked". Run `git ls-files --error-unmatch` for
+   this check only if `git rev-parse --show-toplevel` succeeded for the subject. With no
+   repository, no `<cite>` gets "untracked". A path citation fails `cite_check.py` if the
+   provenance element has no `data-root`. A URL citation has a `data-path` that starts with
+   `http://` or `https://`. Its snippet comes from the page that you fetched. Provenance is an
+   element with `id="provenance"` in the title block or the footer. It gives the subject, its
+   kind and the date. For a subject in a git repository, it also gives the root, the commit
+   hash and a `dirty` flag (`git status --porcelain` printed something). It carries
+   `data-root="<absolute repo root>"` and `data-kind="file|directory|topic|conversation"`. If
+   `git rev-parse --show-toplevel` fails, `data-root` is the subject's directory (file,
+   directory) or the current directory (topic, conversation). Commit is `none` and Dirty is
+   `no`. For a directory subject inside a repository, `data-root` is the repo root (from
+   `git rev-parse --show-toplevel` run inside that directory) and `data-kind` is `directory`.
+   Paths in `<cite>` are relative to the repo root, not to the subject directory. A topic
+   that you answer from files of a git repository (the current directory is inside it)
+   has `data-kind="topic"`. `data-root` is that repo root. Source is the repo root, not
+   "model knowledge". Each claim about a file carries a `<cite>`. A topic that you answer
+   without files keeps Source "model knowledge" and `data-root` is the current directory. Mark
+   a "conversation" subject "unverified", and re-read and cite each file that it mentions.
 3. One self-contained file: inline CSS and JS, system fonts, no CDN, no build step. It
    opens from `file://` offline.
 4. Check the artifact before handoff, in two layers (see Build procedure).
 5. Discardable output: `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/`. The time stamp is
    local time. Make the `<slug>` from the subject in four steps. Change it to lowercase.
-   Change each run of characters outside `a-z0-9` to one `-`. Remove `-` at the two ends.
-   Keep the first 40 characters. Never overwrite a directory. A re-run
-   makes a new directory. The rung file lists the contents. Git ignores `out/`. Never commit it.
+   Change each run of characters outside `a-z0-9` to one `-`. Remove `-` at the two ends. Keep
+   the first 40 characters. If the result is empty, the slug is `topic`. Never overwrite a
+   directory. A re-run makes a new directory. The rung file lists the contents. Git ignores
+   `out/`. Never commit it.
 6. Handoff: print the path. When you run for the user directly, run `open index.html`
    (sheet or page) or `open video.mp4` (video). Inside a subagent, do not run `open`.
 7. Language: write the artifact in English, unless the user asks for another language.
@@ -118,5 +125,6 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 ## Rung files
 
 - `rungs/sheet.md`: the sheet rung (canvas, panels, template, snapshot arguments).
-- `rungs/page.md`: does not exist yet. `--as page` is not available until wave explain-page.
+- `rungs/page.md`: the page rung (sections, steps player, diagram patterns, template,
+  snapshot arguments).
 - `rungs/video.md`: does not exist yet. `--as video` uses the video fallback (Rung selection).
