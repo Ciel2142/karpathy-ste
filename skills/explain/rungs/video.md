@@ -39,6 +39,10 @@ Rules for each scene:
 
 - Give each scene a unique `id`. Show one motion in each scene.
 - Write the narration in STE. Write 45 words or fewer. Keep each sentence at 20 words or fewer.
+- The `timeline` stage fails a scene longer than 60 s or a video longer than 150 s. The narrator
+  speaks approximately 3 words each second, and each scene adds 1.7 s of lead and tail. Eight
+  scenes of 45 words come near 150 s. With 7 or 8 scenes, write fewer words in each scene. A safe
+  total is approximately 300 words.
 - Put a code name in backticks. The transcript shows it as code, and the narrator speaks it as
   plain text. Prefer words, such as "the check script", to a file name.
 - Write the cites as `{ "path": …, "line": …, "snippet": … }`. The `path` is relative to
