@@ -54,10 +54,14 @@ Before you build, print this line, also under `--as`:
 
 `Rung: <rung> (chosen|forced) — <reason> — subject: <subject> (<kind>)`
 
-`<kind>` is `file`, `directory`, `conversation` or `topic`. Then follow these rules:
+`<kind>` is `file`, `directory`, `conversation` or `topic`. Under `--as`, the `<reason>`
+names the flag and tells if the content fits the rung. Then follow these rules:
 
-- Offer `video` only if `rungs/video.md` exists. If it does not exist, `--as video` builds a
-  `page` whose steps player shows the narration as step captions. Say so.
+- Offer `video` only if `rungs/video.md` exists. If it does not exist, `--as video` changes
+  to `page`, whose steps player shows the narration as step captions. Say so.
+- For `sheet` or `page` (also a `page` from the video fallback): if `rungs/<rung>.md` does
+  not exist, print the rung line. Say that the rung is not available yet. Stop. Offer
+  `sheet` or `ste`. While `rungs/page.md` does not exist, `--as video` also stops here.
 - A forced rung can be too small for the content, for example a sheet for more than 6
   facets. Keep the 6 most important facets. List the dropped facets in the title block
   under "Not covered".
@@ -81,15 +85,19 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
    Its snippet comes from the page that you fetched.
    Provenance is an element with `id="provenance"` in the title block or the footer.
    It gives the subject, its kind and the date. For a subject in a git repository, it
-   also gives the repo root and the commit hash. It gives a `dirty` flag too
-   (`git status --porcelain` printed something). It carries
-   `data-root="<absolute repo root, or the subject directory>"` and `data-kind="file|directory|topic|conversation"`. Mark a "conversation" subject
-   "unverified", and re-read and cite each file that it mentions.
+   also gives the root, the commit hash and a `dirty` flag (`git status --porcelain`
+   printed something). It carries `data-root="<absolute repo root>"` and
+   `data-kind="file|directory|topic|conversation"`. If `git rev-parse --show-toplevel`
+   fails, `data-root` is the subject's directory (file, directory) or the current
+   directory (topic, conversation). Commit is `none` and Dirty is `no`.
+   Mark a "conversation" subject "unverified", and re-read and cite each file that it mentions.
 3. One self-contained file: inline CSS and JS, system fonts, no CDN, no build step. It
    opens from `file://` offline.
 4. Check the artifact before handoff, in two layers (see Build procedure).
-5. Discardable output: `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/`. The `<slug>` is the
-   subject in kebab-case, at most 40 characters. Never overwrite a directory. A re-run
+5. Discardable output: `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/`. The time stamp is
+   local time. Make the `<slug>` from the subject in four steps. Change it to lowercase.
+   Change each run of characters outside `a-z0-9` to one `-`. Remove `-` at the two ends.
+   Keep the first 40 characters. Never overwrite a directory. A re-run
    makes a new directory. The rung file lists the contents. Git ignores `out/`. Never commit it.
 6. Handoff: print the path. When you run for the user directly, run `open index.html`
    (sheet or page) or `open video.mp4` (video). Inside a subagent, do not run `open`.
