@@ -83,7 +83,7 @@ waves:
       code question, expected rung pre-declared) both pass: `verify.sh` exits 0 at
       both page viewports, tiles reviewed, three run-3 claims spot-checked against
       `path:line`.
-    status: in_progress   # 2026-10-03, br epic kp-9ft
+    status: done   # 2026-10-03, user acceptance of /explain <aos plan> --as page (kp-9ft.7)
     depends_on: [explain-sheet]
     owns:
       - skills/explain/rungs/page.md
