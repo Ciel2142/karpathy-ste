@@ -8,9 +8,11 @@ Chrome process carries that path on its command line, which lets a test prove
 that no Chrome survives the run and that the temp profile is removed.
 """
 
+import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -27,6 +29,7 @@ GOOD_OUT = (
     "citations: ok\n"
     "prose: ok\n"
 )
+TRANSCRIPT = os.path.join(os.path.dirname(HERE), "video", "transcript.py")
 META_SHEET = '<meta name="explain-rung" content="sheet">'
 
 
@@ -270,6 +273,56 @@ class VerifyTest(unittest.TestCase):
                          ["self-contained: ok", "render 1920x1080: ok", "citations: ok"])
         self.assert_no_chrome_left()
 
+    # --- video rung ----------------------------------------------------------------
+
+    def video_transcript(self):
+        """Generate a transcript of a one-scene script that cites source.txt; return its path."""
+        script = {
+            "title": "How the parser works",
+            "subject": {"text": "source.txt", "kind": "file"},
+            "provenance": {
+                "root": self.work, "commit": "none", "dirty": "no", "date": "2026-10-03",
+                "source": "source.txt", "not_covered": "Everything else.",
+            },
+            "scenes": [{
+                "id": "intro", "component": "title",
+                "props": {"title": "The parser", "subtitle": "Read each tag", "cue": "The parser"},
+                "narration": "The parser reads each tag. It keeps the attributes.",
+                "cites": [{"path": "source.txt", "line": 1, "snippet": "The parser reads each tag"}],
+            }],
+        }
+        path = os.path.join(self.root, "script.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(script, handle)
+        subprocess.run([sys.executable, "-B", TRANSCRIPT, path, self.work], check=True)
+        return os.path.join(self.work, "index.html")
+
+    def test_verify_video_rung_prints_three_lines(self):
+        """Red on the old script: exit 2, unknown rung "video". Red when check 2 still runs:
+        a render line appears. Red when a check is skipped: a line is missing."""
+        proc, _ = self.run_verify(self.video_transcript())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, "self-contained: ok\ncitations: ok\nprose: ok\n")
+        self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
+
+    def test_verify_video_remote_video_src_fails(self):
+        """Red when the scanner ignores src on a video element: self-contained stays ok."""
+        index = self.video_transcript()
+        with open(index, encoding="utf-8") as handle:
+            html = handle.read()
+        html = replace_once(self, html, 'src="video.mp4"', 'src="https://example.com/v.mp4"')
+        with open(index, "w", encoding="utf-8") as handle:
+            handle.write(html)
+        proc, _ = self.run_verify(index)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout.split("\n")[:3],
+            ["self-contained: FAIL 1 remote reference(s)",
+             "  video src=https://example.com/v.mp4",
+             "citations: ok"],
+        )
+        self.assertEqual(proc.stdout.split("\n")[3], "prose: ok")
+
     # --- usage -------------------------------------------------------------------
 
     def test_missing_meta_is_a_usage_error(self):
@@ -287,6 +340,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
         self.assertIn("poster", proc.stderr)
+        self.assertIn("(expected sheet, page or video)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_no_argument_or_unreadable_file_is_a_usage_error(self):
