@@ -17,7 +17,7 @@ each narrated beat.
 - One facet is one `<section>`, one `<h2>` question and one nav entry. Write a short noun
   as the nav label. Write the question in the `<h2>`.
 - Six to ten sections is the usual range. There is no cap. A page with more than about
-  twelve sections needs a second page.
+  twelve sections wants a second page.
 - For a file or a directory subject, put at least one `<cite>` in every section.
 - Decide which section holds the steps player. One player for each page is the norm.
 - Decide which diagram pattern each flow uses (section 4).
@@ -26,7 +26,8 @@ each narrated beat.
 
 1. Copy `~/.claude/skills/explain/templates/page.html` to `<output-dir>/index.html`.
 2. Write the page title in `<title>` and in `<h1>`.
-3. Delete the demo content and the HTML comments. Keep the CSS and script comments. Keep
+3. Copy the pattern that you need before you delete the demo content. Then delete the demo
+   content and the HTML comments. Keep the CSS and script comments. Keep
    `<meta name="explain-rung" content="page">`: without it, `verify.sh` exits with code 2. Keep the
    `<style>` block and all three script blocks.
 4. Rebuild `nav#toc`: one `<a href="#id">` for each section, in document order.
@@ -51,26 +52,40 @@ each narrated beat.
 
 Each diagram is an inline SVG. Keep `viewBox`, `role="img"`, the `<title>` and `data-ste="skip"`.
 Write SVG text at 18 units on a `viewBox` of 600 units. At 500 px wide, this is about 14 px. Keep
-each marker `id` unique in the page. The HTML comments in the template give the geometry.
+the `viewBox` width at 600 and grow only the height.
+
+Keep each marker `id` unique in the page. A player with one SVG for each step also needs a unique
+`<title id>` and `aria-labelledby` id in each SVG. The HTML comments in the template give the
+geometry.
 
 - Flow: boxes and arrows from left to right. Use it for a pipeline or a call chain. To add a box,
   make the boxes narrower so that all fit in 600 units. Or start a second row 80 units lower and add
-  80 to the `viewBox` height.
-- Sequence: lifelines and numbered messages. Use it for an exchange between parts. Put the
-  lifelines 200 units apart. To add a message, draw one arrow 50 units below the last. Put its
+  80 to the `viewBox` height. Use `class="label"` on mono text. A label of 18 units in mono text
+  needs about 11 units for each character, thus a box of 118 units holds 9 characters. Make the
+  box wider or use two lines.
+- Sequence: lifelines and numbered messages. Use it for an exchange between parts. Draw each
+  lifeline as a `line` with `class="life"`. Put the lifelines 200 units apart. To add a message, draw one arrow 50 units below the last. Put its
   number above it. Add 50 to the `viewBox` height.
 - Layers: stacked bands from top to bottom. Use it for a stack or a hierarchy. To add a band, put
   it 70 units below the last. Add 70 to the `viewBox` height. Use `class="alt"` on every second band.
+  Write the band title as a `text` with `class="name"`.
 
 Steps player: write one `figure.step` for each state. The diagram changes in each step. The caption is
 one or two STE sentences. Without `#verify` in the URL, one step shows. With it, all steps stack.
+
+Put the player after the first paragraph of its section. Number `data-step` from 1 to N. The script
+sets the counter text. A step diagram is an `ol.track` or an SVG.
+
+A section that is only a diagram or a player holds its `<cite>` in a `<p>` or in the `figcaption`,
+outside the `svg`.
 
 ## 5. Provenance
 
 Use the recipe in `rungs/sheet.md` section 4 without change: the commands, `data-root`,
 `data-kind`, Commit, Dirty, the word `untracked` and the citation form. Only two facts are specific
-to a page. The `#provenance` element is in the `<footer>`. `p.not-covered` stays: a page seldom
-drops facets, thus write `Not covered: none`.
+to a page. The `#provenance` element is in the `<footer>`. `p.not-covered` stays. `Not covered`
+lists each facet of the subject that the page does not explain, for any reason: a forced rung, or
+content that you cut. Write `none` only when the page explains every facet.
 
 ## 6. Write the prose
 
@@ -79,16 +94,24 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
 - The lint does not read `nav`. It reads each `summary` and each step caption.
 - The `figcaption` of a code figure holds `path:line` in `<code>`, thus the lint does not read it.
 - A sentence of 26 words or more is an error in any place.
+- Put one `<cite>` on each paragraph or list item that makes a claim the reader can check. Do not
+  cite each sentence. Keep a snippet near 6 words. The visible text stays `path:line "snippet"`.
 
 ## 7. Verify and export
 
 Do these steps in the output directory, in this order.
 1. Run `~/.claude/skills/explain/scripts/verify.sh index.html`. All five lines must show `ok`:
-   `self-contained`, `render 1440x900`, `render 500x844`, `citations` and `prose`.
+   `self-contained`, `render 1440x900`, `render 500x844`, `citations` and `prose`. Fix each cause
+   that the detail lines name.
 2. Run `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html page.png 1440 6000 1`.
-   It writes `page.png` and the tiles `review/page-01.png` and up. A page of 6000 px has up to six tiles.
+   It writes `page.png` and the tiles `review/page-01.png` and up. A page of 6000 px has six tiles.
+   Tiles below the footer are blank. Read the last tile. If it does not show the footer, run the
+   same command again with a larger height. Use 9000, then 12000, and so on, until the footer is in
+   the last tile. A page has no height limit. Never cut content to fit a render.
 3. Run `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html narrow.png 500 844 1`.
-   It writes `narrow.png` and `review/narrow-01.png`.
+   It writes `narrow.png` and `review/narrow-01.png`. This render shows the first screen only.
+   A diagram, a table or the player can be below it. Then also run
+   `… narrow-tall.png 500 <the height of step 2> 1`. Read the tiles that hold them.
 4. Read the tiles with the Read tool. Never read the full PNGs. Look for these faults. Clipped or
    overflowing text. A nav that overflows. A diagram that does not fit at 500 px, or that has
    unreadable text. A player whose steps did not stack. A section without its citation. An empty

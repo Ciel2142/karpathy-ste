@@ -102,8 +102,8 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 4. Check the artifact before handoff, in two layers (see Build procedure).
 5. Discardable output: `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/`. The time stamp is
    local time. Make the `<slug>` from the subject in four steps. Change it to lowercase.
-   Change each run of characters outside `a-z0-9` to one `-`. Remove `-` at the two ends. Keep
-   the first 40 characters. If the result is empty, the slug is `topic`. Never overwrite a
+   Change each run of characters outside `a-z0-9` to one `-`. Keep the first 40 characters.
+   Remove `-` at the two ends. If the result is empty, the slug is `topic`. Never overwrite a
    directory. A re-run makes a new directory. The rung file lists the contents. Git ignores
    `out/`. Never commit it.
 6. Handoff: print the path. When you run for the user directly, run `open index.html`
@@ -113,7 +113,7 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 ## Build procedure
 
 1. Read `~/.claude/skills/ste/SKILL.md` by path. Write all prose under that profile.
-2. Read the rung file for the chosen rung only: `rungs/<rung>.md` in this skill directory.
+2. Read `rungs/<rung>.md` of the chosen rung only, and the sections of other files that it names.
 3. Write `index.html` in the output directory.
 4. Run `~/.claude/skills/explain/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
 5. Run `~/.claude/skills/explain/scripts/snapshot.sh` as the rung file shows. Read the

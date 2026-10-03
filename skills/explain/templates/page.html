@@ -62,7 +62,6 @@ h1, h2, h3 { line-height: 1.25; }
 code, kbd, pre { font-family: var(--mono); }
 :not(pre) > code { padding: 0 3px; background: var(--fill); }
 cite { font-family: var(--mono); font-style: normal; color: var(--blue); }
-sup { line-height: 0; }
 figcaption { color: var(--muted); }
 
 /* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
@@ -144,13 +143,15 @@ figure.diagram figcaption { margin-top: 6px; }
 .status td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid var(--line); }
 .status td code { white-space: nowrap; }
 
-/* Footer: provenance cells from a 1px gap over a line-coloured background. */
+/* Footer: provenance cells. The fill and the border are on the cells, not on the
+   grid, so an empty grid track shows the page background. */
 footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); }
 #provenance dl {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px;
-  background: var(--line); border: 1px solid var(--line);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px;
 }
-#provenance dl > div { min-width: 0; padding: 4px 10px 6px; background: #fff; }
+#provenance dl > div {
+  min-width: 0; padding: 4px 10px 6px; background: var(--fill); border: 1px solid var(--line);
+}
 #provenance dl > div.wide { grid-column: 1 / -1; }
 #provenance dt { color: var(--muted); }
 #provenance dd { overflow-wrap: anywhere; }
@@ -357,9 +358,10 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 <section id="guard">
   <h2>What does the guard check?</h2>
   <p>The guard is two scripts. Part 1 is the first script in the head, and it counts script errors. Part 2 runs one time, in the <code>load</code> event.</p>
-  <!-- Status table: names and conditions, not prose (data-ste="skip"). -->
+  <!-- Status table: the lint does not read table cells, so the Cause cells may be
+       sentences. Write them in STE-80 all the same. -->
   <div class="table-wrap">
-    <table class="status" data-ste="skip">
+    <table class="status">
       <thead><tr><th>Status</th><th>Cause</th></tr></thead>
       <tbody>
         <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
@@ -386,8 +388,9 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
        Commit is "none" and Dirty is "no". data-kind: file, directory, topic or
        conversation. In a repo, Dirty is "dirty" if "git status porcelain" printed
        anything, else "no". Commit: the short hash, 7 or more characters (git rev-parse with the short flag).
-       Topic: Source is "model knowledge" or the URLs. Paths, hashes and dates are not
-       prose: the <dl> has data-ste="skip". -->
+       Topic: Source is "model knowledge" or the URLs. Source may take the class
+       "wide" (a full row) for a long root or URL list. Paths, hashes and dates are
+       not prose: the <dl> has data-ste="skip". -->
   <div id="provenance" data-root="." data-kind="topic">
     <dl data-ste="skip">
       <div class="wide"><dt>Subject</dt><dd>the page template (topic)</dd></div>
@@ -409,7 +412,12 @@ function explainPlayer(player) {
   var next = player.querySelector("[data-next]");
   var counter = player.querySelector("[data-counter]");
   var at = 0;
-  if (!steps.length || !prev || !next || !counter) { window.explainJsErrors += 1; return; }
+  if (!prev || !next || !counter) { window.explainJsErrors += 1; return; }
+  if (!steps.length) {   /* A player without steps is a contract fault: show it, count it. */
+    window.explainJsErrors += 1;
+    prev.disabled = true; next.disabled = true; counter.textContent = "0 / 0";
+    return;
+  }
   function show(i) {
     at = i;
     for (var s = 0; s < steps.length; s++) steps[s].hidden = s !== i;
