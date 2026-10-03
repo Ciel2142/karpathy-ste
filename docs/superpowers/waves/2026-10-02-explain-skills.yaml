@@ -58,7 +58,7 @@ waves:
       directory where `verify.sh index.html` exits 0, the review tiles show no layout
       defect, `sheet.png` opens, and the provenance block is filled with the correct
       dirty flag.
-    status: in_progress   # Claude-side done at 36eae03 (2026-10-03); awaiting the user's /explain run (task 8)
+    status: done   # 2026-10-03, user acceptance of /explain skills/ste/SKILL.md --as sheet (kp-dc3.8)
     depends_on: [ste]
     owns:
       - skills/explain/SKILL.md
