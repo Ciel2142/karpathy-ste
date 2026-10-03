@@ -14,7 +14,7 @@ window.onerror = function () { window.explainJsErrors += 1; };
   - Put the page title in <title> and in the <h1>. Write one lead paragraph.
   - One facet per <section>: a unique id, an <h2> with the question the section
     answers, and one <a href="#id"> in <nav id="toc">, in document order.
-  - Code: <figure class="code"> with a path:line caption. Long proof: <details class="walk">.
+  - Code: <figure class="code"> with a name:line caption. Long proof: <details class="walk">.
   - Diagrams: copy one of the three SVG patterns. Steps player: one figure.step per state.
   - All prose in STE-80. A file or directory subject needs a <cite> in every section.
   - Delete the demo content and the HTML comments; keep the CSS and script comments.
@@ -213,8 +213,8 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 
 <section id="code">
   <h2>How do you show code?</h2>
-  <p>Put each code block in a <code>figure.code</code> element. The caption gives the source as <code>path:line</code>, and the <code>pre</code> element contains the lines.</p>
-  <!-- Captioned code block: <figure class="code"><figcaption><code>path:line</code>
+  <p>Put each code block in a <code>figure.code</code> element. The caption gives the source as <code>name:line</code>, and the <code>pre</code> element contains the lines.</p>
+  <!-- Captioned code block: <figure class="code"><figcaption><code>name:line</code>
        </figcaption><pre><code>...</code></pre></figure>. The line is the first line
        shown. Escape < and > in the code. The lint skips <pre> and <code>. -->
   <figure class="code">

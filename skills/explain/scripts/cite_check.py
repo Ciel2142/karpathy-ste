@@ -85,11 +85,12 @@ def _read_lines(path):
 
 
 def _visible_failure(label, path, line_text, text):
-    """The visible text must hold `<basename>:<line>` as one token (not `app.py:77` for 7).
+    """The visible text must hold `<basename>:<line>` as one token: not `app.py:77` for
+    line 7, not `myapp.py:7` for `app.py`. A longer tail such as `web/app.py:7` holds it.
 
     The line is escaped: it is not yet known to be an integer here."""
     name = os.path.basename(path)
-    token = re.escape(name) + ":" + re.escape(line_text) + r"(?![0-9])"
+    token = r"(?<![\w.-])" + re.escape(name) + ":" + re.escape(line_text) + r"(?![0-9])"
     if re.search(token, _normalize(text)):
         return []
     return ['%s: visible text lacks "%s:%s"' % (label, name, line_text)]

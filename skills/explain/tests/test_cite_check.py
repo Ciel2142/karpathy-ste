@@ -243,6 +243,17 @@ class TestVisibleText(CiteCheckCase):
         out = self.run_check(section(shown('src.txt:12 "alpha beta"')))
         self.assertEqual(out, [self.LACKS])
 
+    def test_visible_name_suffix_does_not_match(self):
+        """`mysrc.txt:1` holds `src.txt:1` as a substring; the regex guard `(?<![\\w.-])`
+        rejects a name character before the basename."""
+        out = self.run_check(section(shown('mysrc.txt:1 "alpha beta"')))
+        self.assertEqual(out, [self.LACKS])
+
+    def test_text_after_cite_end_is_not_visible_text(self):
+        """The end tag stops the capture: the text after </cite> does not count."""
+        out = self.run_check(section(shown(':1 "alpha beta"') + " src.txt:1"))
+        self.assertEqual(out, [self.LACKS])
+
     def test_visible_check_runs_without_data_root(self):
         out = self.run_check(section(shown(':1 "alpha beta"')), root=None)
         self.assertEqual(out, [self.LACKS, "cite 1 (src.txt:1): data-root missing"])

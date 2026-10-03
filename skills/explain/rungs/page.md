@@ -102,7 +102,7 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
 - Cite each claim one time. When several sentences of one paragraph come from one source line,
   one `<cite>` at the end of the paragraph covers them. A sentence from another line gets its own
   `<cite>`. Keep a snippet near 6 words. The visible text is `name:line "snippet"`, where `name` is
-  the basename or a unique longer tail, and `data-path` keeps the full path.
+  the basename or a unique longer tail, and `data-path` keeps the full path relative to `data-root`.
 
 ## 7. Verify and export
 

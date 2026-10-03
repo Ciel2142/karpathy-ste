@@ -346,17 +346,17 @@ Rules:
 2. Grounded and checkable. When the subject is code or a repo file, the real source is
    read first. Every claim carries a citation rendered as
    `<cite data-path="…" data-line="…" data-snippet="…">name:line "snippet"</cite>`,
-   where the snippet is at most 12 words copied verbatim from that line. The visible
-   text may shorten the path to the file's basename, or to a longer tail that is unique
-   on the artifact, while `data-path` keeps the full root-relative path. `cite_check.py`
-   verifies all three. For a file or directory subject every panel (sheet) or section
-   (page) must contain at least one `<cite>`; content with no source does not belong
-   in a grounded artifact. Provenance (title block or footer) carries: the resolved
-   subject and its kind (file, directory, topic, conversation); the repo root, commit
-   hash and a `dirty` flag when the subject is inside a git repository, where `dirty`
-   means `git status --porcelain` printed anything; the date. A cited file that git
-   does not track is marked "untracked" in the citation. The provenance element also
-   carries `data-root="<absolute repo root, or the subject's directory when there is
+   where the snippet is at most 12 words copied verbatim from that line. The visible text
+   may shorten the path to the file's basename, or to a longer tail unique on the
+   artifact; `data-path` keeps the full root-relative path. `cite_check.py` verifies the
+   three attributes and the visible `<basename>:<line>`. For a file or directory subject
+   every panel (sheet) or section (page) must contain at least one `<cite>`; content with
+   no source does not belong in a grounded artifact. Provenance (title block or footer)
+   carries: the resolved subject and its kind (file, directory, topic, conversation); the
+   repo root, commit hash and a `dirty` flag when the subject is inside a git repository,
+   where `dirty` means `git status --porcelain` printed anything; the date. A cited file
+   that git does not track is marked "untracked" in the citation. The provenance element
+   also carries `data-root="<absolute repo root, or the subject's directory when there is
    no repo>"`, which `cite_check.py` uses to resolve paths; a path citation without it
    fails. A "conversation" subject is marked "unverified", and any file it mentions is
    re-read and cited. URL citations carry a snippet found in the fetched page at build
@@ -514,7 +514,7 @@ The reference is `docs/superpowers/specs/assets/2026-10-02-ste-reference-sheet.j
 Same visual family, no fixed canvas; responsive single file read in a browser.
 
 - Structure: sticky section navigation (`nav`, skipped by the lint); STE-80 prose;
-  code blocks captioned with `path:line`; `<details>` for expandable walkthroughs;
+  code blocks captioned with `name:line`; `<details>` for expandable walkthroughs;
   provenance footer; `<meta name="explain-rung" content="page">`; smallest font size
   14 px, set explicitly for every element the template uses, including `code`, `pre`
   and `button`; every section cites at least once for a file or directory subject.

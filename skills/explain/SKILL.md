@@ -84,29 +84,29 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
    `<cite data-path="…" data-line="…" data-snippet="…">name:line "snippet"</cite>`. The
    snippet has at most 12 words, copied verbatim from that line. `data-path` holds the full
-   path. `name` is its basename, or a longer tail if two cited files have that basename. A
-   path citation fails `cite_check.py` if its visible text does not hold `basename:line`, or
-   the provenance element has no `data-root`. Never copy a password, a token or a key into a
-   snippet or the prose. End the snippet before it, or cite a line near it. For a file or a
-   directory subject, each panel or section (a `<section>` element) holds at least one
-   `<cite>`. Mark a cited file that git does not track (`git ls-files --error-unmatch` fails)
-   as "untracked". A URL citation has a `data-path` that starts with `http://` or `https://`.
-   Its snippet comes from the page that you fetched. Provenance is the element with
-   `id="provenance"` in the title block or the footer. It gives the subject, its kind and the
-   date. For a subject in a git repository, it also gives the root, the commit hash and a
-   `dirty` flag (`git status --porcelain` printed something). It carries
+   path relative to `data-root`. `name` is its basename, or a longer tail if two cited files
+   have that basename. A path citation fails `cite_check.py` if its visible text does not
+   hold `basename:line`, or the provenance element has no `data-root`. Never copy a password,
+   a token or a key into a snippet or the prose. End the snippet before it, or cite a line
+   near it. For a file or a directory subject, each panel or section (a `<section>` element)
+   holds at least one `<cite>`. Mark a cited file that git does not track (in a repository,
+   `git ls-files --error-unmatch` fails) as "untracked". A URL citation has a `data-path`
+   that starts with `http://` or `https://`. Its snippet comes from the fetched page.
+   Provenance, the element with `id="provenance"` in the title block or the footer, gives the
+   subject, its kind and the date. For a subject in a repository, it also gives the root, the
+   commit hash and a `dirty` flag (`git status --porcelain` printed something). It carries
    `data-root="<absolute repo root>"` and `data-kind="file|directory|topic|conversation"`. If
    `git rev-parse --show-toplevel` fails, `data-root` is the subject's directory (file,
    directory) or the current directory (topic, conversation). Commit is `none`, Dirty is `no`
    and no `<cite>` gets "untracked". For a directory subject in a repository, `data-kind` is
-   `directory` and `data-root` is the repo root (`git rev-parse --show-toplevel` in that
-   directory). `<cite>` paths are relative to it, not to the subject directory. A topic that
-   you answer from files of a git repository (the current directory is inside it) has
-   `data-kind="topic"`. Its `data-root` and Source are that repo root, not "model knowledge".
-   Each claim about a file carries a `<cite>`. A topic without files has `data-root` set to
-   the current directory, Commit `none`, Dirty `no` and Source "model knowledge" (or the
-   URLs). This rule applies also inside a repository. Mark a "conversation" subject
-   "unverified", and re-read and cite each file that it mentions.
+   `directory` and `data-root` is the repo root (run `git rev-parse --show-toplevel` in that
+   directory). `<cite>` paths are relative to the repo root, not to the subject directory. A
+   topic that you answer from files of a git repository (the current directory is inside it)
+   has `data-kind="topic"`. Its `data-root` and Source are that repo root, not "model
+   knowledge". Each claim about a file carries a `<cite>`. A topic without files has
+   `data-root` set to the current directory, Commit `none`, Dirty `no` and Source "model
+   knowledge" (or the URLs). This rule applies also inside a repository. Mark a
+   "conversation" subject "unverified", and re-read and cite each file that it mentions.
 3. One self-contained file: inline CSS and JS, system fonts, no CDN, no build step. It
    opens from `file://` offline.
 4. Check the artifact before handoff, in two layers (see Build procedure).
