@@ -245,9 +245,11 @@ class TestVisibleText(CiteCheckCase):
 
     def test_visible_name_suffix_does_not_match(self):
         """`mysrc.txt:1` holds `src.txt:1` as a substring; the regex guard `(?<![\\w.-])`
-        rejects a name character before the basename."""
-        out = self.run_check(section(shown('mysrc.txt:1 "alpha beta"')))
-        self.assertEqual(out, [self.LACKS])
+        rejects a name character before the basename: a letter, `-` or `.` alike."""
+        for name in ("mysrc.txt", "my-src.txt", "my.src.txt"):
+            with self.subTest(name=name):
+                out = self.run_check(section(shown('%s:1 "alpha beta"' % name)))
+                self.assertEqual(out, [self.LACKS])
 
     def test_text_after_cite_end_is_not_visible_text(self):
         """The end tag stops the capture: the text after </cite> does not count."""
