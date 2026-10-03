@@ -74,8 +74,9 @@ nav#toc {
 nav#toc a { color: var(--blue); font-weight: 600; text-decoration: none; }
 nav#toc a:hover { text-decoration: underline; }
 
-/* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav. */
-section { padding: 28px 0 8px; scroll-margin-top: 64px; }
+/* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav;
+   the guard sets --nav-h to the real nav height in "load". */
+section { padding: 28px 0 8px; scroll-margin-top: var(--nav-h, 64px); }
 section + section { border-top: 1px solid var(--line); }
 section > * + * { margin-top: 14px; }
 .rules { padding-left: 22px; }
@@ -123,7 +124,10 @@ figure.diagram figcaption { margin-top: 6px; }
 .step figcaption { margin-top: 8px; color: var(--ink); font-size: 16px; }
 .step figcaption code { font-size: 15px; }
 .player.stacked .step + .step { padding-top: 14px; border-top: 1px dashed var(--line); }
-.track { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.track {
+  list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 26px;
+  overflow: hidden;   /* the first arrow of a wrapped row stays inside the player */
+}
 .track li {
   position: relative; padding: 4px 12px; font-family: var(--mono); font-size: 15px;
   background: #fff; border: 1.5px solid var(--line);
@@ -377,7 +381,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 <section id="provenance-facet">
   <h2>Where does the page show its source?</h2>
   <p>The footer shows the subject, the source, the date, the commit and the dirty flag. <code>cite_check.py</code> uses <code>data-root</code> to find each cited file.</p>
-  <p>If a forced rung drops a facet, write the facet in the last line of the footer.</p>
+  <p>The last line of the footer lists each facet that the page does not explain, for any reason.</p>
 </section>
 </main>
 
@@ -400,7 +404,8 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
       <div><dt>Dirty</dt><dd>no</dd></div>
     </dl>
   </div>
-  <!-- Not covered: the facets that a forced rung dropped, or "none". -->
+  <!-- Not covered: every facet that the page does not explain, for any reason (a forced
+       rung, or content that you cut), or "none". -->
   <p class="not-covered">Not covered: none</p>
 </footer>
 <script>
@@ -460,6 +465,8 @@ window.addEventListener("load", function () {
   } catch (e) {
     window.explainJsErrors += 1;   /* still measure and write the status */
   }
+  var nav = document.getElementById("toc");   /* scroll-margin of sections = real nav height */
+  if (nav) doc.style.setProperty("--nav-h", nav.offsetHeight + "px");
   if (doc.scrollWidth > window.innerWidth) fails.push("HSCROLL");
   var smallest = Infinity, all = document.body.getElementsByTagName("*");
   for (var j = 0; j < all.length; j++) {
@@ -468,10 +475,14 @@ window.addEventListener("load", function () {
       own = n.nodeType === 3 && n.nodeValue.trim() !== "";
     }
     if (!own || !el.getClientRects().length) continue;
-    smallest = Math.min(smallest, parseFloat(getComputedStyle(el).fontSize));
+    /* SVG text is in viewBox units: scale it by the rendered width over the viewBox width. */
+    var px = parseFloat(getComputedStyle(el).fontSize), svg = el.ownerSVGElement;
+    if (svg && svg.viewBox && svg.viewBox.baseVal.width) px *= svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    smallest = Math.min(smallest, px);
   }
   if (smallest < MIN_PX) fails.push("SMALLTEXT:" + Math.round(smallest * 100) / 100);
   if (window.explainJsErrors > 0) fails.push("JSERROR");
+  /* The tests wrap doc.setAttribute to read the DOM state: keep this one call. */
   doc.setAttribute("data-verify", fails.length ? fails.join(";") : "OK");
 });
 </script>

@@ -7,9 +7,10 @@ exactly once in the template: a template change cannot turn a case into the good
 case without notice. verify.sh must report the one status that the guard writes
 for that edit. verify.sh loads a page twice, 1440x900 and 500x844, both with
 #verify in the URL; there is no plain dump, so the cases for the fragment read the
-DOM state through a probe that wraps setAttribute on <html>. Six Chrome runs of
+DOM state through a probe that wraps setAttribute on <html>. Seven Chrome runs of
 verify.sh (two dumps each): the good template, the 700 px block, the 13 px rule,
-the throwing script, the probe, the probe with the hash test defeated. The
+the 15-unit SVG text, the throwing script, the probe, the probe with the hash
+test defeated. The
 preset case stops in verify.sh before Chrome starts. The other cases are static.
 Each run gets a private TMPDIR, so every Chrome process carries that path and the
 cleanup can kill a stray one.
@@ -34,6 +35,8 @@ AFTER_GUARD_1 = "window.onerror = function () { window.explainJsErrors += 1; };\
 # The comment line that introduces guard part 2, with the <script> that holds it.
 GUARD_2 = "<script>\n/* Guard, part 2 of 2"
 HASH_TEST = '"#verify"'
+# The last text of the flow SVG (one occurrence); the 15-unit text goes right after it.
+FLOW_LAST_TEXT = '<text x="526" y="56" text-anchor="middle" class="label">verify.sh</text>\n'
 LOAD_OPEN = 'window.addEventListener("load", function () {\n'
 LAST_SCRIPT_END = "</script>\n</body>"
 SCRIPT_BUDGET = 200
@@ -72,6 +75,12 @@ def read(path):
 def root_block(html):
     match = re.search(r":root \{[^}]*\}", html)
     assert match, "no :root block"
+    return match.group(0)
+
+
+def html_start_tag(html):
+    match = re.search(r"<html\b[^>]*>", html)
+    assert match, "no <html start tag"
     return match.group(0)
 
 
@@ -150,6 +159,18 @@ class PageGuardTest(unittest.TestCase):
                          "p.lead { font-size: 13px; }\n</style>")
         self.assert_both_fail(html, "SMALLTEXT:13")
 
+    def test_15unit_svg_text_reports_smalltext_at_500_only(self):
+        # SVG text is in viewBox units; the guard scales it by rendered width / viewBox width.
+        # 1440: the SVG renders at its 600 px cap, so 15 units = 15 px >= 14: ok.
+        # 500: content width = 500 - 2 * 16 (body padding) = 468 px,
+        # so 15 * 468 / 600 = 11.7 px (the 18-unit text: 14.04 px, still ok).
+        html = self.edit(self.template, FLOW_LAST_TEXT,
+                         FLOW_LAST_TEXT + '<text x="300" y="78" style="font-size:15px">tiny</text>\n')
+        self.assert_renders(html, [
+            "render 1440x900: ok",
+            'render 500x844: FAIL data-verify="SMALLTEXT:11.7"',
+        ], 1)
+
     def test_throwing_inline_script_reports_jserror(self):
         html = self.edit(self.template, AFTER_GUARD_1,
                          AFTER_GUARD_1 + '<script>throw new Error("boom");</script>\n')
@@ -170,10 +191,12 @@ class PageGuardTest(unittest.TestCase):
         self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:changed")
 
     def test_data_verify_absent_in_source(self):
-        self.assertNotIn("data-verify=", self.template)
+        # The static check reads the <html start tag only, the one place where a preset
+        # status lives; the script and the demo prose may name data-verify freely.
+        self.assertNotIn("data-verify=", html_start_tag(self.template))
         html = self.edit(self.template, '<html lang="en">',
                          '<html lang="en" data-verify="OK">')
-        self.assertIn("data-verify=", html)
+        self.assertIn("data-verify=", html_start_tag(html))
         # verify.sh bails on the preset before it starts Chrome.
         self.assert_renders(html, [
             "render 1440x900: FAIL data-verify preset in source",

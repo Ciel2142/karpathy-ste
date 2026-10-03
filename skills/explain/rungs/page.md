@@ -16,8 +16,9 @@ each narrated beat.
 
 - One facet is one `<section>`, one `<h2>` question and one nav entry. Write a short noun
   as the nav label. Write the question in the `<h2>`.
-- Six to ten sections is the usual range. There is no cap. A page with more than about
-  twelve sections wants a second page.
+- Six to ten sections is the usual range. There is no cap. If a page has more than about
+  twelve sections, merge facets into fewer sections, or ask the user to split the subject.
+  Do not make a second output directory.
 - For a file or a directory subject, put at least one `<cite>` in every section.
 - Decide which section holds the steps player. One player for each page is the norm.
 - Decide which diagram pattern each flow uses (section 4).
@@ -64,7 +65,9 @@ geometry.
   needs about 11 units for each character, thus a box of 118 units holds 9 characters. Make the
   box wider or use two lines.
 - Sequence: lifelines and numbered messages. Use it for an exchange between parts. Draw each
-  lifeline as a `line` with `class="life"`. Put the lifelines 200 units apart. To add a message, draw one arrow 50 units below the last. Put its
+  lifeline as a `line` with `class="life"`. Put the lifelines 200 units apart. For four
+  participants, put them 150 units apart and make each box 118 units wide. Keep the
+  `viewBox` width at 600. To add a message, draw one arrow 50 units below the last. Put its
   number above it. Add 50 to the `viewBox` height.
 - Layers: stacked bands from top to bottom. Use it for a stack or a hierarchy. To add a band, put
   it 70 units below the last. Add 70 to the `viewBox` height. Use `class="alt"` on every second band.
@@ -94,8 +97,9 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
 - The lint does not read `nav`. It reads each `summary` and each step caption.
 - The `figcaption` of a code figure holds `path:line` in `<code>`, thus the lint does not read it.
 - A sentence of 26 words or more is an error in any place.
-- Put one `<cite>` on each paragraph or list item that makes a claim the reader can check. Do not
-  cite each sentence. Keep a snippet near 6 words. The visible text stays `path:line "snippet"`.
+- Cite each claim one time. When several sentences of one paragraph come from one source line,
+  one `<cite>` at the end of the paragraph covers them. A sentence from another line gets its own
+  `<cite>`. Keep a snippet near 6 words. The visible text stays `path:line "snippet"`.
 
 ## 7. Verify and export
 
@@ -105,13 +109,16 @@ Do these steps in the output directory, in this order.
    that the detail lines name.
 2. Run `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html page.png 1440 6000 1`.
    It writes `page.png` and the tiles `review/page-01.png` and up. A page of 6000 px has six tiles.
-   Tiles below the footer are blank. Read the last tile. If it does not show the footer, run the
-   same command again with a larger height. Use 9000, then 12000, and so on, until the footer is in
-   the last tile. A page has no height limit. Never cut content to fit a render.
+   Tiles below the footer are blank. Find the tile that shows the footer. If no tile shows it, run
+   the same command again with a larger height: 9000, then 12000, and so on. A page has no height
+   limit. Never cut content to fit a render.
 3. Run `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html narrow.png 500 844 1`.
    It writes `narrow.png` and `review/narrow-01.png`. This render shows the first screen only.
-   A diagram, a table or the player can be below it. Then also run
-   `… narrow-tall.png 500 <the height of step 2> 1`. Read the tiles that hold them.
+   If the page has a diagram, a table or the player below the first screen, also run
+   `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html narrow-tall.png 500 <H> 1`.
+   Find `<H>` with the footer rule of step 2. The page is taller at 500 px, thus `<H>` can be
+   larger than the height of step 2. Read the tiles `review/narrow-tall-NN.png` that hold
+   these parts.
 4. Read the tiles with the Read tool. Never read the full PNGs. Look for these faults. Clipped or
    overflowing text. A nav that overflows. A diagram that does not fit at 500 px, or that has
    unreadable text. A player whose steps did not stack. A section without its citation. An empty
@@ -120,7 +127,8 @@ Do these steps in the output directory, in this order.
 5. Fix each fault. Run steps 1 to 4 again. Repeat until all are clean.
 6. Do the handoff from `SKILL.md` convention 6. Never run `open` inside a subagent.
 
-The output directory then holds `index.html`, `page.png`, `narrow.png` and `review/`.
+The output directory then holds `index.html`, `page.png`, `narrow.png`, `narrow-tall.png` (if
+step 3 made it) and `review/`.
 
 ## 8. Shared palette
 

@@ -25,16 +25,20 @@ Syntax: `/explain <subject> [--as ste|sheet|page|video]`. The arguments arrive i
 Use the first rule that applies.
 
 1. Path candidate. A subject that starts with `/`, `~` or `.` is a path candidate. A
-   subject whose first `/`-separated component exists in the current directory is also one. Subjects such as
-   `TCP/IP`, `CI/CD` and `Next.js` are not path candidates.
+   subject whose first `/`-separated component exists in the current directory is also
+   one. Subjects such as `TCP/IP`, `CI/CD` and `Next.js` are not path candidates.
    - A path candidate that exists: read a file in full. Map a directory: its tree and its
      key files. If a `.codegraph/` index exists, use CodeGraph.
    - A path candidate that does not exist is an error. A missing path is never a topic.
 2. `this`: the last file that you read or wrote in the conversation. If there is none, use the
    last substantial turn (an explanation, a review, or a plan). Label it "conversation".
-3. Otherwise the subject is a topic. Use your own knowledge. Use web lookups only if the
-   user says yes. Provenance states "model knowledge" or lists the URLs. Never claim
-   that you read a source that you did not read.
+3. Otherwise the subject is a topic. If the current directory is inside a git repository
+   and the topic is about its code, read that code first. Use CodeGraph when `.codegraph/`
+   exists. Read with the Read tool each file that CodeGraph flags as changed or omits.
+   Cite only lines that you read from disk. Then convention 2 applies. If the topic is not
+   about that code, use your own knowledge. Use web lookups only if the user says yes.
+   Provenance states "model knowledge" or lists the URLs. Never claim that you read a
+   source that you did not read.
 
 ## Rung selection
 
@@ -49,7 +53,9 @@ section on a page.
 | `page` (interactive single-file HTML) | The content has state to explore (a step-through flow, before and after, toggles); more than 6 facets | A PR walkthrough, a plan with waves |
 | `video` (narrated mp4) | A temporal narrative where motion carries meaning | Data in a pipeline, a handshake |
 
-Before you build, print this line, also under `--as`:
+Read the subject before you choose the rung: the file, the directory, or the repo code of
+a topic. A model-knowledge topic has no source to read. Before you build, print this line,
+also under `--as`:
 
 `Rung: <rung> (chosen|forced) — <reason> — subject: <subject> (<kind>)`
 
@@ -58,13 +64,14 @@ names the flag and tells if the content fits the rung. Then follow these rules:
 
 - Offer `video` only if `rungs/video.md` exists. If it does not exist, `--as video` changes
   to `page`, whose steps player shows the narration as step captions. Print this rung line:
-  `Rung: page (forced) — --as video, rungs/video.md absent, narration as step captions — subject: …`
+  `Rung: page (forced) — --as video, rungs/video.md absent, narration as step captions — subject: <subject> (<kind>)`
 - If `rungs/<rung>.md` does not exist for the chosen rung (also a `page` from the video
   fallback), print the rung line. Say that the rung is not available yet. Stop. Offer
   `sheet` or `ste`.
 - A forced rung can be too small for the content, for example a sheet for more than 6
-  facets. Keep the 6 most important facets. List the dropped facets in the title block
-  under "Not covered".
+  facets. Keep the 6 most important facets. List the dropped facets in `p.not-covered`
+  (the title block of a sheet, the footer of a page). `Not covered` lists every facet
+  that the artifact does not explain, for any reason.
 - The `ste` rung gives chat text only. It makes no output directory. Write that text under
   the STE profile: read `~/.claude/skills/ste/SKILL.md` by path. The Build procedure
   applies to the artifact rungs only.
@@ -76,27 +83,30 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 1. Prose: follow the STE profile. The final `index.html` passes `ste_lint.py --html` with 0 errors.
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
    `<cite data-path="…" data-line="…" data-snippet="…">path:line "snippet"</cite>`. The
-   snippet has at most 12 words, copied verbatim from that line. For a file or a directory
-   subject, each panel or section (a `<section>` element) holds at least one `<cite>`. Mark a
-   cited file that git does not track as "untracked". Run `git ls-files --error-unmatch` for
-   this check only if `git rev-parse --show-toplevel` succeeded for the subject. With no
-   repository, no `<cite>` gets "untracked". A path citation fails `cite_check.py` if the
-   provenance element has no `data-root`. A URL citation has a `data-path` that starts with
-   `http://` or `https://`. Its snippet comes from the page that you fetched. Provenance is an
-   element with `id="provenance"` in the title block or the footer. It gives the subject, its
-   kind and the date. For a subject in a git repository, it also gives the root, the commit
-   hash and a `dirty` flag (`git status --porcelain` printed something). It carries
+   snippet has at most 12 words, copied verbatim from that line. Never copy a password, a
+   token or a key into a snippet or the prose. End the snippet before it, or cite a line near
+   it. For a file or a directory subject, each panel or section (a `<section>` element) holds
+   at least one `<cite>`. Mark a cited file that git does not track as "untracked". Run
+   `git ls-files --error-unmatch` for this check only if `git rev-parse --show-toplevel`
+   succeeded for the subject. With no repository, no `<cite>` gets "untracked". A path
+   citation fails `cite_check.py` if the provenance element has no `data-root`. A URL
+   citation has a `data-path` that starts with `http://` or `https://`. Its snippet comes
+   from the page that you fetched. Provenance is an element with `id="provenance"` in the
+   title block or the footer. It gives the subject, its kind and the date. For a subject in a
+   git repository, it also gives the root, the commit hash and a `dirty` flag
+   (`git status --porcelain` printed something). It carries
    `data-root="<absolute repo root>"` and `data-kind="file|directory|topic|conversation"`. If
    `git rev-parse --show-toplevel` fails, `data-root` is the subject's directory (file,
    directory) or the current directory (topic, conversation). Commit is `none` and Dirty is
    `no`. For a directory subject inside a repository, `data-root` is the repo root (from
    `git rev-parse --show-toplevel` run inside that directory) and `data-kind` is `directory`.
    Paths in `<cite>` are relative to the repo root, not to the subject directory. A topic
-   that you answer from files of a git repository (the current directory is inside it)
-   has `data-kind="topic"`. `data-root` is that repo root. Source is the repo root, not
-   "model knowledge". Each claim about a file carries a `<cite>`. A topic that you answer
-   without files keeps Source "model knowledge" and `data-root` is the current directory. Mark
-   a "conversation" subject "unverified", and re-read and cite each file that it mentions.
+   that you answer from files of a git repository (the current directory is inside it) has
+   `data-kind="topic"`. `data-root` is that repo root. Source is the repo root, not "model
+   knowledge". Each claim about a file carries a `<cite>`. A topic without files has
+   `data-root` set to the current directory, Commit `none`, Dirty `no` and Source "model
+   knowledge" (or the URLs). This rule applies also inside a repository. Mark a
+   "conversation" subject "unverified", and re-read and cite each file that it mentions.
 3. One self-contained file: inline CSS and JS, system fonts, no CDN, no build step. It
    opens from `file://` offline.
 4. Check the artifact before handoff, in two layers (see Build procedure).
@@ -113,7 +123,7 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 ## Build procedure
 
 1. Read `~/.claude/skills/ste/SKILL.md` by path. Write all prose under that profile.
-2. Read `rungs/<rung>.md` of the chosen rung only, and the sections of other files that it names.
+2. Read `rungs/<rung>.md` of the chosen rung only, and each section that it names.
 3. Write `index.html` in the output directory.
 4. Run `~/.claude/skills/explain/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
 5. Run `~/.claude/skills/explain/scripts/snapshot.sh` as the rung file shows. Read the

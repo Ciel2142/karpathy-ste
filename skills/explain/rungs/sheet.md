@@ -73,8 +73,8 @@ Put one primitive in each `.panel-body`.
 
 ## 4. Provenance recipe
 
-Run the first three commands in the directory of the subject. Run the last command from the
-repo root.
+Run the first three commands in the directory of the subject; for a topic or a conversation,
+in the current directory. Run the last command from the repo root.
 
 ```
 git rev-parse --show-toplevel
@@ -86,6 +86,8 @@ git ls-files --error-unmatch <path>
 - `--show-toplevel` gives the repo root. Write it in `data-root` of `#provenance`.
 - If `git rev-parse --show-toplevel` fails, `data-root` is the subject's directory (file,
   directory) or the current directory (topic, conversation). Commit is `none` and Dirty is `no`.
+- A topic without files has the same values, also inside a repository: `data-root` is the
+  current directory, Commit is `none` and Dirty is `no`.
 - `--short HEAD` gives the Commit value (7 or more characters).
 - If `git status --porcelain` prints anything, write the literal `dirty` as the Dirty value.
   If it prints nothing, write `no`.
