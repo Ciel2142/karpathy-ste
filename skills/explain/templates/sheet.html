@@ -15,7 +15,9 @@ window.onerror = function () { window.explainJsErrors += 1; };
   - One question per panel, at most 6 panels (facets), at most 250 words per panel.
   - Panel A is always the map (tree). No empty panel. Limits are bars, never prose.
   - All prose in STE-80. A file or directory subject needs a <cite> in every panel.
-  - Delete the demo content. Keep the ids, the classes and both guard scripts.
+  - Delete the demo content and the HTML comments; keep the CSS and script comments.
+  - Keep <meta name="explain-rung" content="sheet">, the ids, the classes and both
+    guard scripts. Without the meta, verify.sh exits 2.
 -->
 <style>
 /* Palette duplicated in page.html: change both. */
@@ -209,6 +211,8 @@ button { font-family: var(--sans); }
 .rules li::marker { color: var(--ink); }
 
 /* Title block: fixed bottom-right, in the last 3 columns of row 2. */
+/* Raise --tb-height by 20 px steps when the title block overflows; panel F shrinks by
+   the same amount through .over-title. */
 :root { --tb-height: 262px; }
 .title-block {
   grid-area: 2 / 10 / 3 / 13; align-self: end; height: var(--tb-height);
@@ -231,9 +235,10 @@ button { font-family: var(--sans); }
 .title-block dd { font-size: 14px; overflow-wrap: anywhere; }
 .title-block .not-covered { padding: 4px 10px; font-size: 13px; color: var(--muted); }
 
-/* Guard ribbon: absolute, so the clipping panel cannot hide it. */
+/* Guard ribbon: absolute, so the clipping panel cannot hide it. At the bottom edge, so
+   the tag and the <h2> stay visible. */
 .verify-ribbon {
-  position: absolute; left: 0; right: 0; top: 0; z-index: 9; padding: 0 12px;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; padding: 0 12px;
   background: var(--red); color: #fff; font: 700 14px/26px var(--mono);
 }
 </style>
@@ -416,10 +421,12 @@ button { font-family: var(--sans); }
     <div><dt>Rung</dt><dd>sheet</dd></div>
     <div><dt>Export</dt><dd>3840 x 2160 PNG</dd></div>
   </dl>
-  <!-- Provenance (spec 5.3 item 2). data-root: the absolute repo root, or the subject
-       directory when there is no repo. data-kind: file, directory, topic or conversation.
-       Commit and dirty only inside a git repo; dirty = "git status porcelain" printed
-       anything. Commit: the short hash, 7 or more characters (git rev-parse with the short flag).
+  <!-- Provenance (spec 5.3 item 2). data-root: the absolute repo root. If
+       "git rev-parse --show-toplevel" fails (no repo): data-root is the subject's
+       directory (file, directory) or the current directory (topic, conversation),
+       Commit is "none" and Dirty is "no". data-kind: file, directory, topic or
+       conversation. In a repo, Dirty is "dirty" if "git status porcelain" printed
+       anything, else "no". Commit: the short hash, 7 or more characters (git rev-parse with the short flag).
        Topic: Source is "model knowledge" or the URLs. Paths, hashes and dates are not
        prose: the <dl> has data-ste="skip". -->
   <div id="provenance" data-root="." data-kind="topic">
