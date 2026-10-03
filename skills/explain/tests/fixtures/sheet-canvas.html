@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>
+/* Guard, part 1 of 2: count script errors from the first line on. Keep this block first. */
+window.explainJsErrors = 0;
+window.onerror = function () { window.explainJsErrors += 1; };
+</script>
+<meta name="explain-rung" content="sheet">
+<title>The sheet template: overview</title>
+<!--
+  explain / rung sheet. Copy this file to out/<run>/index.html, then fill it.
+  - Put the sheet title in <title> and in .tb-title. Put panel content in each .panel-body.
+  - One question per panel, at most 6 panels (facets), at most 250 words per panel.
+  - Panel A is always the map (tree). No empty panel. Limits are bars, never prose.
+  - All prose in STE-80. A file or directory subject needs a <cite> in every panel.
+  - Delete the demo content. Keep the ids, the classes and both guard scripts.
+-->
+<style>
+/* Palette duplicated in page.html: change both. */
+:root {
+  --ink: #1b2129;
+  --muted: #5b6570;
+  --line: #b8c0c9;
+  --blue: #1d5fc2;
+  --red: #c42f2a;
+  --fill: #eef1f4;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+/* Type: every element has an explicit font-size of 12px or more. Chrome defaults
+   (code, pre 13px; button 13.33px; small, sup "smaller") would set the minimum. */
+html, body, div, section, header, aside, p, ul, ol, li, dl, dt, dd, table, thead,
+tbody, tr, h1, h2, h3, figure { font-size: 15px; }
+span, strong, em, b, i, a, q, mark { font-size: inherit; }
+td { font-size: 14px; }
+code, kbd, pre, button { font-size: 14px; }
+th, small, sup, sub, cite, figcaption { font-size: 12px; }
+html, body { margin: 0; padding: 0; background: #fff; }
+body { color: var(--ink); font-family: var(--sans); line-height: 1.35; }
+code, kbd, pre { font-family: var(--mono); }
+h1, h2, h3, p, ul, ol, dl, dd, figure, pre { margin: 0; }
+cite { font-family: var(--mono); font-style: normal; color: var(--blue); }
+sup { line-height: 0; }
+button { font-family: var(--sans); }
+
+/* Canvas and frame: fixed 1920x1080, a thin outer line, a heavy inner line, centre marks. */
+.sheet {
+  position: relative; width: 1920px; height: 1080px; box-sizing: border-box;
+  padding: 14px; overflow: hidden;
+  background:
+    linear-gradient(var(--ink), var(--ink)) 50% 6px / 1px 8px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) 50% calc(100% - 6px) / 1px 8px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) 6px 50% / 8px 1px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) calc(100% - 6px) 50% / 8px 1px no-repeat,
+    #fff;
+}
+.sheet::before {
+  content: ""; position: absolute; inset: 6px; border: 1px solid var(--muted);
+  pointer-events: none;
+}
+.grid {
+  box-sizing: border-box; height: 100%; padding: 18px; border: 2px solid var(--ink);
+  display: grid; gap: 18px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+.span-3 { grid-column: span 3; } .span-4 { grid-column: span 4; }
+.span-5 { grid-column: span 5; } .span-6 { grid-column: span 6; }
+.span-7 { grid-column: span 7; } .span-8 { grid-column: span 8; }
+.span-9 { grid-column: span 9; } .span-12 { grid-column: span 12; }
+
+/* Panel: header bar (tag, title, caption), then the body. The panel clips; the guard
+   measures it. */
+.panel {
+  position: relative; min-width: 0; min-height: 0; overflow: hidden;
+  border: 1.5px solid var(--ink); background: #fff;
+}
+.panel-head {
+  display: flex; align-items: center; gap: 12px; height: 40px; padding-right: 12px;
+  border-bottom: 1.5px solid var(--ink);
+}
+.panel-head .tag {
+  display: flex; align-items: center; justify-content: center; width: 40px;
+  height: 40px; background: var(--ink); color: #fff; font-size: 17px; font-weight: 700;
+}
+.panel-head h2 { font-size: 17px; font-weight: 650; white-space: nowrap; }
+.panel-head .caption {
+  margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 12px;
+  white-space: nowrap;
+}
+.panel-body { padding: 14px 16px; }
+.panel-body > * + * { margin-top: 12px; }
+.note { color: var(--muted); font-size: 13px; }
+.box { padding: 10px 12px; background: var(--fill); border: 1px solid var(--line); }
+.box strong { display: block; }
+
+/* The panel in the last 3 columns of row 2 sits above the title block. */
+.over-title { grid-area: 2 / 10 / 3 / 13; margin-bottom: calc(var(--tb-height) + 18px); }
+
+/* primitive: tree */
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { padding-left: 26px; }
+.tree li { position: relative; padding: 4px 0; }
+.tree ul > li::before {
+  content: ""; position: absolute; left: -16px; top: 0; bottom: 0;
+  border-left: 1px solid var(--muted);
+}
+.tree ul > li::after {
+  content: ""; position: absolute; left: -16px; top: 15px; width: 11px;
+  border-top: 1px solid var(--muted);
+}
+.tree ul > li:last-child::before { bottom: auto; height: 15px; }
+.tree .root {
+  display: inline-block; padding: 5px 14px; border: 1.5px solid var(--ink);
+  background: var(--fill); font-family: var(--mono); font-size: 15px; font-weight: 700;
+}
+.tree code { font-weight: 600; }
+.tree .what { color: var(--muted); font-size: 14px; }
+
+/* primitive: annotated example */
+.sample { display: flex; border: 1px solid var(--line); background: var(--fill); }
+.markers, .sample pre { padding: 10px 0; line-height: 22px; }
+.markers {
+  list-style: none; margin: 0; width: 34px; flex: none; border-right: 1px solid var(--line);
+}
+.markers li { height: 22px; display: flex; align-items: center; justify-content: center; }
+.markers li:not(:empty) {
+  width: 20px; height: 20px; margin: 1px auto; border-radius: 50%;
+  background: var(--blue); color: #fff; font-size: 12px; font-weight: 700;
+}
+.sample pre { padding-left: 14px; font-size: 15px; }
+.sample .hl { color: var(--blue); font-weight: 700; }
+.legend {
+  display: grid; grid-template-columns: 20px 1fr; gap: 6px 10px; align-items: baseline;
+}
+.legend dt {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--blue); color: #fff;
+  font-size: 12px; font-weight: 700; text-align: center; line-height: 20px;
+}
+.legend dd { font-size: 14px; }
+
+/* primitive: status table */
+.status { width: 100%; border-collapse: collapse; }
+.status th {
+  padding: 4px 6px; text-align: left; color: var(--muted); font-weight: 600;
+  border-bottom: 1.5px solid var(--ink);
+}
+.status td { padding: 6px 6px; border-bottom: 1px solid var(--line); }
+.status tr:nth-child(even) td { background: var(--fill); }
+.status code { font-size: 13px; }
+.status .yes { color: var(--blue); font-weight: 600; white-space: nowrap; }
+.status .no { color: var(--red); font-weight: 600; white-space: nowrap; }
+
+/* primitive: limits bars */
+.limit + .limit { margin-top: 14px; }
+.limit-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.limit-head .label { font-size: 14px; font-weight: 600; }
+.limit-head .max { color: var(--blue); font-family: var(--mono); font-size: 13px; }
+.bar {
+  position: relative; height: 12px; background: var(--fill); border: 1px solid var(--line);
+}
+.bar::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  width: calc(var(--value) / var(--max) * 100%);
+  background: color-mix(in srgb, var(--blue) 22%, #fff); border-right: 2px solid var(--blue);
+}
+.ticks {
+  list-style: none; margin: 5px 0 0; padding: 0; display: flex;
+  justify-content: space-between;
+}
+.ticks li {
+  position: relative; width: 0; display: flex; justify-content: center;
+  color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap;
+}
+.ticks li::before {
+  content: ""; position: absolute; left: 0; top: -5px; height: 4px;
+  border-left: 1px solid var(--muted);
+}
+
+/* primitive: timeline */
+.timeline {
+  list-style: none; margin: 0; padding: 0; display: flex; position: relative;
+}
+.timeline::before {
+  content: ""; position: absolute; left: 8%; right: 8%; top: 31px;
+  border-top: 1.5px solid var(--ink);
+}
+.timeline li {
+  flex: 1 1 0; position: relative; padding: 0 4px; text-align: center;
+  display: flex; flex-direction: column;
+}
+.timeline .when { order: -1; height: 22px; font-size: 15px; font-weight: 700; }
+.timeline li::before {
+  content: ""; display: block; width: 10px; height: 10px; margin: 2px auto 8px;
+  border: 2px solid var(--ink); border-radius: 50%; background: #fff;
+  position: relative;
+}
+.timeline .what { display: block; color: var(--muted); font-size: 13px; line-height: 1.3; }
+
+/* primitive: rule list */
+.rules { margin: 0; padding-left: 18px; list-style: square; }
+.rules li { font-size: 15px; }
+.rules li + li { margin-top: 3px; }
+.rules li::marker { color: var(--ink); }
+
+/* Title block: fixed bottom-right, in the last 3 columns of row 2. */
+:root { --tb-height: 262px; }
+.title-block {
+  grid-area: 2 / 10 / 3 / 13; align-self: end; height: var(--tb-height);
+  position: relative; box-sizing: border-box; overflow: hidden; border: 1.5px solid var(--ink);
+  display: flex; flex-direction: column;
+}
+.title-block.tall { align-self: stretch; height: auto; justify-content: flex-end; }
+.title-block .tb-title { padding: 6px 10px 7px; border-bottom: 1.5px solid var(--ink); }
+.title-block .tb-title strong { display: block; font-size: 19px; font-weight: 700; }
+/* Cell rules come from a 1px gap over a line-coloured background: no parity rules. */
+.title-block dl {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.title-block dl > div { padding: 3px 10px 4px; min-width: 0; background: #fff; }
+.title-block dl > div.wide { grid-column: span 2; }
+.title-block small, .title-block dt { display: block; color: var(--muted); font-size: 12px; }
+.title-block dd { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title-block .not-covered { padding: 4px 10px; font-size: 13px; color: var(--muted); }
+
+/* Guard ribbon: absolute, so the clipping panel cannot hide it. */
+.verify-ribbon {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 9; padding: 0 12px;
+  background: var(--red); color: #fff; font: 700 14px/26px var(--mono);
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+<!--
+  Grid: 12 columns, 2 rows. Each row of panels adds up to 12 columns; in row 2 the
+  title block takes the last 3, so row 2 panels add up to 9 plus the .over-title panel.
+  5 panels: delete panel F and add class "tall" to .title-block.
+  4 panels: also delete panel C and change A and B to span-6.
+  Panel ids are panel-A to panel-F: the guard reports OVERFLOW:<letter> from the id.
+-->
+<div class="grid">
+
+<section class="panel span-4" id="panel-A">
+  <header class="panel-head"><span class="tag">A</span><h2>What is a sheet made of?</h2><span class="caption">templates/sheet.html</span></header>
+  <div class="panel-body">
+    <!-- primitive: tree. Panel A is always the map. Nest <ul> for levels; one <code>
+         name and one short .what note per item. The tree is not prose: data-ste="skip". -->
+    <ul class="tree" data-ste="skip">
+      <li><span class="root">sheet.html</span>
+        <ul>
+          <li><code>.sheet</code> <span class="what">fixed 1920 x 1080 canvas, frame</span>
+            <ul>
+              <li><code>.grid</code> <span class="what">12 columns x 2 rows</span>
+                <ul>
+                  <li><code>section.panel</code> <span class="what">A to F, one question each</span>
+                    <ul>
+                      <li><code>header.panel-head</code> <span class="what">tag, title, caption</span></li>
+                      <li><code>div.panel-body</code> <span class="what">one primitive</span></li>
+                    </ul>
+                  </li>
+                  <li><code>aside.title-block</code> <span class="what">title, keys, provenance</span></li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+          <li><code>&lt;style&gt;</code> <span class="what">palette, type, six primitives</span></li>
+          <li><code>&lt;script&gt;</code> <span class="what">guard: measures, writes data-verify</span></li>
+        </ul>
+      </li>
+    </ul>
+    <p class="box"><strong>One file, no remote parts</strong>The sheet opens offline from one file. Send it as a file or as a PNG.</p>
+  </div>
+</section>
+
+<section class="panel span-5" id="panel-B">
+  <header class="panel-head"><span class="tag">B</span><h2>How do you write one panel?</h2><span class="caption">annotated example</span></header>
+  <div class="panel-body">
+    <!-- primitive: annotated example. One <li> in .markers per line of the <pre>, in the
+         same order; an empty <li> for a line without a key. Markers stay in the gutter,
+         never in the <pre> line. The .sample is not prose (data-ste="skip"); the legend
+         is prose and is linted. Escape < and > in the sample. -->
+    <div class="example">
+      <div class="sample" data-ste="skip">
+        <ol class="markers"><li>1</li><li>2</li><li></li><li></li><li>3</li><li>4</li><li></li><li>5</li><li></li><li></li><li></li></ol>
+<pre>&lt;section class="panel <span class="hl">span-4</span>"
+         <span class="hl">id="panel-C"</span>&gt;
+  &lt;header class="panel-head"&gt;
+    &lt;span class="tag"&gt;C&lt;/span&gt;
+    &lt;h2&gt;<span class="hl">Which checks run?</span>&lt;/h2&gt;
+    &lt;span class="caption"&gt;<span class="hl">verify.sh</span>&lt;/span&gt;
+  &lt;/header&gt;
+  &lt;div class="<span class="hl">panel-body</span>"&gt;
+    &lt;!-- one primitive --&gt;
+  &lt;/div&gt;
+&lt;/section&gt;</pre>
+      </div>
+      <dl class="legend">
+        <dt>1</dt><dd>The span class sets the panel width in grid columns. A row has 12 columns.</dd>
+        <dt>2</dt><dd>The id gives the panel letter. The guard uses this letter in its report.</dd>
+        <dt>3</dt><dd>The title is the one question that the panel answers.</dd>
+        <dt>4</dt><dd>The caption shows the source or the scope of the panel.</dd>
+        <dt>5</dt><dd>Put one primitive in the body. Write at most 250 words.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="panel span-3" id="panel-C">
+  <header class="panel-head"><span class="tag">C</span><h2>What can the file contain?</h2><span class="caption">self-contained</span></header>
+  <div class="panel-body">
+    <!-- primitive: status table. Last column: <td class="yes">&#10003; text</td> or
+         <td class="no">&#10007; text</td>. Table cells are not prose (data-ste="skip"). -->
+    <table class="status" data-ste="skip">
+      <thead><tr><th>Item</th><th>Example</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Inline CSS</td><td><code>&lt;style&gt;</code></td><td class="yes">&#10003; Allowed</td></tr>
+        <tr><td>Inline JS</td><td><code>&lt;script&gt;</code></td><td class="yes">&#10003; Allowed</td></tr>
+        <tr><td>System font</td><td><code>ui-monospace</code></td><td class="yes">&#10003; Allowed</td></tr>
+        <tr><td>Data URL</td><td><code>data:image/png</code></td><td class="yes">&#10003; Allowed</td></tr>
+        <tr><td>Web font</td><td><code>@font-face</code></td><td class="no">&#10007; Not allowed</td></tr>
+        <tr><td>CDN script</td><td><code>script src</code></td><td class="no">&#10007; Not allowed</td></tr>
+        <tr><td>Remote image</td><td><code>img src</code></td><td class="no">&#10007; Not allowed</td></tr>
+        <tr><td>Remote CSS</td><td><code>link href</code></td><td class="no">&#10007; Not allowed</td></tr>
+      </tbody>
+    </table>
+    <p class="note"><code>verify.sh</code> stops the handoff if it finds one remote reference.</p>
+  </div>
+</section>
+
+<section class="panel span-5" id="panel-D">
+  <header class="panel-head"><span class="tag">D</span><h2>What are the limits?</h2><span class="caption">maximum values</span></header>
+  <div class="panel-body">
+    <!-- primitive: limits bars. Set --value (the limit) and --max (the end of the scale)
+         on .bar; write the tick labels from 0 to --max at equal steps. Labels and ticks
+         are not prose (data-ste="skip"). Never write a limit as prose when it can be a bar. -->
+    <div class="limit">
+      <div class="limit-head" data-ste="skip"><span class="label">Panels on one sheet</span><span class="max">max 6 panels</span></div>
+      <div class="bar" style="--value: 6; --max: 8"></div>
+      <ol class="ticks" data-ste="skip"><li>0</li><li>1</li><li>2</li><li>3</li><li>4</li><li>5</li><li>6</li><li>7</li><li>8</li></ol>
+    </div>
+    <div class="limit">
+      <div class="limit-head" data-ste="skip"><span class="label">Words in one panel</span><span class="max">max 250 words</span></div>
+      <div class="bar" style="--value: 250; --max: 300"></div>
+      <ol class="ticks" data-ste="skip"><li>0</li><li>50</li><li>100</li><li>150</li><li>200</li><li>250</li><li>300</li></ol>
+    </div>
+    <div class="limit">
+      <div class="limit-head" data-ste="skip"><span class="label">Words in a descriptive sentence</span><span class="max">max 25 words</span></div>
+      <div class="bar" style="--value: 25; --max: 30"></div>
+      <ol class="ticks" data-ste="skip"><li>0</li><li>5</li><li>10</li><li>15</li><li>20</li><li>25</li><li>30</li></ol>
+    </div>
+    <div class="limit">
+      <div class="limit-head" data-ste="skip"><span class="label">Words in a citation snippet</span><span class="max">max 12 words</span></div>
+      <div class="bar" style="--value: 12; --max: 15"></div>
+      <ol class="ticks" data-ste="skip"><li>0</li><li>3</li><li>6</li><li>9</li><li>12</li><li>15</li></ol>
+    </div>
+    <div class="limit">
+      <div class="limit-head" data-ste="skip"><span class="label">Smallest font size</span><span class="max">min 12 px</span></div>
+      <div class="bar" style="--value: 12; --max: 24"></div>
+      <ol class="ticks" data-ste="skip"><li>0</li><li>4</li><li>8</li><li>12</li><li>16</li><li>20</li><li>24</li></ol>
+    </div>
+  </div>
+</section>
+
+<section class="panel span-4" id="panel-E">
+  <header class="panel-head"><span class="tag">E</span><h2>How does a sheet get to the reader?</h2><span class="caption">build sequence</span></header>
+  <div class="panel-body">
+    <!-- primitive: timeline. One <li> per node: a short .when label and a .what caption.
+         Up to 6 nodes in 4 columns. The timeline is not prose (data-ste="skip"). -->
+    <ol class="timeline" data-ste="skip">
+      <li><span class="when">Copy</span><span class="what">template to out/</span></li>
+      <li><span class="when">Fill</span><span class="what">panels and title block</span></li>
+      <li><span class="when">Verify</span><span class="what">verify.sh, four checks</span></li>
+      <li><span class="when">Export</span><span class="what">snapshot.sh, 3840 x 2160</span></li>
+      <li><span class="when">Review</span><span class="what">read the four tiles</span></li>
+      <li><span class="when">Hand off</span><span class="what">print the path</span></li>
+    </ol>
+    <table class="status" data-ste="skip">
+      <thead><tr><th>data-verify</th><th>Cause</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>OK</code></td><td>All measurements fit</td><td class="yes">&#10003; Pass</td></tr>
+        <tr><td><code>OVERFLOW:C</code></td><td>Content larger than panel C</td><td class="no">&#10007; Fail</td></tr>
+        <tr><td><code>CANVAS</code></td><td>Page larger than 1920 x 1080</td><td class="no">&#10007; Fail</td></tr>
+        <tr><td><code>SMALLTEXT:11</code></td><td>Text smaller than 12 px</td><td class="no">&#10007; Fail</td></tr>
+        <tr><td><code>JSERROR</code></td><td>A script error occurred</td><td class="no">&#10007; Fail</td></tr>
+      </tbody>
+    </table>
+    <p class="note">If a check fails, a red ribbon shows on the panel. Fix the sheet and run the two scripts again.</p>
+  </div>
+</section>
+
+<section class="panel over-title" id="panel-F">
+  <header class="panel-head"><span class="tag">F</span><h2>Which rules apply?</h2><span class="caption">rungs/sheet.md</span></header>
+  <div class="panel-body">
+    <!-- primitive: rule list. Short STE sentences, one rule per <li>. This is prose. -->
+    <!-- Citation pattern: <cite data-path="src/app.py" data-line="12" data-snippet="def
+         main(argv):">src/app.py:12 "def main(argv):"</cite>. The path is relative to
+         data-root; the snippet is at most 12 words, verbatim from that line. A URL
+         citation starts data-path with https:// and is not checked again. -->
+    <ul class="rules">
+      <li>Answer one question in each panel.</li>
+      <li>Show a limit as a bar.</li>
+      <li>Do not leave a panel empty.</li>
+      <li>Cite each claim about a file.</li>
+      <li>Write all prose in STE-80. <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 "Simplified Technical English"</cite></li>
+    </ul>
+  </div>
+</section>
+
+<aside class="title-block">
+  <div class="tb-title"><small>Title</small><strong>The sheet template: overview</strong></div>
+  <!-- Key: value pairs about the subject. Keep each value to one line. -->
+  <dl>
+    <div><dt>Rung</dt><dd>sheet</dd></div>
+    <div><dt>Export</dt><dd>3840 x 2160 PNG</dd></div>
+  </dl>
+  <!-- Provenance (spec 5.3 item 2). data-root: the absolute repo root, or the subject
+       directory when there is no repo. data-kind: file, directory, topic or conversation.
+       Commit and dirty only inside a git repo; dirty = "git status porcelain" printed
+       anything. Topic: Source is "model knowledge" or the URLs. -->
+  <div id="provenance" data-root="." data-kind="topic">
+    <dl>
+      <div class="wide"><dt>Subject</dt><dd>the sheet template (topic)</dd></div>
+      <div><dt>Source</dt><dd>model knowledge</dd></div>
+      <div><dt>Date</dt><dd>2026-10-03</dd></div>
+      <div><dt>Commit</dt><dd>none</dd></div>
+      <div><dt>Dirty</dt><dd>no</dd></div>
+    </dl>
+  </div>
+  <!-- Not covered: the facets that a forced rung dropped. Leave it empty when none. -->
+  <p class="not-covered">Not covered: none</p>
+</aside>
+
+</div>
+</div>
+<!-- broken fixture: a block taller than the canvas, outside the panels -->
+<div style="height: 1200px"></div>
+<script>
+/* Guard, part 2 of 2 (spec 6, 5.5): runs once, synchronously, in "load". No timers. */
+window.addEventListener("load", function () {
+  var W = 1920, H = 1080, MIN_PX = 12, fails = [], bad = [];
+  var boxes = document.querySelectorAll(".panel, .title-block");
+  for (var i = 0; i < boxes.length; i++) {
+    var box = boxes[i], r = box.getBoundingClientRect();
+    if (box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight ||
+        r.right > W || r.bottom > H) {
+      var name = box.id ? box.id.replace(/^panel-/, "") : "title";
+      fails.push("OVERFLOW:" + name);
+      bad.push([box, name]);
+    }
+  }
+  var doc = document.documentElement;
+  if (doc.scrollWidth > W || doc.scrollHeight > H) fails.push("CANVAS");
+  if (doc.scrollWidth > window.innerWidth) fails.push("HSCROLL");
+  var smallest = Infinity, all = document.body.getElementsByTagName("*");
+  for (var j = 0; j < all.length; j++) {
+    var el = all[j], own = false;
+    for (var n = el.firstChild; n && !own; n = n.nextSibling) {
+      own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+    }
+    if (!own || !el.getClientRects().length) continue;
+    smallest = Math.min(smallest, parseFloat(getComputedStyle(el).fontSize));
+  }
+  if (smallest < MIN_PX) fails.push("SMALLTEXT:" + Math.round(smallest * 100) / 100);
+  if (window.explainJsErrors) fails.push("JSERROR");
+  for (var k = 0; k < bad.length; k++) {
+    var ribbon = document.createElement("div");
+    ribbon.className = "verify-ribbon";
+    ribbon.textContent = "OVERFLOW:" + bad[k][1];
+    bad[k][0].appendChild(ribbon);
+  }
+  doc.dataset.verify = fails.length ? fails.join(";") : "OK";
+});
+</script>
+</body>
+</html>
