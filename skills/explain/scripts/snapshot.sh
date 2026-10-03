@@ -3,10 +3,12 @@
 #
 #   snapshot.sh <input.html> <output.png> [width=1920] [height=1080] [scale=2]
 #   env SNAPSHOT_TIMEOUT   seconds the watchdog waits for the PNG (default 60)
+#   env SNAPSHOT_FRAGMENT  URL fragment, [A-Za-z0-9_-]+ (default empty: none); "verify"
+#                          renders file://<input>#verify
 #
 #   exit 0  the PNG and every tile exist with the asserted sizes
 #   exit 1  render failed, timeout, or a size mismatch (message on stderr)
-#   exit 2  usage (missing/unreadable input, bad numbers)
+#   exit 2  usage (missing/unreadable input, bad numbers, bad fragment)
 #
 # The PNG is width*scale x height*scale. Tiles of at most 1920x1080 go to
 # <output dir>/review/<stem>-NN.png (row-major, NN from 01). stdout carries one
@@ -20,6 +22,9 @@
 # - sips treats --cropOffset 0 0 as "no offset" and crops the centre, and returns
 #   the whole image for a crop flush with the bottom edge: the PNG is padded by
 #   one pixel on every side and every crop is offset by (y+1) (x+1).
+#
+# Every catchable signal (HUP, INT, PIPE, TERM) runs the cleanup that kills Chrome.
+# SIGKILL of this script cannot be trapped and may leave Chrome running.
 
 set -u
 
@@ -55,6 +60,11 @@ is_count() {
     return 0
 }
 
+# A literal path as an extended regex for pgrep/pkill -f.
+regex_literal() {
+    printf '%s' "$1" | sed 's/[][\.*^$+?(){}|]/\\&/g'
+}
+
 # Kill Chrome's process group, then sweep by profile path until the process table
 # stays clear for 3 polls in a row (0.6 s): a helper forked while the group was
 # being killed would otherwise escape. Returns 1 if a process survives 5 s.
@@ -65,11 +75,12 @@ stop_chrome() {
         wait "$chrome_pid" 2>/dev/null
     fi
     [ -n "$work" ] || return 0
-    local clear=0 tries=0
+    local pattern clear=0 tries=0
+    pattern=$(regex_literal "$work")
     while [ "$clear" -lt 3 ]; do
         [ "$tries" -lt 25 ] || return 1
-        if pgrep -f "$work" >/dev/null 2>&1; then
-            pkill -KILL -f "$work" 2>/dev/null
+        if pgrep -f -- "$pattern" >/dev/null 2>&1; then
+            pkill -KILL -f -- "$pattern" 2>/dev/null
             clear=0
         else
             clear=$((clear + 1))
@@ -114,14 +125,19 @@ png_complete() {
     [ "$(tail -c 8 "$1" | od -An -tx1 | tr -d ' \n')" = "$PNG_TRAILER" ]
 }
 
-# Percent-encode the characters that would end or corrupt a file:// URL path.
+# Percent-encode the characters that would end or corrupt a file:// URL path,
+# then append the fragment, if any.
 file_url() {
     local p=$1
     p=${p//\%/%25}
     p=${p// /%20}
     p=${p//\#/%23}
     p=${p//\?/%3F}
-    echo "file://$p"
+    if [ -n "$fragment" ]; then
+        echo "file://$p#$fragment"
+    else
+        echo "file://$p"
+    fi
 }
 
 trap cleanup EXIT
@@ -139,6 +155,7 @@ width=${3:-1920}
 height=${4:-1080}
 scale=${5:-2}
 timeout=${SNAPSHOT_TIMEOUT:-60}
+fragment=${SNAPSHOT_FRAGMENT:-}
 
 [ -f "$input" ] && [ -r "$input" ] || usage "input is not a readable file: $input"
 case "$output" in
@@ -149,6 +166,9 @@ is_count "$width" || usage "width must be a positive integer: $width"
 is_count "$height" || usage "height must be a positive integer: $height"
 is_count "$scale" || usage "scale must be a positive integer: $scale"
 is_count "$timeout" || usage "SNAPSHOT_TIMEOUT must be a positive integer: $timeout"
+case "$fragment" in
+    *[!A-Za-z0-9_-]*) usage "SNAPSHOT_FRAGMENT must match [A-Za-z0-9_-]+: $fragment" ;;
+esac
 [ -x "$CHROME" ] || fail "Chrome not found: $CHROME"
 
 input_abs="$(cd "$(dirname "$input")" && pwd -P)/$(basename "$input")"
@@ -165,6 +185,8 @@ png_h=$((height * scale))
 
 tmp_base=${TMPDIR:-/tmp}
 work=$(mktemp -d "${tmp_base%/}/snapshot.XXXXXX") || fail "cannot create a temp directory"
+# From here on a failed run removes the PNG and tiles of this stem, including those
+# of an earlier successful run: a PNG exists only after exit 0.
 owns_outputs=1
 rm -f "$out_abs"   # a stale PNG would satisfy the watchdog at once
 

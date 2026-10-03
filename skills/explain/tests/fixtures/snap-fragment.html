@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>snapshot fixture: fragment</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  #block { height: 400px; background: #cc0000; }
+</style>
+</head>
+<body>
+<p>A 400 px red block appears at the top only when the URL fragment is #verify.</p>
+<script>
+  if (location.hash === "#verify") {
+    var block = document.createElement("div");
+    block.id = "block";
+    document.body.insertBefore(block, document.body.firstChild);
+  }
+</script>
+</body>
+</html>

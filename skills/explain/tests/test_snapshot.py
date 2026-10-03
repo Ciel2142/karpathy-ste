@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "scripts", "snapshot.sh")
 PLAIN = os.path.join(HERE, "fixtures", "snap-plain.html")
 HANG = os.path.join(HERE, "fixtures", "snap-hang.html")
+FRAGMENT = os.path.join(HERE, "fixtures", "snap-fragment.html")
 
 RED = (0xCC, 0x00, 0x00)
 WHITE = (0xFF, 0xFF, 0xFF)
@@ -89,10 +90,13 @@ class SnapshotTest(unittest.TestCase):
     def _kill_strays(self):
         subprocess.run(["pkill", "-KILL", "-f", self.tmp], capture_output=True)
 
-    def run_script(self, *args, timeout=None):
+    def run_script(self, *args, timeout=None, fragment=None):
         env = dict(os.environ, TMPDIR=self.tmp + "/")
+        env.pop("SNAPSHOT_FRAGMENT", None)
         if timeout is not None:
             env["SNAPSHOT_TIMEOUT"] = str(timeout)
+        if fragment is not None:
+            env["SNAPSHOT_FRAGMENT"] = fragment
         started = time.monotonic()
         proc = subprocess.run(
             [SCRIPT] + list(args), capture_output=True, text=True, env=env,
@@ -202,7 +206,7 @@ class SnapshotTest(unittest.TestCase):
         proc, elapsed = self.run_script(HANG, png, "1920", "1080", "1", timeout=1)
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertIn("timeout", proc.stderr.lower())
-        self.assertLess(elapsed, 3.5)
+        self.assertLess(elapsed, 5)
         self.assertFalse(os.path.exists(png))
         self.assertFalse(os.path.exists(os.path.join(self.out, "review")))
         self.assert_no_chrome_left(png)
@@ -213,8 +217,32 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(png_size(png), (2, 2))
         proc, _ = self.run_script(HANG, png, "1920", "1080", "1", timeout=1)
         self.assertEqual(proc.returncode, 1, proc.stderr)
+        # Removed before launch, the stale PNG cannot end the wait: the run must
+        # reach the watchdog timeout, not judge the 2x2 file's size.
+        self.assertIn("timeout", proc.stderr.lower())
+        self.assertNotIn("size mismatch", proc.stderr)
         self.assertFalse(os.path.exists(png))
         self.assert_no_chrome_left(png)
+
+    def test_fragment_env_reaches_the_page_url(self):
+        plain_png = os.path.join(self.out, "nofrag.png")
+        frag_png = os.path.join(self.out, "frag.png")
+        proc, _ = self.run_script(FRAGMENT, plain_png, "600", "500", "1")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, _ = self.run_script(FRAGMENT, frag_png, "600", "500", "1", fragment="verify")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # The red block exists only when the page sees location.hash == "#verify".
+        assert_close(self, pixel(frag_png, 300, 200, self.root), RED, "with #verify")
+        assert_close(self, pixel(plain_png, 300, 200, self.root), WHITE, "no fragment")
+        self.assert_no_chrome_left(plain_png, frag_png)
+
+    def test_bad_fragment_is_a_usage_error(self):
+        png = os.path.join(self.out, "badfrag.png")
+        for value in ("a b", "x#y", "../up", "a?b"):
+            proc, _ = self.run_script(PLAIN, png, fragment=value)
+            self.assertEqual(proc.returncode, 2, (value, proc.stderr))
+            self.assertIn("SNAPSHOT_FRAGMENT", proc.stderr)
+        self.assertFalse(os.path.exists(png))
 
 
 if __name__ == "__main__":

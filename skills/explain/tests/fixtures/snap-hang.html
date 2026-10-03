@@ -5,8 +5,10 @@
 <title>snapshot fixture: hang</title>
 </head>
 <body>
-<p>This page never finishes loading: the iframe below points at a non-routable
-address, so its load never completes and Chrome never takes the screenshot.</p>
-<iframe src="http://10.255.255.1/"></iframe>
+<p>This page never finishes loading: the inline script below never returns, so
+the parser never reaches the end of the document, the load event never fires
+and Chrome never takes the screenshot. (A non-routable iframe was not reliable:
+the network sometimes failed it at once and the page then loaded.)</p>
+<script>for (;;) {}</script>
 </body>
 </html>
