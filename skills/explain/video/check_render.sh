@@ -18,6 +18,9 @@
 #            | FAIL cannot extract the audio track | FAIL verify_sync.py exit <code>: <line>
 #   stills (<n>): ok <review-dir> | stills: FAIL <name>: cannot extract
 #
+# A review dir whose basename is not "review" is refused first, before any file is read or
+# emptied: "stills: FAIL review dir must be named review: <review-dir>", exit 1.
+#
 # The audio track goes to build/rendered-audio.wav next to the mp4. The review dir is
 # emptied first, then holds one still per scene at from + leadFrames
 # (still-NN-<scene-id>.png) and one per cue at cueFrame + 15, clamped to the scene's last
@@ -35,6 +38,10 @@ usage() {
 }
 
 [ $# -eq 3 ] || usage
+if [ "$(basename "$3")" != "review" ]; then
+    echo "stills: FAIL review dir must be named review: $3"
+    exit 1
+fi
 [ -f "$1" ] || { echo "check_render.sh: no such video: $1" >&2; exit 2; }
 [ -f "$2" ] || { echo "check_render.sh: no such timeline: $2" >&2; exit 2; }
 

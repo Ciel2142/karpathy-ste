@@ -23,6 +23,7 @@ const MAX_COLUMNS = 72;
 const TAB_COLUMNS = 4;
 const ENGINES = ["say", "kokoro"];
 const KINDS = ["file", "directory", "topic", "conversation"];
+const SCENE_ID = /^[a-z0-9][a-z0-9-]*$/; // the id names audio files and stills
 const CELLS = ["a", "b", "c"].flatMap((col) => ["1", "2", "3"].map((row) => col + row));
 const USAGE =
   "usage: build-timeline.mjs --check <script.json> --root <data-root>\n" +
@@ -53,9 +54,10 @@ const readJson = (file, label) => {
 };
 
 // ---------- props shapes ----------
-// A shape maps each prop to a spec: str {max, optional}, int, cell, obj {shape}, arr {item, min, max}.
+// A shape maps each prop to a spec: str {max, optional, empty}, int, cell, obj {shape},
+// arr {item, min, max}. `optional`: the key may be absent; `empty`: "" is allowed.
 
-const str = (max, optional = false) => ({ t: "str", max, optional });
+const str = (max, optional = false, empty = optional) => ({ t: "str", max, optional, empty });
 const int = { t: "int" };
 const cue = str(Infinity);
 const arr = (item, min = 0, max = Infinity) => ({ t: "arr", item, min, max });
@@ -102,11 +104,14 @@ const cuesOf = (component, props) => {
   return raw.filter((c) => typeof c === "string" && c !== "");
 };
 
+// Own keys only: a JSON key such as "constructor" or "__proto__" must not match an inherited name.
+const has = (object, key) => Object.hasOwn(object, key);
+
 // Check a value against a spec; `fail(cause)` records one cause.
 const checkSpec = (value, spec, where, fail) => {
   if (spec.t === "str") {
     if (typeof value !== "string") return fail(`${where} must be a string`);
-    if (value === "" && !spec.optional) return fail(`${where} is empty`);
+    if (value === "" && !spec.empty) return fail(`${where} is empty`);
     const n = charLength(value);
     if (n > spec.max) fail(`${where} is ${n} chars (max ${spec.max})`);
   } else if (spec.t === "int") {
@@ -129,13 +134,13 @@ const checkShape = (value, shape, where, fail) => {
   if (!isObject(value)) return fail(`${where || "props"} must be an object`);
   const at = (key) => (where ? `${where}.${key}` : key);
   for (const [key, spec] of Object.entries(shape)) {
-    if (!(key in value)) {
+    if (!has(value, key)) {
       if (!spec.optional) fail(`missing prop ${q(at(key))}`);
     } else {
       checkSpec(value[key], spec, at(key), fail);
     }
   }
-  for (const key of Object.keys(value)) if (!(key in shape)) fail(`unexpected prop ${q(at(key))}`);
+  for (const key of Object.keys(value)) if (!has(shape, key)) fail(`unexpected prop ${q(at(key))}`);
 };
 
 // ---------- cues ----------
@@ -258,7 +263,10 @@ const checkScene = (scene, where, root, subjectKind, report) => {
   if (!isObject(scene)) return fail("must be an object");
   for (const key of SCENE_KEYS) if (!(key in scene) && key !== "cites") fail(`missing ${q(key)}`);
   for (const key of Object.keys(scene)) if (!SCENE_KEYS.includes(key)) fail(`unexpected key ${q(key)}`);
-  if ("id" in scene && (typeof scene.id !== "string" || scene.id === "")) fail("id must be a non-empty string");
+  if ("id" in scene) {
+    if (typeof scene.id !== "string" || scene.id === "") fail("id must be a non-empty string");
+    else if (!SCENE_ID.test(scene.id)) fail(`id ${q(scene.id)} must match [a-z0-9-]`);
+  }
 
   if ("narration" in scene) {
     if (typeof scene.narration !== "string" || scene.narration.trim() === "") fail("narration is empty");
@@ -269,7 +277,8 @@ const checkScene = (scene, where, root, subjectKind, report) => {
   checkCites(scene.cites ?? [], subjectKind, fail);
 
   if ("component" in scene) {
-    const shape = SHAPES[scene.component];
+    const known = typeof scene.component === "string" && has(SHAPES, scene.component);
+    const shape = known ? SHAPES[scene.component] : undefined;
     if (!shape) return fail(`unknown component ${q(scene.component)}`);
     if ("props" in scene) {
       checkShape(scene.props, shape, "", fail);
@@ -283,7 +292,7 @@ const checkScene = (scene, where, root, subjectKind, report) => {
 };
 
 const sceneWhere = (scene, index) =>
-  typeof scene?.id === "string" && scene.id !== "" ? `scene ${scene.id}` : `scene #${index + 1}`;
+  typeof scene?.id === "string" && SCENE_ID.test(scene.id) ? `scene ${scene.id}` : `scene #${index + 1}`;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = (s) => {
@@ -304,7 +313,7 @@ const checkHeader = (script, report) => {
   const prov = script.provenance;
   checkShape(
     prov,
-    { root: str(Infinity), commit: str(Infinity), dirty: str(Infinity), date: str(Infinity), source: str(Infinity), not_covered: str(Infinity, true) },
+    { root: str(Infinity), commit: str(Infinity), dirty: str(Infinity), date: str(Infinity), source: str(Infinity), not_covered: str(Infinity, false, true) },
     "provenance",
     fail,
   );
@@ -351,7 +360,7 @@ const buildScenes = (script, durations, engine, root, fail) => {
     if (!isObject(scene) || typeof scene.id !== "string" || typeof scene.narration !== "string" || !isObject(scene.props)) {
       return bad("needs id, narration and props to build");
     }
-    const seconds = clips[scene.id];
+    const seconds = has(clips, scene.id) ? clips[scene.id] : undefined;
     if (seconds === undefined) return bad("no duration in durations.json");
     if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
       return bad(`duration ${q(seconds)} must be a positive number of seconds`);

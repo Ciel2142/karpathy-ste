@@ -372,6 +372,71 @@ class TestCheck(VideoCase):
             "FAIL scene code: highlights[1] range 8-11 is outside the source range 3-10",
         )
 
+    def test_scene_id_outside_a_z_0_9_dash_fails(self):
+        """Red: no pattern check on the scene id (an id such as "x/y" names a file path)."""
+        for bad in ("x/y", "Intro", "-lead"):
+            with self.subTest(id=bad):
+
+                def mutate(s):
+                    self.scene(s, "intro")["id"] = bad
+
+                self.assertFails(
+                    self.check_mutated(mutate), 'FAIL scene #1: id "%s" must match [a-z0-9-]' % bad
+                )
+
+    def test_not_covered_is_required_and_may_be_empty(self):
+        """Red: provenance.not_covered optional (transcript.py then fails on the missing key)."""
+
+        def drop(s):
+            del s["provenance"]["not_covered"]
+
+        self.assertFails(self.check_mutated(drop), 'FAIL script: missing prop "provenance.not_covered"')
+
+        def empty(s):
+            s["provenance"]["not_covered"] = ""
+
+        result = self.check_mutated(empty)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_prototype_names_are_not_components_or_props(self):
+        """Red: SHAPES[...] and `key in shape` (inherited names such as constructor pass)."""
+        for name in ("constructor", "toString", "__proto__"):
+            with self.subTest(component=name):
+
+                def as_component(s):
+                    scene = self.scene(s, "intro")
+                    scene["component"], scene["props"] = name, {}
+
+                self.assertFails(
+                    self.check_mutated(as_component), 'FAIL scene intro: unknown component "%s"' % name
+                )
+            with self.subTest(prop=name):
+
+                def as_prop(s):
+                    self.scene(s, "intro")["props"][name] = "x"
+
+                self.assertFails(
+                    self.check_mutated(as_prop), 'FAIL scene intro: unexpected prop "%s"' % name
+                )
+
+    def test_cue_after_question_mark_passes(self):
+        """Red: the sentence end limited to "." (a cue after "?" is not at a sentence start)."""
+
+        def mutate(s):
+            self.scene(s, "intro")["narration"] = "Who picks the handler? The router does. The handler replies."
+
+        result = self.check_mutated(mutate)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_cue_after_exclamation_mark_passes(self):
+        """Red: the sentence end limited to "." (a cue after "!" is not at a sentence start)."""
+
+        def mutate(s):
+            self.scene(s, "intro")["narration"] = "The router picks a handler! The handler replies."
+
+        result = self.check_mutated(mutate)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
     def test_invalid_json_is_one_fail_line(self):
         """Red: the JSON parse error left to crash node (stack trace, no FAIL line)."""
         path = self.write("script.json", "{ not json")
@@ -404,7 +469,7 @@ class TestBuild(VideoCase):
         return script
 
     def test_two_scene_fixture_frames_add_up(self):
-        """Red: tailFrames changed (36 -> 30 gives 321 and the second scene at 135)."""
+        """Red: tailFrames changed (36 -> 30 gives 315 and the second scene at 135)."""
         result, timeline = self.build(self.two_scene_script(), {"intro": 3.0, "flow": 4.5})
         self.assertEqual((result.returncode, result.stdout), (0, ""))
         self.assertEqual(timeline["totalFrames"], 327)

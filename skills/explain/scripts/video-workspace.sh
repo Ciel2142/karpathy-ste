@@ -16,6 +16,8 @@
 #   workspace: npm ci (about 55 s, 503 MB)              lock changed or never installed
 #   workspace: browser (Chrome Headless Shell, 193 MB)  after each npm ci
 #   workspace: download <name> (<size>)                 each missing Kokoro file
+# and "workspace: downloaded <name>" once that file is checked and in place. curl runs with
+# -sS: no progress meter, only its error message.
 # npm ci runs when node_modules/.explain-lock-sha is missing or differs from the sha256 of
 # package-lock.json. The stamp is written once npm ci and the browser step both succeeded,
 # so a failed browser download is retried on the next run.
@@ -87,7 +89,7 @@ fetch_model() {
     local name="$1" size="$2" want="$3" part="$models/$1.part" got
     [ -f "$models/$name" ] && return 0
     echo "workspace: download $name ($size)"
-    if ! curl -fL -o "$part" "$model_base/$name"; then
+    if ! curl -fsSL -o "$part" "$model_base/$name"; then
         rm -f "$part"
         fail "download $name"
     fi
@@ -97,6 +99,7 @@ fetch_model() {
         fail "checksum $name expected $want got $got"
     fi
     mv "$part" "$models/$name" || fail "mv $part"
+    echo "workspace: downloaded $name"
 }
 
 if [ "$engine" = "kokoro" ]; then

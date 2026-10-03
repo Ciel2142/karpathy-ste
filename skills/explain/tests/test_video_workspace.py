@@ -15,6 +15,7 @@ from pathlib import Path
 EXPLAIN = Path(__file__).resolve().parent.parent
 WORKSPACE_SH = EXPLAIN / "scripts" / "video-workspace.sh"
 KOKORO_SHA = "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a"
+VOICES_SHA = "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
 WRONG_BYTES = b"not a model\n"
 
 # npm ci as the real one does it: remove node_modules, then install, which puts the remotion
@@ -33,7 +34,7 @@ echo "FAKE remotion $*" >> "$FAKE_STDOUT"
 EOF
 chmod +x node_modules/.bin/remotion
 """
-# curl -fL -o <file> <url>: writes WRONG_BYTES to <file>.
+# curl -fsSL -o <file> <url>: writes WRONG_BYTES to <file>.
 FAKE_CURL = r"""#!/bin/sh
 echo "curl $*" >> "$FAKE_LOG"
 echo "FAKE curl $*" >> "$FAKE_STDOUT"
@@ -182,6 +183,36 @@ class Models(WorkspaceCase):
         self.assertEqual(sorted(p.name for p in models.iterdir()), [])
         self.assertEqual(len(self.calls("curl")), 1)
         self.assertIn("/model-files-v1.1/kokoro-v1.0.onnx", self.calls("curl")[0])
+
+    def test_curl_runs_without_progress_meter(self):
+        """Mutation: curl without -s (the progress meter floods the render log)."""
+        self.run_ws("--engine", "kokoro")
+        argv = self.calls("curl")[0].split()[1:]
+        flags = "".join(a[1:] for a in argv if a.startswith("-") and not a.startswith("--"))
+        for flag in "fsSL":
+            self.assertIn(flag, flags, argv)
+
+    def test_downloaded_line_after_each_model(self):
+        """Mutation: no "workspace: downloaded <name>" line once a model is in place."""
+        skill = self.copy_skill()
+        script = skill / "scripts" / WORKSPACE_SH.name
+        text = script.read_text(encoding="utf-8")
+        fake_sha = hashlib.sha256(WRONG_BYTES).hexdigest()
+        for sha in (KOKORO_SHA, VOICES_SHA):
+            self.assertEqual(text.count(sha), 1)
+            text = text.replace(sha, fake_sha)
+        script.write_text(text, encoding="utf-8")
+
+        run = self.run_ws("--engine", "kokoro", script=script)
+
+        self.assert_ok(run)
+        lines = run.stdout.splitlines()
+        curls = [i for i, line in enumerate(lines) if line.startswith("FAKE curl")]
+        self.assertEqual(len(curls), 2, run.stdout)
+        for name, curl in zip(("kokoro-v1.0.onnx", "voices-v1.0.bin"), curls):
+            done = "workspace: downloaded " + name
+            self.assertEqual(lines.count(done), 1, run.stdout)
+            self.assertEqual(lines.index(done), curl + 1, run.stdout)
 
     def test_say_engine_skips_models(self):
         """Mutation: models are fetched whatever the engine."""

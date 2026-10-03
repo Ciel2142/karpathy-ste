@@ -7,6 +7,7 @@ needs EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
 
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -155,6 +156,34 @@ class VerifySyncCase(unittest.TestCase):
 
 
 # ---------- check_render.sh on the fixture render ----------
+
+class ReviewDirNameCase(unittest.TestCase):
+    """No render needed: the name check comes before any file is read or emptied."""
+
+    # red: any directory accepted as the review dir (check_render.sh empties it)
+    def test_review_dir_not_named_review_is_refused(self):
+        tmp = Path(tempfile.mkdtemp(prefix="check-render-name-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "video.mp4").write_bytes(b"not a video")
+        (tmp / "timeline.json").write_text(json.dumps({"fps": 30, "totalFrames": 30, "scenes": []}),
+                                           encoding="utf-8")
+        home = tmp / "home"
+        home.mkdir()
+        (home / "keep.txt").write_text("keep\n", encoding="utf-8")
+        for target in (home, tmp / "stills"):
+            with self.subTest(target=target.name):
+                run = subprocess.run(
+                    ["/bin/bash", str(CHECK_RENDER), str(tmp / "video.mp4"), str(tmp / "timeline.json"),
+                     str(target)],
+                    capture_output=True, text=True, timeout=60,
+                    env={**os.environ, "EXPLAIN_VIDEO_WORKSPACE": str(tmp / "ws")},
+                )
+                self.assertEqual((run.returncode, run.stdout),
+                                 (1, "stills: FAIL review dir must be named review: %s\n" % target),
+                                 run.stderr)
+        self.assertTrue((home / "keep.txt").exists())
+        self.assertFalse((tmp / "stills").exists())
+
 
 @unittest.skipUnless(E2E, E2E_REASON)
 class CheckRenderCase(unittest.TestCase):

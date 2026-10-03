@@ -26,8 +26,11 @@
 #
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
-# that fell back to say says so. The Remotion CLI runs with cwd <ws>/app: every path it gets
-# is absolute, and provenance.root must be an absolute existing directory.
+# that fell back to say says so. The Narrator row reads "kokoro (af_heart)", "say" or
+# "say (fallback: <cause>)". Once stage 1 passes, a video.mp4 and the stills of an earlier
+# run are removed, so a later FAIL never leaves them next to the new transcript. The
+# Remotion CLI runs with cwd <ws>/app: every path it gets is absolute, and provenance.root
+# must be an absolute existing directory.
 
 set -eu
 
@@ -138,6 +141,19 @@ stream() {
     done < <(rc=0; "$@" 2>&1 < /dev/null || rc=$?; printf '%s%s\n' "$MARK" "$rc")
 }
 
+# The Narrator row of the transcript: the engine that made the audio, the Kokoro voice
+# (narrate.py's af_heart), or the fallback cause.
+narrator_text() {
+    local used="$1" fallback="$2"
+    if [ -n "$fallback" ]; then
+        printf '%s (fallback: %s)\n' "$used" "$fallback"
+    elif [ "$used" = "kokoro" ]; then
+        printf 'kokoro (af_heart)\n'
+    else
+        printf '%s\n' "$used"
+    fi
+}
+
 now() {
     python3 -c 'import time; print("%.3f" % time.time())'
 }
@@ -162,6 +178,12 @@ PY
     run_tool script python3 "$video/transcript.py" "$script" "$out"
     run_tool script "$scripts/verify.sh" "$out/index.html"
     echo "script: ok ($count scenes)"
+}
+
+# The video and the stills of an earlier run: removed once the script is valid.
+clear_stale() {
+    rm -f "$out/video.mp4"
+    [ ! -d "$out/review" ] || find "$out/review" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 }
 
 stage_workspace() {
@@ -260,14 +282,15 @@ stage_checks() {
 }
 
 stage_transcript() {
-    local narrator="$used"
-    [ -z "$fallback" ] || narrator="$used (fallback: $fallback)"
+    local narrator
+    narrator=$(narrator_text "$used" "$fallback")
     run_tool transcript python3 "$video/transcript.py" "$script" "$out" --narrator "$narrator"
     run_tool transcript "$scripts/verify.sh" "$out/index.html"
     echo "transcript: ok"
 }
 
 stage_script
+clear_stale
 stage_workspace
 stage_narration
 stage_timeline

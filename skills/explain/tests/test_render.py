@@ -108,6 +108,58 @@ class StageOneCase(unittest.TestCase):
         self.assertIn("\n  prose: FAIL 1 error(s)\n", run.stdout)
         self.assertIn('contraction "doesn\'t"', run.stdout)
 
+    def place_stale(self):
+        (self.out / "video.mp4").write_bytes(b"old video")
+        (self.out / "review").mkdir()
+        (self.out / "review" / "still-01-old.png").write_bytes(b"old still")
+
+    # red: the stale video and stills removed before stage 1 (a failed script stage then
+    # destroys the last good render)
+    def test_stale_artifacts_survive_a_script_fail(self):
+        self.write_script(root="skills/explain")
+        self.place_stale()
+        run = self.render()
+        self.assertEqual(stage_lines(run.stdout),
+                         ["script: FAIL provenance.root must be an absolute path"])
+        self.assertTrue((self.out / "video.mp4").exists())
+        self.assertTrue((self.out / "review" / "still-01-old.png").exists())
+
+    # red: no removal after stage 1 (the old video and stills sit next to the new transcript)
+    def test_stale_artifacts_removed_once_the_script_stage_passes(self):
+        self.write_script()
+        self.place_stale()
+        run = self.render()
+        lines = stage_lines(run.stdout)
+        self.assertEqual(lines[0], "script: ok (5 scenes)", run.stdout)
+        self.assertTrue(lines[1].startswith("workspace: FAIL "), run.stdout)
+        self.assertFalse((self.out / "video.mp4").exists())
+        self.assertEqual(list((self.out / "review").iterdir()), [])
+
+
+def narrator_text(used, fallback):
+    """Run the narrator_text function of render.sh on its own."""
+    source = RENDER_SH.read_text(encoding="utf-8")
+    match = re.search(r"^narrator_text\(\) \{\n.*?^\}\n", source, re.M | re.S)
+    assert match, "no narrator_text() in render.sh"
+    run = subprocess.run(["/bin/bash", "-c", match.group(0) + 'narrator_text "$1" "$2"', "-", used, fallback],
+                         capture_output=True, text=True, timeout=30)
+    assert run.returncode == 0, run.stderr
+    return run.stdout
+
+
+class NarratorTextCase(unittest.TestCase):
+    # red: the Narrator row without the Kokoro voice ("kokoro")
+    def test_kokoro_row_names_the_voice(self):
+        self.assertEqual(narrator_text("kokoro", ""), "kokoro (af_heart)\n")
+
+    # red: the voice added to every engine ("say (af_heart)")
+    def test_say_row_is_say(self):
+        self.assertEqual(narrator_text("say", ""), "say\n")
+
+    # red: the fallback cause dropped from the row
+    def test_fallback_row_names_the_cause(self):
+        self.assertEqual(narrator_text("say", "no models"), "say (fallback: no models)\n")
+
 
 ORDER = [
     r"script: ok \(3 scenes\)",
