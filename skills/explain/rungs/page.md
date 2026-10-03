@@ -135,4 +135,4 @@ step 3 made it) and `review/`.
 
 ## 8. Shared palette
 
-The palette block is duplicated in `templates/sheet.html`. Change both.
+The same palette is also in `templates/sheet.html`, `templates/video.html` and `video/src/theme.ts`. Change all four.

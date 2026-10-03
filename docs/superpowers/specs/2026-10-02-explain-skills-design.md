@@ -367,13 +367,13 @@ Rules:
 4. Verified before handoff, in two layers. First `verify.sh` (§5.5) must exit 0.
    Then Claude reads the review tiles from `snapshot.sh` and checks what a script
    cannot: readable hierarchy, sensible layout, nothing misleading. Fix, re-run both.
-5. Discardable output. `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/` where
-   `slug` is the kebab-cased subject, at most 40 characters. A directory is never
-   overwritten; a re-run creates a new one. Contents: `index.html`; for sheets
-   `sheet.png` (share render) and `review/sheet-NN.png` tiles; for pages
-   `page-1440x6000.png`, `page-500x844.png` and their `review/page-<WxH>-NN.png`
-   tiles; for videos `video.mp4` and `narration.md`. Gitignored, never committed, safe
-   to delete wholesale.
+5. Discardable output. `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/` where `slug` is the
+   kebab-cased subject, at most 40 characters. A directory is never overwritten; a re-run creates
+   a new one. Contents: `index.html`; for sheets `sheet.png` (share render) and
+   `review/sheet-NN.png` tiles; for pages `page-1440x6000.png`, `page-500x844.png` and their
+   `review/page-<WxH>-NN.png` tiles; for videos (amended 2026-10-04: wave explain-video)
+   `script.json`, `index.html` (the transcript), `video.mp4`, `narration.md`, `audio/`, `build/`,
+   `review/still-NN-<scene>[-k].png`. Gitignored, never committed, safe to delete wholesale.
 6. Handoff: print the path; when running interactively for the user, `open
    index.html` (sheet, page) or `open video.mp4` (video); skip `open` inside subagents.
 7. Language: artifacts are in English unless the user asks otherwise.

@@ -147,4 +147,4 @@ Do these steps in the output directory, in this order.
 
 ## 7. Shared palette
 
-The palette block is duplicated in `templates/page.html`. Change both.
+The same palette is also in `templates/page.html`, `templates/video.html` and `video/src/theme.ts`. Change all four.

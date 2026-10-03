@@ -62,9 +62,8 @@ also under `--as`:
 `<kind>` is `file`, `directory`, `conversation` or `topic`. Under `--as`, the `<reason>`
 names the flag and tells if the content fits the rung. Then follow these rules:
 
-- Offer `video` only if `rungs/video.md` exists. If it does not exist, `--as video` changes
-  to `page`, whose steps player shows the narration as step captions. Print this rung line:
-  `Rung: page (forced) — --as video, rungs/video.md absent, narration as step captions — subject: <subject> (<kind>)`
+- The `video` rung, chosen or forced with `--as video`, builds a narrated mp4 as
+  `rungs/video.md` shows. The video rung is English only.
 - If `rungs/<rung>.md` does not exist for the chosen rung (also a `page` from the video
   fallback), print the rung line. Say that the rung is not available yet. Stop. Offer
   `sheet` or `ste`.
@@ -124,6 +123,7 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 
 1. Read `~/.claude/skills/ste/SKILL.md` by path. Write all prose under that profile.
 2. Read `rungs/<rung>.md` of the chosen rung only, and each section that it names.
+   For a video, the rung file replaces steps 3 to 6 (write `script.json`, run `render.sh`, read the stills).
 3. Write `index.html` in the output directory.
 4. Run `~/.claude/skills/explain/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
 5. Run `~/.claude/skills/explain/scripts/snapshot.sh` as the rung file shows. Read the
@@ -137,4 +137,4 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 - `rungs/sheet.md`: the sheet rung (canvas, panels, template, snapshot arguments).
 - `rungs/page.md`: the page rung (sections, steps player, diagram patterns, template,
   snapshot arguments).
-- `rungs/video.md`: does not exist yet. `--as video` uses the video fallback (Rung selection).
+- `rungs/video.md`: the video rung (script, components, cue rule, render pipeline, pinned versions).
