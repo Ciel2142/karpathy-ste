@@ -181,8 +181,59 @@ Evidence for the wave: `cd skills/explain && python3 -B -m unittest discover -s 
 <run-1 dir>/sheet.png 1920 1080 2` with 4 tiles of the asserted sizes; the rung line as
 specified in spec §5.2; the live-run note; the user's report.
 
+## Wave `explain-page` (7 tasks) — outline written 2026-10-03, awaiting "go"
+
+Observable outcome: `/explain <subject> --as page` builds a responsive single-file page
+(sticky nav, `<details>` walkthroughs, inline-SVG diagrams, steps player); `verify.sh`
+reports `OK` at 1440x900 and 500x844; `/explain <code question>` with no `--as` picks the
+rung from content shape. The scripts already handle the page rung (two viewports with
+`#verify` in `verify.sh`, `SNAPSHOT_FRAGMENT` in `snapshot.sh`): no script work.
+
+Risk: low (map). Owns: `skills/explain/rungs/page.md`, `skills/explain/templates/page.html`,
+plus `skills/explain/SKILL.md`, `rungs/sheet.md` §7 and the `sheet.html` palette comment
+(explain-sheet is closed; no conflict).
+
+1. `templates/page.html` — self-demo of itself: sticky `nav` (lint-skipped), one `<section>`
+   per facet, code blocks captioned `path:line`, `<details>`, three documented SVG patterns
+   (flow, sequence, layers), steps player (prev/next, one diagram state per step),
+   provenance footer, `<meta name="explain-rung" content="page">`, explicit >= 14 px on
+   every element incl. `code`/`pre`/`button`, palette block identical to `sheet.html`.
+   Guard inside `load`: `#verify` opens every `<details>` and stacks all step states;
+   measures `HSCROLL` vs `innerWidth`, `SMALLTEXT:<px>`, `JSERROR`; never touches
+   `document.title`. Vanilla JS <= 200 lines incl. guard.
+   Evidence: `verify.sh templates/page.html` four `ok`; `wc -l` of the script blocks.
+2. `tests/test_page_template.py` — guard cases derived from the template at test time:
+   `HSCROLL` at 500 px, `SMALLTEXT` for a 13 px rule, `JSERROR`, `#verify` opens details
+   and stacks steps vs. without it, `data-verify` absent in the source, title unchanged.
+   Each assertion shown false on the broken state. Full suite green:
+   `cd skills/explain && python3 -B -m unittest discover -s tests`.
+3. `rungs/page.md` (<= 150 lines, lint 0 errors) — when a page; section planning (facet =
+   section = nav entry); template filling; steps player and diagram patterns; snapshot
+   arguments `1440 6000 1` and `500 844 1` with `SNAPSHOT_FRAGMENT=verify`; tile-review
+   faults; provenance by reference to `sheet.md` §4; "palette: change both".
+4. `SKILL.md` pass, closes the four parked items — drop the "`rungs/page.md` does not
+   exist" lines; video-fallback wording; slug: empty result -> `topic`; `git ls-files`
+   step skipped when there is no repo; C4 `data-root` wording for a directory subject
+   and a topic inside a repo; `rungs/sheet.md` §7 and the `sheet.html` palette comment
+   lose the "while page.html does not exist" clause. <= 130 lines, strict YAML, lint 0.
+5. Live run 2 — `/explain docs/superpowers/specs/2026-10-02-explain-skills-design.md
+   --as page`. Note in `docs/superpowers/spikes/`; rounds and skill defects recorded;
+   fixes folded back into the files of tasks 1-4.
+6. Live run 3 — in `~/work/inavcalculator` (CodeGraph-indexed): `/explain how does a
+   signed counterparty request flow through inavcalculator, from the HTTP filter to the
+   signature check to the calculation`, no `--as`. Pre-declared: `Rung: page (chosen) — a
+   step-through request flow with more than 6 facets`. Three claims spot-checked against
+   `path:line`. A different rung with a defensible printed reason passes; otherwise it is
+   a selection-rule defect. Other indexed repos: omnimailcore, esiaintegrationservice, postman.
+7. User acceptance — the user runs `/explain <a spec or plan of their own> --as page`.
+
+Process: subagent per task (briefs/reports in the shared SDD workspace, prefix `ep-`),
+whole-wave review on fable, one fix dispatch, one re-review; task 7 closes the wave.
+Rulings: ownership extension above; run-3 subject and expected rung; no separate review
+seat for the live-run notes.
+
 ## Later waves
 
-`explain-page` gets its outline when `explain-sheet` closes (map `depends_on`). The
+The
 `video` rung stays deferred until the user's fold-in decision exists (narrator decided:
 Kokoro `af_heart`).

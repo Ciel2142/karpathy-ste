@@ -88,6 +88,8 @@ waves:
     owns:
       - skills/explain/rungs/page.md
       - skills/explain/templates/page.html
+      - skills/explain/SKILL.md   # pass + four parked items from explain-sheet (closed)
+      - skills/explain/rungs/sheet.md §7 and the sheet.html palette comment
     risk: low
     plan: null
     acceptance:
