@@ -95,6 +95,7 @@ button { font-family: var(--sans); }
 .note { color: var(--muted); font-size: 13px; }
 .box { padding: 10px 12px; background: var(--fill); border: 1px solid var(--line); }
 .box strong { display: block; }
+.box code { white-space: nowrap; }
 
 /* The panel in the last 3 columns of row 2 sits above the title block. */
 .over-title { grid-area: 2 / 10 / 3 / 13; margin-bottom: calc(var(--tb-height) + 18px); }
@@ -197,7 +198,9 @@ button { font-family: var(--sans); }
   border: 2px solid var(--ink); border-radius: 50%; background: #fff;
   position: relative;
 }
-.timeline .what { display: block; color: var(--muted); font-size: 13px; line-height: 1.3; }
+.timeline { padding-bottom: 6px; }
+.timeline code { color: var(--blue); font-size: 12px; white-space: nowrap; margin-bottom: 4px; }
+.timeline .what { display: block; color: var(--muted); font-size: 14px; line-height: 1.3; }
 
 /* primitive: rule list */
 .rules { margin: 0; padding-left: 18px; list-style: square; }
@@ -223,7 +226,9 @@ button { font-family: var(--sans); }
 .title-block dl > div { padding: 3px 10px 4px; min-width: 0; background: #fff; }
 .title-block dl > div.wide { grid-column: span 2; }
 .title-block small, .title-block dt { display: block; color: var(--muted); font-size: 12px; }
-.title-block dd { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Values wrap and never truncate: if the block runs out of room, the guard reports
+   OVERFLOW:title. */
+.title-block dd { font-size: 14px; overflow-wrap: anywhere; }
 .title-block .not-covered { padding: 4px 10px; font-size: 13px; color: var(--muted); }
 
 /* Guard ribbon: absolute, so the clipping panel cannot hide it. */
@@ -239,7 +244,8 @@ button { font-family: var(--sans); }
   Grid: 12 columns, 2 rows. Each row of panels adds up to 12 columns; in row 2 the
   title block takes the last 3, so row 2 panels add up to 9 plus the .over-title panel.
   5 panels: delete panel F and add class "tall" to .title-block.
-  4 panels: also delete panel C and change A and B to span-6.
+  4 panels: also delete panel C, change A and B to span-6, and re-letter the panels
+  A to D in order (the id and the tag of each panel).
   Panel ids are panel-A to panel-F: the guard reports OVERFLOW:<letter> from the id.
 -->
 <div class="grid">
@@ -369,26 +375,18 @@ button { font-family: var(--sans); }
   <header class="panel-head"><span class="tag">E</span><h2>How does a sheet get to the reader?</h2><span class="caption">build sequence</span></header>
   <div class="panel-body">
     <!-- primitive: timeline. One <li> per node: a short .when label and a .what caption.
-         Up to 6 nodes in 4 columns. The timeline is not prose (data-ste="skip"). -->
+         An optional <code> line names the tool. Up to 6 nodes in 4 columns. The timeline
+         is not prose (data-ste="skip"). -->
     <ol class="timeline" data-ste="skip">
-      <li><span class="when">Copy</span><span class="what">template to out/</span></li>
-      <li><span class="when">Fill</span><span class="what">panels and title block</span></li>
-      <li><span class="when">Verify</span><span class="what">verify.sh, four checks</span></li>
-      <li><span class="when">Export</span><span class="what">snapshot.sh, 3840 x 2160</span></li>
-      <li><span class="when">Review</span><span class="what">read the four tiles</span></li>
-      <li><span class="when">Hand off</span><span class="what">print the path</span></li>
+      <li><span class="when">Copy</span><code>cp</code><span class="what">template to out/</span></li>
+      <li><span class="when">Fill</span><code>index.html</code><span class="what">panels, title block</span></li>
+      <li><span class="when">Verify</span><code>verify.sh</code><span class="what">four checks</span></li>
+      <li><span class="when">Export</span><code>snapshot.sh</code><span class="what">PNG and 4 tiles</span></li>
+      <li><span class="when">Review</span><code>review/</code><span class="what">read each tile</span></li>
+      <li><span class="when">Hand off</span><code>open</code><span class="what">print the path</span></li>
     </ol>
-    <table class="status" data-ste="skip">
-      <thead><tr><th>data-verify</th><th>Cause</th><th>Result</th></tr></thead>
-      <tbody>
-        <tr><td><code>OK</code></td><td>All measurements fit</td><td class="yes">&#10003; Pass</td></tr>
-        <tr><td><code>OVERFLOW:C</code></td><td>Content larger than panel C</td><td class="no">&#10007; Fail</td></tr>
-        <tr><td><code>CANVAS</code></td><td>Page larger than 1920 x 1080</td><td class="no">&#10007; Fail</td></tr>
-        <tr><td><code>SMALLTEXT:11</code></td><td>Text smaller than 12 px</td><td class="no">&#10007; Fail</td></tr>
-        <tr><td><code>JSERROR</code></td><td>A script error occurred</td><td class="no">&#10007; Fail</td></tr>
-      </tbody>
-    </table>
-    <p class="note">If a check fails, a red ribbon shows on the panel. Fix the sheet and run the two scripts again.</p>
+    <p class="box"><strong>What the guard does</strong>The guard script runs one time when the page loads. It measures each panel, the page and the smallest text. It writes <code>OK</code> or the list of failures into <code>data-verify</code> on the <code>html</code> element. A red ribbon marks each panel that overflows.</p>
+    <p class="note">If <code>verify.sh</code> fails, fix the sheet. Then run the two scripts again.</p>
   </div>
 </section>
 
@@ -412,17 +410,20 @@ button { font-family: var(--sans); }
 
 <aside class="title-block">
   <div class="tb-title"><small>Title</small><strong>The sheet template: overview</strong></div>
-  <!-- Key: value pairs about the subject. Keep each value to one line. -->
-  <dl>
+  <!-- Key: value pairs about the subject. Values are names and numbers, not prose:
+       data-ste="skip" on both <dl> of the title block. Keep each value short. -->
+  <dl data-ste="skip">
     <div><dt>Rung</dt><dd>sheet</dd></div>
     <div><dt>Export</dt><dd>3840 x 2160 PNG</dd></div>
   </dl>
   <!-- Provenance (spec 5.3 item 2). data-root: the absolute repo root, or the subject
        directory when there is no repo. data-kind: file, directory, topic or conversation.
        Commit and dirty only inside a git repo; dirty = "git status porcelain" printed
-       anything. Topic: Source is "model knowledge" or the URLs. -->
+       anything. Commit: the short hash, 7 or more characters (git rev-parse with the short flag).
+       Topic: Source is "model knowledge" or the URLs. Paths, hashes and dates are not
+       prose: the <dl> has data-ste="skip". -->
   <div id="provenance" data-root="." data-kind="topic">
-    <dl>
+    <dl data-ste="skip">
       <div class="wide"><dt>Subject</dt><dd>the sheet template (topic)</dd></div>
       <div><dt>Source</dt><dd>model knowledge</dd></div>
       <div><dt>Date</dt><dd>2026-10-03</dd></div>
@@ -430,7 +431,7 @@ button { font-family: var(--sans); }
       <div><dt>Dirty</dt><dd>no</dd></div>
     </dl>
   </div>
-  <!-- Not covered: the facets that a forced rung dropped. Leave it empty when none. -->
+  <!-- Not covered: the facets that a forced rung dropped, or "none". -->
   <p class="not-covered">Not covered: none</p>
 </aside>
 

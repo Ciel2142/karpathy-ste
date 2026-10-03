@@ -3,7 +3,7 @@
 The template is also a demo of itself: verify.sh must pass it as it stands. The
 broken-state fixtures are copies of the template with one edit each; verify.sh
 must report the one status that the guard writes for that edit. One Chrome dump
-per fixture (five in total). Each run gets a private TMPDIR, so every Chrome
+per fixture (six in total). Each run gets a private TMPDIR, so every Chrome
 process carries that path and the cleanup can kill a stray one.
 """
 
@@ -19,7 +19,7 @@ VERIFY = os.path.join(SKILL, "scripts", "verify.sh")
 TEMPLATE = os.path.join(SKILL, "templates", "sheet.html")
 FIXTURES = os.path.join(HERE, "fixtures")
 BROKEN = ("sheet-overflow.html", "sheet-smalltext.html", "sheet-canvas.html",
-          "sheet-jserror.html")
+          "sheet-jserror.html", "sheet-provenance.html")
 OK_LINES = ["self-contained: ok", "citations: ok", "prose: ok"]
 
 
@@ -87,6 +87,11 @@ class SheetGuardTest(unittest.TestCase):
 
     def test_throwing_inline_script_reports_jserror(self):
         self.assert_render_fails("sheet-jserror.html", "JSERROR")
+
+    def test_long_subject_and_full_hash_report_overflow_title_and_lint_clean(self):
+        # Title-block values wrap instead of truncating, so a 128-character path and a
+        # 40-character hash run out of room visibly; the paths are not linted as prose.
+        self.assert_render_fails("sheet-provenance.html", "OVERFLOW:title")
 
 
 if __name__ == "__main__":
