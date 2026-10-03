@@ -370,6 +370,26 @@ class UsageTest(TranscriptCase):
             self.assertEqual(proc.stdout, "")
             self.assertEqual(len(proc.stderr.strip().split("\n")), 1, (args, proc.stderr))
 
+    def test_dotdot_source_path_is_rejected(self):
+        """Red: the inside-the-data-root guard removed from source_lines (the outside file is read)."""
+        root = self.dir / "root"
+        (root / "src").mkdir(parents=True)
+        (self.dir / "outside.txt").write_text("secret one\nsecret two\nsecret three\n", encoding="utf-8")
+        scene = {
+            "id": "code", "component": "code-with-line-highlights",
+            "props": {"title": "Out", "source": {"path": "../outside.txt", "from": 1, "to": 3}, "highlights": []},
+            "narration": "The file lies outside.", "cites": [],
+        }
+        path = self.dir / "s.json"
+        path.write_text(json.dumps(small_script([scene], root, kind="file")), encoding="utf-8")
+        proc = self.run_tool(str(path), str(self.out))
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stderr.strip().split("\n"),
+            ['transcript.py: source.path "../outside.txt" must be a relative path inside the data root'],
+        )
+        self.assertFalse((self.out / "index.html").exists())
+
     def test_script_missing_a_field_exits_two(self):
         """Red: KeyError traceback (exit 1) when a scene lacks its narration."""
         script = copy.deepcopy(template_script())

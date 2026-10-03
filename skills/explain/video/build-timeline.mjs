@@ -184,6 +184,13 @@ const readSourceLines = (root, file) => {
   return lines;
 };
 
+// A data-root path must be relative and stay inside the root: no "..", no absolute path.
+const outsideRoot = (file) => {
+  if (path.isAbsolute(file)) return true;
+  const n = path.normalize(file);
+  return n === "." || n === ".." || n.startsWith(".." + path.sep);
+};
+
 const sourceOk = (props) =>
   isObject(props?.source) &&
   typeof props.source.path === "string" &&
@@ -195,6 +202,7 @@ const checkCode = (props, root, fail) => {
   const { path: file, from, to } = props.source;
   if (from < 1 || from > to) return fail(`source range ${from}-${to} is not a valid line range`);
   if (to - from + 1 > MAX_CODE_LINES) fail(`source range ${from}-${to} is ${to - from + 1} lines (max ${MAX_CODE_LINES})`);
+  if (outsideRoot(file)) return fail(`source.path ${q(file)} must be a relative path inside the data root`);
   let lines;
   try {
     lines = readSourceLines(root, file);
@@ -253,6 +261,9 @@ const checkCites = (cites, subjectKind, fail) => {
     const shape = { ...CITE_SHAPE, line: { ...int, optional: url } };
     checkShape(c, shape, where, fail);
     if (isInt(c.line) && c.line < 1) fail(`${where}.line must be 1 or more`);
+    if (typeof c.path === "string" && !url && outsideRoot(c.path)) {
+      fail(`${where}.path ${q(c.path)} must be a relative path inside the data root`);
+    }
   });
 };
 

@@ -44,6 +44,8 @@ def inline(text):
 
 def source_lines(root, path):
     """Lines of <root>/<path>: no trailing newline, no carriage returns."""
+    if os.path.isabs(path) or os.path.normpath(path).split(os.sep)[0] in (".", ".."):
+        raise ScriptError('source.path "%s" must be a relative path inside the data root' % path)
     text = (Path(root) / path).read_text(encoding="utf-8")
     lines = [line.rstrip("\r") for line in text.split("\n")]
     if lines and lines[-1] == "":

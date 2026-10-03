@@ -372,6 +372,55 @@ class TestCheck(VideoCase):
             "FAIL scene code: highlights[1] range 8-11 is outside the source range 3-10",
         )
 
+    def check_under_subroot(self, mutate):
+        """Check a mutated script whose data root is <tmp>/root; <tmp>/outside.txt lies outside it."""
+        self.write("root/src/app.py", "\n".join(APP_LINES) + "\n")
+        self.write("outside.txt", "secret 1\nsecret 2\nsecret 3\n")
+        script = base_script()
+        mutate(script)
+        path = self.write_json("script.json", script)
+        return self.node("--check", path, "--root", os.path.join(self.dir, "root"))
+
+    def test_dotdot_source_path_fails(self):
+        """Red: the inside-the-data-root guard removed from the code source check."""
+
+        def mutate(s):
+            self.scene(s, "code")["props"]["source"] = {"path": "../outside.txt", "from": 1, "to": 3}
+            self.scene(s, "code")["props"]["highlights"] = [
+                {"from": 1, "to": 1, "cue": "The first part"},
+                {"from": 2, "to": 3, "cue": "The second part"},
+            ]
+            self.scene(s, "code")["cites"] = [cite(path="../outside.txt", line=1, snippet="secret 1")]
+
+        self.assertFails(
+            self.check_under_subroot(mutate),
+            'FAIL scene code: cites[0].path "../outside.txt" must be a relative path inside the data root',
+            'FAIL scene code: source.path "../outside.txt" must be a relative path inside the data root',
+        )
+
+    def test_dotdot_cite_path_fails(self):
+        """Red: the inside-the-data-root guard removed from the cite check."""
+
+        def mutate(s):
+            self.scene(s, "intro")["cites"] = [cite(path="src/../../outside.txt", line=1, snippet="secret 1")]
+
+        self.assertFails(
+            self.check_under_subroot(mutate),
+            'FAIL scene intro: cites[0].path "src/../../outside.txt" must be a relative path inside the data root',
+        )
+
+    def test_absolute_source_path_fails(self):
+        """Red: the absolute-path guard removed from the code source check."""
+        absolute = os.path.join(self.dir, "root", "src", "app.py")
+
+        def mutate(s):
+            self.scene(s, "code")["props"]["source"] = {"path": absolute, "from": 3, "to": 10}
+
+        self.assertFails(
+            self.check_under_subroot(mutate),
+            'FAIL scene code: source.path "%s" must be a relative path inside the data root' % absolute,
+        )
+
     def test_scene_id_outside_a_z_0_9_dash_fails(self):
         """Red: no pattern check on the scene id (an id such as "x/y" names a file path)."""
         for bad in ("x/y", "Intro", "-lead"):
