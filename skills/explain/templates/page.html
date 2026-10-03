@@ -178,26 +178,20 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 <section id="structure">
   <h2>What is in the file?</h2>
   <p>The page is one HTML file. It has no remote parts, thus it opens offline from one file.</p>
+  <p>The file starts with these four lines:</p>
   <figure class="code">
     <figcaption><code>templates/page.html:1</code></figcaption>
 <pre><code>&lt;!doctype html&gt;
 &lt;html lang="en"&gt;
 &lt;head&gt;
-  &lt;meta charset="utf-8"&gt;
-  &lt;script&gt; guard, part 1 &lt;/script&gt;
-  &lt;meta name="explain-rung" content="page"&gt;
-  &lt;title&gt; ... &lt;/title&gt;
-  &lt;style&gt; palette, type, layout &lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-  &lt;header&gt; h1, lead &lt;/header&gt;
-  &lt;nav id="toc"&gt; one link per section &lt;/nav&gt;
-  &lt;main&gt; one section per facet &lt;/main&gt;
-  &lt;footer&gt; provenance &lt;/footer&gt;
-  &lt;script&gt; steps player &lt;/script&gt;
-  &lt;script&gt; guard, part 2 &lt;/script&gt;
-&lt;/body&gt;</code></pre>
+&lt;meta charset="utf-8"&gt;</code></pre>
   </figure>
+  <p>Then the file has these parts, in this sequence:</p>
+  <ol class="rules">
+    <li>The head contains guard part 1, the rung meta, the title and the style.</li>
+    <li>The body contains the header, the navigation bar, one section for each facet and the footer.</li>
+    <li>Two scripts close the body: the steps player and guard part 2.</li>
+  </ol>
   <!-- Citation pattern: <cite data-path="src/app.py" data-line="12" data-snippet="def
        main(argv):">src/app.py:12 "def main(argv):"</cite>. The path is relative to
        data-root; the snippet is at most 12 words, verbatim from that line. A URL
@@ -415,7 +409,7 @@ function explainPlayer(player) {
   var next = player.querySelector("[data-next]");
   var counter = player.querySelector("[data-counter]");
   var at = 0;
-  if (!steps.length) return;
+  if (!steps.length || !prev || !next || !counter) { window.explainJsErrors += 1; return; }
   function show(i) {
     at = i;
     for (var s = 0; s < steps.length; s++) steps[s].hidden = s !== i;
@@ -442,6 +436,11 @@ window.addEventListener("load", function () {
         var steps = players[p].querySelectorAll(".step");
         var buttons = players[p].querySelectorAll("button");
         var counter = players[p].querySelector("[data-counter]");
+        /* A broken player contract fails here too, not only in normal view. */
+        if (typeof explainPlayer !== "function" || !players[p].querySelector("[data-prev]") ||
+            !players[p].querySelector("[data-next]") || !counter || !steps.length) {
+          window.explainJsErrors += 1;
+        }
         for (var s = 0; s < steps.length; s++) steps[s].hidden = false;
         for (var b = 0; b < buttons.length; b++) buttons[b].disabled = true;
         if (counter) counter.textContent = "all " + steps.length;
