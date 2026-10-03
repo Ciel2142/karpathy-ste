@@ -181,7 +181,7 @@ Evidence for the wave: `cd skills/explain && python3 -B -m unittest discover -s 
 <run-1 dir>/sheet.png 1920 1080 2` with 4 tiles of the asserted sizes; the rung line as
 specified in spec §5.2; the live-run note; the user's report.
 
-## Wave `explain-page` (7 tasks) — outline written 2026-10-03, awaiting "go"
+## Wave `explain-page` (7 tasks) — go given 2026-10-03, br epic kp-9ft
 
 Observable outcome: `/explain <subject> --as page` builds a responsive single-file page
 (sticky nav, `<details>` walkthroughs, inline-SVG diagrams, steps player); `verify.sh`
