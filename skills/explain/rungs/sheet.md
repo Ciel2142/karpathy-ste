@@ -92,8 +92,9 @@ git ls-files --error-unmatch <path>
 - Set `data-kind` to `file`, `directory`, `topic` or `conversation`. Write the date as `YYYY-MM-DD`.
 - Subject cell: `<path> (file)`, `<path> (directory)`, `<topic> (topic)` or
   `conversation (unverified)`. For a conversation, re-read and cite each file that it names.
-- Source cell: for a file or a directory, write the repo root. For a topic, write
-  `model knowledge` or the list of URLs that you read. Never write `model knowledge` for a file.
+- Source cell: for a file or a directory, write the repo root. For a topic that you answered from
+  files of a git repo, also write the repo root. For any other topic, write `model knowledge` or
+  the list of URLs that you read. Never write `model knowledge` for a file.
 
 A citation has this form. The path is relative to `data-root`. `data-line` is a 1-based line
 number. The snippet has at most 12 words, copied verbatim from that one line. Escape `"`, `&`
