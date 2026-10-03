@@ -1,0 +1,238 @@
+"""Tests for video/check_render.sh and video/verify_sync.py: the container, speech-sync and
+still checks after a render.
+
+The verify_sync tests synthesize their WAVs (a 440 Hz tone where the speech should be) and
+always run. The end-to-end class reuses the one fixture render of tests/video_e2e.py and
+needs EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
+
+import json
+import math
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+import wave
+import zlib
+from array import array
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from video_e2e import E2E, E2E_REASON, EXPLAIN, render_fixture
+
+CHECK_RENDER = EXPLAIN / "video" / "check_render.sh"
+VERIFY_SYNC = EXPLAIN / "video" / "verify_sync.py"
+RATE = 16000
+FPS = 30
+
+
+def write_wav(path, samples):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(array("h", samples).tobytes())
+
+
+def read_wav(path):
+    with wave.open(str(path), "rb") as w:
+        data = array("h")
+        data.frombytes(w.readframes(w.getnframes()))
+    return data
+
+
+def run_sync(wav, timeline):
+    return subprocess.run([sys.executable, str(VERIFY_SYNC), str(wav), str(timeline)],
+                          capture_output=True, text=True, timeout=60)
+
+
+# ---------- a minimal PNG reader: 8-bit RGB or RGBA, not interlaced ----------
+
+def read_png(path, rows):
+    """The first `rows` scanlines of the PNG as (width, channels, [bytes per row])."""
+    data = Path(path).read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", path
+    pos, idat = 8, b""
+    while pos < len(data):
+        length = int.from_bytes(data[pos:pos + 4], "big")
+        kind, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + length]
+        if kind == b"IHDR":
+            width = int.from_bytes(body[0:4], "big")
+            depth, color, interlace = body[8], body[9], body[12]
+            assert depth == 8 and color in (2, 6) and interlace == 0, (path, depth, color, interlace)
+            channels = 3 if color == 2 else 4
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + length
+    raw, stride, out, prev = zlib.decompress(idat), width * channels, [], bytearray(width * channels)
+    for y in range(rows):
+        kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - channels] if i >= channels else 0
+            b, c = prev[i], prev[i - channels] if i >= channels else 0
+            if kind == 1:
+                line[i] = (line[i] + a) & 255
+            elif kind == 2:
+                line[i] = (line[i] + b) & 255
+            elif kind == 3:
+                line[i] = (line[i] + (a + b) // 2) & 255
+            elif kind == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        out.append(line)
+        prev = line
+    return width, channels, out
+
+
+def differing_pixels(png_a, png_b, x0, x1, y0, y1):
+    """Pixels in [x0, x1) x [y0, y1) whose RGB differs by more than 40 in some channel."""
+    _, ca, rows_a = read_png(png_a, y1)
+    _, cb, rows_b = read_png(png_b, y1)
+    count = 0
+    for y in range(y0, y1):
+        ra, rb = rows_a[y], rows_b[y]
+        for x in range(x0, x1):
+            if any(abs(ra[x * ca + k] - rb[x * cb + k]) > 40 for k in range(3)):
+                count += 1
+    return count
+
+
+# ---------- verify_sync.py on synthesized audio ----------
+
+class VerifySyncCase(unittest.TestCase):
+    """Two scenes of 15 + 60 + 36 frames; the "speech" is a 440 Hz tone of 2 s."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="verify-sync-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        scenes, start = [], 0
+        for scene_id in ("one", "two"):
+            scenes.append({"id": scene_id, "from": start, "durationInFrames": 111,
+                           "leadFrames": 15, "audioFrames": 60, "cueFrames": {}})
+            start += 111
+        self.timeline = self.tmp / "timeline.json"
+        self.timeline.write_text(json.dumps({"fps": FPS, "totalFrames": start, "scenes": scenes}),
+                                 encoding="utf-8")
+        self.scenes = scenes
+
+    def wav(self, offsets):
+        """A WAV with a 2 s tone in each scene, starting `offset` s after the scene start
+        (None: no tone in that scene)."""
+        total = self.scenes[-1]["from"] + self.scenes[-1]["durationInFrames"]
+        samples = [0] * (total * RATE // FPS)
+        for scene, offset in zip(self.scenes, offsets):
+            if offset is None:
+                continue
+            first = round((scene["from"] / FPS + offset) * RATE)
+            for n in range(2 * RATE):
+                samples[first + n] = int(0.3 * 32767 * math.sin(2 * math.pi * 440 * n / RATE))
+        path = self.tmp / "audio.wav"
+        write_wav(path, samples)
+        return path
+
+    # red: voiced means RMS below the threshold (silence counts as speech)
+    def test_sync_ok_on_aligned_tone(self):
+        run = run_sync(self.wav([0.5, 0.5]), self.timeline)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines(), [
+            "sync: one speech 0.50-2.50 s (lead 0.50 s)",
+            "sync: two speech 0.50-2.50 s (lead 0.50 s)",
+        ])
+
+    # red: lead tolerance 2 s instead of 0.25 s
+    def test_sync_fail_on_shifted_tone(self):
+        run = run_sync(self.wav([0.5, 1.0]), self.timeline)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("sync: FAIL two: speech starts at 1.00 s, expected 0.50 s ± 0.25",
+                      run.stdout.splitlines())
+
+    # red: a scene without voiced windows is skipped instead of failed
+    def test_sync_fail_on_silence(self):
+        run = run_sync(self.wav([0.5, None]), self.timeline)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("sync: FAIL two: no speech", run.stdout.splitlines())
+
+
+# ---------- check_render.sh on the fixture render ----------
+
+@unittest.skipUnless(E2E, E2E_REASON)
+class CheckRenderCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.out, cls.result = render_fixture()
+        if cls.result.returncode != 0:
+            raise AssertionError("fixture render failed:\n" + cls.result.stdout + cls.result.stderr)
+        cls.timeline = json.loads((cls.out / "build" / "timeline.json").read_text(encoding="utf-8"))
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="check-render-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def check(self, timeline, review):
+        return subprocess.run(
+            ["/bin/bash", str(CHECK_RENDER), str(self.out / "video.mp4"), str(timeline), str(review)],
+            capture_output=True, text=True, timeout=300,
+        )
+
+    # red: the duration compared with a tolerance of 2 s
+    def test_duration_mismatch_is_container_fail(self):
+        timeline = dict(self.timeline, totalFrames=self.timeline["totalFrames"] + 30)
+        path = self.tmp / "timeline.json"
+        path.write_text(json.dumps(timeline), encoding="utf-8")
+        run = self.check(path, self.tmp / "review")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(len(run.stdout.splitlines()), 1, run.stdout)
+        self.assertRegex(run.stdout, r"^container: FAIL duration \d+\.\d\d s, expected \d+\.\d\d s\n$")
+
+    # red: lead tolerance 2 s
+    def test_shifted_speech_is_sync_fail(self):
+        audio = read_wav(self.out / "build" / "rendered-audio.wav")
+        second = self.timeline["scenes"][1]
+        at = second["from"] * RATE // FPS
+        shifted = self.tmp / "shifted.wav"
+        write_wav(shifted, audio[:at] + array("h", [0] * RATE) + audio[at:])
+        run = run_sync(shifted, self.out / "build" / "timeline.json")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        fails = [line for line in run.stdout.splitlines() if line.startswith("sync: FAIL")]
+        self.assertTrue(fails, run.stdout)
+        self.assertTrue(fails[0].startswith("sync: FAIL %s: speech starts at " % second["id"]), fails)
+
+    def expected_stills(self):
+        names = []
+        for n, scene in enumerate(self.timeline["scenes"], 1):
+            names.append("still-%02d-%s.png" % (n, scene["id"]))
+            names += ["still-%02d-%s-%d.png" % (n, scene["id"], k)
+                      for k in range(1, len(scene["cueFrames"]) + 1)]
+        return sorted(names)
+
+    # red: review/ not emptied before the stills are written
+    def test_stills_named_per_scene_and_cue_and_review_cleared(self):
+        review = self.out / "review"
+        (review / "stale.png").write_bytes(b"old")
+        run = self.check(self.out / "build" / "timeline.json", review)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(len(run.stdout.splitlines()), 3, run.stdout)
+        names = sorted(p.name for p in review.iterdir())
+        self.assertNotIn("stale.png", names)
+        for name in names:
+            self.assertRegex(name, r"^still-\d\d-[a-z0-9-]+?(-\d+)?\.png$")
+        cues = sum(len(s["cueFrames"]) for s in self.timeline["scenes"])
+        self.assertEqual(len(names), len(self.timeline["scenes"]) + cues)
+        self.assertEqual(names, self.expected_stills())
+        self.assertIn("stills (%d): ok " % len(names), run.stdout)
+
+    # red: stills taken at the cue frame (before the motion)
+    def test_still_at_cue_plus_15_shows_motion(self):
+        n, scene = next((n, s) for n, s in enumerate(self.timeline["scenes"], 1)
+                        if s["component"] == "bullets-appear")
+        review = self.out / "review"
+        start = review / ("still-%02d-%s.png" % (n, scene["id"]))
+        first_cue = review / ("still-%02d-%s-1.png" % (n, scene["id"]))
+        # The first bullet's row in the content box (layout.tsx: top 138, padding 24, 32 px text).
+        changed = differing_pixels(start, first_cue, 48, 700, 162, 204)
+        self.assertGreater(changed, 500)
+
+
+if __name__ == "__main__":
+    unittest.main()
