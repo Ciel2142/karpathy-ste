@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>
+/* Guard, part 1 of 2: count script errors from the first line on. Keep this block first. */
+window.explainJsErrors = 0;
+window.onerror = function () { window.explainJsErrors += 1; };
+</script>
+<meta name="explain-rung" content="page">
+<title>The page template: a guided tour</title>
+<!--
+  explain / rung page. Copy this file to out/<run>/index.html, then fill it.
+  - Put the page title in <title> and in the <h1>. Write one lead paragraph.
+  - One facet per <section>: a unique id, an <h2> with the question the section
+    answers, and one <a href="#id"> in <nav id="toc">, in document order.
+  - Code: <figure class="code"> with a path:line caption. Long proof: <details class="walk">.
+  - Diagrams: copy one of the three SVG patterns. Steps player: one figure.step per state.
+  - All prose in STE-80. A file or directory subject needs a <cite> in every section.
+  - Delete the demo content and the HTML comments; keep the CSS and script comments.
+  - Keep <meta name="explain-rung" content="page">, the ids, the classes, the data-*
+    attributes and all three scripts. Without the meta, verify.sh exits 2.
+-->
+<style>
+/* Palette duplicated in sheet.html: change both. */
+:root {
+  --ink: #1b2129;
+  --muted: #5b6570;
+  --line: #b8c0c9;
+  --blue: #1d5fc2;
+  --red: #c42f2a;
+  --fill: #eef1f4;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+/* Type: every element has an explicit font-size of 14px or more. Chrome defaults
+   (code, pre 13px; button 13.33px; small, sup "smaller") would set the minimum.
+   Add each new element to one of these rules. */
+html, body, div, section, header, nav, main, footer, p, ul, ol, li, dl, dd, table,
+thead, tbody, tr, figure, details, summary { font-size: 16px; }
+span, strong, em, b, i, a, q, mark, tspan { font-size: inherit; }
+h1 { font-size: 30px; }
+h2 { font-size: 22px; }
+h3 { font-size: 18px; }
+.lead { font-size: 18px; }
+code, kbd, pre, button, nav a { font-size: 15px; }
+th, dt, small, sup, sub, cite, figcaption, .caption { font-size: 14px; }
+td { font-size: 15px; }
+figcaption code { font-size: 14px; }
+/* SVG text is in viewBox units. A 600-unit viewBox shows 18 units as 18 px at
+   1440 px and as 14 px at 500 px (468 px of content). Never go below 18. */
+svg text { font-size: 18px; }
+
+html, body { margin: 0; padding: 0; background: #fff; }
+/* Measure: about 72 ch on wide screens; 16 px side margins on narrow ones. */
+body {
+  max-width: 72ch; margin: 0 auto; padding: 0 16px 32px; color: var(--ink);
+  font-family: var(--sans); line-height: 1.5; overflow-wrap: break-word;
+}
+h1, h2, h3, p, ul, ol, dl, dd, figure, pre { margin: 0; }
+h1, h2, h3 { line-height: 1.25; }
+code, kbd, pre { font-family: var(--mono); }
+:not(pre) > code { padding: 0 3px; background: var(--fill); }
+cite { font-family: var(--mono); font-style: normal; color: var(--blue); }
+sup { line-height: 0; }
+figcaption { color: var(--muted); }
+
+/* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
+header { padding: 32px 0 16px; }
+.lead { margin-top: 10px; color: var(--muted); }
+nav#toc {
+  position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 18px;
+  padding: 10px 0; background: #fff; border-bottom: 1.5px solid var(--ink);
+}
+nav#toc a { color: var(--blue); font-weight: 600; text-decoration: none; }
+nav#toc a:hover { text-decoration: underline; }
+
+/* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav. */
+section { padding: 28px 0 8px; scroll-margin-top: 64px; }
+section + section { border-top: 1px solid var(--line); }
+section > * + * { margin-top: 14px; }
+.rules { padding-left: 22px; }
+.rules li + li { margin-top: 4px; }
+
+/* Captioned code block. Long lines wrap inside the box, so no line hides off screen. */
+figure.code { border: 1px solid var(--line); }
+figure.code figcaption {
+  padding: 6px 12px; background: var(--fill); border-bottom: 1px solid var(--line);
+}
+figure.code figcaption code { padding: 0; }
+figure.code pre {
+  padding: 10px 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  overflow-x: auto;
+}
+
+/* Walkthrough: closed by default; #verify opens it. */
+details.walk { padding: 0 12px; border: 1px solid var(--line); border-left: 3px solid var(--blue); }
+details.walk summary { padding: 8px 0; font-weight: 600; cursor: pointer; }
+details.walk[open] summary { margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+details.walk > p { padding-bottom: 10px; }
+
+/* Diagrams: inline SVG, width 100% of the column up to the 600-unit viewBox. */
+figure.diagram svg { display: block; width: 100%; max-width: 600px; height: auto; }
+figure.diagram figcaption { margin-top: 6px; }
+.diagram text { fill: var(--ink); font-family: var(--sans); }
+.diagram .label { font-family: var(--mono); }
+.diagram .name { font-weight: 700; }
+.diagram rect { fill: var(--fill); stroke: var(--ink); stroke-width: 1.5; }
+.diagram rect.alt { fill: #fff; }
+.diagram line { stroke: var(--ink); stroke-width: 1.5; }
+.diagram line.life { stroke: var(--muted); stroke-dasharray: 6 5; }
+.diagram marker path { fill: var(--ink); stroke: none; }
+
+/* Steps player: one .step visible at a time; .stacked (from #verify) shows all. */
+.player { padding: 12px; border: 1.5px solid var(--ink); }
+.player .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.player button {
+  padding: 4px 14px; font-family: var(--sans); color: var(--ink); background: #fff;
+  border: 1.5px solid var(--ink); cursor: pointer;
+}
+.player button:disabled { color: var(--muted); border-color: var(--line); cursor: default; }
+.player .caption { color: var(--muted); font-family: var(--mono); }
+.step { margin-top: 14px; }
+.step figcaption { margin-top: 8px; color: var(--ink); font-size: 16px; }
+.step figcaption code { font-size: 15px; }
+.player.stacked .step + .step { padding-top: 14px; border-top: 1px dashed var(--line); }
+.track { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.track li {
+  position: relative; padding: 4px 12px; font-family: var(--mono); font-size: 15px;
+  background: #fff; border: 1.5px solid var(--line);
+}
+.track li + li::before {
+  content: "\2192"; position: absolute; left: -21px; color: var(--muted); font-family: var(--sans);
+}
+.track li.on { color: #fff; background: var(--blue); border-color: var(--blue); }
+
+/* Table: fits the column, or scrolls inside its wrapper. */
+.table-wrap { overflow-x: auto; }
+.status { width: 100%; border-collapse: collapse; }
+.status th {
+  padding: 4px 8px; text-align: left; color: var(--muted); font-weight: 600;
+  border-bottom: 1.5px solid var(--ink);
+}
+.status td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid var(--line); }
+.status td code { white-space: nowrap; }
+
+/* Footer: provenance cells from a 1px gap over a line-coloured background. */
+footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); }
+#provenance dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px;
+  background: var(--line); border: 1px solid var(--line);
+}
+#provenance dl > div { min-width: 0; padding: 4px 10px 6px; background: #fff; }
+#provenance dl > div.wide { grid-column: 1 / -1; }
+#provenance dt { color: var(--muted); }
+#provenance dd { overflow-wrap: anywhere; }
+.not-covered { margin-top: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>The page template: a guided tour</h1>
+  <p class="lead">This page is the template for the page rung. It also shows each part of the template in use.</p>
+</header>
+
+<!-- Navigation: one link per section, in document order. The lint skips <nav>. -->
+<nav id="toc">
+  <a href="#structure">Structure</a>
+  <a href="#code">Code</a>
+  <a href="#walk">Walkthroughs</a>
+  <a href="#diagrams">Diagrams</a>
+  <a href="#steps">Steps</a>
+  <a href="#guard">Guard</a>
+  <a href="#provenance-facet">Provenance</a>
+</nav>
+
+<main>
+<section id="structure">
+  <h2>What is in the file?</h2>
+  <p>The page is one HTML file. It has no remote parts, thus it opens offline from one file.</p>
+  <figure class="code">
+    <figcaption><code>templates/page.html:1</code></figcaption>
+<pre><code>&lt;!doctype html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  &lt;script&gt; guard, part 1 &lt;/script&gt;
+  &lt;meta name="explain-rung" content="page"&gt;
+  &lt;title&gt; ... &lt;/title&gt;
+  &lt;style&gt; palette, type, layout &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;header&gt; h1, lead &lt;/header&gt;
+  &lt;nav id="toc"&gt; one link per section &lt;/nav&gt;
+  &lt;main&gt; one section per facet &lt;/main&gt;
+  &lt;footer&gt; provenance &lt;/footer&gt;
+  &lt;script&gt; steps player &lt;/script&gt;
+  &lt;script&gt; guard, part 2 &lt;/script&gt;
+&lt;/body&gt;</code></pre>
+  </figure>
+  <!-- Citation pattern: <cite data-path="src/app.py" data-line="12" data-snippet="def
+       main(argv):">src/app.py:12 "def main(argv):"</cite>. The path is relative to
+       data-root; the snippet is at most 12 words, verbatim from that line. A URL
+       citation starts data-path with https:// and is not checked again. -->
+  <ul class="rules">
+    <li>Answer one question in each section.</li>
+    <li>Put one link to each section in the navigation bar.</li>
+    <li>Cite each claim about a file.</li>
+    <li>Write all prose in STE-80. <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 "Simplified Technical English"</cite></li>
+  </ul>
+</section>
+
+<section id="code">
+  <h2>How do you show code?</h2>
+  <p>Put each code block in a <code>figure.code</code> element. The caption gives the source as <code>path:line</code>, and the <code>pre</code> element contains the lines.</p>
+  <!-- Captioned code block: <figure class="code"><figcaption><code>path:line</code>
+       </figcaption><pre><code>...</code></pre></figure>. The line is the first line
+       shown. Escape < and > in the code. The lint skips <pre> and <code>. -->
+  <figure class="code">
+    <figcaption><code>scripts/verify.sh:1</code></figcaption>
+<pre><code>#!/bin/bash
+# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5).</code></pre>
+  </figure>
+  <p>Copy the lines from the source without a change. Write each <code>&lt;</code> as <code>&amp;lt;</code> and each <code>&gt;</code> as <code>&amp;gt;</code>.</p>
+</section>
+
+<section id="walk">
+  <h2>How do you hide a long walkthrough?</h2>
+  <p>Put a long explanation in a <code>details.walk</code> element. The summary is a question. The reader opens the element to read the answer.</p>
+  <!-- Walkthrough: <details class="walk"><summary>question</summary><p>...</p></details>.
+       Closed by default; the guard opens every <details> under #verify. -->
+  <details class="walk">
+    <summary>What does the guard do with a details element?</summary>
+    <p>With <code>#verify</code> in the URL, the guard opens each <code>details</code> element. Thus the screenshots show all the text, and the guard measures all the text.</p>
+  </details>
+  <details class="walk">
+    <summary>When do you use a details element?</summary>
+    <p>Use it for a long proof, a full list or a second example. Keep the main answer outside it.</p>
+  </details>
+</section>
+
+<section id="diagrams">
+  <h2>Which diagrams can you draw?</h2>
+  <p>The template has three diagram patterns in inline SVG. Copy the pattern that agrees with the shape of your subject. Then change the labels.</p>
+  <p>Each SVG has a <code>viewBox</code> of 600 units in width, <code>role="img"</code> and a <code>title</code>. The text is 18 units high, thus it stays at 14 px or more on a narrow screen.</p>
+
+  <h3>Flow</h3>
+  <!-- Pattern: flow (boxes and arrows, left to right). One <rect> and one <text> per
+       box; one <line marker-end="url(#flow-arrow)"> per arrow, with an optional label
+       above it. To add a box: make the boxes narrower so that all fit in 600 units, or
+       start a second row 80 units lower and add 80 to the viewBox height. Keep the
+       marker id unique in the page. -->
+  <figure class="diagram flow">
+    <svg viewBox="0 0 600 82" role="img" aria-labelledby="flow-title" data-ste="skip">
+      <title id="flow-title">template, then index.html, then verify.sh</title>
+      <defs>
+        <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker>
+      </defs>
+      <rect x="1" y="20" width="146" height="60"/>
+      <text x="74" y="56" text-anchor="middle">template</text>
+      <line x1="148" y1="50" x2="224" y2="50" marker-end="url(#flow-arrow)"/>
+      <text x="187" y="38" text-anchor="middle">copy</text>
+      <rect x="227" y="20" width="146" height="60"/>
+      <text x="300" y="56" text-anchor="middle" class="label">index.html</text>
+      <line x1="374" y1="50" x2="450" y2="50" marker-end="url(#flow-arrow)"/>
+      <text x="413" y="38" text-anchor="middle">check</text>
+      <rect x="453" y="20" width="146" height="60"/>
+      <text x="526" y="56" text-anchor="middle" class="label">verify.sh</text>
+    </svg>
+    <figcaption>The template becomes a page, and <code>verify.sh</code> checks the page.</figcaption>
+  </figure>
+  <p>Each box is a <code>rect</code> and a <code>text</code>. Each arrow is a <code>line</code> with <code>marker-end</code>. The <code>marker</code> in <code>defs</code> draws the arrowhead.</p>
+
+  <h3>Sequence</h3>
+  <!-- Pattern: sequence (lifelines and numbered messages). One box and one dashed
+       <line class="life"> per participant, 200 units apart. One <line> per message,
+       50 units below the last, from the sender to the receiver, with a numbered <text>
+       above it. To add a message: add 50 to the viewBox height. -->
+  <figure class="diagram sequence">
+    <svg viewBox="0 0 600 290" role="img" aria-labelledby="seq-title" data-ste="skip">
+      <title id="seq-title">verify.sh, Chrome and the guard exchange four messages</title>
+      <defs>
+        <marker id="seq-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker>
+      </defs>
+      <rect x="21" y="1" width="158" height="44"/>
+      <text x="100" y="29" text-anchor="middle" class="label">verify.sh</text>
+      <rect x="221" y="1" width="158" height="44"/>
+      <text x="300" y="29" text-anchor="middle">Chrome</text>
+      <rect x="421" y="1" width="158" height="44"/>
+      <text x="500" y="29" text-anchor="middle">guard</text>
+      <line x1="100" y1="46" x2="100" y2="288" class="life"/>
+      <line x1="300" y1="46" x2="300" y2="288" class="life"/>
+      <line x1="500" y1="46" x2="500" y2="288" class="life"/>
+      <text x="200" y="88" text-anchor="middle">1 load #verify</text>
+      <line x1="100" y1="98" x2="298" y2="98" marker-end="url(#seq-arrow)"/>
+      <text x="400" y="138" text-anchor="middle">2 load event</text>
+      <line x1="300" y1="148" x2="498" y2="148" marker-end="url(#seq-arrow)"/>
+      <text x="400" y="188" text-anchor="middle">3 data-verify</text>
+      <line x1="500" y1="198" x2="302" y2="198" marker-end="url(#seq-arrow)"/>
+      <text x="200" y="238" text-anchor="middle">4 DOM dump</text>
+      <line x1="300" y1="248" x2="102" y2="248" marker-end="url(#seq-arrow)"/>
+    </svg>
+    <figcaption><code>verify.sh</code>, Chrome and the guard send four messages in sequence.</figcaption>
+  </figure>
+  <p>Each participant has a box and a dashed lifeline. Each message is an arrow between two lifelines, with a number.</p>
+
+  <h3>Layers</h3>
+  <!-- Pattern: layers (stacked horizontal bands, top to bottom). One <rect> per band,
+       70 units apart, with a bold <text class="name"> at x 20 and a <text> of parts at
+       x 120; class "alt" alternates the fill. To add a band: put it 70 units below
+       the last one and add 70 to the viewBox height. -->
+  <figure class="diagram layers">
+    <svg viewBox="0 0 600 206" role="img" aria-labelledby="layers-title" data-ste="skip">
+      <title id="layers-title">three layers: content, style, script</title>
+      <rect x="1" y="1" width="598" height="58"/>
+      <text x="20" y="36" class="name">content</text>
+      <text x="120" y="36">header, nav, sections, footer</text>
+      <rect x="1" y="71" width="598" height="58" class="alt"/>
+      <text x="20" y="106" class="name">style</text>
+      <text x="120" y="106">palette, type, layout</text>
+      <rect x="1" y="141" width="598" height="58"/>
+      <text x="20" y="176" class="name">script</text>
+      <text x="120" y="176">steps player, guard</text>
+    </svg>
+    <figcaption>The file has three layers: content, style and script.</figcaption>
+  </figure>
+  <p>Each layer is one band: a <code>rect</code> with a <code>text</code>. The top band is the layer that the reader sees.</p>
+</section>
+
+<section id="steps">
+  <h2>How does the steps player work?</h2>
+  <p>The player shows one step at a time. Each step has its own diagram and caption. The buttons go to the previous step or to the next step.</p>
+  <!-- Steps player: one <figure class="step" data-step="n"> per state, in order. Each
+       step holds its own diagram (SVG or HTML) and one <figcaption>. Keep the
+       data-player, data-prev, data-next and data-counter attributes. The counter text
+       is "1 / N"; the script updates it. -->
+  <div class="player" data-player>
+    <div class="controls">
+      <button type="button" data-prev>Previous</button>
+      <button type="button" data-next>Next</button>
+      <span class="caption" data-counter>1 / 4</span>
+    </div>
+    <figure class="step" data-step="1">
+      <ol class="track" data-ste="skip"><li class="on">load</li><li>expand</li><li>measure</li><li>write</li></ol>
+      <figcaption>Step 1. <code>verify.sh</code> opens the page in Chrome with <code>#verify</code> in the URL.</figcaption>
+    </figure>
+    <figure class="step" data-step="2">
+      <ol class="track" data-ste="skip"><li>load</li><li class="on">expand</li><li>measure</li><li>write</li></ol>
+      <figcaption>Step 2. The guard opens each <code>details</code> element and shows all the steps.</figcaption>
+    </figure>
+    <figure class="step" data-step="3">
+      <ol class="track" data-ste="skip"><li>load</li><li>expand</li><li class="on">measure</li><li>write</li></ol>
+      <figcaption>Step 3. The guard measures the page width, the smallest text and the script errors.</figcaption>
+    </figure>
+    <figure class="step" data-step="4">
+      <ol class="track" data-ste="skip"><li>load</li><li>expand</li><li>measure</li><li class="on">write</li></ol>
+      <figcaption>Step 4. The guard writes the result into <code>data-verify</code>. Then <code>verify.sh</code> reads it.</figcaption>
+    </figure>
+  </div>
+  <p>With <code>#verify</code> in the URL, the guard shows all the steps, one below the other.</p>
+</section>
+
+<section id="guard">
+  <h2>What does the guard check?</h2>
+  <p>The guard is two scripts. Part 1 is the first script in the head, and it counts script errors. Part 2 runs one time, in the <code>load</code> event.</p>
+  <!-- Status table: names and conditions, not prose (data-ste="skip"). -->
+  <div class="table-wrap">
+    <table class="status" data-ste="skip">
+      <thead><tr><th>Status</th><th>Cause</th></tr></thead>
+      <tbody>
+        <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
+        <tr><td><code>SMALLTEXT:&lt;px&gt;</code></td><td>Some text is smaller than 14 px.</td></tr>
+        <tr><td><code>JSERROR</code></td><td>A script error occurred.</td></tr>
+        <tr><td><code>OK</code></td><td>No check failed.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The guard writes the result into <code>data-verify</code> on the <code>html</code> element. <code>verify.sh</code> loads the page at 1440 px and at 500 px, and reads this attribute. The guard does not change the page title.</p>
+</section>
+
+<section id="provenance-facet">
+  <h2>Where does the page show its source?</h2>
+  <p>The footer shows the subject, the source, the date, the commit and the dirty flag. <code>cite_check.py</code> uses <code>data-root</code> to find each cited file.</p>
+  <p>If a forced rung drops a facet, write the facet in the last line of the footer.</p>
+</section>
+</main>
+
+<footer>
+  <!-- Provenance (spec 5.3 item 2). data-root: the absolute repo root. If
+       "git rev-parse --show-toplevel" fails (no repo): data-root is the subject's
+       directory (file, directory) or the current directory (topic, conversation),
+       Commit is "none" and Dirty is "no". data-kind: file, directory, topic or
+       conversation. In a repo, Dirty is "dirty" if "git status porcelain" printed
+       anything, else "no". Commit: the short hash, 7 or more characters (git rev-parse with the short flag).
+       Topic: Source is "model knowledge" or the URLs. Paths, hashes and dates are not
+       prose: the <dl> has data-ste="skip". -->
+  <div id="provenance" data-root="." data-kind="topic">
+    <dl data-ste="skip">
+      <div class="wide"><dt>Subject</dt><dd>the page template (topic)</dd></div>
+      <div><dt>Source</dt><dd>model knowledge</dd></div>
+      <div><dt>Date</dt><dd>2026-10-03</dd></div>
+      <div><dt>Commit</dt><dd>none</dd></div>
+      <div><dt>Dirty</dt><dd>no</dd></div>
+    </dl>
+  </div>
+  <!-- Not covered: the facets that a forced rung dropped, or "none". -->
+  <p class="not-covered">Not covered: none</p>
+</footer>
+<script>
+/* Steps player: shows one .step at a time. Previous and Next move one step and
+   disable at the ends; the counter shows "i / N". The guard calls it in "load". */
+function explainPlayer(player) {
+  var steps = player.querySelectorAll(".step");
+  var prev = player.querySelector("[data-prev]");
+  var next = player.querySelector("[data-next]");
+  var counter = player.querySelector("[data-counter]");
+  var at = 0;
+  if (!steps.length) return;
+  function show(i) {
+    at = i;
+    for (var s = 0; s < steps.length; s++) steps[s].hidden = s !== i;
+    prev.disabled = i === 0;
+    next.disabled = i === steps.length - 1;
+    counter.textContent = (i + 1) + " / " + steps.length;
+  }
+  prev.addEventListener("click", function () { if (at > 0) show(at - 1); });
+  next.addEventListener("click", function () { if (at < steps.length - 1) show(at + 1); });
+  show(0);
+}
+</script>
+<script>
+/* Guard, part 2 of 2 (spec 7, 5.5): runs once, synchronously, in "load". No timers. */
+window.addEventListener("load", function () {
+  var MIN_PX = 14, fails = [], doc = document.documentElement;
+  var players = document.querySelectorAll("[data-player]");
+  try {
+    if (location.hash === "#verify") {
+      /* #verify: open every <details>, show every step stacked, disable the buttons. */
+      var details = document.getElementsByTagName("details");
+      for (var d = 0; d < details.length; d++) details[d].open = true;
+      for (var p = 0; p < players.length; p++) {
+        var steps = players[p].querySelectorAll(".step");
+        var buttons = players[p].querySelectorAll("button");
+        var counter = players[p].querySelector("[data-counter]");
+        for (var s = 0; s < steps.length; s++) steps[s].hidden = false;
+        for (var b = 0; b < buttons.length; b++) buttons[b].disabled = true;
+        if (counter) counter.textContent = "all " + steps.length;
+        players[p].classList.add("stacked");
+      }
+    } else {
+      for (var q = 0; q < players.length; q++) explainPlayer(players[q]);
+    }
+  } catch (e) {
+    window.explainJsErrors += 1;   /* still measure and write the status */
+  }
+  if (doc.scrollWidth > window.innerWidth) fails.push("HSCROLL");
+  var smallest = Infinity, all = document.body.getElementsByTagName("*");
+  for (var j = 0; j < all.length; j++) {
+    var el = all[j], own = false;
+    for (var n = el.firstChild; n && !own; n = n.nextSibling) {
+      own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+    }
+    if (!own || !el.getClientRects().length) continue;
+    smallest = Math.min(smallest, parseFloat(getComputedStyle(el).fontSize));
+  }
+  if (smallest < MIN_PX) fails.push("SMALLTEXT:" + Math.round(smallest * 100) / 100);
+  if (window.explainJsErrors > 0) fails.push("JSERROR");
+  doc.setAttribute("data-verify", fails.length ? fails.join(";") : "OK");
+});
+</script>
+</body>
+</html>
