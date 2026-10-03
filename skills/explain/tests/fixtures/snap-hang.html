@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>snapshot fixture: hang</title>
+</head>
+<body>
+<p>This page never finishes loading: the iframe below points at a non-routable
+address, so its load never completes and Chrome never takes the screenshot.</p>
+<iframe src="http://10.255.255.1/"></iframe>
+</body>
+</html>
