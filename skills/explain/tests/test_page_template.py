@@ -39,17 +39,21 @@ LAST_SCRIPT_END = "</script>\n</body>"
 SCRIPT_BUDGET = 200
 
 # Wraps setAttribute on <html>: when the guard writes data-verify, the probe appends
-# the DOM state at that moment, then calls the original.
+# the DOM state at that moment, then calls the original. The title is captured when
+# the probe runs (parse time, before "load"), so a later write to document.title
+# shows as TITLE:changed; comparing with the <title> element would not, because the
+# document.title setter rewrites that element.
 PROBE = """<script>
 (function () {
   var doc = document.documentElement, original = doc.setAttribute;
+  var initialTitle = document.title;
   doc.setAttribute = function (name, value) {
     if (name === "data-verify") {
       var details = document.getElementsByTagName("details"), open = true, i;
       for (i = 0; i < details.length; i++) if (!details[i].open) open = false;
       var steps = document.querySelectorAll(".step"), stacked = true;
       for (i = 0; i < steps.length; i++) if (steps[i].hasAttribute("hidden")) stacked = false;
-      var same = document.title === document.querySelector("title").textContent.replace(/\\s+/g, " ").trim();
+      var same = document.title === initialTitle;
       value += ";PROBE:" + (open ? "open" : "closed") + ":" + (stacked ? "stacked" : "single") +
         ";TITLE:" + (same ? "same" : "changed");
     }
@@ -152,15 +156,18 @@ class PageGuardTest(unittest.TestCase):
         self.assert_both_fail(html, "JSERROR")
 
     def test_verify_fragment_opens_details_and_stacks_steps(self):
-        # The title half of case 7 rides on this run: TITLE:same.
+        # The runtime title half of case 7: TITLE:same here, TITLE:changed in the next case.
         html = self.with_probe(self.template)
         self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same")
 
     def test_without_verify_fragment_details_stay_closed_and_one_step_shows(self):
-        # Defeating the hash test makes the guard take the normal-view branch.
+        # Defeating the hash test makes the guard take the normal-view branch. The same
+        # run carries the title broken state (no extra Chrome run): a guard that writes
+        # document.title must show as TITLE:changed, which proves the probe can fail.
         html = self.edit(self.template, HASH_TEST, '"#never"')
+        html = self.edit(html, LOAD_OPEN, LOAD_OPEN + '  document.title = "x";\n')
         html = self.with_probe(html)
-        self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:same")
+        self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:changed")
 
     def test_data_verify_absent_in_source(self):
         self.assertNotIn("data-verify=", self.template)
