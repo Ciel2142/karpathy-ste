@@ -49,8 +49,8 @@ Provenance in the title block:
 
 Checked against git at the time of the run: `git rev-parse --short HEAD` =
 `5e7cd92`; `git status --porcelain` printed one line (`.beads/issues.jsonl`), so `dirty` is
-correct. The artifact holds 6 `<section>` panels and 16 `<cite>` elements; `cite_check.py`
-passed, and two citations were checked by hand (`skills/ste/SKILL.md:51` "at most 20 words
+correct. The artifact holds 6 `<section>` panels and 17 `<cite>` elements (counted with
+html.parser); `cite_check.py` passed, and two citations were checked by hand (`skills/ste/SKILL.md:51` "at most 20 words
 (5.1)." and `:184` "runs `ste_lint.py --html` on its final `index.html`").
 
 Tile review by the controller (four tiles read, never `sheet.png`):
