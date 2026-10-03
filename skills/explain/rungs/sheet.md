@@ -26,9 +26,10 @@ facets. Write `Not covered: none` if you dropped nothing.
 
 1. Copy `~/.claude/skills/explain/templates/sheet.html` to `<output-dir>/index.html`.
 2. Write the sheet title in `<title>` and in `.tb-title`.
-3. Delete the demo content of each panel body and the author comments. Keep the classes, the
-   `<style>` block and both guard scripts. Keep the ids and the `.tag` letters, but re-letter
-   them if you delete a panel (step 4).
+3. Delete the demo content of each panel body. Delete the HTML comments; keep the CSS and
+   script comments. Keep `<meta name="explain-rung" content="sheet">`: without it, `verify.sh`
+   exits with code 2. Keep the classes, the `<style>` block and both guard scripts. Keep the
+   ids and the `.tag` letters, but re-letter them if you delete a panel (step 4).
 4. Set the panel count. Panel F is the `.over-title` panel: it sits in the last 3 columns of
    row 2, above the title block. Delete panels in this order: F first, then C.
    - 6 panels: keep all panels.
@@ -39,8 +40,8 @@ facets. Write `Not covered: none` if you dropped nothing.
    Put the least important questions in F and C. Move content before you delete a panel.
 5. The span classes are `span-3`, `span-4`, `span-5`, `span-6`, `span-7`, `span-8`, `span-9`
    and `span-12`. There is no `span-10` or `span-11`. Each row of panels adds up to 12 columns.
-   In row 2 the title block takes the last 3 columns. Thus the panels D and E add up to 9
-   columns, and panel F sits above the title block.
+   In row 2 the title block takes the last 3 columns. Thus the panels D and E (C and D after
+   re-lettering to 4 panels) add up to 9 columns, and panel F sits above the title block.
 
 Put one primitive in each `.panel-body`.
 
@@ -65,10 +66,15 @@ Put one primitive in each `.panel-body`.
 - The title block has `.tb-title`, a `<dl>` of key and value pairs, `#provenance` (section 4)
   and `p.not-covered`. Put `data-ste="skip"` on both `<dl>` blocks. Keep each value short. A
   value wraps and never truncates. The guard reports `OVERFLOW:title` if the block overflows.
+  Then make `--tb-height` larger in steps of 20 px. Panel F becomes shorter by the same
+  height through `.over-title`.
+- Cite placement: in a non-prose primitive, put the `<cite>` in the `p.note` or `p.box`
+  below the primitive. Or put it in the caption, with a snippet of at most 4 words.
 
 ## 4. Provenance recipe
 
-Run these commands in the directory of the subject.
+Run the first three commands in the directory of the subject. Run the last command from the
+repo root.
 
 ```
 git rev-parse --show-toplevel
@@ -77,10 +83,10 @@ git status --porcelain
 git ls-files --error-unmatch <path>
 ```
 
-- `--show-toplevel` gives the repo root. Write it in `data-root` of `#provenance`. For a topic
-  or a conversation, write the current directory in `data-root`.
-- `--short HEAD` gives the Commit value (7 or more characters). For a topic outside a repo,
-  write `none` as Commit and `no` as Dirty.
+- `--show-toplevel` gives the repo root. Write it in `data-root` of `#provenance`.
+- If `git rev-parse --show-toplevel` fails, `data-root` is the subject's directory (file,
+  directory) or the current directory (topic, conversation). Commit is `none` and Dirty is `no`.
+- `--short HEAD` gives the Commit value (7 or more characters).
 - If `git status --porcelain` prints anything, write the literal `dirty` as the Dirty value.
   If it prints nothing, write `no`.
 - Set `data-kind` to `file`, `directory`, `topic` or `conversation`. Write the date as `YYYY-MM-DD`.
@@ -97,7 +103,8 @@ and `<` inside the attribute (`&quot;`, `&amp;`, `&lt;`).
 <cite data-path="src/app.py" data-line="12" data-snippet="def main(argv):">src/app.py:12 "def main(argv):"</cite>
 ```
 
-If `git ls-files --error-unmatch <path>` exits with a non-zero code, git does not track the
+Run `git ls-files --error-unmatch <path>` from the repo root. `<path>` is the `data-path`
+value of the `<cite>`. If the command exits with a non-zero code, git does not track the
 file. Write the word `untracked` inside the `<cite>` text, after the snippet, in each
 `<cite>` for that file.
 
