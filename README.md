@@ -6,12 +6,14 @@ into `~/.claude/skills/`:
 - **`/ste`** — rewrite text, or answer a request, in STE-80: a fixed profile of ASD-STE100
   Simplified Technical English (Issue 9). Ships a lint (`ste_lint.py`) that checks markdown
   or HTML prose against the deterministic rules.
-- **`/explain <subject> [--as ste|sheet|page|video]`** — explain a file, a directory, `this`
-  (the last thing in the conversation) or a topic, in the smallest form that fits: chat text,
-  a one-page sheet (HTML + PNG), an interactive single-file page, or a narrated mp4 with a
-  cited transcript. Every artifact is grounded: each claim carries a `<cite>` to a real
-  `path:line` and a verbatim snippet, and `verify.sh` fails the build when a cite does not
-  match the file, the page does not render, or the prose breaks the STE profile.
+- **`/explain <subject> [--as ste|sheet|page|video|brainrot]`** — explain a file, a directory,
+  `this` (the last thing in the conversation) or a topic, in the smallest form that fits:
+  chat text, a one-page sheet (HTML + PNG), an interactive single-file page, or a narrated
+  mp4 with a cited transcript (`--as brainrot`: a vertical 1080×1920 short with a looping
+  background and word-by-word captions). Every artifact is grounded: each claim carries a
+  `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails the build when
+  a cite does not match the file, the page does not render, or the prose breaks the STE
+  profile.
 
 Both skills are user-invoked only (`disable-model-invocation: true`).
 
@@ -56,7 +58,7 @@ check the licence again beyond that.
 
 ```
 skills/ste/        SKILL.md, scripts/ste_lint.py, tests/
-skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video}.md,
+skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot}.md,
                    templates/, scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
                    scripts/cite_check.py, video/ (Remotion app + pipeline), tests/
 docs/superpowers/  the spec, wave map, plans and live-run notes behind the skills
@@ -68,6 +70,7 @@ docs/superpowers/  the spec, wave map, plans and live-run notes behind the skill
 cd skills/ste     && python3 -B -m unittest discover -s tests
 cd skills/explain && python3 -B -m unittest discover -s tests
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render tests.test_check_render  # renders once, needs the workspace
+EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_brainrot  # two brainrot renders (generated loop, fixture clip), needs the workspace
 tests/capture_landscape_baseline.sh main  # once, from the pre-refactor commit; needs the workspace
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_landscape_regression  # renders the full template, compares stills with that baseline
 ```
