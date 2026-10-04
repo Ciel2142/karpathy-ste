@@ -94,9 +94,11 @@ export function runnerState(frame: number, seed: number): RunnerState;
 ```sh
 # video/pick_background.py <timeline.json> <remotion-cli> <app-dir> --dir <clips> [--seed <int>]
 #   stdout: "background: SKIP <file> (<cause>)"* then "background: ok <name> @<start> s[ (loop)]" | "background: ok generated"
-#   exit 0 ok; exit 1 "background: FAIL <cause>" (cannot read/write the timeline, cannot link); exit 2 usage
+#   exit 0 ok; exit 1 "background: FAIL <cause>" (EXPLAIN_BRAINROT_SEED not an integer, cannot read/write the timeline,
+#   cannot stage the clip, --dir inside the background stage or <app>/public); exit 2 usage (final review)
 # video/check_budgets.py <timeline.json>
-#   stdout: "ok <n> <total %.1f> <total %.3f>" | "FAIL scene <id> is <s %.1f> s (max <%g>)" | "FAIL total <%.1f> s (max <%g>)"
+#   stdout: "ok <n> <total %.1f> <total %.3f>" | "FAIL scene <id> is <s %.1f> s (max <%g><tag>)" | "FAIL total <%.1f> s (max <%g><tag>)"
+#   <tag> is "" for explainer and ", brainrot" for brainrot (spec 3.4, 6.4; final review)
 #   exit 0 (verdict printed); exit 2 unreadable timeline or no budget keys
 # video/transcript.py <script.json> <output-dir> [--narrator "<t>"] [--background "<t>"]
 ```
@@ -353,8 +355,8 @@ test_seed_is_deterministic              # same --seed twice, two clips -> same c
 
 ```python
 test_explainer_scene_at_60_ok_and_over_fails   # 1800 frames -> "ok ..."; 1803 frames -> "FAIL scene a is 60.1 s (max 60)"
-test_brainrot_scene_30_ok_31_fails             # maxSceneSeconds 30: 900 frames ok; 930 -> "FAIL scene a is 31.0 s (max 30)"
-test_brainrot_total_90_ok_91_fails             # three 30 s scenes ok; total 2730 frames -> "FAIL total 91.0 s (max 90)"
+test_brainrot_scene_30_ok_31_fails             # maxSceneSeconds 30: 900 frames ok; 930 -> "FAIL scene a is 31.0 s (max 30, brainrot)"
+test_brainrot_total_90_ok_91_fails             # three 30 s scenes ok; total 2730 frames -> "FAIL total 91.0 s (max 90, brainrot)"
 test_explainer_total_text_unchanged            # 4530 frames total -> "FAIL total 151.0 s (max 150)"
 test_missing_budget_keys_exit_2                # no maxSceneSeconds -> exit 2, one stderr line naming the key
 ```

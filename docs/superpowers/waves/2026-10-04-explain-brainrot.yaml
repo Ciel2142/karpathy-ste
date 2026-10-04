@@ -95,7 +95,7 @@ waves:
       All explain unit suites pass; the gated E2E renders the brainrot template once with
       the generated loop and once with the fixture clip, each with ten `ok` stage lines
       and 1080x1920 in `container`; the explainer E2E still prints its nine `ok` lines.
-    status: pending
+    status: done   # 2026-10-05, commits b89d401..df7d7de + final fix 5ee8da6..37f8ec6; brainrot E2E ten lines x2, landscape 0 px
     depends_on: [scenebox, sentence-narration, brainrot-timeline]
     owns:
       - skills/explain/video/src/Explain.tsx (format switch)
