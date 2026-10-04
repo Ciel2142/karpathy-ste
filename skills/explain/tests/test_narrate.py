@@ -8,10 +8,12 @@ import os
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 
 EXPLAIN = Path(__file__).resolve().parent.parent
@@ -143,6 +145,11 @@ class NarrateCase(unittest.TestCase):
         for name in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
             (self.workspace / "models" / name).write_bytes(b"")
         return str(stubs)
+
+    def run_kokoro(self, script, **extra):
+        """narrate.py --engine kokoro with the stub modules, extra env as keywords."""
+        env = dict(self.env, PYTHONPATH=self.stub_modules(), **extra)
+        return self.python(script, "--engine", "kokoro", "--models", str(self.workspace / "models"), env=env)
 
     def durations(self):
         return json.loads((self.audio / "durations.json").read_text(encoding="utf-8"))
@@ -426,10 +433,6 @@ class Fallback(NarrateCase):
 
 
 class KokoroDirect(NarrateCase):
-    def run_kokoro(self, script, **extra):
-        env = dict(self.env, PYTHONPATH=self.stub_modules(), **extra)
-        return self.python(script, "--engine", "kokoro", "--models", str(self.workspace / "models"), env=env)
-
     def test_clip_exception_exits_3_and_leaves_no_clip(self):
         """Mutation: a Kokoro exception escapes as a traceback (exit 1, no FAIL line)."""
         run = self.run_kokoro(self.write_script([scene("one", ONE), scene("two", "BOOM")]))
@@ -547,6 +550,231 @@ class SentenceText(unittest.TestCase):
         narration = "Run `verify.sh`, then stop. Really?"
         words = self.narrate.word_timings(self.split(narration), [(0.0, 1.0), (1.15, 2.0)])
         self.assertEqual([w["text"] for w in words], narration.split())
+
+
+class Sentences(NarrateCase):
+    """A brainrot script is narrated one sentence at a time and gets a words.json."""
+
+    def brainrot(self, *scenes, format="brainrot"):
+        path = self.write_script(list(scenes))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["format"] = format
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def words_json(self, sid, engine):
+        return json.loads((self.audio / f"{sid}.{engine}.words.json").read_text(encoding="utf-8"))
+
+    def test_kokoro_per_sentence_times_are_exact(self):
+        """Mutation: the 0.15 s gap is dropped, doubled or put after the last clip, or a time is
+        taken from the clip length instead of the join frames."""
+        run = self.run_kokoro(self.brainrot(scene("one", f"{ONE} {TWO}")))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        words = self.words_json("one", "kokoro")
+        self.assertEqual(words["sentences"], [{"from": 0.0, "to": 0.5}, {"from": 0.65, "to": 1.15}])
+        spoken_words = words["words"]   # Hello there. | A second line.
+        self.assertEqual((spoken_words[0]["from"], spoken_words[2]["from"]), (0.0, 0.65))
+        self.assertEqual((spoken_words[1]["to"], spoken_words[-1]["to"]), (0.5, 1.15))
+        self.assertAlmostEqual(self.durations()["scenes"]["one"], 1.15, places=3)
+        self.assertRegex(run.stdout.splitlines()[0], r"^narration: one kokoro 1\.150 s \(synthesized\)$")
+        self.assertEqual(self.rate_of(self.audio / "one.kokoro.wav"), 24000)
+
+    def test_kokoro_called_once_per_sentence_spoken(self):
+        """Mutation: the whole narration goes to the engine in one call, or the sentences keep their backticks."""
+        log = self.tmp / "stub.log"
+        run = self.run_kokoro(self.brainrot(scene("one", "Run `verify.sh` now. Then stop.")), STUB_LOG=str(log))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(log.read_text(encoding="utf-8"), "Run verify.sh now.\nThen stop.\n")
+
+    def test_words_match_narration(self):
+        """Mutation: a word's text loses its backticks, or a line break or double space drops or merges a word."""
+        narration = "Run `verify.sh`, then stop.\n\nReally?  Yes. Run the check"
+        run = self.run_kokoro(self.brainrot(scene("one", narration)))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        words = self.words_json("one", "kokoro")
+        self.assertEqual([w["text"] for w in words["words"]], narration.split())
+        sentences = words["sentences"]
+        self.assertEqual(len(sentences), 4)
+        starts = [0, 4, 5, 6]   # index of the first word of each sentence
+        for k, first in enumerate(starts):
+            self.assertEqual(words["words"][first]["from"], sentences[k]["from"])
+        self.assertEqual(words["words"][-1]["to"], sentences[-1]["to"])
+
+    def test_say_per_sentence_join_positions(self):
+        """Mutation: the join writes no gap, the gap is not 0.15 s, the joiner cannot read say's FLLR
+        chunk, or the last word ends past the clip."""
+        run = self.shell(self.brainrot(scene("one", f"{ONE} {TWO}")), "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        wav = self.audio / "one.say.wav"
+        words = self.words_json("one", "say")
+        first, second = words["sentences"]
+        self.assertEqual(first["from"], 0.0)
+        self.assertAlmostEqual(second["from"] - first["to"], 0.15, delta=1 / 22050 + 1e-6)
+        self.assertGreater(first["to"], 0.1)
+        self.assertGreater(second["to"] - second["from"], 0.1)
+        seconds = self.durations()["scenes"]["one"]
+        self.assertLessEqual(words["words"][-1]["to"], seconds)
+        self.assertAlmostEqual(words["words"][-1]["to"], seconds, delta=1e-5, msg="no padding after the last clip")
+        self.assertEqual(self.rate_of(wav), 22050)
+
+    def test_brainrot_sidecar_has_mode_line(self):
+        """Mutation: the sidecar has no mode line for a brainrot script, or the mode line is not the
+        fourth line."""
+        run = self.shell(self.brainrot(scene("one", ONE)), "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(
+            (self.audio / "one.say.txt").read_text(encoding="utf-8"),
+            f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{ONE}",
+        )
+
+    def test_explainer_writes_no_words_json(self):
+        """Mutation: every script gets a words.json or a mode line, or an explicit explainer is
+        treated as brainrot."""
+        for label, script in (
+            ("no format", self.two_scenes()),
+            ("explainer", self.brainrot(scene("one", ONE), scene("two", TWO), format="explainer")),
+        ):
+            with self.subTest(label):
+                shutil.rmtree(self.audio, ignore_errors=True)
+                run = self.shell(script, "--engine", "say")
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertEqual(list(self.audio.glob("*.words.json")), [])
+                self.assertEqual(
+                    (self.audio / "one.say.txt").read_text(encoding="utf-8"),
+                    f"engine=say\nvoice=say-default\nspeed=1.0\n{ONE}",
+                )
+
+    def test_mode_change_resynthesizes(self):
+        """Mutation: the reuse check ignores the mode line, so a scene made whole is reused as sentences."""
+        for before, after in (("explainer", "brainrot"), ("brainrot", "explainer")):
+            with self.subTest(f"{before} then {after}"):
+                shutil.rmtree(self.audio, ignore_errors=True)
+                first = self.shell(self.brainrot(scene("one", ONE), format=before), "--engine", "say")
+                self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+                again = self.shell(self.brainrot(scene("one", ONE), format=before), "--engine", "say")
+                self.assertRegex(again.stdout.splitlines()[0], r"\(reused\)$")
+                run = self.shell(self.brainrot(scene("one", ONE), format=after), "--engine", "say")
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertRegex(run.stdout.splitlines()[0], r"^narration: one say .* \(synthesized\)$")
+
+    def test_unknown_format_exit_2(self):
+        """Mutation: an unknown format is narrated as an explainer, or fails with another code or text."""
+        for value in ("tiktok", "", "Brainrot", 7, None, ["brainrot"]):
+            with self.subTest(format=value):
+                script = self.brainrot(scene("one", ONE), format=value)
+                run = self.python(script, "--engine", "say")
+                self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+                self.assertEqual(
+                    run.stdout.strip(), f"narration: FAIL script {script}: format must be explainer or brainrot")
+                self.assertFalse(self.audio.exists(), "nothing is narrated for an unknown format")
+
+    def test_fallback_writes_say_words(self):
+        """Mutation: the fallback narrates scenes whole, or writes the words file under the kokoro name."""
+        run = self.shell(self.brainrot(scene("one", ONE), scene("two", TWO)))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines()[0], "narration: FALLBACK say (models missing: kokoro-v1.0.onnx)")
+        for sid in ("one", "two"):
+            self.assertTrue((self.audio / f"{sid}.say.words.json").is_file())
+        self.assertEqual(list(self.audio.glob("*.kokoro.*")), [])
+
+    def test_words_json_layout(self):
+        """Mutation: the file is not indented, has no trailing newline, or has other top-level keys."""
+        self.run_kokoro(self.brainrot(scene("one", ONE)))
+        raw = (self.audio / "one.kokoro.words.json").read_text(encoding="utf-8")
+        data = json.loads(raw)
+        self.assertEqual(sorted(data), ["sentences", "words"])
+        self.assertEqual(raw, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        for entry in data["sentences"] + data["words"]:
+            self.assertEqual(round(entry["from"], 6), entry["from"])
+            self.assertEqual(round(entry["to"], 6), entry["to"])
+
+
+def wav_bytes(rate, frames, width=2, channels=1, extra_chunk=b""):
+    """A PCM WAV by hand; extra_chunk (a full chunk, header included) sits between fmt and data."""
+    data = frames
+    fmt = struct.pack("<HHIIHH", 1, channels, rate, rate * width * channels, width * channels, width * 8)
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + extra_chunk
+    body += b"data" + struct.pack("<I", len(data)) + data
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+class JoinClips(unittest.TestCase):
+    """join_clips on hand-made WAVs: no engine, no process."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("narrate_under_test_join", NARRATE_PY)
+        cls.narrate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.narrate)
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="join-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.out = self.tmp / "out.wav"
+
+    def clip(self, name, **kwargs):
+        path = self.tmp / name
+        path.write_bytes(wav_bytes(**kwargs))
+        return path
+
+    def read(self):
+        with wave.open(str(self.out), "rb") as wav:
+            return wav.getframerate(), wav.getsampwidth(), wav.getnchannels(), wav.readframes(wav.getnframes())
+
+    def test_join_puts_the_gap_between_clips_only(self):
+        """Mutation: a gap before the first clip or after the last, or a gap of another length."""
+        a = self.clip("a.wav", rate=1000, frames=b"\x01\x00" * 100)
+        b = self.clip("b.wav", rate=1000, frames=b"\x02\x00" * 50)
+        rate, spans = self.narrate.join_clips([a, b], self.out, 0.15)
+        self.assertEqual((rate, spans), (1000, [(0, 100), (250, 300)]))
+        self.assertEqual(
+            self.read(), (1000, 2, 1, b"\x01\x00" * 100 + b"\x00\x00" * 150 + b"\x02\x00" * 50))
+
+    def test_join_one_clip_has_no_gap(self):
+        """Mutation: the gap is written after every clip, the last one included."""
+        a = self.clip("a.wav", rate=1000, frames=b"\x01\x00" * 10)
+        self.assertEqual(self.narrate.join_clips([a], self.out, 0.15), (1000, [(0, 10)]))
+        self.assertEqual(self.read()[3], b"\x01\x00" * 10)
+
+    def test_join_gap_is_rounded_to_whole_frames(self):
+        """Mutation: the gap is truncated (int) instead of rounded."""
+        a = self.clip("a.wav", rate=1000, frames=b"\x01\x00" * 10)
+        _, spans = self.narrate.join_clips([a, a], self.out, 0.0026)
+        self.assertEqual(spans, [(0, 10), (13, 23)])
+
+    def test_join_reads_past_extra_chunks(self):
+        """Mutation: the reader stops at an unknown chunk (say writes FLLR between fmt and data)."""
+        filler = b"FLLR" + (100).to_bytes(4, "little") + b"\x00" * 100
+        a = self.clip("a.wav", rate=22050, frames=b"\x01\x00" * 40, extra_chunk=filler)
+        b = self.clip("b.wav", rate=22050, frames=b"\x02\x00" * 40, extra_chunk=filler)
+        rate, spans = self.narrate.join_clips([a, b], self.out, 0.15)
+        self.assertEqual((rate, spans), (22050, [(0, 40), (3348, 3388)]))
+        self.assertEqual(len(self.read()[3]), 2 * 3388)
+
+    def test_join_rejects_a_clip_that_differs_and_names_it(self):
+        """Mutation: a clip with another rate, width or channel count is joined as if it matched."""
+        good = self.clip("good.wav", rate=1000, frames=b"\x01\x00" * 10)
+        cases = {
+            "rate": self.clip("rate.wav", rate=2000, frames=b"\x01\x00" * 10),
+            "width": self.clip("width.wav", rate=1000, frames=b"\x01" * 10, width=1),
+            "channels": self.clip("channels.wav", rate=1000, frames=b"\x01\x00" * 10, channels=2),
+        }
+        for label, bad in cases.items():
+            with self.subTest(label):
+                with self.assertRaisesRegex(self.narrate.NarrationError, bad.name):
+                    self.narrate.join_clips([good, bad], self.out, 0.15)
+                self.assertFalse(self.out.exists(), "a refused join writes nothing")
+
+    def test_join_rejects_a_first_clip_that_is_not_16_bit_mono(self):
+        """Mutation: the first clip sets the format, so a stereo or 8-bit set is joined into a 16-bit mono header."""
+        stereo = self.clip("stereo.wav", rate=1000, frames=b"\x01\x00" * 10, channels=2)
+        with self.assertRaisesRegex(self.narrate.NarrationError, "stereo.wav"):
+            self.narrate.join_clips([stereo], self.out, 0.15)
+
+    def test_join_of_no_clips_is_refused(self):
+        """Mutation: an empty list writes an empty WAV with no rate."""
+        with self.assertRaises(self.narrate.NarrationError):
+            self.narrate.join_clips([], self.out, 0.15)
 
 
 if __name__ == "__main__":
