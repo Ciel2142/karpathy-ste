@@ -124,8 +124,10 @@ runs `remotion render Explain`.
 `layout.tsx` no longer exports fixed `FRAME` and `CONTENT` boxes. A React context `SceneBox`
 provides the scene's box: `{ width, height, margin, titleSize }` plus the type sizes the scenes
 use. Scenes read it through `useBox()`. `diagramGeometry.ts` takes the box as a parameter.
-`BeforeAfter` stacks its two panels (before above after) when the box is taller than wide, and
-keeps them side by side otherwise.
+`BeforeAfter` stacks its two panels (before above after) when the box sets `stackPanels`, and
+keeps them side by side otherwise. The brainrot box sets it: its content area (984×758) is wider
+than tall, but two 468 px columns cannot hold a 30-character line. (Amended 2026-10-04 while
+planning wave brainrot-render; the first wording was "when the box is taller than wide".)
 
 The landscape layout provides today's values, so the explainer renders the same pixels as before
 the refactor (checked by the regression test in section 7.4).
@@ -159,7 +161,10 @@ character that hops between lanes, and obstacles. It is a pure function of the f
 a fixed seed, so two renders are the same.
 
 The choice goes into `build/timeline.json` as
-`background: { kind: "clip", file, start, loop } | { kind: "generated" }`.
+`background: { kind: "clip", file, src, start, seconds, loop } | { kind: "generated" }`. `src` is
+the fixed link name `bg/clip.<ext>` under `public/`, so a file name with spaces never reaches
+Remotion; `seconds` is the clip length, which the loop needs. (Amended 2026-10-04 while planning
+wave brainrot-render.)
 
 ## 5. Narration and captions
 
