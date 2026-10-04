@@ -208,7 +208,7 @@ No `autoplay` attribute anywhere; the first play is the reader's click.
 
 `templates/page.html` gains: the `.clip`, `.clip video`, `.clip .part` and `#play-all` CSS, the
 hidden-when-no-clip rule, the button in the title block, the play-all code in block 2, and one
-guard rule in block 3 (`play-all-visibility`, section 7.3). No
+guard rule in block 3 (`PLAYALL`, section 7.3). No
 demo `figure.clip`: a plain page would ship a leftover demo video that the page rung's `verify.sh`
 cannot see, and the markup is two lines in the rung files. The template keeps
 `content="page"` and passes `verify.sh` as it stands (`test_page_template.py`).
@@ -487,7 +487,7 @@ script takes the explainer path.
 
 - The template as it stands passes `verify.sh` (existing); block 2 holds `/* Play all */` and
   stays within 200 lines. The guard (block 3) gains one rule: `#play-all` visible on a page with
-  no `figure.clip`, or hidden on a page with one, is the status `play-all-visibility`, reported
+  no `figure.clip`, or hidden on a page with one, is the guard status `PLAYALL`, reported
   through `verify.sh` like the guard's other statuses. `test_page_template.py` derives the broken
   state as it does for every rule, by one string edit with a unique anchor (delete the
   `body:not(:has(.clip))` rule), and asserts that status; the good template reports none.
