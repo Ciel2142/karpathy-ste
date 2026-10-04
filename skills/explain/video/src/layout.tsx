@@ -3,12 +3,9 @@
 // animation progress.
 import type { CSSProperties, ReactNode } from "react";
 import { interpolate } from "remotion";
-import { contentRect, LANDSCAPE_BOX, useBox } from "./sceneBox";
+import { contentRect, useBox } from "./sceneBox";
 import { theme } from "./theme";
 import type { CueFrames } from "./types";
-
-// The landscape content box, for the diagram scene until it reads its box too.
-export const CONTENT = contentRect(LANDSCAPE_BOX);
 
 // The frame of a cue, relative to the scene start. build-timeline.mjs writes one entry per
 // cue string in the props, so a miss means the timeline and the props disagree.

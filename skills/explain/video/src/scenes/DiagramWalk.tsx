@@ -2,10 +2,11 @@
 // next node takes the highlight and a token travels to it along an edge; visited nodes keep
 // a light fill, and the token clears the label of the edge it is on.
 import { Easing, interpolateColors, useCurrentFrame } from "remotion";
-import { CONTENT, Content, cueAt, oneLine, ramp, SceneTitle } from "../layout";
+import { Content, cueAt, oneLine, ramp, SceneTitle } from "../layout";
+import { contentRect, useBox } from "../sceneBox";
 import { theme } from "../theme";
 import type { Cued, DiagramEdge, DiagramProps, WalkStep } from "../types";
-import { along, BOX, cellCentre, labelPlace, Point, segment } from "./diagramGeometry";
+import { along, cellCentre, labelPlace, Point, segment } from "./diagramGeometry";
 
 const TRAVEL_FRAMES = 15;
 const TOKEN_RADIUS = 7; // 14 px disc
@@ -29,13 +30,16 @@ const edgeInto = (edges: DiagramEdge[], walk: WalkStep[], j: number) => {
 
 export function DiagramWalk({ title, nodes, edges, walk, cueFrames }: Cued<DiagramProps>) {
   const frame = useCurrentFrame();
-  const centres = new Map<string, Point>(nodes.map((n) => [n.id, cellCentre(n.cell)]));
+  const box = useBox();
+  const content = contentRect(box);
+  const node = box.type.node;
+  const centres = new Map<string, Point>(nodes.map((n) => [n.id, cellCentre(n.cell, content)]));
   const centre = (id: string): Point => {
     const found = centres.get(id);
     if (!found) throw new Error(`diagram-with-highlight-walk: unknown node ${JSON.stringify(id)}`);
     return found;
   };
-  const lines = edges.map((e) => segment(centre(e.from), centre(e.to)));
+  const lines = edges.map((e) => segment(centre(e.from), centre(e.to), node));
 
   // The walk step that holds the highlight (-1 before the first cue) and its progress.
   const starts = walk.map((step) => cueAt(cueFrames, step.cue));
@@ -57,8 +61,8 @@ export function DiagramWalk({ title, nodes, edges, walk, cueFrames }: Cued<Diagr
       <SceneTitle text={title} />
       <Content>
         <svg
-          width={CONTENT.width}
-          height={CONTENT.height}
+          width={content.width}
+          height={content.height}
           style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}
         >
           <defs>
@@ -96,7 +100,7 @@ export function DiagramWalk({ title, nodes, edges, walk, cueFrames }: Cued<Diagr
                     textAnchor={place.anchor}
                     dominantBaseline={place.baseline}
                     fontFamily={theme.sans}
-                    fontSize={22}
+                    fontSize={box.type.edgeLabel}
                     fill={theme.muted}
                     opacity={token?.edge === i ? 0 : 1}
                   >
@@ -118,10 +122,10 @@ export function DiagramWalk({ title, nodes, edges, walk, cueFrames }: Cued<Diagr
               key={n.id}
               style={{
                 position: "absolute",
-                left: c.x - BOX.width / 2,
-                top: c.y - BOX.height / 2,
-                width: BOX.width,
-                height: BOX.height,
+                left: c.x - node.width / 2,
+                top: c.y - node.height / 2,
+                width: node.width,
+                height: node.height,
                 boxSizing: "border-box",
                 padding: "0 10px",
                 border: `3px solid ${interpolateColors(p, [0, 1], [theme.ink, theme.blue])}`,
@@ -134,12 +138,12 @@ export function DiagramWalk({ title, nodes, edges, walk, cueFrames }: Cued<Diagr
               }}
             >
               <div style={{ position: "absolute", inset: 0, background: theme.blueTint, opacity: p }} />
-              <div style={{ ...oneLine, position: "relative", maxWidth: "100%", fontSize: 28, fontWeight: 700, lineHeight: 1.2 }}>
+              <div style={{ ...oneLine, position: "relative", maxWidth: "100%", fontSize: box.type.nodeLabel, fontWeight: 700, lineHeight: 1.2 }}>
                 {n.label}
               </div>
               {n.sub ? (
                 <div
-                  style={{ ...oneLine, position: "relative", maxWidth: "100%", fontSize: 20, lineHeight: 1.2, marginTop: 4, color: theme.muted }}
+                  style={{ ...oneLine, position: "relative", maxWidth: "100%", fontSize: box.type.nodeSub, lineHeight: 1.2, marginTop: 4, color: theme.muted }}
                 >
                   {n.sub}
                 </div>
