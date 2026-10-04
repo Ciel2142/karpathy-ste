@@ -5,7 +5,11 @@
 #   video-workspace.sh [--engine kokoro|say]          (default kokoro)
 #   env EXPLAIN_VIDEO_WORKSPACE   workspace root (default $HOME/karpathy/video-workspace)
 #
-#   <ws>/app      the synced video/ sources plus node_modules (public/ is left alone)
+#   <ws>/app      the synced video/ sources plus node_modules (public/ and bg-stage/ are left alone)
+#   <ws>/app/bg-stage   where pick_background.py stages the brainrot background clip; public/bg
+#                 is a symlink to it, so it must exist (an empty one is made here) and the sync
+#                 must not delete it
+#   <ws>/backgrounds    the default folder of brainrot background clips (EXPLAIN_BRAINROT_BACKGROUNDS)
 #   <ws>/models   the Kokoro model files (--engine kokoro only)
 #
 #   exit 0  the workspace is ready ("workspace: ok <ws>" is the last line)
@@ -63,10 +67,15 @@ sha256() {
     printf '%s\n' "${out%% *}"
 }
 
-# 1. Sources. node_modules/ and public/ (the render's audio) stay as they are.
+# 1. Sources. node_modules/ and public/ (the render's audio) stay as they are, and so does
+# bg-stage/ (the brainrot background clip; the sync runs with --delete). bg-stage/ and the clip
+# folder are made here so that the public/bg symlink the picker keeps never dangles: a dangling
+# link in public/ breaks the bundler, and with it every render.
 mkdir -p "$app" "$models" || fail "mkdir $ws"
-rsync -a --delete --exclude /node_modules/ --exclude /public/ "$skill/video/" "$app/" \
-    || fail "sync $skill/video/ to $app/"
+rsync -a --delete --exclude /node_modules/ --exclude /public/ --exclude /bg-stage/ \
+    "$skill/video/" "$app/" || fail "sync $skill/video/ to $app/"
+mkdir -p "$ws/backgrounds" || fail "mkdir $ws/backgrounds"
+mkdir -p "$app/bg-stage" || fail "mkdir $app/bg-stage"
 
 # 2 and 3. Dependencies and the headless browser, when the lock file changed.
 lock_sha=$(sha256 "$app/package-lock.json") || fail "sha256 $app/package-lock.json"

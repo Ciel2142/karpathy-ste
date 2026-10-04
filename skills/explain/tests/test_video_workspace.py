@@ -119,6 +119,25 @@ class Sync(WorkspaceCase):
         self.assertTrue((self.app / "package.json").exists())
         self.assertTrue((self.app / "src" / "Root.tsx").exists())
 
+    def test_backgrounds_and_stage_made_and_stage_survives_sync(self):
+        """Mutation: the folders are not made, or the rsync lacks --exclude /bg-stage/ (--delete
+        would remove the staged clip and leave public/bg dangling)."""
+        self.assert_ok(self.run_ws("--engine", "say"))
+        self.assertTrue((self.ws / "backgrounds").is_dir())
+        self.assertTrue((self.app / "bg-stage").is_dir())
+        (self.app / "bg-stage" / "clip.mp4").write_bytes(b"staged clip")
+
+        self.assert_ok(self.run_ws("--engine", "say"))
+
+        self.assertEqual((self.app / "bg-stage" / "clip.mp4").read_bytes(), b"staged clip")
+        self.assertTrue((self.ws / "backgrounds").is_dir())
+
+        shutil.rmtree(self.app / "bg-stage")
+        shutil.rmtree(self.ws / "backgrounds")
+        self.assert_ok(self.run_ws("--engine", "say"))
+        self.assertTrue((self.app / "bg-stage").is_dir())
+        self.assertTrue((self.ws / "backgrounds").is_dir())
+
 
 class NpmCi(WorkspaceCase):
     def test_npm_ci_runs_when_stamp_missing_then_not_again(self):
