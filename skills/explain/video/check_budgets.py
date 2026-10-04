@@ -10,8 +10,11 @@ length equal to its limit passes.
 
 stdout, one line, exit 0:
   ok <n> <total %.1f> <total %.3f>                 <n> scenes, total seconds
-  FAIL scene <id> is <s %.1f> s (max <%g>)         the first scene over its limit
-  FAIL total <s %.1f> s (max <%g>)                 every scene fits, the video does not
+  FAIL scene <id> is <s %.1f> s (max <%g><tag>)    the first scene over its limit
+  FAIL total <s %.1f> s (max <%g><tag>)            every scene fits, the video does not
+<tag> names the format the way build-timeline.mjs (tagOf) does on its limit lines: ", <format>"
+for a timeline whose "format" is a string other than "explainer" (", brainrot"), and nothing for
+an explainer timeline or one without the key, so the explainer texts are unchanged.
 Exit 2 (one line on stderr) for a usage error, a timeline that cannot be read, or one without a
 usable fps, totalFrames, scenes[].durationInFrames, maxSceneSeconds or maxTotalSeconds; there is
 no default limit. Stdlib only.
@@ -37,6 +40,12 @@ def number(container, key, where, positive=False):
     return float(value)
 
 
+def format_tag(timeline):
+    """", <format>" for a non-explainer timeline, "" otherwise (build-timeline.mjs tagOf)."""
+    fmt = timeline.get("format")
+    return ", %s" % fmt if isinstance(fmt, str) and fmt not in ("", "explainer") else ""
+
+
 def verdict(path):
     """The one-line verdict for the timeline at `path`."""
     try:
@@ -51,12 +60,13 @@ def verdict(path):
     scenes = timeline.get("scenes")
     if not isinstance(scenes, list):
         raise Unreadable("%s: no usable scenes" % path)
+    tag = format_tag(timeline)
     for scene in scenes:
         seconds = number(scene, "durationInFrames", path) / fps
         if seconds > max_scene:
-            return "FAIL scene %s is %.1f s (max %g)" % (scene.get("id"), seconds, max_scene)
+            return "FAIL scene %s is %.1f s (max %g%s)" % (scene.get("id"), seconds, max_scene, tag)
     if total > max_total:
-        return "FAIL total %.1f s (max %g)" % (total, max_total)
+        return "FAIL total %.1f s (max %g%s)" % (total, max_total, tag)
     return "ok %d %.1f %.3f" % (len(scenes), total, total)
 
 
