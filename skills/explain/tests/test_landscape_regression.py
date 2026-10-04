@@ -77,12 +77,16 @@ def still_names(review):
     return sorted(p.name for p in review.glob("*.png"))
 
 
-def stills_problem(names_old, names_new, scene_count):
-    """A message when the baseline stills are fewer than one per scene (an empty review/ would
-    pass vacuously), or when the new stills are not the baseline stills; None otherwise."""
-    if len(names_old) < scene_count:
-        return ("the baseline holds %d stills for %d scenes (at least one per scene is needed); "
-                "re-capture it with capture_landscape_baseline.sh main --force" % (len(names_old), scene_count))
+def stills_problem(names_old, names_new, scene_ids):
+    """A message when the baseline lacks the per-scene still still-NN-<id>.png (NN the 1-based
+    scene index, as video/check_render.sh names it) of any scene in `scene_ids`, or when the new
+    stills are not the baseline stills; None otherwise. Counting stills is not enough: extra cue
+    stills of one scene could stand in for a missing scene and an empty review/ would pass."""
+    missing = ["still-%02d-%s.png" % (n, sid) for n, sid in enumerate(scene_ids, 1)
+               if "still-%02d-%s.png" % (n, sid) not in names_old]
+    if missing:
+        return ("the baseline lacks the per-scene still(s) %s; re-capture it with "
+                "capture_landscape_baseline.sh main --force" % missing)
     if names_old != names_new:
         return ("still names differ: only in baseline %s, only in new %s"
                 % (sorted(set(names_old) - set(names_new)), sorted(set(names_new) - set(names_old))))
@@ -153,21 +157,33 @@ class DriftCase(unittest.TestCase):
     # red: names compared as sets of the common names, so a missing or extra still passes (Review Focus 4)
     def test_still_name_mismatch_fails(self):
         old = ["still-01-intro.png", "still-02-checks.png", "still-02-checks-1.png"]
-        self.assertIsNone(stills_problem(old, list(old), 2))
-        missing = stills_problem(old, old[:2], 2)
+        self.assertIsNone(stills_problem(old, list(old), ["intro", "checks"]))
+        missing = stills_problem(old, old[:2], ["intro", "checks"])
         self.assertIn("only in baseline ['still-02-checks-1.png']", missing)
-        extra = stills_problem(old, old + ["still-03-result.png"], 2)
+        extra = stills_problem(old, old + ["still-03-result.png"], ["intro", "checks"])
         self.assertIn("only in new ['still-03-result.png']", extra)
-        renamed = stills_problem(old, old[:2] + ["still-02-checks-2.png"], 2)
+        renamed = stills_problem(old, old[:2] + ["still-02-checks-2.png"], ["intro", "checks"])
         self.assertIn("still-02-checks-1.png", renamed)
         self.assertIn("still-02-checks-2.png", renamed)
 
-    # red: the at-least-one-still-per-scene check dropped, so an empty review/ matches itself
-    def test_baseline_with_fewer_stills_than_scenes_fails(self):
-        self.assertIn("0 stills for 3 scenes", stills_problem([], [], 3))
-        two = ["still-01-intro.png", "still-02-checks.png"]
-        self.assertIn("2 stills for 3 scenes", stills_problem(two, two, 3))
-        self.assertIsNone(stills_problem(two, two, 2))
+    # red: the per-scene still check reduced to a count (len(names_old) < scene count), or dropped
+    # so an empty review/ matches itself; a baseline missing one scene's still while another
+    # scene has extra cue stills has enough stills by count and must still fail
+    def test_baseline_missing_a_scene_still_fails(self):
+        scenes = ["intro", "checks", "result"]
+        self.assertIn("lacks the per-scene still(s) ['still-01-intro.png', 'still-02-checks.png', "
+                      "'still-03-result.png']", stills_problem([], [], scenes))
+        full = ["still-01-intro.png", "still-02-checks.png", "still-03-result.png"]
+        self.assertIsNone(stills_problem(full, list(full), scenes))
+        # scene 2's still is gone, scene 1 has extra cue stills: 4 stills for 3 scenes
+        lacking = ["still-01-intro.png", "still-01-intro-1.png", "still-01-intro-2.png",
+                   "still-03-result.png"]
+        problem = stills_problem(lacking, list(lacking), scenes)
+        self.assertIsNotNone(problem)
+        self.assertIn("'still-02-checks.png'", problem)
+        # the index counts too: a still of the right id at the wrong scene number is missing
+        shifted = ["still-01-intro.png", "still-03-checks.png", "still-03-result.png"]
+        self.assertIn("'still-02-checks.png'", stills_problem(shifted, list(shifted), scenes))
 
 
 class PngDiffCase(unittest.TestCase):
@@ -275,7 +291,7 @@ class LandscapeRegressionCase(unittest.TestCase):
                       "output kept in %s" % (moved, out))
 
         names_old, names_new = still_names(base / "review"), still_names(out / "review")
-        problem = stills_problem(names_old, names_new, len(old["scenes"]))
+        problem = stills_problem(names_old, names_new, [scene["id"] for scene in old["scenes"]])
         if problem:
             self.fail("%s; output kept in %s" % (problem, out))
 
