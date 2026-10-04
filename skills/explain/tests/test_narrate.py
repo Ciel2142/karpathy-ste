@@ -2,6 +2,7 @@
 say fallback. The real `say` and `afinfo` run (macOS); Kokoro and uv are stubbed, so no
 model, no network and no uv are needed. Each test names the mutation that turns it red."""
 
+import importlib.util
 import json
 import os
 import re
@@ -458,6 +459,94 @@ class KokoroDirect(NarrateCase):
         run = self.python(self.two_scenes(), "--engine", "say", "--fallback", "uv not found")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(self.durations()["fallback"], "uv not found")
+
+
+class SentenceText(unittest.TestCase):
+    """The pure text functions of the sentence-by-sentence narration: the module is loaded
+    by path, so no process runs and no engine is touched."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("narrate_under_test", NARRATE_PY)
+        cls.narrate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.narrate)
+
+    def split(self, text):
+        """The sentences of text, after checking the invariant every split must keep."""
+        sentences = self.narrate.split_sentences(text)
+        self.assertEqual([w for s in sentences for w in s.split()], text.split())
+        self.assertTrue(all(s and s == s.strip() for s in sentences), sentences)
+        return sentences
+
+    def test_split_basic(self):
+        """Mutation: only "." ends a sentence, or the terminator is dropped from the sentence."""
+        self.assertEqual(self.split("One. Two? Three!"), ["One.", "Two?", "Three!"])
+
+    def test_split_keeps_code_names(self):
+        """Mutation: a "." followed by more text (verify.sh, render.sh) ends a sentence."""
+        sentences = self.split("Run `verify.sh` now. Then render.sh runs.")
+        self.assertEqual(sentences, ["Run `verify.sh` now.", "Then render.sh runs."])
+
+    def test_split_dot_inside_backticks_with_space(self):
+        """Mutation: a terminator followed by a space splits even inside backticks."""
+        self.assertEqual(self.split("Use `a. b` here. Done."), ["Use `a. b` here.", "Done."])
+
+    def test_split_no_final_terminator(self):
+        """Mutation: the text after the last terminator is dropped."""
+        self.assertEqual(self.split("Run the check"), ["Run the check"])
+        self.assertEqual(self.split("One. Run the check"), ["One.", "Run the check"])
+
+    def test_split_whitespace(self):
+        """Mutation: sentences are cut at a single space, or a line break does not count as whitespace."""
+        self.assertEqual(self.split("One.\n\nTwo  words."), ["One.", "Two  words."])
+
+    def test_split_odd_backticks(self):
+        """Mutation: an unbalanced backtick keeps the scan "inside" to the end, one run-on sentence."""
+        self.assertEqual(self.split("Run `verify.sh now. Then stop."), ["Run `verify.sh now.", "Then stop."])
+
+    def test_split_empty_text_has_no_sentences(self):
+        """Mutation: an empty or blank narration yields one empty sentence."""
+        self.assertEqual(self.split(""), [])
+        self.assertEqual(self.split("  \n "), [])
+
+    def test_word_weights(self):
+        """Mutation: the sentence's last word gets no end weight, or a comma word gets none."""
+        words = self.narrate.word_timings(["Hi, you."], [(0.0, 1.0)])
+        self.assertEqual(words, [
+            {"text": "Hi,", "from": 0.0, "to": 5 / 11},
+            {"text": "you.", "from": 5 / 11, "to": 1.0},
+        ])
+
+    def test_words_tile_each_span_exactly(self):
+        """Mutation: word times are rounded or recomputed, so the first or last word misses its span."""
+        words = self.narrate.word_timings(["One two three.", "Four, five."], [(0.0, 0.5), (0.65, 1.15)])
+        self.assertEqual([w["text"] for w in words], "One two three. Four, five.".split())
+        first, second = words[:3], words[3:]
+        self.assertEqual((first[0]["from"], first[-1]["to"]), (0.0, 0.5))
+        self.assertEqual((second[0]["from"], second[-1]["to"]), (0.65, 1.15))
+        for part in (first, second):
+            for a, b in zip(part, part[1:]):
+                self.assertEqual(a["to"], b["from"])
+
+    def test_last_word_ends_at_the_span_end_not_a_recomputation(self):
+        """Mutation: the last word's end is start + (end - start) * total / total, which float
+        rounding moves off the span end (here 0.8 + (2.97 - 0.8) is not 2.97)."""
+        start, end = 0.8, 2.97
+        self.assertNotEqual(start + (end - start), end)   # the span really exercises rounding
+        words = self.narrate.word_timings(["One two."], [(start, end)])
+        self.assertEqual((words[0]["from"], words[-1]["to"]), (start, end))
+
+    def test_backticks_do_not_weigh(self):
+        """Mutation: the backticks count toward the word's length (weights 4 and 6, not 2 and 4)."""
+        words = self.narrate.word_timings(["`ab` c."], [(0.0, 1.0)])
+        self.assertEqual(words[0], {"text": "`ab`", "from": 0.0, "to": 2 / 6})
+        self.assertEqual(words[1], {"text": "c.", "from": 2 / 6, "to": 1.0})
+
+    def test_word_text_is_the_token_verbatim(self):
+        """Mutation: the word text is the spoken text (backticks removed) instead of the written token."""
+        narration = "Run `verify.sh`, then stop. Really?"
+        words = self.narrate.word_timings(self.split(narration), [(0.0, 1.0), (1.15, 2.0)])
+        self.assertEqual([w["text"] for w in words], narration.split())
 
 
 if __name__ == "__main__":

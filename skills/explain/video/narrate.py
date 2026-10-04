@@ -38,6 +38,9 @@ SAY_RATE = 22050
 MODEL_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 RATE_LINE = re.compile(r"Data format:.*?(\d+) Hz")
 DURATION_LINE = re.compile(r"estimated duration:\s*([0-9.]+)")
+SENTENCE_END = ".?!"
+CLAUSE_END = ",;:"
+END_WEIGHT = 2          # a word that ends a clause or a sentence is followed by a pause
 
 
 class NarrationError(Exception):
@@ -102,6 +105,55 @@ def sidecar_matches(sidecar, engine, text):
 def spoken(text):
     """The text the engine reads: a code name in backticks is spoken as plain text."""
     return text.replace("`", "")
+
+
+def split_sentences(text):
+    """The sentences of text, stripped, in order, none empty.
+
+    A sentence ends after ".", "?" or "!" when the next character is whitespace or the text
+    ends, unless the terminator sits inside backticks (a code name such as `a. b`). With an odd
+    number of backticks the pairing is unknowable, so backticks are ignored. Text after the
+    last terminator is the last sentence. Every cut falls on whitespace, so the words of the
+    sentences, in order, are text.split().
+    """
+    pairs_up = text.count("`") % 2 == 0
+    sentences, start, in_code = [], 0, False
+    for i, char in enumerate(text):
+        if char == "`" and pairs_up:
+            in_code = not in_code
+        elif char in SENTENCE_END and not in_code and (i + 1 == len(text) or text[i + 1].isspace()):
+            sentences.append(text[start:i + 1])
+            start = i + 1
+    sentences.append(text[start:])
+    return [s.strip() for s in sentences if s.strip()]
+
+
+def word_timings(sentences, spans):
+    """[{"text", "from", "to"}] for every word of every sentence, in order.
+
+    spans[k] is the (start, end) in seconds of sentences[k]; its words share that span in
+    proportion to a weight: the word's length without backticks, plus END_WEIGHT when it ends
+    in a comma, semicolon or colon or is the last word of the sentence. The first word of a
+    sentence starts at exactly the span's start and the last ends at exactly its end, and each
+    word starts at the previous word's end, so the words tile the span with no gap.
+    """
+    if len(sentences) != len(spans):
+        raise ValueError(f"{len(sentences)} sentences but {len(spans)} spans")
+    words = []
+    for sentence, (start, end) in zip(sentences, spans):
+        tokens = sentence.split()
+        last = len(tokens) - 1
+        weights = [
+            len(t.replace("`", "")) + (END_WEIGHT if i == last or t[-1] in CLAUSE_END else 0)
+            for i, t in enumerate(tokens)
+        ]
+        total, before, edge = sum(weights), 0, start
+        for i, (token, weight) in enumerate(zip(tokens, weights)):
+            before += weight
+            edge_end = end if i == last else start + (end - start) * before / total
+            words.append({"text": token, "from": edge, "to": edge_end})
+            edge = edge_end
+    return words
 
 
 def synth_say(text, wav, speed):
