@@ -5,7 +5,7 @@ import type { Size } from "../sceneBox";
 import type { Cell } from "../types";
 
 const GRID = [1 / 6, 1 / 2, 5 / 6];
-const EDGE_GAP = 6; // space between a box border and the line end
+export const EDGE_GAP = 6; // space between a box border and the line end
 const LABEL_OFFSET = 14; // distance of the label's near side from the line
 
 export type Point = { x: number; y: number };

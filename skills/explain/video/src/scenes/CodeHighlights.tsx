@@ -2,19 +2,21 @@
 // its line range gets a blue band and a left bar; earlier highlights dim to the fill colour.
 import { useCurrentFrame } from "remotion";
 import { Content, cueAt, ramp, SceneTitle } from "../layout";
-import { useBox } from "../sceneBox";
+import { contentRect, useBox } from "../sceneBox";
 import { theme } from "../theme";
 import type { CodeProps, Cued } from "../types";
 
-const MAX_LINES = 14;
 const FADE_FRAMES = 10;
 const BAR_WIDTH = 6;
 const PAD = 16; // horizontal space inside a band, left of the line number
 
 export function CodeHighlights({ title, source, lines, highlights, cueFrames }: Cued<CodeProps>) {
   const frame = useCurrentFrame();
-  const { code, codeLine } = useBox().type;
-  const shown = lines.slice(0, MAX_LINES);
+  const box = useBox();
+  const { code, codeLine } = box.type;
+  // As many lines as fit the content box: 14 at 1280 x 720 (floor(534 / 36)) and 15 at 1080 x 960,
+  // where the script's 14-line limit applies first.
+  const shown = lines.slice(0, Math.floor(contentRect(box).height / codeLine));
   const gutter = String(source.from + shown.length - 1).length; // digits of the last number
   const starts = highlights.map((h) => cueAt(cueFrames, h.cue));
   // A highlight dims as the next one comes in.
