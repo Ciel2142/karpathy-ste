@@ -1,21 +1,14 @@
-// Layout and timing helpers shared by every scene: the 48 px margins, the title band, the
-// content box below it, and cue-relative animation progress.
+// Layout and timing helpers shared by every scene: the margins, the title band and the content
+// box below it (all read from the SceneBox the composition provides), and cue-relative
+// animation progress.
 import type { CSSProperties, ReactNode } from "react";
 import { interpolate } from "remotion";
+import { contentRect, LANDSCAPE_BOX, useBox } from "./sceneBox";
 import { theme } from "./theme";
 import type { CueFrames } from "./types";
 
-export const FRAME = { width: 1280, height: 720 };
-export const MARGIN = 48;
-const TITLE_SIZE = 44;
-const RULE_TOP = MARGIN + 60; // the 2 px ink rule under the title
-// The box every scene body is laid out in (title band above it).
-export const CONTENT = {
-  left: MARGIN,
-  top: RULE_TOP + 30,
-  width: FRAME.width - 2 * MARGIN,
-  height: FRAME.height - MARGIN - (RULE_TOP + 30),
-};
+// The landscape content box, for the diagram scene until it reads its box too.
+export const CONTENT = contentRect(LANDSCAPE_BOX);
 
 // The frame of a cue, relative to the scene start. build-timeline.mjs writes one entry per
 // cue string in the props, so a miss means the timeline and the props disagree.
@@ -43,17 +36,18 @@ export const oneLine: CSSProperties = {
 };
 
 export function SceneTitle({ text }: { text: string }) {
+  const box = useBox();
   return (
     <>
       <div
         style={{
           ...oneLine,
           position: "absolute",
-          top: MARGIN,
-          left: MARGIN,
-          right: MARGIN,
+          top: box.margin,
+          left: box.margin,
+          right: box.margin,
           fontFamily: theme.sans,
-          fontSize: TITLE_SIZE,
+          fontSize: box.titleSize,
           fontWeight: 700,
           lineHeight: 1.2,
           color: theme.ink,
@@ -64,9 +58,9 @@ export function SceneTitle({ text }: { text: string }) {
       <div
         style={{
           position: "absolute",
-          top: RULE_TOP,
-          left: MARGIN,
-          right: MARGIN,
+          top: box.margin + box.titleBand,
+          left: box.margin,
+          right: box.margin,
           height: 2,
           background: theme.ink,
         }}
@@ -77,14 +71,15 @@ export function SceneTitle({ text }: { text: string }) {
 
 // The content box, as an absolutely placed container for a scene body.
 export function Content({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  const rect = contentRect(useBox());
   return (
     <div
       style={{
         position: "absolute",
-        left: CONTENT.left,
-        top: CONTENT.top,
-        width: CONTENT.width,
-        height: CONTENT.height,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
         fontFamily: theme.sans,
         color: theme.ink,
         ...style,
