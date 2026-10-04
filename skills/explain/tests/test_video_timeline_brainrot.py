@@ -282,6 +282,174 @@ class TestBrainrotBuild(BrainrotBuildCase):
         self.assertIsNone(timeline)
         self.assertFalse(os.path.exists(os.path.join(self.dir, "out", "timeline.json")))
 
+    def test_brainrot_cue_frame_is_sentence_start(self):
+        """Red: cue frames stay the proportional estimate instead of the sentence start seconds."""
+        result, timeline = self.build_with_words(self.two_scene_brainrot(), self.words_17())
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(timeline["scenes"][0]["cueFrames"], {"The router": 6, "The handler": 57})
+
+    def test_brainrot_reads_used_engine_words_file(self):
+        """Red: build mode looks up the words file of the requested engine, not the engine argument."""
+        script = self.two_scene_brainrot()
+        result, _ = self.build_brainrot(script, {"intro": 3.0, "flow": 4.5}, "say")
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        for scene in script["scenes"]:
+            self.write_words(scene["id"], "kokoro", words_for(scene["narration"]))
+            os.remove(os.path.join(self.dir, "%s.say.words.json" % scene["id"]))
+        result, _ = self.build(script, {"intro": 3.0, "flow": 4.5}, "say")
+        self.assertFails(
+            result,
+            "FAIL scene intro: cannot read intro.say.words.json: ENOENT",
+            "FAIL scene flow: cannot read flow.say.words.json: ENOENT",
+        )
+
+    def test_brainrot_missing_words_file_fails(self):
+        """Red: a missing words file builds with estimated cue frames."""
+        script = self.two_scene_brainrot()
+        self.write_words("flow", "say", words_for(self.scene(script, "flow")["narration"]))
+        result, timeline = self.build(script, {"intro": 3.0, "flow": 4.5})
+        self.assertFails(result, "FAIL scene intro: cannot read intro.say.words.json: ENOENT")
+        self.assertIsNone(timeline)
+
+    def test_brainrot_words_not_json_fails(self):
+        """Red: the words file is parsed without a named failure, or its parse error is dropped."""
+        script = self.two_scene_brainrot()
+        self.write("intro.say.words.json", "{not json")
+        self.write_words("flow", "say", words_for(self.scene(script, "flow")["narration"]))
+        result, _ = self.build(script, {"intro": 3.0, "flow": 4.5})
+        self.assertEqual(result.returncode, 1)
+        lines = result.stdout.splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(
+            lines[0].startswith("FAIL scene intro: intro.say.words.json is not valid JSON: "), lines[0]
+        )
+
+    def test_brainrot_words_bad_shape_fails(self):
+        """Red: a word with to < from is accepted, or the failing path is not named."""
+        words = self.words_17()
+        words["words"][1]["to"] = words["words"][1]["from"] - 0.01
+        result, _ = self.build_with_words(self.two_scene_brainrot(), words)
+        self.assertFails(
+            result, "FAIL scene intro: intro.say.words.json has a bad shape at words[1].to"
+        )
+
+    def test_brainrot_bad_shape_paths(self):
+        """Red: one of the shape rules is skipped: top level, sentences, words, item, text, number, overlap."""
+        cases = [
+            (lambda w: [], "top level"),
+            (lambda w: {"words": w["words"]}, "sentences"),
+            (lambda w: {"sentences": w["sentences"], "words": "x"}, "words"),
+            (lambda w: w["words"].__setitem__(2, 5), "words[2]"),
+            (lambda w: w["words"][3].__setitem__("text", 7), "words[3].text"),
+            (lambda w: w["words"][0].__setitem__("from", -0.1), "words[0].from"),
+            (lambda w: w["words"][6].__setitem__("to", "9"), "words[6].to"),
+            (lambda w: w["sentences"][1].__setitem__("from", None), "sentences[1].from"),
+            (lambda w: w["sentences"][0].__setitem__("to", -1.0), "sentences[0].to"),
+            (lambda w: w["words"][2].__setitem__("from", w["words"][1]["to"] - 0.1), "words[2].from"),
+        ]
+        for mutate, where in cases:
+            with self.subTest(where=where):
+                words = self.words_17()
+                replaced = mutate(words)
+                words = replaced if replaced is not None else words
+                result, _ = self.build_with_words(self.two_scene_brainrot(), words)
+                self.assertFails(
+                    result, "FAIL scene intro: intro.say.words.json has a bad shape at %s" % where
+                )
+
+    def test_brainrot_word_count_mismatch_fails(self):
+        """Red: a words file with a different word count than the narration is accepted."""
+        words = self.words_17()
+        del words["words"][7]
+        result, _ = self.build_with_words(self.two_scene_brainrot(), words)
+        self.assertFails(
+            result, "FAIL scene intro: intro.say.words.json has 7 words, the narration has 8"
+        )
+
+    def test_brainrot_token_mismatch_fails(self):
+        """Red: tokens are compared with punctuation stripped, so "handler" passes for "handler.". """
+        words = self.words_17()
+        words["words"][4]["text"] = "handler"
+        result, _ = self.build_with_words(self.two_scene_brainrot(), words)
+        self.assertFails(
+            result,
+            'FAIL scene intro: intro.say.words.json word 4 is "handler", the narration has "handler."',
+        )
+
+    def test_brainrot_backticked_dotted_name_matches(self):
+        """Red: tokens are compared with the backticks removed, or the cue token index is off."""
+        script = self.two_scene_brainrot()
+        intro = self.scene(script, "intro")
+        intro["narration"] = "The `verify.sh` script runs. It stops."
+        for bullet, cue in zip(intro["props"]["bullets"], ("The `verify.sh` script", "It stops")):
+            bullet["cue"] = cue
+        result, timeline = self.build_with_words(script, words_for(intro["narration"], 0.3, 0.2))
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(
+            timeline["scenes"][0]["cueFrames"], {"The `verify.sh` script": 6, "It stops": 48}
+        )
+
+    def test_brainrot_double_space_narration_matches(self):
+        """Red: the narration token split is not the same whitespace split the words file uses."""
+        script = self.two_scene_brainrot()
+        intro = self.scene(script, "intro")
+        intro["narration"] = "The router  picks a\nhandler. The handler replies."
+        result, timeline = self.build_with_words(script, words_for(intro["narration"], 0.3, 0.2))
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(timeline["scenes"][0]["cueFrames"], {"The router": 6, "The handler": 57})
+
+    def test_brainrot_sentence_start_tolerance(self):
+        """Red: the sentence-start match is exact (===) or looser than 0.001 s."""
+        words = self.words_17()
+        words["words"][5]["from"] = round(words["sentences"][1]["from"] + 0.0004, 6)
+        result, timeline = self.build_with_words(self.two_scene_brainrot(), words)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(timeline["scenes"][0]["cueFrames"], {"The router": 6, "The handler": 57})
+        words["words"][5]["from"] = round(words["sentences"][1]["from"] + 0.002, 6)
+        result, _ = self.build_with_words(self.two_scene_brainrot(), words)
+        self.assertFails(
+            result,
+            'FAIL scene intro: cue "The handler" does not start a sentence in intro.say.words.json',
+        )
+
+    def test_brainrot_words_after_clip_end_fail(self):
+        """Red: a caption past the clip end (words file from an older WAV) builds."""
+        words = self.words_17()
+        words["words"][-1]["to"] = words["sentences"][-1]["to"] = 3.5
+        result, _ = self.build_with_words(self.two_scene_brainrot(), words)
+        self.assertFails(
+            result, "FAIL scene intro: intro.say.words.json ends at 3.5 s, after the clip end 3 s"
+        )
+
+    def test_brainrot_close_cues_fail(self):
+        """Red: the 15-frame cue distance is skipped for exact cue frames."""
+        result, _ = self.build_with_words(
+            self.two_scene_brainrot(), words_for(self.INTRO_NARRATION, 0.06, 0.0)
+        )
+        self.assertFails(
+            result,
+            'FAIL scene intro: cue "The handler" is 9 frames after the previous cue (minimum 15)',
+        )
+
+    def test_explainer_build_reads_no_words_file(self):
+        """Red: build mode asks an explainer script for words files."""
+        result, _ = self.build(base_script(), {"intro": 2.0, "flow": 2.0, "code": 2.0})
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    # -- helpers --
+    INTRO_NARRATION = "The router picks a handler. The handler replies."
+
+    def words_17(self):
+        """Words of the intro narration whose second sentence starts at 1.7 s."""
+        return words_for(self.INTRO_NARRATION, 0.3, 0.2)
+
+    def build_with_words(self, script, intro_words):
+        """Build with `intro_words` for scene intro and consistent words for the other scenes."""
+        for scene in script["scenes"]:
+            self.write_words(scene["id"], "say", words_for(scene["narration"]))
+        self.write_words("intro", "say", intro_words)
+        return self.build(script, {"intro": 3.0, "flow": 4.5})
+
 
 class TestWordsFixture(unittest.TestCase):
     def test_words_for_closes_sentences_and_spaces_them(self):

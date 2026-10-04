@@ -12,6 +12,20 @@
 //
 // script.json may carry "format": "explainer" (the default when absent) or "brainrot".
 // Every per-format limit lives in the FORMATS table below.
+//
+// A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
+// scene (engine is the one actually used, so a Kokoro run that fell back to say reads
+// <id>.say.words.json). It holds the sentence and word times of the narration in seconds
+// from the clip start; each cue frame is its sentence start. Besides the cue lines above,
+// a brainrot build adds these lines (prefix "FAIL scene <id>: ", <file> is that words file):
+//   cannot read <file>: <code>              file missing or unreadable
+//   <file> is not valid JSON: <message>
+//   <file> has a bad shape at <where>       <where> is e.g. words[3].to or sentences
+//   <file> has <n> words, the narration has <m>
+//   <file> word <i> is "<text>", the narration has "<token>"
+//   <file> ends at <t> s, after the clip end <s> s
+//   cue "<cue>" does not start a sentence in <file>
+// An explainer build reads no words file.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -398,10 +412,84 @@ const validate = (script, root) => {
   return lines;
 };
 
+// ---------- words ----------
+// <id>.<engine>.words.json (spec 5.2): { sentences: [{from, to}], words: [{text, from, to}] },
+// seconds from the clip start. words[i].text is the i-th narration token, verbatim.
+
+// Seconds of slack for the producer's rounding: sentence-start matches and the clip end.
+const WORDS_TOLERANCE = 0.001;
+const tokensOf = (narration) => narration.split(/\s+/).filter(Boolean);
+const isSeconds = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+// Where the words object breaks the shape, or "" when it holds.
+const wordsShapeError = (value) => {
+  if (!isObject(value)) return "top level";
+  for (const key of ["sentences", "words"]) {
+    const items = value[key];
+    if (!Array.isArray(items)) return key;
+    for (let i = 0; i < items.length; i++) {
+      const at = `${key}[${i}]`;
+      const item = items[i];
+      if (!isObject(item)) return at;
+      if (key === "words" && typeof item.text !== "string") return `${at}.text`;
+      if (!isSeconds(item.from)) return `${at}.from`;
+      if (!isSeconds(item.to) || item.to < item.from) return `${at}.to`;
+      if (key === "words" && i > 0 && items[i - 1].to > item.from) return `${at}.from`;
+    }
+  }
+  return "";
+};
+
+// The words file of scene `id` next to durations.json, checked against the narration and the clip.
+// Reports one cause through `bad` and returns undefined on the first failure.
+const readWords = (dir, id, engine, narration, clipSeconds, bad) => {
+  const file = `${id}.${engine}.words.json`;
+  const stop = (cause) => {
+    bad(cause);
+  };
+  let text;
+  try {
+    text = fs.readFileSync(path.join(dir, file), "utf8");
+  } catch (err) {
+    return stop(`cannot read ${file}: ${err.code ?? err.message}`);
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (err) {
+    return stop(`${file} is not valid JSON: ${err.message}`);
+  }
+  const where = wordsShapeError(value);
+  if (where) return stop(`${file} has a bad shape at ${where}`);
+  const { sentences, words } = value;
+  const tokens = tokensOf(narration);
+  if (words.length !== tokens.length) return stop(`${file} has ${words.length} words, the narration has ${tokens.length}`);
+  const i = words.findIndex((w, k) => w.text !== tokens[k]);
+  if (i >= 0) return stop(`${file} word ${i} is ${q(words[i].text)}, the narration has ${q(tokens[i])}`);
+  const end = words.at(-1)?.to;
+  if (end > clipSeconds + WORDS_TOLERANCE) return stop(`${file} ends at ${end} s, after the clip end ${clipSeconds} s`);
+  return { file, sentences, words };
+};
+
+// The frame (relative to the scene start) of the sentence that `cueText` starts, or undefined
+// after reporting that no sentence starts at the cue's first word. `file` only names the cause.
+const cueFrameFromWords = (words, sentences, narration, cueText, leadFrames, bad, file) => {
+  const [offset] = cueMatches(narration, cueText);
+  const start = words[tokensOf(narration.slice(0, offset)).length]?.from;
+  const sentence = sentences.find((s) => Math.abs(s.from - start) <= WORDS_TOLERANCE);
+  if (sentence === undefined) {
+    bad(`cue ${q(cueText)} does not start a sentence in ${file}`);
+    return undefined;
+  }
+  return leadFrames + Math.round(sentence.from * FPS);
+};
+
 // ---------- build mode ----------
 
-const buildScenes = (script, durations, engine, root, fail, limits) => {
+// `wordsDir`: the directory of durations.json, where a brainrot build finds the words files.
+const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) => {
   const { leadFrames, tailFrames } = limits;
+  const brainrot = isObject(script) && formatOf(script) === "brainrot";
   const clips = isObject(durations?.scenes) ? durations.scenes : {};
   let from = 0;
   const out = [];
@@ -426,6 +514,8 @@ const buildScenes = (script, durations, engine, root, fail, limits) => {
         return bad(`source.path ${props.source.path} cannot be read under the data root`);
       }
     }
+    const timing = brainrot ? readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad) : undefined;
+    if (brainrot && timing === undefined) return;
     const cueFrames = {};
     let previous = null;
     for (const cueText of cuesOf(scene.component, scene.props)) {
@@ -434,7 +524,10 @@ const buildScenes = (script, durations, engine, root, fail, limits) => {
         bad(`cue ${q(cueText)} is not in the narration`);
         continue;
       }
-      const frame = leadFrames + Math.round((hits[0] / scene.narration.length) * clipFrames);
+      const frame = timing
+        ? cueFrameFromWords(timing.words, timing.sentences, scene.narration, cueText, leadFrames, bad, timing.file)
+        : leadFrames + Math.round((hits[0] / scene.narration.length) * clipFrames);
+      if (frame === undefined) continue;
       // The 15-frame distance is checked here, not by --check: it needs the real clip length.
       if (previous !== null && frame - previous < MIN_CUE_GAP) {
         bad(`cue ${q(cueText)} is ${frame - previous} frames after the previous cue (minimum ${MIN_CUE_GAP})`);
@@ -504,7 +597,8 @@ const main = () => {
   const format = isObject(script.value) ? formatOf(script.value) : "explainer";
   if (!knownFormat(format)) finish(["FAIL script: format must be explainer or brainrot"]);
   const limits = FORMATS[format];
-  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line), limits);
+  const wordsDir = path.dirname(durationsFile);
+  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line), limits, wordsDir);
   if (failures.length > 0) finish(failures);
   const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
   const { width, height, maxSceneSeconds, maxTotalSeconds } = limits;
