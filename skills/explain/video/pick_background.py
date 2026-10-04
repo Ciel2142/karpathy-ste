@@ -18,10 +18,14 @@ random start in [0, clip - video] and plays once; a shorter clip starts at 0 and
 
 Staging. Remotion's static server answers 404 for a file that is itself a symlink, and the
 bundler copies regular files from public/ into every bundle but re-links symlinks. So the picker
-empties <app-dir>/bg-stage/ on every run, stages the clip there as the regular file
-clip<.ext lowercased> (a hard link to the clip's realpath, else a copy), and points the symlink
-<app-dir>/public/bg at bg-stage. A path through that directory symlink is served. A generated
-run leaves bg-stage empty and the link in place, so public/ never holds a dangling link.
+empties the stage <ws>/bg-stage/ on every run (<ws> is the parent of <app-dir>; made if missing),
+stages the clip there as the regular file clip<.ext lowercased> (a hard link to the clip's
+realpath, else a copy), and (re)makes <app-dir>/public/bg as the relative symlink
+../../bg-stage, replacing whatever is at that path. A path through that directory symlink is
+served. The stage lies beside the app, not in it, because the sync of any checkout's
+video-workspace.sh (rsync --delete into <app-dir>, public/ excluded) would delete a stage inside
+the app and leave the link dangling, and a dangling link in public/ fails every render. A
+generated run leaves the stage empty and the link in place.
 
 The timeline is rewritten in place (indent 2) with a `background` key:
   {"kind": "clip", "file": <name>, "src": "bg/clip<.ext>", "start": <s>, "seconds": <s>,
@@ -31,12 +35,13 @@ The timeline is rewritten in place (indent 2) with a `background` key:
 stdout, in order: one `background: SKIP <file> (<cause>)` per skipped clip (unindented), then
   background: ok <name> @<start %.1f> s[ (loop)]   or   background: ok generated
 or `background: FAIL <cause>` (cannot read or write the timeline, cannot stage the clip, or
-`--dir <dir> is inside the app workspace`).
+`--dir <dir> is inside the background stage or the app's public folder`).
 Exit 0 ok, 1 FAIL, 2 usage (the usage line and an error line on stderr). Stdlib only.
 
---dir must not be, or lie under, <app-dir>/bg-stage or <app-dir>/public: the picker empties both
-on every run, so such a folder would lose its clips. That is a misconfiguration, not a missing
-folder, and the picker refuses it (FAIL, exit 1) before it touches anything.
+--dir must not be, or lie under, <ws>/bg-stage or <app-dir>/public: the picker empties the stage
+and replaces public/bg on every run (and render.sh empties public/audio), so such a folder would
+lose its clips. That is a misconfiguration, not a missing folder, and the picker refuses it
+(FAIL, exit 1) before it touches anything.
 """
 
 import argparse
@@ -53,7 +58,8 @@ USAGE = "pick_background.py <timeline.json> <remotion-cli> <app-dir> --dir <clip
 EXTENSIONS = (".mp4", ".mov", ".webm")
 PROBE_TIMEOUT = 60       # seconds
 SHORT_TOLERANCE = 0.001  # a clip this much shorter than the video still counts as equal
-STAGE = "bg-stage"
+STAGE = "bg-stage"                             # <ws>/bg-stage, beside <app>
+LINK_TARGET = os.path.join("..", "..", STAGE)  # what <app>/public/bg points at
 SEED_ENV = "EXPLAIN_BRAINROT_SEED"
 
 
@@ -108,15 +114,18 @@ def same_file(a, b):
         return False
 
 
+def stage_dir(app):
+    """<ws>/bg-stage: beside the real <app>, which is where ../../bg-stage from <app>/public/bg
+    resolves to."""
+    return os.path.join(os.path.dirname(os.path.realpath(app)), STAGE)
+
+
 def inside_app(folder, app):
-    """True when `folder` is, or lies under, <app>/bg-stage or <app>/public. The folder is compared
+    """True when `folder` is, or lies under, <ws>/bg-stage or <app>/public. The folder is compared
     by realpath, so a symlink or a dotted path into them counts; every ancestor is also compared
     with os.path.samefile, which catches a different letter case on a case-insensitive volume."""
-    real_app = os.path.realpath(app)
-    roots = set()
-    for sub in (STAGE, "public"):
-        roots.add(os.path.realpath(os.path.join(app, sub)))
-        roots.add(os.path.join(real_app, sub))
+    stage, public = stage_dir(app), os.path.join(os.path.realpath(app), "public")
+    roots = {stage, os.path.realpath(stage), public, os.path.realpath(public)}
     path = os.path.realpath(folder)
     while True:
         if any(path == root or same_file(path, root) for root in roots):
@@ -136,25 +145,26 @@ def clear_path(path):
 
 
 def prepare_stage(app):
-    """Empty <app>/bg-stage (made if missing) and point <app>/public/bg at it."""
-    stage = os.path.abspath(os.path.join(app, STAGE))
+    """Empty <ws>/bg-stage (made if missing) and make <app>/public/bg the relative link
+    ../../bg-stage to it, replacing a directory, a file or another link at that path."""
+    stage = stage_dir(app)
     link = os.path.join(app, "public", "bg")
     try:
         clear_path(stage)
         os.makedirs(stage)
         os.makedirs(os.path.dirname(link), exist_ok=True)
         clear_path(link)
-        os.symlink(stage, link)
+        os.symlink(LINK_TARGET, link)
     except OSError as err:
         raise Fail("cannot prepare %s: %s" % (stage, reason(err))) from err
     return stage
 
 
 def stage_clip(clip, app):
-    """Put `clip` into <app>/bg-stage as the regular file clip<.ext lowercased>: a hard link to its
+    """Put `clip` into <ws>/bg-stage as the regular file clip<.ext lowercased>: a hard link to its
     realpath, or a copy when the link fails (another volume, permissions). Returns the staged path;
     raises OSError when both fail."""
-    dest = os.path.join(app, STAGE, "clip" + os.path.splitext(clip)[1].lower())
+    dest = os.path.join(stage_dir(app), "clip" + os.path.splitext(clip)[1].lower())
     source = os.path.realpath(clip)
     try:
         os.link(source, dest)
@@ -286,7 +296,8 @@ def main(argv):
         return 2
     try:
         if inside_app(args.folder, args.app):
-            raise Fail("--dir %s is inside the app workspace" % args.folder)
+            raise Fail("--dir %s is inside the background stage or the app's public folder"
+                       % args.folder)
         timeline, fps, frames = read_timeline(args.timeline)
         prepare_stage(args.app)
         background, line = choose(args, random.Random(seed), frames / fps)

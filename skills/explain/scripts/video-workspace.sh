@@ -5,10 +5,10 @@
 #   video-workspace.sh [--engine kokoro|say]          (default kokoro)
 #   env EXPLAIN_VIDEO_WORKSPACE   workspace root (default $HOME/karpathy/video-workspace)
 #
-#   <ws>/app      the synced video/ sources plus node_modules (public/ and bg-stage/ are left alone)
-#   <ws>/app/bg-stage   where pick_background.py stages the brainrot background clip; public/bg
-#                 is a symlink to it, so it must exist (an empty one is made here) and the sync
-#                 must not delete it
+#   <ws>/app      the synced video/ sources plus node_modules (public/ is left alone)
+#   <ws>/bg-stage where pick_background.py stages the brainrot background clip; <ws>/app/public/bg
+#                 is the relative symlink ../../bg-stage to it, so it must exist (an empty one is
+#                 made here). It lies beside the app, where no version's sync reaches it.
 #   <ws>/backgrounds    the default folder of brainrot background clips (EXPLAIN_BRAINROT_BACKGROUNDS)
 #   <ws>/models   the Kokoro model files (--engine kokoro only)
 #
@@ -67,15 +67,21 @@ sha256() {
     printf '%s\n' "${out%% *}"
 }
 
-# 1. Sources. node_modules/ and public/ (the render's audio) stay as they are, and so does
-# bg-stage/ (the brainrot background clip; the sync runs with --delete). bg-stage/ and the clip
-# folder are made here so that the public/bg symlink the picker keeps never dangles: a dangling
-# link in public/ breaks the bundler, and with it every render.
+# 1. Sources. node_modules/ and public/ (the render's audio) stay as they are; anything else in
+# the app that video/ lacks is deleted, a stage left in <app>/bg-stage by earlier versions too.
+# The stage and the clip folder are made beside the app so that the public/bg symlink the picker
+# keeps never dangles: a dangling link in public/ breaks the bundler, and with it every render.
+# For the same reason a public/bg link that does not resolve (the absolute link to
+# <app>/bg-stage of earlier versions, or a stage deleted by hand) is removed; the picker makes
+# it again. A link that resolves, or a real directory, is left alone, and no link is followed.
 mkdir -p "$app" "$models" || fail "mkdir $ws"
-rsync -a --delete --exclude /node_modules/ --exclude /public/ --exclude /bg-stage/ \
+rsync -a --delete --exclude /node_modules/ --exclude /public/ \
     "$skill/video/" "$app/" || fail "sync $skill/video/ to $app/"
 mkdir -p "$ws/backgrounds" || fail "mkdir $ws/backgrounds"
-mkdir -p "$app/bg-stage" || fail "mkdir $app/bg-stage"
+mkdir -p "$ws/bg-stage" || fail "mkdir $ws/bg-stage"
+if [ -L "$app/public/bg" ] && [ ! -e "$app/public/bg" ]; then
+    rm -f "$app/public/bg" || fail "rm dangling link $app/public/bg"
+fi
 
 # 2 and 3. Dependencies and the headless browser, when the lock file changed.
 lock_sha=$(sha256 "$app/package-lock.json") || fail "sha256 $app/package-lock.json"

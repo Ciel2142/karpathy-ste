@@ -7,7 +7,7 @@ chooses the generated runner loop. The clip run points it at a temp dir that hol
 fixtures/bg-1s.mp4, a 1 s clip that is shorter than the video, so it loops. Each render is cached
 once per process (the pattern of video_e2e.py: temp output dir, an absolute provenance.root, the
 temp dirs removed at exit). Both folders lie outside the workspace, because the picker refuses a
---dir inside <app>/bg-stage or <app>/public. The explainer E2E and the landscape regression run
+--dir inside <ws>/bg-stage or <app>/public. The explainer E2E and the landscape regression run
 after this module in the same workspace, to show that a brainrot run leaves the explainer alone.
 Each test names the mutation that turns it red."""
 

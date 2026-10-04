@@ -3,7 +3,8 @@ gets, how it is staged for Remotion, and what is written into the timeline. A fa
 prints canned ffprobe JSON per file name; the cases marked "real" use the workspace CLI
 (<ws>/app/node_modules/.bin/remotion, ws = $EXPLAIN_VIDEO_WORKSPACE or ~/karpathy/video-workspace)
 and are skipped, naming video-workspace.sh, when it is missing. Every test uses a temp dir as the
-app dir, never the real workspace app. Each test names the mutation that turns it red."""
+workspace <ws> and <ws>/app as the app dir, never the real workspace. Each test names the mutation
+that turns it red."""
 
 import contextlib
 import io
@@ -32,6 +33,8 @@ sys.path.insert(0, str(VIDEO))
 FPS = 30
 VIDEO_SECONDS = 3  # 90 frames
 GENERATED = "background: ok generated"
+LINK_TARGET = "../../bg-stage"  # public/bg -> <ws>/bg-stage, relative to <app>/public
+REFUSED = "background: FAIL --dir %s is inside the background stage or the app's public folder\n"
 
 
 def workspace_remotion():
@@ -84,10 +87,11 @@ class PickerCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="pick-bg-test-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.app = self.tmp / "app"
+        self.ws = self.tmp  # the layout video-workspace.sh makes: <ws>/app
+        self.app = self.ws / "app"
         self.app.mkdir()
         self.clips = self.tmp / "clips"
-        self.stage = self.app / "bg-stage"
+        self.stage = self.ws / "bg-stage"
         self.link = self.app / "public" / "bg"
         self.timeline = self.tmp / "timeline.json"
         self.write_timeline()
@@ -161,7 +165,7 @@ class PickerCase(unittest.TestCase):
 
     def assert_link_to_stage(self):
         self.assertTrue(self.link.is_symlink(), "public/bg must be a symlink")
-        self.assertEqual(os.readlink(self.link), str(self.stage))
+        self.assertEqual(os.readlink(self.link), LINK_TARGET)
         self.assertEqual(self.link.resolve(), self.stage.resolve())
 
     def assert_generated(self, run, lines=(GENERATED,)):
@@ -172,7 +176,8 @@ class PickerCase(unittest.TestCase):
 
     def assert_staged_regular(self, name, source):
         staged = self.stage / name
-        self.assertTrue(staged.is_file() and not staged.is_symlink(), "bg-stage/%s must be a regular file" % name)
+        self.assertTrue(staged.is_file() and not staged.is_symlink(),
+                        "<ws>/bg-stage/%s must be a regular file" % name)
         self.assertEqual([p.name for p in self.stage.iterdir()], [name])
         self.assertTrue(os.path.samefile(staged, source), "%s is not the same file as %s" % (staged, source))
         return staged
@@ -487,17 +492,58 @@ class Staging(PickerCase):
         self.assertEqual([p.name for p in user.iterdir()], ["mine.mp4"])
 
     def test_link_replaces_file_and_stale_symlink(self):
-        """Mutation: public/bg as a file or a link to somewhere else is left in place, or the
-        picker follows the stale link and empties its target."""
+        """Mutation: public/bg as a file, a link to somewhere else, or the absolute link of the old
+        layout (to <app>/bg-stage) is left in place, or the picker follows a stale link and empties
+        its target."""
         elsewhere = self.tmp / "elsewhere"
         elsewhere.mkdir()
         (elsewhere / "keep.txt").write_text("keep", encoding="utf-8")
+        old_stage = self.app / "bg-stage"
+        old_stage.mkdir()
+        (old_stage / "clip.mp4").write_bytes(b"old staged clip")
         (self.app / "public").mkdir()
-        for make in (lambda: self.link.write_bytes(b"a file"), lambda: self.link.symlink_to(elsewhere)):
-            self.link.unlink(missing_ok=True)
-            make()
-            self.assert_generated(self.run_picker())
+        for label, make in (("a file", lambda: self.link.write_bytes(b"a file")),
+                            ("a link elsewhere", lambda: self.link.symlink_to(elsewhere)),
+                            ("the old absolute link", lambda: self.link.symlink_to(old_stage))):
+            with self.subTest(label):
+                self.link.unlink(missing_ok=True)
+                make()
+                self.assert_generated(self.run_picker())
         self.assertEqual((elsewhere / "keep.txt").read_text(encoding="utf-8"), "keep")
+        self.assertEqual((old_stage / "clip.mp4").read_bytes(), b"old staged clip")
+
+    def test_clip_staged_beside_the_app_behind_a_relative_link(self):
+        """Mutation: the stage is under <app> again, public/bg is an absolute link, or the clip is
+        staged as a symlink or a copy instead of a hard link to the source."""
+        source = self.clip("x.mp4", b"clip bytes")
+        self.canned({"x.mp4": probe_entry(600)})
+        self.assert_ok_run(self.run_picker())
+        self.assertEqual(os.readlink(self.link), LINK_TARGET)
+        self.assertEqual(os.path.realpath(self.link), os.path.realpath(self.ws / "bg-stage"))
+        self.assert_staged_regular("clip.mp4", source)
+        self.assertFalse((self.app / "bg-stage").exists(), "a stage under <app> was made")
+
+    def test_link_survives_another_checkouts_sync(self):
+        """Mutation: the stage lies under <app> (df7d7de's layout). The sync of any checkout's
+        video-workspace.sh (main's has exactly these flags, with no exclude for a stage) then
+        deletes it with --delete and leaves public/bg dangling, and Remotion's bundler fails
+        every render on that link (realpath ENOENT)."""
+        rsync = shutil.which("rsync")
+        if rsync is None:
+            self.skipTest("no rsync on PATH")
+        source = self.clip("x.mp4", b"clip bytes")
+        self.canned({"x.mp4": probe_entry(600)})
+        self.assert_ok_run(self.run_picker())
+        src = self.tmp / "other-checkout-video"
+        src.mkdir()
+        (src / "package.json").write_text("{}\n", encoding="utf-8")
+        sync = subprocess.run(
+            [rsync, "-a", "--delete", "--exclude", "/node_modules/", "--exclude", "/public/",
+             "%s/" % src, "%s/" % self.app],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(sync.returncode, 0, sync.stderr)
+        self.assertTrue(os.path.exists(self.link), "public/bg dangles after the sync")
+        self.assertTrue(os.path.samefile(self.link / "clip.mp4", source))
 
     def test_stage_that_is_a_symlink_is_replaced_not_emptied(self):
         """Mutation: bg-stage as a link to a user folder is emptied through the link."""
@@ -562,8 +608,8 @@ class Staging(PickerCase):
 
 
 class InsideApp(PickerCase):
-    """--dir under <app>/bg-stage or <app>/public is a misconfiguration, not a missing folder: the
-    picker empties the stage and public/bg, so it must refuse before touching anything."""
+    """--dir under <ws>/bg-stage or <app>/public is a misconfiguration, not a missing folder: the
+    picker empties the stage and replaces public/bg, so it must refuse before touching anything."""
 
     def seed_stage(self):
         """A stage that holds a clip and a folder of clips, and a public dir with a wav."""
@@ -578,7 +624,7 @@ class InsideApp(PickerCase):
 
     def assert_refused(self, run, folder):
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
-        self.assertEqual(run.stdout, "background: FAIL --dir %s is inside the app workspace\n" % folder)
+        self.assertEqual(run.stdout, REFUSED % folder)
         self.assertEqual((self.stage / "mine.mp4").read_bytes(), b"stage clip")
         self.assertEqual((self.stage / "sub" / "deep.mp4").read_bytes(), b"deep clip")
         self.assertEqual((self.app / "public" / "audio" / "s1.wav").read_bytes(), b"wav")
@@ -587,11 +633,12 @@ class InsideApp(PickerCase):
         self.assertEqual(self.probe_calls(), [])
 
     def test_dir_inside_the_app_is_refused_and_nothing_is_deleted(self):
-        """Mutation: no guard, so --dir <app>/bg-stage is emptied first and the run ends "ok generated"."""
+        """Mutation: no guard, or one that still protects <app>/bg-stage instead of <ws>/bg-stage,
+        so --dir <ws>/bg-stage is emptied first and the run ends "ok generated"."""
         self.seed_stage()
         via_link = self.tmp / "via-link"
         via_link.symlink_to(self.stage)
-        (self.app / "x").mkdir()
+        (self.ws / "x").mkdir()
         folders = {
             "the stage": self.stage,
             "a folder under the stage": self.stage / "sub",
@@ -599,7 +646,8 @@ class InsideApp(PickerCase):
             "public": self.app / "public",
             "a folder under public": self.app / "public" / "audio",
             "a symlink to the stage": via_link,
-            "a dotted path to the stage": self.app / "x" / ".." / "bg-stage",
+            "a dotted path to the stage": self.ws / "x" / ".." / "bg-stage",
+            "a path to the stage through the app": self.app / ".." / "bg-stage" / "sub",
         }
         for label, folder in folders.items():
             with self.subTest(label):
@@ -608,16 +656,16 @@ class InsideApp(PickerCase):
     def test_dir_with_other_case_is_refused_on_a_case_insensitive_volume(self):
         """Mutation: the guard compares path strings only, so BG-STAGE gets past it on APFS."""
         self.seed_stage()
-        shouting = self.app / "BG-STAGE"
+        shouting = self.ws / "BG-STAGE"
         if not shouting.exists():
             self.skipTest("this volume is case-sensitive")
         self.assert_refused(self.run_picker(clips=shouting), shouting)
 
     def test_folders_next_to_the_stage_are_not_refused(self):
-        """Mutation: the guard is a string prefix test, so bg-stage-extra and publicity count as inside."""
-        for name in ("bg-stage-extra", "publicity"):
-            with self.subTest(name):
-                folder = self.app / name
+        """Mutation: the guard is a string prefix test, so bg-stage-extra and publicity count as
+        inside, or it guards the whole workspace, so the default <ws>/backgrounds is refused."""
+        for folder in (self.ws / "backgrounds", self.ws / "bg-stage-extra", self.app / "publicity"):
+            with self.subTest(folder.name):
                 folder.mkdir()
                 (folder / "x.mp4").write_bytes(b"clip")
                 self.canned({"x.mp4": probe_entry(600)})

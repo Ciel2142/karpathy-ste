@@ -119,24 +119,84 @@ class Sync(WorkspaceCase):
         self.assertTrue((self.app / "package.json").exists())
         self.assertTrue((self.app / "src" / "Root.tsx").exists())
 
-    def test_backgrounds_and_stage_made_and_stage_survives_sync(self):
-        """Mutation: the folders are not made, or the rsync lacks --exclude /bg-stage/ (--delete
-        would remove the staged clip and leave public/bg dangling)."""
+    def test_backgrounds_and_stage_made_beside_the_app_and_stage_survives_sync(self):
+        """Mutation: the folders are not made, or the stage is made under <app> (where the
+        --delete of any checkout's sync removes it and leaves public/bg dangling)."""
         self.assert_ok(self.run_ws("--engine", "say"))
         self.assertTrue((self.ws / "backgrounds").is_dir())
-        self.assertTrue((self.app / "bg-stage").is_dir())
-        (self.app / "bg-stage" / "clip.mp4").write_bytes(b"staged clip")
+        self.assertTrue((self.ws / "bg-stage").is_dir())
+        self.assertFalse((self.app / "bg-stage").exists())
+        (self.ws / "bg-stage" / "clip.mp4").write_bytes(b"staged clip")
 
         self.assert_ok(self.run_ws("--engine", "say"))
 
-        self.assertEqual((self.app / "bg-stage" / "clip.mp4").read_bytes(), b"staged clip")
+        self.assertEqual((self.ws / "bg-stage" / "clip.mp4").read_bytes(), b"staged clip")
         self.assertTrue((self.ws / "backgrounds").is_dir())
 
-        shutil.rmtree(self.app / "bg-stage")
+        shutil.rmtree(self.ws / "bg-stage")
         shutil.rmtree(self.ws / "backgrounds")
         self.assert_ok(self.run_ws("--engine", "say"))
-        self.assertTrue((self.app / "bg-stage").is_dir())
+        self.assertTrue((self.ws / "bg-stage").is_dir())
         self.assertTrue((self.ws / "backgrounds").is_dir())
+
+    def test_old_stage_in_the_app_is_removed_by_the_sync(self):
+        """Mutation: the rsync keeps --exclude /bg-stage/, so the stage of earlier runs (a hard
+        link to a user's clip) stays under <app> for good."""
+        self.assert_ok(self.run_ws("--engine", "say"))
+        (self.app / "bg-stage").mkdir(exist_ok=True)
+        (self.app / "bg-stage" / "clip.mp4").write_bytes(b"old staged clip")
+
+        self.assert_ok(self.run_ws("--engine", "say"))
+
+        self.assertFalse((self.app / "bg-stage").exists())
+
+    def test_dangling_bg_link_removed_after_the_sync(self):
+        """Mutation: a public/bg link that does not resolve is kept, so the bundler fails every
+        render (realpath ENOENT). The old absolute link to <app>/bg-stage dangles once the sync
+        has deleted that folder; a link to a missing folder dangles already."""
+        self.assert_ok(self.run_ws("--engine", "say"))
+        link = self.app / "public" / "bg"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        for label, target in (("the old absolute link", self.app / "bg-stage"),
+                              ("a link to a missing folder", self.tmp / "gone")):
+            with self.subTest(label):
+                if label == "the old absolute link":
+                    (self.app / "bg-stage").mkdir(exist_ok=True)
+                    (self.app / "bg-stage" / "clip.mp4").write_bytes(b"old staged clip")
+                link.unlink(missing_ok=True)
+                link.symlink_to(target)
+
+                self.assert_ok(self.run_ws("--engine", "say"))
+
+                self.assertFalse(os.path.lexists(link), "%s survived" % label)
+                self.assertTrue((self.app / "public").is_dir())
+
+    def test_resolving_bg_link_and_real_dir_kept(self):
+        """Mutation: every public/bg is removed (a link that resolves, or a real directory), or
+        the check follows the link and empties its target."""
+        self.assert_ok(self.run_ws("--engine", "say"))
+        link = self.app / "public" / "bg"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "keep.mp4").write_bytes(b"keep")
+        for label, target in (("the relative link to the stage", "../../bg-stage"),
+                              ("an absolute link elsewhere", str(elsewhere))):
+            with self.subTest(label):
+                link.unlink(missing_ok=True)
+                link.symlink_to(target)
+
+                self.assert_ok(self.run_ws("--engine", "say"))
+
+                self.assertTrue(link.is_symlink(), label)
+                self.assertEqual(os.readlink(link), target)
+        self.assertEqual((elsewhere / "keep.mp4").read_bytes(), b"keep")
+        link.unlink()
+        link.mkdir()
+        (link / "inside.txt").write_text("x\n", encoding="utf-8")
+        self.assert_ok(self.run_ws("--engine", "say"))
+        self.assertTrue(link.is_dir() and not link.is_symlink())
+        self.assertEqual((link / "inside.txt").read_text(encoding="utf-8"), "x\n")
 
 
 class NpmCi(WorkspaceCase):

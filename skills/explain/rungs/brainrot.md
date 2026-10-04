@@ -103,8 +103,8 @@ tests only.
   generated runner loop. The runner is a block character that hops between three lanes. This case is not
   an error. The stage line is `background: ok generated`.
 - To force the generated loop, set `EXPLAIN_BRAINROT_BACKGROUNDS` to an empty folder. Do not set
-  it to `<ws>/app/public` or `<ws>/app/bg-stage`, or to a folder in them. The picker empties
-  those folders, and it refuses such a path with `background: FAIL`.
+  it to `<ws>/bg-stage` or `<ws>/app/public`, or to a folder in them. Each render rewrites
+  those folders, and the picker refuses such a path with `background: FAIL`.
 - A clip can pass the check and then fail to decode in the render. The run then prints
   `render: FAIL remotion render exit <n> (log <path>)`. Read the log. Remove that clip, or set
   `EXPLAIN_BRAINROT_BACKGROUNDS` to an empty folder. Run `render.sh` again.
