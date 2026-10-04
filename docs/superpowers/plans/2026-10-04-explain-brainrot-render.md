@@ -130,7 +130,7 @@ transcript: ok
 - **The picker never fails because clips are missing.**
   - A missing folder, an empty folder, or a folder with no good clip gives `generated`.
   - A clip that cannot be probed (`ffprobe exit <n>`, `ffprobe timed out`), has no video stream (`no video stream`) or has no positive duration (`no duration`) gives one indented SKIP line, and the picker tries the next clip.
-  - The picker empties `<app>/public/bg/` on every run, so no stale link survives.
+  - The picker empties the stage `<ws>/bg-stage/` and makes `<app>/public/bg` again as the relative symlink `../../bg-stage` on every run, so no stale clip or link survives. `video-workspace.sh` makes the stage and removes a `public/bg` link that does not resolve. (Final design of ruling R6, amended in the final review.)
 - **A clip that probes fine but fails to decode** gives the existing `render: FAIL remotion render exit <n> (log <path>)`. `rungs/brainrot.md` tells the author to remove the clip, or to point `EXPLAIN_BRAINROT_BACKGROUNDS` at an empty folder.
 - **The budget check** reads its limits from the timeline. A timeline without the keys exits 2, and `render.sh` prints `timeline: FAIL cannot read <timeline>`.
 - **Container size mismatch:** `container: FAIL size <w>x<h>, expected <W>x<H>`.
@@ -302,7 +302,8 @@ test_missing_background_fails_loudly  # timeline without "background": remotion 
 - **Video length:** `totalFrames / fps`.
   - Clip ≥ video: `start = round(rng.uniform(0, clip − video), 3)` and `loop` false.
   - Clip < video: start 0 and `loop` true.
-- **Link:** empty `<app>/public/bg/`, then symlink `clip<.ext lowercased>` → `os.path.realpath(clip)`. The timeline is rewritten in place with `indent=2`, keeping the existing keys.
+- **Link:** empty the stage `<ws>/bg-stage/` (the parent of `<app>`), then put the clip there as the regular file `clip<.ext lowercased>`: a hard link to `os.path.realpath(clip)`, or a copy when the hard link fails. Make `<app>/public/bg` again as the relative symlink `../../bg-stage`, replacing a directory, file or link at that path. `src` stays `bg/clip<.ext lowercased>`. The timeline is rewritten in place with `indent=2`, keeping the existing keys.
+  - Why: Remotion 4.0.532's serve-handler answers 404 for a file that is itself a symlink, and the bundler copies every regular file in `public/` into each bundle; a path through the directory symlink `public/bg` to a regular file is served and not copied. A stage under `<app>` would be deleted by the `rsync --delete` of any checkout's `video-workspace.sh`, leaving `public/bg` dangling, which fails every render. (Final design of ruling R6, amended in the final review.)
 
 - [ ] **Step 1: Write the failing tests.** A fake `remotion` script prints canned probe JSON per file name. The cases marked "real" use the workspace CLI and skip with a reason naming `video-workspace.sh` when it is missing.
 

@@ -152,9 +152,18 @@ the refactor (checked by the regression test in section 7.4).
    workspace's `remotion ffprobe`. A clip that cannot be probed, or has no video stream, prints
    `background: SKIP <file> (<cause>)`, indented, and the next clip is tried.
 3. For the first good clip: if it is at least as long as the video, pick a random start in
-   `[0, clip − video]`; else the start is 0 and the clip loops. Link the clip by absolute path
-   into `<ws>/app/public/bg/`. File names with spaces work.
+   `[0, clip − video]`; else the start is 0 and the clip loops. Stage the clip in
+   `<ws>/bg-stage/` as the regular file `clip.<ext>`: a hard link to the clip, or a copy when
+   the hard link fails. `<ws>/app/public/bg` is the relative symlink `../../bg-stage`, made again
+   on every run. File names with spaces work.
 4. When the folder is missing, empty, or holds no good clip, the background is `RunnerLoop`.
+
+Why the stage: the static server of Remotion 4.0.532 answers 404 for a file that is itself a
+symlink, and its bundler copies every regular file in `public/` into each bundle. A path through
+the directory symlink `public/bg` to a regular file is served and not copied. The stage lies
+beside the app, not in it: the sync of any checkout's `video-workspace.sh` (`rsync --delete`)
+would delete a stage in `<ws>/app` and leave the link dangling, and a dangling link in `public/`
+fails every render. (Amended 2026-10-05 in the final review of wave brainrot-render.)
 
 `RunnerLoop` is a Remotion component: three lanes in perspective, scrolling stripes, a block
 character that hops between lanes, and obstacles. It is a pure function of the frame number and
