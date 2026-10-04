@@ -68,4 +68,6 @@ docs/superpowers/  the spec, wave map, plans and live-run notes behind the skill
 cd skills/ste     && python3 -B -m unittest discover -s tests
 cd skills/explain && python3 -B -m unittest discover -s tests
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render tests.test_check_render  # renders once, needs the workspace
+tests/capture_landscape_baseline.sh main  # once, from the pre-refactor commit; needs the workspace
+EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_landscape_regression  # renders the full template, compares stills with that baseline
 ```
