@@ -124,15 +124,22 @@ waves:
       A real subject from this repo renders as `brainrot`; the limits of spec §3.4 are
       tuned against its stills and folded back; the user accepts the video on a phone.
     done_when: >-
-      `docs/superpowers/spikes/2026-10-xx-explain-brainrot-live-run.md` records the run,
+      `docs/superpowers/spikes/2026-10-05-explain-brainrot-live-run.md` records the run,
       the stills read, the limit changes and their reasons; the tuned values are in
-      `build-timeline.mjs`, `rungs/brainrot.md` and spec §3.4; the user states acceptance.
+      `video/formats.json` (read by `build-timeline.mjs` and `transcript.py`),
+      `rungs/brainrot.md` and spec §3.4; the user states acceptance.
     status: pending
     depends_on: [brainrot-render]
     owns:
       - docs/superpowers/spikes/ (brainrot live-run note)
-      - limit values in skills/explain/video/build-timeline.mjs and skills/explain/rungs/brainrot.md
-      - spec §3.4 table values
+      - skills/explain/video/formats.json (new; the FORMATS rows move out of build-timeline.mjs)
+      - skills/explain/video/build-timeline.mjs (formats load, caption character cap)
+      - skills/explain/video/transcript.py (Format row size)
+      - skills/explain/video/src/short/captions.ts, CaptionBand.tsx (one-line caption)
+      - skills/explain/video/pick_background.py (probe process group)
+      - skills/explain/rungs/brainrot.md
+      - skills/explain/tests/ (format-limit drift, png_diff ink_extent, stress fixtures and gated case)
+      - spec §3.4 table values, §5.4 caption cap
     risk: low
     plan: docs/superpowers/plans/2026-10-04-explain-brainrot-live-run.md
     acceptance:
