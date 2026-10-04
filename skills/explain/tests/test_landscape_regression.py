@@ -2,7 +2,7 @@
 stills of a baseline rendered from a git ref before the scene components were refactored
 (tests/capture_landscape_baseline.sh).
 
-The png_diff and capture-script tests need no workspace and always run. The render class needs
+The png_diff, drift and capture-script tests need no workspace and always run. The render class needs
 EXPLAIN_VIDEO_E2E=1 and the baseline <ws>/regression/landscape-baseline (the workspace is
 $EXPLAIN_VIDEO_WORKSPACE, default ~/karpathy/video-workspace). Each test names the mutation
 that turns it red."""
@@ -77,6 +77,18 @@ def still_names(review):
     return sorted(p.name for p in review.glob("*.png"))
 
 
+def stills_problem(names_old, names_new, scene_count):
+    """A message when the baseline stills are fewer than one per scene (an empty review/ would
+    pass vacuously), or when the new stills are not the baseline stills; None otherwise."""
+    if len(names_old) < scene_count:
+        return ("the baseline holds %d stills for %d scenes (at least one per scene is needed); "
+                "re-capture it with capture_landscape_baseline.sh main --force" % (len(names_old), scene_count))
+    if names_old != names_new:
+        return ("still names differ: only in baseline %s, only in new %s"
+                % (sorted(set(names_old) - set(names_new)), sorted(set(names_new) - set(names_old))))
+    return None
+
+
 def drift(base, new):
     """A message naming the first pixel-relevant timeline difference, or None."""
     a, b = pixel_view(base), pixel_view(new)
@@ -90,6 +102,72 @@ def drift(base, new):
             if x[key] != y[key]:
                 return "scene %d (%s) %s: baseline %r, new %r" % (n, x["id"], key, x[key], y[key])
     return None
+
+
+def sample_timeline():
+    """A small timeline of the shape build-timeline.mjs writes (pixel-relevant fields only)."""
+    def scene(n, sid, component, cue_frames):
+        return {"id": sid, "component": component, "props": {"title": sid}, "from": n * 100,
+                "durationInFrames": 100, "leadFrames": 15, "audioFrames": 49, "cueFrames": cue_frames}
+    return {"fps": 30, "width": 1280, "height": 720, "totalFrames": 300,
+            "scenes": [scene(0, "intro", "title", {"c1": 15}),
+                       scene(1, "checks", "bullets-appear", {"c2": 20, "c3": 60}),
+                       scene(2, "result", "before-after", {"c4": 30})]}
+
+
+class DriftCase(unittest.TestCase):
+    """Always on, no render: the timeline-drift and still-name checks of the regression."""
+
+    def test_identical_timelines_do_not_drift(self):
+        self.assertIsNone(drift(sample_timeline(), sample_timeline()))
+
+    # red: cueFrames left out of SCENE_FIELDS, or compared by length only (Review Focus 3)
+    def test_shifted_cue_frame_is_drift(self):
+        new = sample_timeline()
+        new["scenes"][1]["cueFrames"]["c3"] += 1
+        moved = drift(sample_timeline(), new)
+        self.assertIsNotNone(moved)
+        self.assertIn("cueFrames", moved)
+        self.assertIn("checks", moved)
+
+    # red: the scene count not compared, so zip() silently drops the extra scene (Review Focus 3)
+    def test_dropped_scene_is_drift(self):
+        new = sample_timeline()
+        del new["scenes"][2]
+        moved = drift(sample_timeline(), new)
+        self.assertIsNotNone(moved)
+        self.assertIn("scene count", moved)
+
+    # red: only the timeline-level fields compared
+    def test_changed_total_frames_is_drift(self):
+        new = sample_timeline()
+        new["totalFrames"] += 1
+        self.assertIn("totalFrames", drift(sample_timeline(), new))
+
+    # red: the pixel view widened to every field, so an audio path change fails a layout check
+    def test_non_pixel_field_is_not_drift(self):
+        new = sample_timeline()
+        new["scenes"][0]["audio"] = "audio/other.wav"
+        self.assertIsNone(drift(sample_timeline(), new))
+
+    # red: names compared as sets of the common names, so a missing or extra still passes (Review Focus 4)
+    def test_still_name_mismatch_fails(self):
+        old = ["still-01-intro.png", "still-02-checks.png", "still-02-checks-1.png"]
+        self.assertIsNone(stills_problem(old, list(old), 2))
+        missing = stills_problem(old, old[:2], 2)
+        self.assertIn("only in baseline ['still-02-checks-1.png']", missing)
+        extra = stills_problem(old, old + ["still-03-result.png"], 2)
+        self.assertIn("only in new ['still-03-result.png']", extra)
+        renamed = stills_problem(old, old[:2] + ["still-02-checks-2.png"], 2)
+        self.assertIn("still-02-checks-1.png", renamed)
+        self.assertIn("still-02-checks-2.png", renamed)
+
+    # red: the at-least-one-still-per-scene check dropped, so an empty review/ matches itself
+    def test_baseline_with_fewer_stills_than_scenes_fails(self):
+        self.assertIn("0 stills for 3 scenes", stills_problem([], [], 3))
+        two = ["still-01-intro.png", "still-02-checks.png"]
+        self.assertIn("2 stills for 3 scenes", stills_problem(two, two, 3))
+        self.assertIsNone(stills_problem(two, two, 2))
 
 
 class PngDiffCase(unittest.TestCase):
@@ -197,10 +275,9 @@ class LandscapeRegressionCase(unittest.TestCase):
                       "output kept in %s" % (moved, out))
 
         names_old, names_new = still_names(base / "review"), still_names(out / "review")
-        if names_old != names_new:
-            self.fail("still names differ: only in baseline %s, only in new %s; output kept in %s"
-                      % (sorted(set(names_old) - set(names_new)),
-                         sorted(set(names_new) - set(names_old)), out))
+        problem = stills_problem(names_old, names_new, len(old["scenes"]))
+        if problem:
+            self.fail("%s; output kept in %s" % (problem, out))
 
         failing = []
         for name in names_old:
