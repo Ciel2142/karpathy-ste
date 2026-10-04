@@ -2,6 +2,10 @@
 // its margins and title band, and the type sizes the scenes use. Scenes read it with useBox()
 // instead of module constants, so the same scene renders in the landscape frame or in a
 // smaller panel.
+//
+// Placement contract: a scene draws inside its nearest positioned ancestor, which must be exactly
+// box.width x box.height (Title fills it with AbsoluteFill; SceneTitle is placed with
+// top/left/right: box.margin). A panel smaller than the frame needs a positioned wrapper of that size.
 import { createContext, useContext } from "react";
 import type { ReactElement, ReactNode } from "react";
 
