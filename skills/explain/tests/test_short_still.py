@@ -25,10 +25,18 @@ from video_e2e import E2E, E2E_REASON, EXPLAIN
 
 REPO = EXPLAIN.parent.parent
 WORKSPACE_SH = EXPLAIN / "scripts" / "video-workspace.sh"
+PICKER = EXPLAIN / "video" / "pick_background.py"
+FIXTURE_CLIP = EXPLAIN / "tests" / "fixtures" / "bg-1s.mp4"
 SYNC_TIMEOUT = 900
 STILL_TIMEOUT = 300
 WIDTH, HEIGHT = 1080, 1920
 SEAM = 960
+# The non-looping clip of Background.tsx (a clip as long as the video, at a random start), here
+# the 1 s fixture from 0.5 s: OffthreadVideo with trimBefore 15 frames and no Loop.
+LONG_CLIP = {"kind": "clip", "file": "bg-1s.mp4", "src": "bg/clip.mp4", "start": 0.5,
+             "seconds": 1.0, "loop": False}
+CLIP_TOP = 1000         # the background rows below any one-line caption (its bottom is above y 1006)
+CLIP_MOVED = 200_000    # see test_long_clip_plays_from_its_start
 
 
 def workspace():
@@ -51,6 +59,13 @@ def yellow_pixels(path, y0, y1):
         for x in range(width)
         if rows[y][x * channels] > 220 and rows[y][x * channels + 1] > 190 and rows[y][x * channels + 2] < 60
     )
+
+
+def lit_pixels(path, y0, y1):
+    """Pixels in rows [y0, y1) with some channel above 40: not black."""
+    width, channels, rows = read_png(path, y1)
+    return sum(1 for y in range(y0, y1) for x in range(width)
+               if max(rows[y][x * channels:x * channels + 3]) > 40)
 
 
 @unittest.skipUnless(E2E, E2E_REASON)
@@ -162,6 +177,54 @@ class ShortStillCase(unittest.TestCase):
         run, _ = self.run_still(self.no_background_path, 20, "still-no-background.png")
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("Short: timeline has no background", run.stdout + run.stderr)
+
+    def long_clip_props(self):
+        """Stage the fixture clip as render.sh does, then write the timeline with LONG_CLIP. The
+        picker runs on a temp folder holding a copy of the clip (it refuses a folder inside the
+        workspace) and puts it into <ws>/bg-stage behind <app>/public/bg; it marks the 1 s clip
+        as a loop, which the props then replace."""
+        clips = self.root / "clips"
+        clips.mkdir(exist_ok=True)
+        shutil.copy(FIXTURE_CLIP, clips / FIXTURE_CLIP.name)
+        picked = self.root / "timeline-picked.json"
+        shutil.copy(self.timeline_path, picked)
+        run = subprocess.run(
+            [sys.executable, "-B", str(PICKER), str(picked), str(self.app / "node_modules" / ".bin" / "remotion"),
+             str(self.app), "--dir", str(clips), "--seed", "7"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+        self.assertEqual((run.returncode, run.stdout), (0, "background: ok bg-1s.mp4 @0.0 s (loop)\n"), run.stderr)
+        props = self.root / "timeline-long-clip.json"
+        timeline = json.loads(picked.read_text(encoding="utf-8"))
+        props.write_text(json.dumps(dict(timeline, background=LONG_CLIP)), encoding="utf-8")
+        return props
+
+    # The non-looping clip, the main production path. The fixture (tests/make_bg_fixture.py) is 30
+    # frames of purple (72,28,120) and green (60,200,110) diagonal stripes, 8 px bands with a period
+    # of 16 px along x + y, that move 2 px a frame, so its frames do differ: 10 frames apart the
+    # stripes are shifted 20 = 4 (mod 16) px, which recolours half the picture. Video frames 0 and
+    # 10 show clip frames 15 and 25. Covered to 1080 x 960, the rows CLIP_TOP..1920 (993,600 px)
+    # differ in about half their pixels plus the blurred stripe borders (646,241 measured);
+    # CLIP_MOVED = 200,000 leaves room for scaling and H.264 and stays far above a frozen picture
+    # (95 measured with the start taken in ms) and the at most 6,480 caption pixels in those rows.
+    # Both colours have a channel of 120 or more, so a picture is lit nearly everywhere (993,600
+    # and 993,525 measured); black is not.
+    # red: the clip not served (404, the still exits non-zero), Background drawing nothing or black
+    # for a clip, or a frozen picture (a trimBefore past the clip's end, e.g. the start in the wrong
+    # unit). Not caught: the Loop branch taken, or another trimBefore inside the clip; the stripes
+    # repeat every 8 frames, so two stills show that the clip plays, not which of its frames.
+    def test_long_clip_plays_from_its_start(self):
+        props = self.long_clip_props()
+        stills = []
+        for frame in (0, 10):
+            run, png = self.run_still(props, frame, "still-long-clip-%d.png" % frame)
+            self.assertEqual(run.returncode, 0, "remotion still exit %d:\n%s%s" % (run.returncode, run.stdout, run.stderr))
+            stills.append(png)
+        region = WIDTH * (HEIGHT - CLIP_TOP)
+        for png in stills:
+            with self.subTest(still=png.name):
+                self.assertGreater(lit_pixels(png, CLIP_TOP, HEIGHT), 0.9 * region)
+        moved = differing_pixels(stills[0], stills[1], 0, WIDTH, CLIP_TOP, HEIGHT)
+        self.assertGreater(moved, CLIP_MOVED)
 
 
 if __name__ == "__main__":
