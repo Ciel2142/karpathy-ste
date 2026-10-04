@@ -1,0 +1,129 @@
+version: 2
+feature: explain-lesson
+spec: docs/superpowers/specs/2026-10-04-explain-lesson-design.md
+coverage: waived
+# Base: one feature branch `feat/explain-lesson`, cut from `feat/explain-brainrot` after wave
+# brainrot-render (kp-ylh) closes (spec §6.5). Waves clip-format and lesson-page share that
+# base, own disjoint files, and may run concurrently; lesson-rung joins them.
+waves:
+  - id: clip-format
+    slice: domain
+    goal: >-
+      A `"format": "clip"` script passes every stage of the video pipeline as a 16:9
+      explainer of 1 to 3 scenes and 60 s (spec §6.1), and `build-timeline.mjs --check`
+      refuses, for every format, a code scene whose highlight range holds no cite on the
+      source file (spec §6.2).
+    done_when: >-
+      The explain unit suites pass with the spec §7.1 cases: `test_video_timeline_clip.py`
+      (1 scene ok, 4 scenes fail, the three-name format message in `--check` and
+      `narrate.py`), the `clip` 61 s case in `test_check_budgets.py`, the highlight-cite
+      cases, the `clip` scene-mode case in `test_narrate.py`, one explainer-path case each
+      for `render.sh`, `transcript.py` and `Explain.tsx`; every existing fixture and E2E
+      script passes the highlight-cite check (fixed where it cited lines it did not show).
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/video/build-timeline.mjs
+      - skills/explain/video/narrate.py
+      - skills/explain/video/src/types.ts
+      - skills/explain/video/src/Explain.tsx (clip takes the explainer layout)
+      - skills/explain/tests/test_video_timeline_clip.py
+      - skills/explain/tests/test_video_timeline_brainrot.py (message asserts only)
+      - skills/explain/tests/test_narrate_sentences.py (message assert only)
+      - skills/explain/tests/test_check_budgets.py (clip case)
+      - skills/explain/tests/test_narrate.py (clip scene-mode case)
+      - skills/explain/tests/test_render.py, test_transcript.py (clip explainer-path cases)
+      - skills/explain/tests/fixtures/ and video E2E scripts (highlight-cite fixes only)
+      - skills/explain/templates/video-script.json (highlight-cite fix only, if needed)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_landscape_regression
+
+  - id: lesson-page
+    slice: domain
+    goal: >-
+      The page template carries the clip CSS, the `Play all` button, its code in block 2 and
+      the `play-all-visibility` guard rule (spec §4.3, §4.4); `verify.sh` accepts
+      `rung=lesson` with the page viewports and the sixth `media` line (spec §6.3);
+      `rungs/page.md` carries the clip criterion, the hint line and the `figure.clip`
+      primitive (spec §3.2).
+    done_when: >-
+      `test_page_template.py` passes with the template as it stands plus the
+      `play-all-visibility` broken state and the 200-line budget; `test_verify.py` passes
+      the five spec §7.2 lesson cases (six ok lines; missing poster FAIL with its detail
+      line and exit 1; fragment stripped; no-clip fixture ok; unknown-rung text lists
+      `lesson`).
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/templates/page.html
+      - skills/explain/scripts/verify.sh
+      - skills/explain/rungs/page.md
+      - skills/explain/tests/test_page_template.py
+      - skills/explain/tests/test_verify.py
+      - skills/explain/tests/fixtures/lesson/ (verify.sh fixtures)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_page_template tests.test_verify
+
+  - id: lesson-rung
+    slice: vertical
+    goal: >-
+      `/explain <subject> --as lesson` is routed, documented and buildable end to end: the
+      rung file with both gates and every rule of spec §5, the three reviewer prompts, the
+      `SKILL.md` and `README.md` wiring (spec §3.1, §3.4, §3.5, §6.4), and a gated E2E that
+      renders a one-clip fixture lesson and passes `verify.sh` (spec §7.4).
+    done_when: >-
+      `test_lesson_prompts.py` passes (placeholders, hunt sentence, zero-findings sentence,
+      quoted-source rule, verdict lines in each prompt); the gated `test_lesson_e2e.py`
+      renders the fixture clip with nine `ok` lines and the fixture page with six `ok`
+      lines; `SKILL.md` lists six `--as` names and the `lesson` rung row.
+    status: pending
+    depends_on: [clip-format, lesson-page]
+    owns:
+      - skills/explain/rungs/lesson.md
+      - skills/explain/lesson/review-page.md
+      - skills/explain/lesson/review-script.md
+      - skills/explain/lesson/review-render.md
+      - skills/explain/SKILL.md
+      - README.md (lesson row)
+      - skills/explain/tests/test_lesson_prompts.py
+      - skills/explain/tests/test_lesson_e2e.py
+      - skills/explain/tests/fixtures/lesson-e2e/
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_lesson_e2e
+
+  - id: lesson-live-run
+    slice: vertical
+    goal: >-
+      One real `/explain <repo file or directory> --as lesson` run with three planted faults
+      (spec §7.5), both gates run by fresh subagents, the user adjudicating disputed
+      findings, and a fold-back that tunes the clip limits and the rung file from what the
+      run showed.
+    done_when: >-
+      `docs/superpowers/spikes/<date>-explain-lesson-live-run.md` exists with the spec §7.5
+      numbers (findings per gate and round, fixed, disputed, plants found and missed, drops,
+      removals, wall time and tokens per gate), the planted faults are confirmed removed
+      from the artifact, every fold-back change is committed, and the unit suites pass.
+    status: pending
+    depends_on: [lesson-rung]
+    owns:
+      - docs/superpowers/spikes/ (the live-run document)
+      - skills/explain/rungs/lesson.md (fold-back edits)
+      - skills/explain/lesson/*.md (fold-back edits)
+      - skills/explain/video/build-timeline.mjs (FORMATS.clip tuning only)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - the live-run document holds every number that spec §7.5 names
+deferred: []
+approval:
+  required: false
+  reason: null
