@@ -25,13 +25,18 @@ run leaves bg-stage empty and the link in place, so public/ never holds a dangli
 
 The timeline is rewritten in place (indent 2) with a `background` key:
   {"kind": "clip", "file": <name>, "src": "bg/clip<.ext>", "start": <s>, "seconds": <s>,
-   "loop": <bool>}              start and seconds are rounded to 3 places
+   "loop": <bool>}              start is rounded down and seconds rounded to 3 places
   {"kind": "generated"}
 
 stdout, in order: one `background: SKIP <file> (<cause>)` per skipped clip (unindented), then
   background: ok <name> @<start %.1f> s[ (loop)]   or   background: ok generated
-or `background: FAIL <cause>` (cannot read or write the timeline, cannot stage the clip).
-Exit 0 ok, 1 FAIL, 2 usage (one usage line on stderr). Stdlib only.
+or `background: FAIL <cause>` (cannot read or write the timeline, cannot stage the clip, or
+`--dir <dir> is inside the app workspace`).
+Exit 0 ok, 1 FAIL, 2 usage (the usage line and an error line on stderr). Stdlib only.
+
+--dir must not be, or lie under, <app-dir>/bg-stage or <app-dir>/public: the picker empties both
+on every run, so such a folder would lose its clips. That is a misconfiguration, not a missing
+folder, and the picker refuses it (FAIL, exit 1) before it touches anything.
 """
 
 import argparse
@@ -94,6 +99,32 @@ def write_timeline(path, timeline):
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise Fail("cannot write %s: %s" % (path, reason(err))) from err
+
+
+def same_file(a, b):
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def inside_app(folder, app):
+    """True when `folder` is, or lies under, <app>/bg-stage or <app>/public. The folder is compared
+    by realpath, so a symlink or a dotted path into them counts; every ancestor is also compared
+    with os.path.samefile, which catches a different letter case on a case-insensitive volume."""
+    real_app = os.path.realpath(app)
+    roots = set()
+    for sub in (STAGE, "public"):
+        roots.add(os.path.realpath(os.path.join(app, sub)))
+        roots.add(os.path.join(real_app, sub))
+    path = os.path.realpath(folder)
+    while True:
+        if any(path == root or same_file(path, root) for root in roots):
+            return True
+        parent = os.path.dirname(path)
+        if parent == path:
+            return False
+        path = parent
 
 
 def clear_path(path):
@@ -254,6 +285,8 @@ def main(argv):
               file=sys.stderr)
         return 2
     try:
+        if inside_app(args.folder, args.app):
+            raise Fail("--dir %s is inside the app workspace" % args.folder)
         timeline, fps, frames = read_timeline(args.timeline)
         prepare_stage(args.app)
         background, line = choose(args, random.Random(seed), frames / fps)

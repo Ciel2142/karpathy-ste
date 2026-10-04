@@ -142,6 +142,13 @@ class PickerCase(unittest.TestCase):
     def background(self):
         return json.loads(self.timeline.read_text(encoding="utf-8"))["background"]
 
+    def json_number(self, key):
+        """The text of a number inside the background object, as written in the file."""
+        text = self.timeline.read_text(encoding="utf-8")
+        found = re.search(r'"%s": (-?[0-9][0-9.eE+-]*)' % key, text.split('"background"')[1])
+        self.assertIsNotNone(found, key)
+        return found.group(1)
+
     def probe_calls(self):
         if not self.fake_log.exists():
             return []
@@ -308,9 +315,34 @@ class Clip(PickerCase):
             self.assertFalse(bg["loop"], seed)
             self.assertEqual(bg["seconds"], 600.0)
             self.assertEqual(lines, ["background: ok long.mp4 @%.1f s" % bg["start"]])
-            self.assertEqual(bg["start"], round(bg["start"], 3))
+            self.assertLessEqual(len(self.json_number("start").partition(".")[2]), 3, seed)
             starts.add(bg["start"])
         self.assertGreater(len(starts), 10, "the start does not vary with the seed")
+
+    def test_start_is_floored_to_three_places(self):
+        """Mutation: the start is rounded to the nearest 3 places instead of down. The clip is
+        10.0009 s for a 3 s video, so clip - video = 7.0009, and the RNG is made to return 7.00058,
+        which rounds up to 7.001 and would put start + video past the clip end."""
+        picker = load_picker()
+        self.clip("x.mp4")
+        self.canned({"x.mp4": probe_entry("10.000900")})
+        drawn = 7.00058
+        self.assertGreater(round(drawn, 3), 10.0009 - VIDEO_SECONDS)  # the case is the one that bites
+        with mock.patch.object(picker.random.Random, "uniform", return_value=drawn):
+            code, lines = self.run_main()
+        self.assertEqual(code, 0, lines)
+        bg = self.background()
+        self.assertEqual(bg["start"], 7.0)
+        self.assertLessEqual(bg["start"] + VIDEO_SECONDS, 10.0009)
+        self.assertFalse(bg["loop"])
+
+    def test_start_and_seconds_have_three_places(self):
+        """Mutation: seconds or start is written with more than 3 decimals."""
+        self.clip("x.mp4")
+        self.canned({"x.mp4": probe_entry("600.123456")})
+        self.assert_ok_run(self.run_picker("--seed", "9"))
+        self.assertEqual(self.json_number("seconds"), "600.123")
+        self.assertLessEqual(len(self.json_number("start").partition(".")[2]), 3)
 
     def test_equal_length_clip_no_loop(self):
         """Mutation: a clip exactly as long as the video loops or gets a start past 0, or a clip
@@ -435,15 +467,24 @@ class Seed(PickerCase):
 
 class Staging(PickerCase):
     def test_stale_stage_removed(self):
-        """Mutation: an old file in bg-stage or an old real directory at public/bg survives."""
+        """Mutation: an old file in bg-stage or an old real directory at public/bg survives, or
+        the old layout (a real public/bg holding links to a user's clip and folder) is emptied
+        through those links."""
+        user = self.tmp / "userclips"
+        user.mkdir()
+        (user / "mine.mp4").write_bytes(b"user clip")
         self.stage.mkdir()
         (self.stage / "old.webm").write_bytes(b"old")
         (self.stage / "dir").mkdir()
         (self.stage / "dir" / "inner.txt").write_text("x", encoding="utf-8")
         self.link.mkdir(parents=True)
         (self.link / "old.webm").write_bytes(b"old")
+        (self.link / "mine.mp4").symlink_to(user / "mine.mp4")
+        (self.link / "folder").symlink_to(user)
         self.assert_generated(self.run_picker())
         self.assertFalse((self.link / "old.webm").exists())
+        self.assertEqual((user / "mine.mp4").read_bytes(), b"user clip")
+        self.assertEqual([p.name for p in user.iterdir()], ["mine.mp4"])
 
     def test_link_replaces_file_and_stale_symlink(self):
         """Mutation: public/bg as a file or a link to somewhere else is left in place, or the
@@ -469,12 +510,14 @@ class Staging(PickerCase):
         self.assertEqual((elsewhere / "keep.txt").read_text(encoding="utf-8"), "keep")
 
     def test_generated_run_clears_the_previous_clip(self):
-        """Mutation: a clip run followed by a generated run leaves the old clip staged."""
-        self.clip("x.mp4")
+        """Mutation: a clip run followed by a generated run leaves the old clip staged, or clearing
+        the stage removes the user's own clip (the staged file is a hard link to it)."""
+        source = self.clip("x.mp4", b"original bytes")
         self.canned({"x.mp4": probe_entry(600)})
         self.assert_ok_run(self.run_picker())
         self.assertTrue((self.stage / "clip.mp4").exists())
         self.assert_generated(self.run_picker(clips=self.tmp / "nonexistent"))
+        self.assertEqual(source.read_bytes(), b"original bytes")
 
     def test_copy_fallback_when_link_fails(self):
         """Mutation: a failing os.link is fatal, or the fallback stages a symlink or nothing."""
@@ -488,6 +531,22 @@ class Staging(PickerCase):
         self.assertEqual(staged.read_bytes(), b"clip bytes")
         self.assertFalse(os.path.samefile(staged, source))
 
+    def test_failed_copy_leaves_no_partial_file(self):
+        """Mutation: a copy that fails after writing some bytes leaves a partial clip.* in bg-stage."""
+        picker = load_picker()
+        source = self.clip("x.mp4", b"clip bytes")
+        self.stage.mkdir()
+
+        def partial_copy(src, dst):
+            Path(dst).write_bytes(b"part")
+            raise OSError("disk full")
+
+        with mock.patch.object(picker.os, "link", side_effect=OSError("cross-device")), \
+                mock.patch.object(picker.shutil, "copyfile", side_effect=partial_copy):
+            with self.assertRaises(OSError):
+                picker.stage_clip(str(source), str(self.app))
+        self.assertEqual(list(self.stage.iterdir()), [])
+
     def test_stage_failure_is_a_fail_line(self):
         """Mutation: when both link and copy fail the picker continues, or prints another text."""
         picker = load_picker()
@@ -500,6 +559,75 @@ class Staging(PickerCase):
         self.assertEqual(lines, ["background: FAIL cannot stage x.mp4: disk full"])
         self.assertNotIn("background", json.loads(self.timeline.read_text(encoding="utf-8")))
         self.assertEqual(list(self.stage.iterdir()), [])
+
+
+class InsideApp(PickerCase):
+    """--dir under <app>/bg-stage or <app>/public is a misconfiguration, not a missing folder: the
+    picker empties the stage and public/bg, so it must refuse before touching anything."""
+
+    def seed_stage(self):
+        """A stage that holds a clip and a folder of clips, and a public dir with a wav."""
+        self.stage.mkdir()
+        (self.stage / "mine.mp4").write_bytes(b"stage clip")
+        (self.stage / "sub").mkdir()
+        (self.stage / "sub" / "deep.mp4").write_bytes(b"deep clip")
+        (self.app / "public" / "audio").mkdir(parents=True)
+        (self.app / "public" / "audio" / "s1.wav").write_bytes(b"wav")
+        self.canned({"mine.mp4": probe_entry(600), "deep.mp4": probe_entry(600)})
+        self.before = self.timeline.read_text(encoding="utf-8")
+
+    def assert_refused(self, run, folder):
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(run.stdout, "background: FAIL --dir %s is inside the app workspace\n" % folder)
+        self.assertEqual((self.stage / "mine.mp4").read_bytes(), b"stage clip")
+        self.assertEqual((self.stage / "sub" / "deep.mp4").read_bytes(), b"deep clip")
+        self.assertEqual((self.app / "public" / "audio" / "s1.wav").read_bytes(), b"wav")
+        self.assertFalse(self.link.exists() or self.link.is_symlink(), "public/bg was made")
+        self.assertEqual(self.timeline.read_text(encoding="utf-8"), self.before)
+        self.assertEqual(self.probe_calls(), [])
+
+    def test_dir_inside_the_app_is_refused_and_nothing_is_deleted(self):
+        """Mutation: no guard, so --dir <app>/bg-stage is emptied first and the run ends "ok generated"."""
+        self.seed_stage()
+        via_link = self.tmp / "via-link"
+        via_link.symlink_to(self.stage)
+        (self.app / "x").mkdir()
+        folders = {
+            "the stage": self.stage,
+            "a folder under the stage": self.stage / "sub",
+            "a missing folder under the stage": self.stage / "not-made-yet",
+            "public": self.app / "public",
+            "a folder under public": self.app / "public" / "audio",
+            "a symlink to the stage": via_link,
+            "a dotted path to the stage": self.app / "x" / ".." / "bg-stage",
+        }
+        for label, folder in folders.items():
+            with self.subTest(label):
+                self.assert_refused(self.run_picker(clips=folder), folder)
+
+    def test_dir_with_other_case_is_refused_on_a_case_insensitive_volume(self):
+        """Mutation: the guard compares path strings only, so BG-STAGE gets past it on APFS."""
+        self.seed_stage()
+        shouting = self.app / "BG-STAGE"
+        if not shouting.exists():
+            self.skipTest("this volume is case-sensitive")
+        self.assert_refused(self.run_picker(clips=shouting), shouting)
+
+    def test_folders_next_to_the_stage_are_not_refused(self):
+        """Mutation: the guard is a string prefix test, so bg-stage-extra and publicity count as inside."""
+        for name in ("bg-stage-extra", "publicity"):
+            with self.subTest(name):
+                folder = self.app / name
+                folder.mkdir()
+                (folder / "x.mp4").write_bytes(b"clip")
+                self.canned({"x.mp4": probe_entry(600)})
+                lines = self.assert_ok_run(self.run_picker("--seed", "1", clips=folder))
+                self.assertRegex(lines[0], r"^background: ok x\.mp4 @")
+                self.assertEqual((folder / "x.mp4").read_bytes(), b"clip")
+
+    def test_the_app_itself_is_not_refused(self):
+        """Mutation: --dir <app> (its top level holds no clip) is refused as inside the workspace."""
+        self.assert_generated(self.run_picker(clips=self.app))
 
 
 class Timeline(PickerCase):
