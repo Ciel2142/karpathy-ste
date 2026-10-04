@@ -298,15 +298,26 @@ class StageFunctionCase(unittest.TestCase):
         run = self.run_stage("stage_background", "brainrot")
         self.assertEqual((run.returncode, run.stdout), (1, "background: FAIL cannot read t.json\n"))
 
-    # red: exit 2 with only a stderr line gives no FAIL line, or the stderr line vanishes
+    # red: a usage error (exit 2, stderr only, as argparse gives it) gives no FAIL line, or its
+    # stderr lines vanish
     def test_picker_usage_error_reaches_the_user_and_fails(self):
-        self.fake_picker('print("pick_background.py: EXPLAIN_BRAINROT_SEED must be an integer, '
-                         "got 'abc'\", file=sys.stderr)\nsys.exit(2)\n")
+        self.fake_picker('print("usage: pick_background.py <timeline.json> ...", file=sys.stderr)\n'
+                         'print("pick_background.py: error: the following arguments are required: '
+                         '--dir", file=sys.stderr)\nsys.exit(2)\n')
         run = self.run_stage("stage_background", "brainrot")
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertEqual(run.stdout,
-                         "  pick_background.py: EXPLAIN_BRAINROT_SEED must be an integer, got 'abc'\n"
+                         "  usage: pick_background.py <timeline.json> ...\n"
+                         "  pick_background.py: error: the following arguments are required: --dir\n"
                          "background: FAIL pick_background.py exit 2\n")
+
+    # red: the real picker reports an invalid EXPLAIN_BRAINROT_SEED on stderr with exit 2, so the
+    # user sees "background: FAIL pick_background.py exit 2" instead of the cause
+    def test_bad_seed_fail_line_names_the_cause(self):
+        shutil.copy(EXPLAIN / "video" / "pick_background.py", self.tmp / "video" / "pick_background.py")
+        run = self.run_stage("stage_background", "brainrot", env={"EXPLAIN_BRAINROT_SEED": "abc"})
+        self.assertEqual((run.returncode, run.stdout, run.stderr),
+                         (1, "background: FAIL EXPLAIN_BRAINROT_SEED must be an integer, got 'abc'\n", ""))
 
     # red: an exit 0 picker without an ok line passes as a background
     def test_picker_without_result_line_fails(self):

@@ -34,8 +34,9 @@ The timeline is rewritten in place (indent 2) with a `background` key:
 
 stdout, in order: one `background: SKIP <file> (<cause>)` per skipped clip (unindented), then
   background: ok <name> @<start %.1f> s[ (loop)]   or   background: ok generated
-or `background: FAIL <cause>` (cannot read or write the timeline, cannot stage the clip, or
-`--dir <dir> is inside the background stage or the app's public folder`).
+or `background: FAIL <cause>` (`EXPLAIN_BRAINROT_SEED must be an integer, got '<value>'`, cannot
+read or write the timeline, cannot stage the clip, or `--dir <dir> is inside the background stage
+or the app's public folder`). The seed and the --dir checks run before anything is touched.
 Exit 0 ok, 1 FAIL, 2 usage (the usage line and an error line on stderr). Stdlib only.
 
 --dir must not be, or lie under, <ws>/bg-stage or <app-dir>/public: the picker empties the stage
@@ -289,12 +290,10 @@ def choose(args, rng, video_seconds):
 def main(argv):
     args = parse_args(argv)
     try:
-        seed = resolve_seed(args.seed)
-    except ValueError:
-        print("pick_background.py: %s must be an integer, got %r" % (SEED_ENV, os.environ[SEED_ENV]),
-              file=sys.stderr)
-        return 2
-    try:
+        try:
+            seed = resolve_seed(args.seed)
+        except ValueError as err:
+            raise Fail("%s must be an integer, got %r" % (SEED_ENV, os.environ[SEED_ENV])) from err
         if inside_app(args.folder, args.app):
             raise Fail("--dir %s is inside the background stage or the app's public folder"
                        % args.folder)

@@ -38,9 +38,10 @@
 # by two spaces (render: the last 40 log lines). The cost lines of video-workspace.sh and
 # the lines of narrate.sh (a FALLBACK line among them) are printed indented as they come, and
 # so are the "background: SKIP <file> (<cause>)" lines of the picker (a clip it could not use)
-# and anything the picker prints on stderr. A picker that fails without its own FAIL line (a
-# usage error, or an invalid EXPLAIN_BRAINROT_SEED) gives "background: FAIL pick_background.py
-# exit <n>" below that indented output.
+# and anything the picker prints on stderr. The picker's own FAIL line (an invalid
+# EXPLAIN_BRAINROT_SEED among its causes) is the stage's FAIL line; a picker that fails without
+# one (a usage error) gives "background: FAIL pick_background.py exit <n>" below that indented
+# output.
 #
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run

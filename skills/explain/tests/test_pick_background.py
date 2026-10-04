@@ -462,12 +462,24 @@ class Seed(PickerCase):
         self.assert_ok_run(self.run_picker("--seed", "4", env={"EXPLAIN_BRAINROT_SEED": other}))
         self.assertEqual(self.background(), want)
 
-    def test_bad_env_seed_is_a_usage_error(self):
-        """Mutation: a non-integer EXPLAIN_BRAINROT_SEED crashes with a traceback."""
-        run = self.run_picker(env={"EXPLAIN_BRAINROT_SEED": "abc"})
-        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
-        self.assertIn("EXPLAIN_BRAINROT_SEED", run.stderr)
-        self.assertNotIn("Traceback", run.stderr)
+    def test_bad_env_seed_fails_with_its_own_cause(self):
+        """Mutation: a non-integer EXPLAIN_BRAINROT_SEED crashes with a traceback, exits 2 with
+        its cause on stderr only (render.sh then shows a generic "exit 2" FAIL line), or is
+        checked after the stage, the link or the timeline is touched."""
+        self.clip("x.mp4")
+        self.canned({"x.mp4": probe_entry(600)})
+        before = self.timeline.read_text(encoding="utf-8")
+        for value in ("abc", "1.5"):
+            with self.subTest(value):
+                run = self.run_picker(env={"EXPLAIN_BRAINROT_SEED": value})
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(run.stdout,
+                                 "background: FAIL EXPLAIN_BRAINROT_SEED must be an integer, got '%s'\n" % value)
+                self.assertEqual(run.stderr, "")
+                self.assertEqual(self.timeline.read_text(encoding="utf-8"), before)
+                self.assertFalse(os.path.lexists(self.stage), "the stage was made")
+                self.assertFalse(os.path.lexists(self.link), "public/bg was made")
+                self.assertEqual(self.probe_calls(), [])
 
 
 class Staging(PickerCase):
