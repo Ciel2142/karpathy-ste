@@ -108,7 +108,7 @@ waves:
       `video.mp4` whose `render.sh` summary prints every stage ok, whose `verify.sh
       index.html` exits 0, whose stills show the right scene at each cue; three transcript
       claims spot-checked at `path:line`.
-    status: in_progress   # plan v2 approved by the user, 2026-10-03
+    status: done   # 2026-10-04, user acceptance of /explain "how chatpriorsb works" --as video (kp-2j4.8)
     depends_on: [explain-page]
     owns:
       - skills/explain/video/
