@@ -18,7 +18,12 @@ waves:
       - skills/explain/video/src/layout.tsx
       - skills/explain/video/src/scenes/
       - skills/explain/video/src/Explain.tsx (SceneBox provider for the landscape path only)
+      - skills/explain/video/src/sceneBox.tsx
       - skills/explain/tests/test_landscape_regression.py
+      - skills/explain/tests/capture_landscape_baseline.sh
+      - skills/explain/tests/png_diff.py
+      - skills/explain/tests/test_check_render.py (import of png_diff only)
+      - README.md (Tests section)
     risk: low
     plan: docs/superpowers/plans/2026-10-04-explain-brainrot-scenebox.md
     acceptance:
@@ -52,17 +57,20 @@ waves:
       for `brainrot`, builds lead/tail 6/12, exact cue frames and caption chunks from a
       words.json fixture (spec §5.3, §5.4); explainer output is unchanged.
     done_when: >-
-      `test_video_timeline.py` passes with the spec §7.1 cases, and every pre-existing
-      case passes unchanged.
+      `test_video_timeline.py` and `test_video_timeline_brainrot.py` pass with the spec §7.1
+      cases; every pre-existing case passes unchanged except the expected top-level key
+      list of `test_timeline_top_level_shape` (gains `format`, `maxSceneSeconds`,
+      `maxTotalSeconds`).
     status: pending
     depends_on: []
     owns:
       - skills/explain/video/build-timeline.mjs
       - skills/explain/tests/test_video_timeline.py
+      - skills/explain/tests/test_video_timeline_brainrot.py
     risk: low
     plan: docs/superpowers/plans/2026-10-04-explain-brainrot-timeline.md
     acceptance:
-      - cd skills/explain && python3 -B -m unittest tests.test_video_timeline
+      - cd skills/explain && python3 -B -m unittest tests.test_video_timeline tests.test_video_timeline_brainrot
 
   - id: brainrot-render
     slice: vertical
@@ -70,6 +78,11 @@ waves:
       `/explain <subject> --as brainrot` produces a checked 1080x1920 mp4 with the scene
       panel, the background (user clip or `RunnerLoop`) and word-by-word captions, plus
       the transcript with Format and Background rows (spec §3.1, §3.2, §4.3, §4.4, §6).
+      Inherited from the wave-1 plans: `render.sh` passes `--speed` from the format, reads
+      the length budgets from `timeline.json` (`maxSceneSeconds`, `maxTotalSeconds`) in
+      place of its MAX_SCENE_S / MAX_TOTAL_S constants, and tests the 30/31 s and 90/91 s
+      boundaries; `Short` wraps each scene in a positioned container of the panel size,
+      because `Title` uses AbsoluteFill (scenebox plan, placement contract).
     done_when: >-
       All explain unit suites pass; the gated E2E renders the brainrot template once with
       the generated loop and once with the fixture clip, each with ten `ok` stage lines
