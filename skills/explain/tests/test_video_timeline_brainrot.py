@@ -2,7 +2,6 @@
 limits and (in later tasks) build mode. Each test names the mutation that turns it red."""
 
 import copy
-import json
 import os
 import sys
 import unittest
@@ -220,7 +219,6 @@ class TestBrainrotCheck(VideoCase):
         """Turn scene `intro` into another component; its narration and cites stay."""
         scene = self.scene(script, "intro")
         scene["component"], scene["props"] = component, props
-
 
     def scenes_of(self, script, count):
         """`count` scenes: the three fixture scenes, then renamed copies of the first."""
@@ -502,6 +500,15 @@ class TestBrainrotCaptions(BrainrotBuildCase):
         """Red: the caption keeps the backticks of the token, or drops the dots of the name."""
         captions = self.captions_of("The `verify.sh` script runs.", self.title_props("The `verify.sh` script"))
         self.assertEqual(captions[0]["words"][1]["text"], "verify.sh")
+
+    def test_captions_are_scene_relative_on_a_later_scene(self):
+        """Red: caption frames add the scene's `from` (the second scene's first chunk would start at 114,
+        not at its lead of 6)."""
+        result, timeline = self.build_brainrot(self.two_scene_brainrot(), {"intro": 3.0, "flow": 4.5})
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        second = timeline["scenes"][1]
+        self.assertEqual(second["from"], 108)
+        self.assertEqual(second["captions"][0]["from"], second["leadFrames"])
 
     def test_caption_break_after_comma(self):
         """Red: a comma does not close a chunk."""
