@@ -174,8 +174,7 @@ these three additions.
 
 ## 8. Constants
 
-- 30 fps at 1080×1920. The scene panel is 1080×960, at the top. The background is 1080×960, at
-  the bottom.
-- Each scene has a lead of 6 frames and a tail of 12 frames.
+- 30 fps. The scene panel is 1080×960, at the top. The background is 1080×960, at the bottom.
+  The table in section 3 has the canvas size and the lead and tail frames.
 - Kokoro `af_heart` speaks at speed 1.2. The `say` voice speaks at 210 words each minute.
 - The generated runner loop has the fixed seed 7, so two renders show the same picture.

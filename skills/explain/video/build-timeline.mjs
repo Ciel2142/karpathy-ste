@@ -11,7 +11,7 @@
 // budgets: render.sh runs --check first.
 //
 // script.json may carry "format": "explainer" (the default when absent) or "brainrot".
-// Every per-format limit lives in the FORMATS table below.
+// Every per-format limit lives in formats.json, next to this file.
 //
 // A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
 // scene (engine is the one actually used, so a Kokoro run that fell back to say reads
@@ -35,22 +35,24 @@ import path from "node:path";
 const FPS = 30;
 const MIN_CUE_GAP = 15;
 const TAB_COLUMNS = 4;
-// Limits per format. The brainrot values are the spec starting values; tune them here only.
+// Limits per format. The brainrot values are the spec starting values; tune them in formats.json only.
 // wordTimed: build mode reads words files, takes cue frames from them and writes captions.
-const FORMATS = {
-  explainer: {
-    width: 1280, height: 720, minScenes: 3, maxScenes: 8, maxSceneSeconds: 60, maxTotalSeconds: 150,
-    maxNarrationWords: 45, leadFrames: 15, tailFrames: 36, codeLines: 14, codeColumns: 72,
-    bulletText: 36, beforeAfterLines: 10, beforeAfterLineChars: 36, beforeAfterHeading: 36,
-    diagramLabel: 14, diagramSub: 24, titleTitle: 50, titleSubtitle: 80, wordTimed: false,
-  },
-  brainrot: {
-    width: 1080, height: 1920, minScenes: 3, maxScenes: 6, maxSceneSeconds: 30, maxTotalSeconds: 90,
-    maxNarrationWords: 45, leadFrames: 6, tailFrames: 12, codeLines: 14, codeColumns: 40,
-    bulletText: 28, beforeAfterLines: 5, beforeAfterLineChars: 30, beforeAfterHeading: 30,
-    diagramLabel: 12, diagramSub: 20, titleTitle: 30, titleSubtitle: 60, wordTimed: true,
-  },
+// A file that is missing, unreadable, not JSON or without both rows ends the run here: the FAIL line
+// and exit 1 (the same as finish, which is not defined yet at load time).
+const loadFormats = () => {
+  let cause;
+  try {
+    const rows = JSON.parse(fs.readFileSync(new URL("./formats.json", import.meta.url), "utf8"));
+    const isRow = (row) => typeof row === "object" && row !== null && !Array.isArray(row);
+    if (isRow(rows?.explainer) && isRow(rows?.brainrot)) return rows;
+    cause = "expected an object with an explainer row and a brainrot row";
+  } catch (err) {
+    cause = err.code ?? err.message;
+  }
+  console.log(`FAIL script: cannot read formats.json: ${cause}`);
+  process.exit(1);
 };
+const FORMATS = loadFormats();
 const ENGINES = ["say", "kokoro"];
 const KINDS = ["file", "directory", "topic", "conversation"];
 const SCENE_ID = /^[a-z0-9][a-z0-9-]*$/; // the id names audio files and stills

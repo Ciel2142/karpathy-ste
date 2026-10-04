@@ -1,8 +1,11 @@
 """Tests for video/transcript.py: script.json to the transcript page (index.html) and
 narration.md. Each test names the mutation of transcript.py that turns it red."""
 
+import contextlib
 import copy
 import html
+import importlib.util
+import io
 import json
 import os
 import re
@@ -19,6 +22,14 @@ CITE_CHECK = EXPLAIN / "scripts" / "cite_check.py"
 TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 VERIFY_SH = EXPLAIN / "scripts" / "verify.sh"
 BIG_LINES = ["line %d alpha beta" % n for n in range(1, 21)]
+
+
+def load_transcript():
+    """A fresh transcript.py module, so a test can patch its attributes (FORMATS_FILE)."""
+    spec = importlib.util.spec_from_file_location("transcript_under_test", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def template_script():
@@ -350,6 +361,39 @@ class OutputTest(TranscriptCase):
         text = self.generate(self.brainrot(), "--background", '<b>Run & "Go".mp4 @ 0.0 s')
         self.assertNotIn("<b>Run", text)
         self.assertIn("<dd>%s</dd>" % html.escape('<b>Run & "Go".mp4 @ 0.0 s', quote=True), text)
+
+    def module_with_formats(self, content):
+        """A transcript module whose FORMATS_FILE is a temp file holding `content`."""
+        module = load_transcript()
+        path = self.dir / "formats.json"
+        path.write_text(content, encoding="utf-8")
+        module.FORMATS_FILE = path
+        return module
+
+    def test_format_row_size_from_formats_file(self):
+        """Red: the Format row size is a literal in transcript.py (or read from formats.json at
+        import time), so a changed or patched formats file has no effect."""
+        formats = json.loads((EXPLAIN / "video" / "formats.json").read_text(encoding="utf-8"))
+        formats["brainrot"]["width"] = 1000
+        module = self.module_with_formats(json.dumps(formats))
+        self.assertIn("<dd>brainrot (1000×1920)</dd>", module.format_rows(self.brainrot(), "pending"))
+
+    def test_unusable_formats_file_is_a_script_error(self):
+        """Red: a missing or invalid formats.json, or one without the brainrot width and height,
+        escapes as a traceback instead of one stderr line and exit 2."""
+        script_path = self.dir / "script.json"
+        script_path.write_text(json.dumps(self.brainrot()), encoding="utf-8")
+        cases = {"missing": None, "invalid JSON": "{ not json", "no rows": "[]", "no size": '{"brainrot": {}}'}
+        for name, content in cases.items():
+            with self.subTest(name):
+                module = self.module_with_formats("{}" if content is None else content)
+                if content is None:
+                    module.FORMATS_FILE = self.dir / "gone" / "formats.json"
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = module.main([str(script_path), str(self.out)])
+                self.assertEqual(code, 2)
+                self.assertRegex(err.getvalue(), r"\Atranscript\.py: .*formats\.json.*\n\Z")
 
     def test_explainer_page_has_no_format_row(self):
         """Red: the Format or Background row, a video class, or a whitespace line left where

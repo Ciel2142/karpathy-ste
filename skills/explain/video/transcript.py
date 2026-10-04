@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "video.html"
 USAGE = 'usage: transcript.py <script.json> <output-dir> [--narrator "<text>"] [--background "<text>"]'
-BRAINROT_SIZE = "1080\u00d71920"
+FORMATS_FILE = Path(__file__).resolve().parent / "formats.json"  # the limits of build-timeline.mjs
 MAX_SNIPPET_WORDS = 12
 MARKER = re.compile(r"\{\{(\w+)\}\}")
 BACKTICK_SPAN = re.compile(r"`([^`]*)`")
@@ -200,11 +200,24 @@ def is_brainrot(script):
     return script.get("format", "explainer") == "brainrot"
 
 
+def canvas_label(fmt):
+    """The canvas of a format as "<width>\u00d7<height>", read from FORMATS_FILE at call time."""
+    try:
+        row = json.loads(FORMATS_FILE.read_text(encoding="utf-8"))[fmt]
+        return "%d\u00d7%d" % (row["width"], row["height"])
+    except OSError as error:
+        raise ScriptError("cannot read %s: %s" % (FORMATS_FILE, error.strerror or error))
+    except ValueError as error:
+        raise ScriptError("%s is not valid JSON: %s" % (FORMATS_FILE, error))
+    except (KeyError, TypeError):
+        raise ScriptError("%s has no %s row with a width and a height" % (FORMATS_FILE, fmt))
+
+
 def format_rows(script, background):
     """The Format and Background rows of a brainrot page; "" for the explainer."""
     if not is_brainrot(script):
         return ""
-    rows = [("Format", "brainrot (%s)" % BRAINROT_SIZE), ("Background", background)]
+    rows = [("Format", "brainrot (%s)" % canvas_label("brainrot")), ("Background", background)]
     return "".join("\n      <div><dt>%s</dt><dd>%s</dd></div>" % (name, esc(text)) for name, text in rows)
 
 
