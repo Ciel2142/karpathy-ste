@@ -84,6 +84,12 @@ export const BRAINROT_BOX: SceneBox = {
   },
 };
 
+// How many code lines CodeHighlights shows: the rows that fit the content box.
+// 14 at 1280 x 720 (floor(534 / 36)), 15 at 1080 x 960 (floor(758 / 48)).
+export function codeLineLimit(box: SceneBox): number {
+  return Math.floor(contentRect(box).height / box.type.codeLine);
+}
+
 // The body area under the title band: the box every scene body is laid out in.
 export function contentRect(box: SceneBox): {
   left: number;

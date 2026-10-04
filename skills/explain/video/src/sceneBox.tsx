@@ -5,7 +5,7 @@ import { createContext, useContext } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { SceneBox } from "./box";
 
-export { BRAINROT_BOX, LANDSCAPE_BOX, contentRect } from "./box";
+export { BRAINROT_BOX, LANDSCAPE_BOX, codeLineLimit, contentRect } from "./box";
 export type { SceneBox, SceneType, Size } from "./box";
 
 // No default value: a scene without a provider above it must fail, not draw at landscape size.

@@ -15,8 +15,6 @@ GEOMETRY_URL = (SRC / "scenes" / "diagramGeometry.ts").as_uri()
 NODE = shutil.which("node")
 NO_NODE_REASON = "node is not on PATH"
 
-# The brainrot panel content box: 1080 x 960, margin 48, titleBand 76 -> top 48 + 76 + 30.
-BRAINROT_CONTENT = {"width": 984, "height": 758}
 EPS = 1e-9
 
 
@@ -85,30 +83,32 @@ class TestSceneBox(unittest.TestCase):
             },
         })
 
-    def test_landscape_line_guard_is_fourteen(self):
-        """Red: the landscape content height or codeLine moves, so the box-derived line guard
-        no longer equals the old fixed MAX_LINES of 14 and a long snippet shows other lines."""
+    def test_code_line_limit_per_box(self):
+        """Red: codeLineLimit (the number of code lines CodeHighlights slices to) is not 14 for
+        LANDSCAPE_BOX, the old fixed MAX_LINES, or not 15 for BRAINROT_BOX. Guards the helper's
+        value for each box, not that CodeHighlights calls it."""
         got = run_node(
-            'import { LANDSCAPE_BOX, BRAINROT_BOX, contentRect } from "%s";'
-            "const guard = (b) => Math.floor(contentRect(b).height / b.type.codeLine);"
-            "console.log(JSON.stringify({ landscape: guard(LANDSCAPE_BOX),"
-            " brainrot: guard(BRAINROT_BOX) }));" % BOX_URL
+            'import { LANDSCAPE_BOX, BRAINROT_BOX, codeLineLimit } from "%s";'
+            "console.log(JSON.stringify({ landscape: codeLineLimit(LANDSCAPE_BOX),"
+            " brainrot: codeLineLimit(BRAINROT_BOX) }));" % BOX_URL
         )
-        self.assertEqual(got["landscape"], 14)
-        self.assertGreaterEqual(got["brainrot"], 14)
+        self.assertEqual(got, {"landscape": 14, "brainrot": 15})
 
 
 @unittest.skipIf(NODE is None, NO_NODE_REASON)
 class TestPortraitDiagramGeometry(unittest.TestCase):
-    """The 3x3 diagram grid in the 984 x 758 brainrot content box, with the 280 x 112 nodes."""
+    """The 3x3 diagram grid in the brainrot content box (984 x 758), with its 280 x 112 nodes.
+    The content size and node size come from BRAINROT_BOX in the Node script; the expected
+    numbers below are literals that pin the spec values."""
 
     def run_geometry(self, body):
         return run_node(
-            'import { BRAINROT_BOX } from "%s";'
+            'import { BRAINROT_BOX, contentRect } from "%s";'
             'import { cellCentre, segment, EDGE_GAP } from "%s";'
-            "const content = { width: %d, height: %d };"
+            "const { width, height } = contentRect(BRAINROT_BOX);"
+            "const content = { width, height };"
             "const node = BRAINROT_BOX.type.node;"
-            "%s" % (BOX_URL, GEOMETRY_URL, BRAINROT_CONTENT["width"], BRAINROT_CONTENT["height"], body)
+            "%s" % (BOX_URL, GEOMETRY_URL, body)
         )
 
     def test_portrait_cell_centres(self):
@@ -119,9 +119,9 @@ class TestPortraitDiagramGeometry(unittest.TestCase):
             " node }));"
         )
         self.assertAlmostEqual(got["a1"]["x"], 164, delta=EPS)
-        self.assertAlmostEqual(got["a1"]["y"], 758 / 6, delta=EPS)
+        self.assertAlmostEqual(got["a1"]["y"], 126.33333333333333, delta=EPS)
         self.assertAlmostEqual(got["c3"]["x"], 820, delta=EPS)
-        self.assertAlmostEqual(got["c3"]["y"], 758 * 5 / 6, delta=EPS)
+        self.assertAlmostEqual(got["c3"]["y"], 631.6666666666666, delta=EPS)
         # Pairs in neighbouring cells keep at least a 48 px gap between their node boxes.
         gap_x = got["b2"]["x"] - got["a1"]["x"]
         self.assertGreaterEqual(gap_x, got["node"]["width"] + 48 - EPS)
