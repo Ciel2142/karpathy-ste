@@ -9,7 +9,8 @@ case-insensitively; hidden files and directories are ignored.
 
 Order. The clips are `sorted(names)` shuffled by random.Random(seed); the seed is --seed, else
 $EXPLAIN_BRAINROT_SEED, else random. For each clip, `<remotion-cli> ffprobe` (cwd <app-dir>,
-stdin /dev/null, 60 s) reads the streams and the duration. A clip that cannot be probed, has no
+stdin /dev/null, 60 s) reads the streams and the duration; a probe that times out is killed with its
+whole process group, since the CLI spawns the real ffprobe. A clip that cannot be probed, has no
 video stream or no positive duration is skipped; the first good clip wins. A missing or empty
 folder, or one with no good clip, gives the generated runner.
 
@@ -52,6 +53,7 @@ import math
 import os
 import random
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -201,18 +203,27 @@ def probe(remotion, clip, app):
     command = [remotion, "ffprobe", "-v", "error", "-show_entries",
                "stream=codec_type:format=duration", "-of", "json", clip]
     try:
-        done = subprocess.run(
-            command, cwd=app, stdin=subprocess.DEVNULL, capture_output=True,
-            encoding="utf-8", errors="replace", timeout=PROBE_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        return None, "ffprobe timed out"
+        # Its own session, so a timeout can kill the group: `remotion ffprobe` spawns the real
+        # ffprobe, and killing only the direct child would leave that grandchild running.
+        with subprocess.Popen(
+            command, cwd=app, start_new_session=True, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", errors="replace",
+        ) as proc:
+            try:
+                stdout, _ = proc.communicate(timeout=PROBE_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate()  # collect the child and drain its pipes
+                return None, "ffprobe timed out"
+            returncode = proc.returncode
     except OSError as err:
         return None, "cannot run ffprobe: %s" % reason(err)
-    if done.returncode != 0:
-        return None, "ffprobe exit %d" % done.returncode
+    if returncode != 0:
+        return None, "ffprobe exit %d" % returncode
     try:
-        info = json.loads(done.stdout)
+        info = json.loads(stdout)
         has_video = any(s.get("codec_type") == "video" for s in info.get("streams", []))
         raw = info.get("format", {}).get("duration")
     except (ValueError, AttributeError, TypeError):

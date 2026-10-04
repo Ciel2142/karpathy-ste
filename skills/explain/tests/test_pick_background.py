@@ -13,10 +13,12 @@ import os
 import random
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -256,6 +258,42 @@ class Generated(PickerCase):
             code, lines = self.run_main()
         self.assertEqual(code, 0)
         self.assertEqual(lines, ["background: SKIP x.mp4 (ffprobe timed out)", GENERATED])
+
+    def test_probe_timeout_kills_grandchild(self):
+        """Mutation: the timeout kills only the direct child, so the ffprobe the Remotion CLI
+        spawned stays alive (the stub's `sleep` stands for it)."""
+        picker = load_picker()
+        self.clip("x.mp4")
+        pid_file = self.tmp / "grandchild.pid"
+        stub = self.tmp / "remotion-spawns"
+        stub.write_text('#!/bin/sh\n[ "$1" = warm ] && exit 0\nsleep 30 &\necho $! > \'%s\'\nwait\n' % pid_file,
+                        encoding="utf-8")
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+        # The first run of a new script can take 0.4 s on macOS, longer than PROBE_TIMEOUT below:
+        # run it once so the probe starts the grandchild in milliseconds.
+        subprocess.run([str(stub), "warm"], check=True, timeout=30)
+
+        def reap():  # a failing run must not leave the sleeper behind
+            if pid_file.exists():
+                with contextlib.suppress(ValueError, OSError):
+                    os.kill(int(pid_file.read_text(encoding="utf-8")), signal.SIGKILL)
+
+        self.addCleanup(reap)
+        with mock.patch.object(picker, "PROBE_TIMEOUT", 0.3):
+            code, lines = self.run_main(remotion=stub)
+        self.assertEqual(code, 0)
+        self.assertEqual(lines, ["background: SKIP x.mp4 (ffprobe timed out)", GENERATED])
+        self.assertTrue(pid_file.exists(), "the stub never started its grandchild before the timeout")
+        pid = int(pid_file.read_text(encoding="utf-8"))
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() > deadline:
+                self.fail("grandchild %d survived the timeout" % pid)
+            time.sleep(0.05)
 
     def test_skips_then_tries_next_in_seeded_order(self):
         """Mutation: the picker stops at the first bad clip, or the order is not sorted(names)
