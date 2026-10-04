@@ -1,6 +1,8 @@
-"""Tests for scripts/render.sh: the nine-stage video pipeline.
+"""Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script).
 
-The stage-1 tests need no workspace: they fail before any tool that needs one runs. A fake
+StageFunctionCase runs stage_narration and stage_background of render.sh against fake tools (the
+format -> --speed mapping, the picker's lines, exit codes and stderr). The stage-1 tests need no
+workspace: they fail before any tool that needs one runs. A fake
 npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant that
 gets past stage 1 fails fast instead of installing. The end-to-end class renders the
 three-scene fixture once (tests/video_e2e.py) and needs EXPLAIN_VIDEO_E2E=1. Each test names
@@ -20,7 +22,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, TEMPLATE, render_fixture
 
-STAGES = ("script", "workspace", "narration", "timeline", "render",
+# "background" is the tenth, brainrot-only stage; the explainer run must print no such line.
+STAGES = ("script", "workspace", "narration", "timeline", "background", "render",
           "container", "sync", "stills", "transcript")
 STAGE_LINE = re.compile(r"^(%s)\b" % "|".join(STAGES))
 
@@ -159,6 +162,139 @@ class NarratorTextCase(unittest.TestCase):
     # red: the fallback cause dropped from the row
     def test_fallback_row_names_the_cause(self):
         self.assertEqual(narrator_text("say", "no models"), "say (fallback: no models)\n")
+
+
+def render_functions(names):
+    """The shell text of the named top-level functions of render.sh, plus its MARK and
+    BRAINROT_SPEED constants, to run them without a render."""
+    source = RENDER_SH.read_text(encoding="utf-8")
+    parts = [re.search(r"^MARK=.*\n", source, re.M).group(0),
+             re.search(r"^BRAINROT_SPEED=\S+.*\n", source, re.M).group(0)]
+    for name in names:
+        match = re.search(r"^%s\(\) \{\n.*?^\}\n" % name, source, re.M | re.S)
+        assert match, "no %s() in render.sh" % name
+        parts.append(match.group(0))
+    return "".join(parts)
+
+
+class StageFunctionCase(unittest.TestCase):
+    """stage_narration and stage_background of render.sh, run against fake tools: no workspace,
+    no render."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="render-stage-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "out" / "build").mkdir(parents=True)
+        (self.tmp / "out" / "audio").mkdir()
+        (self.tmp / "video").mkdir()
+        (self.tmp / "scripts").mkdir()
+        self.calls = self.tmp / "calls.txt"
+
+    def fake(self, path, body):
+        path.write_text("#!/bin/bash\n" + body, encoding="utf-8")
+        path.chmod(0o755)
+
+    def run_stage(self, stage, fmt, env=None):
+        """Run `stage` of render.sh with format `fmt`; every fake tool appends its argv to calls."""
+        functions = render_functions(["fail", "stream", stage])
+        script = (
+            "set -eu\n" + functions +
+            'out=%(t)s/out video=%(t)s/video scripts=%(t)s/scripts script=%(t)s/out/script.json\n'
+            'ws=%(t)s/ws app=%(t)s/ws/app remotion=%(t)s/ws/app/remote-cli engine=say fmt=%(fmt)s\n'
+            '%(stage)s\n' % {"t": self.tmp, "fmt": fmt, "stage": stage})
+        run_env = {k: v for k, v in os.environ.items()
+                   if k not in ("EXPLAIN_BRAINROT_BACKGROUNDS", "EXPLAIN_BRAINROT_SEED")}
+        run_env.update(env or {})
+        return subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True,
+                              env=run_env, timeout=60)
+
+    def fake_picker(self, body):
+        """A pick_background.py (render.sh runs it through python3) that logs its argv, then runs
+        the Python text `body`."""
+        (self.tmp / "video" / "pick_background.py").write_text(
+            "import sys\nwith open(%r, 'a') as log:\n    log.write(' '.join(sys.argv[1:]) + '\\n')\n%s"
+            % (str(self.calls), body), encoding="utf-8")
+
+    def call_lines(self):
+        return self.calls.read_text(encoding="utf-8").splitlines()
+
+    # red: a brainrot run narrates without --speed, or the speed is not 1.2
+    def test_brainrot_narration_gets_speed_1_2(self):
+        self.fake(self.tmp / "scripts" / "narrate.sh",
+                  'printf "%s\\n" "$*" >> ' + str(self.calls) + '\n'
+                  'echo \'{"engine": "say"}\' > "$2/durations.json"\n')
+        run = self.run_stage("stage_narration", "brainrot")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.call_lines(),
+                         ["%s/out/script.json %s/out/audio --engine say --speed 1.2" % (self.tmp, self.tmp)])
+        self.assertEqual(run.stdout, "narration (say): ok\n")
+
+    # red: the explainer command line gains --speed (its audio cache would miss)
+    def test_explainer_narration_has_no_speed(self):
+        self.fake(self.tmp / "scripts" / "narrate.sh",
+                  'printf "%s\\n" "$*" >> ' + str(self.calls) + '\n'
+                  'echo \'{"engine": "say"}\' > "$2/durations.json"\n')
+        run = self.run_stage("stage_narration", "explainer")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.call_lines(),
+                         ["%s/out/script.json %s/out/audio --engine say" % (self.tmp, self.tmp)])
+
+    # red: the explainer runs the picker or prints a background line
+    def test_explainer_runs_no_background_stage(self):
+        self.fake_picker('print("background: ok generated")\n')
+        run = self.run_stage("stage_background", "explainer")
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "", ""))
+        self.assertFalse(self.calls.exists())
+
+    # red: SKIP lines unindented, or the held ok line indented or printed before them
+    def test_brainrot_skip_lines_indented_then_ok_line(self):
+        self.fake_picker('print("background: SKIP a.mp4 (no duration)")\n'
+                         'print("background: ok b.mp4 @1.5 s (loop)")\n')
+        run = self.run_stage("stage_background", "brainrot")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout,
+                         "  background: SKIP a.mp4 (no duration)\nbackground: ok b.mp4 @1.5 s (loop)\n")
+
+    # red: the picker gets another argument order, a seed, or a folder other than <ws>/backgrounds
+    def test_picker_arguments_and_default_folder(self):
+        self.fake_picker('print("background: ok generated")\n')
+        run = self.run_stage("stage_background", "brainrot")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout, "background: ok generated\n")
+        self.assertEqual(self.call_lines(),
+                         ["%(t)s/out/build/timeline.json %(t)s/ws/app/remote-cli %(t)s/ws/app "
+                          "--dir %(t)s/ws/backgrounds" % {"t": self.tmp}])
+
+    # red: EXPLAIN_BRAINROT_BACKGROUNDS ignored
+    def test_picker_folder_from_env(self):
+        self.fake_picker('print("background: ok generated")\n')
+        run = self.run_stage("stage_background", "brainrot",
+                             env={"EXPLAIN_BRAINROT_BACKGROUNDS": "/clips/my folder"})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue(self.call_lines()[0].endswith(" --dir /clips/my folder"), self.call_lines())
+
+    # red: the picker's own FAIL line replaced by a generic one, or printed indented
+    def test_picker_fail_line_stops_the_run(self):
+        self.fake_picker('print("background: FAIL cannot read t.json")\nsys.exit(1)\n')
+        run = self.run_stage("stage_background", "brainrot")
+        self.assertEqual((run.returncode, run.stdout), (1, "background: FAIL cannot read t.json\n"))
+
+    # red: exit 2 with only a stderr line gives no FAIL line, or the stderr line vanishes
+    def test_picker_usage_error_reaches_the_user_and_fails(self):
+        self.fake_picker('print("pick_background.py: EXPLAIN_BRAINROT_SEED must be an integer, '
+                         "got 'abc'\", file=sys.stderr)\nsys.exit(2)\n")
+        run = self.run_stage("stage_background", "brainrot")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(run.stdout,
+                         "  pick_background.py: EXPLAIN_BRAINROT_SEED must be an integer, got 'abc'\n"
+                         "background: FAIL pick_background.py exit 2\n")
+
+    # red: an exit 0 picker without an ok line passes as a background
+    def test_picker_without_result_line_fails(self):
+        self.fake_picker("pass\n")
+        run = self.run_stage("stage_background", "brainrot")
+        self.assertEqual((run.returncode, run.stdout),
+                         (1, "background: FAIL pick_background.py printed no result\n"))
 
 
 ORDER = [

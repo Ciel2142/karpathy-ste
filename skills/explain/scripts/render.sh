@@ -3,18 +3,31 @@
 # video.mp4, its review stills and the final transcript (spec: video rung).
 #
 #   render.sh <output-dir> [--engine kokoro|say]          (default kokoro)
-#   env EXPLAIN_VIDEO_WORKSPACE   workspace root (default $HOME/karpathy/video-workspace)
+#   env EXPLAIN_VIDEO_WORKSPACE        workspace root (default $HOME/karpathy/video-workspace)
+#   env EXPLAIN_BRAINROT_BACKGROUNDS   brainrot only: the background clip folder (default
+#                                      <ws>/backgrounds)
+#   env EXPLAIN_BRAINROT_SEED          brainrot only: an integer that fixes the clip choice and
+#                                      its start (pick_background.py reads it; default random)
 #
-#   exit 0  all nine stages passed
+# The format is script.json's "format" ("explainer" when absent, else "brainrot"), read once
+# the script stage has passed. An explainer run has nine stages and a brainrot run ten.
+#
+#   exit 0  all stages of the format passed
 #   exit 1  a stage failed; the stages after it do not run
 #   exit 2  usage, no <output-dir>/script.json, or script.json is not valid JSON (one line
 #           on stderr)
 #
-# stdout carries one line per stage, in this order, up to the first FAIL:
+# stdout carries one line per stage, in this order, up to the first FAIL (the explainer
+# prints no "background" line):
 #   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
 #   workspace: ok <ws>                      video-workspace.sh --engine <engine>
-#   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh; <engine> as used
-#   timeline (<n> scenes, <s> s): ok        build/timeline.json; scene <= 60 s, total <= 150 s
+#   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh; <engine> as used; a
+#                                           brainrot script narrates at --speed 1.2
+#   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
+#                                           limits from it (explainer scene <= 60 s, total
+#                                           <= 150 s; brainrot 30 s and 90 s)
+#   background: ok <name> @<start> s[ (loop)]   brainrot only: pick_background.py chooses the
+#   background: ok generated                    clip, or the generated runner, into the timeline
 #   render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok      log build/render.log
 #   container: ok (<s> s)                   \
 #   sync: ok                                 > video/check_render.sh
@@ -22,7 +35,11 @@
 #   transcript: ok                          transcript.py --narrator, then verify.sh
 # A failing stage prints "<stage>: FAIL <cause>" and, below it, the tool's output indented
 # by two spaces (render: the last 40 log lines). The cost lines of video-workspace.sh and
-# the lines of narrate.sh (a FALLBACK line among them) are printed indented as they come.
+# the lines of narrate.sh (a FALLBACK line among them) are printed indented as they come, and
+# so are the "background: SKIP <file> (<cause>)" lines of the picker (a clip it could not use)
+# and anything the picker prints on stderr. A picker that fails without its own FAIL line (a
+# usage error, or an invalid EXPLAIN_BRAINROT_SEED) gives "background: FAIL pick_background.py
+# exit <n>" below that indented output.
 #
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
@@ -35,9 +52,8 @@
 set -eu
 
 MARK="__render_sh_exit__="
-MAX_SCENE_S=60
-MAX_TOTAL_S=150
 RATIO_LIMIT=2.0
+BRAINROT_SPEED=1.2   # narrate.sh --speed of a brainrot script; the explainer keeps its default
 
 usage() {
     echo "usage: render.sh <output-dir> [--engine kokoro|say]" >&2
@@ -91,6 +107,7 @@ app="$ws/app"
 remotion="$app/node_modules/.bin/remotion"
 
 root=""       # provenance.root
+fmt="explainer"   # the script's format: explainer, or brainrot
 used=""       # the engine that made the audio (durations.json)
 fallback=""   # the fallback cause, empty when none
 video_s=""    # video length in seconds (totalFrames / fps)
@@ -175,6 +192,11 @@ PY
     case "$root" in /*) ;; *) fail "script: FAIL provenance.root must be an absolute path" ;; esac
     [ -d "$root" ] || fail "script: FAIL provenance.root must be an existing directory: $root"
     run_tool script node "$video/build-timeline.mjs" --check "$script" --root "$root"
+    # --check has accepted the format, so it is explainer or brainrot.
+    fmt=$(python3 -c '
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8")).get("format", "explainer"))
+' "$script") || fail "script: FAIL cannot read $script"
     run_tool script python3 "$video/transcript.py" "$script" "$out"
     run_tool script "$scripts/verify.sh" "$out/index.html"
     echo "script: ok ($count scenes)"
@@ -198,10 +220,12 @@ stage_workspace() {
 }
 
 stage_narration() {
-    local info
+    local info speed_args=()
+    [ "$fmt" != "brainrot" ] || speed_args=(--speed "$BRAINROT_SPEED")
     mkdir -p "$out/audio"
     stream "narration: FAIL " "narration: FAIL " \
-        "$scripts/narrate.sh" "$script" "$out/audio" --engine "$engine"
+        "$scripts/narrate.sh" "$script" "$out/audio" --engine "$engine" \
+        ${speed_args[@]+"${speed_args[@]}"}
     if [ "$stream_rc" != "0" ]; then
         [ -n "$held" ] && fail "narration ($engine): FAIL ${held#narration: FAIL }"
         fail "narration ($engine): FAIL narrate.sh exit ${stream_rc:-unknown}"
@@ -227,27 +251,32 @@ stage_timeline() {
     mkdir -p "$out/build"
     run_tool timeline node "$video/build-timeline.mjs" \
         "$script" "$out/audio/durations.json" "$used" "$timeline" --root "$root"
-    verdict=$(python3 - "$timeline" "$MAX_SCENE_S" "$MAX_TOTAL_S" <<'PY'
-import json, sys
-t = json.load(open(sys.argv[1], encoding="utf-8"))
-max_scene, max_total = float(sys.argv[2]), float(sys.argv[3])
-fps = t["fps"]
-for s in t["scenes"]:
-    seconds = s["durationInFrames"] / fps
-    if seconds > max_scene:
-        print("FAIL scene %s is %.1f s (max %g)" % (s["id"], seconds, max_scene))
-        sys.exit(0)
-total = t["totalFrames"] / fps
-if total > max_total:
-    print("FAIL total %.1f s (max %g)" % (total, max_total))
-    sys.exit(0)
-print("ok %d %.1f %.3f" % (len(t["scenes"]), total, total))
-PY
-) || fail "timeline: FAIL cannot read $timeline"
+    verdict=$(python3 "$video/check_budgets.py" "$timeline") \
+        || fail "timeline: FAIL cannot read $timeline"
     case "$verdict" in "FAIL "*) fail "timeline: $verdict" ;; esac
     set -- $verdict
     video_s="$4"
     echo "timeline ($2 scenes, $3 s): ok"
+}
+
+# Brainrot only: the picker writes the background into the timeline. Its SKIP lines and its
+# stderr (merged by stream) print indented; its one "background: ok ..." line is held back and
+# printed unindented.
+stage_background() {
+    [ "$fmt" = "brainrot" ] || return 0
+    stream "background: ok " "background: FAIL " python3 "$video/pick_background.py" \
+        "$out/build/timeline.json" "$remotion" "$app" \
+        --dir "${EXPLAIN_BRAINROT_BACKGROUNDS:-$ws/backgrounds}"
+    if [ "$stream_rc" != "0" ]; then
+        case "$held" in
+            "background: FAIL "*) fail "$held" ;;
+            *) fail "background: FAIL pick_background.py exit ${stream_rc:-unknown}" ;;
+        esac
+    fi
+    case "$held" in
+        "background: ok "*) echo "$held" ;;
+        *) fail "background: FAIL pick_background.py printed no result" ;;
+    esac
 }
 
 stage_render() {
@@ -294,6 +323,7 @@ clear_stale
 stage_workspace
 stage_narration
 stage_timeline
+stage_background
 stage_render
 stage_checks
 stage_transcript
