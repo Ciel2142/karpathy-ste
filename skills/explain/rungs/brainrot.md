@@ -32,7 +32,7 @@ Read these sections of `<skill-dir>/rungs/video.md` and follow them. Where this 
 | 3. Build and check | The first-run costs, the narration fallback, the render ratio and the way to read the stills. Section 5 of this file adds the checks. |
 | 4. Handoff | Section 6 of this file adds the background. |
 | 5. Output directory | Section 7 of this file adds three items. |
-| 6. Pinned versions and environment | Unchanged. |
+| 6. Pinned versions and environment | The pinned versions, the models, the workspace and the licence. The voice speed (1.0) and the Constants bullet (1280x720, lead 15, tail 36) differ. Section 8 of this file gives the brainrot values. |
 
 Skip section 1 of `video.md`. Section 1 of this file replaces it.
 
@@ -65,10 +65,12 @@ Follow section 2 of `video.md`, with these changes.
 A limit failure names the format. For example: `line 7 is 52 columns (max 40, brainrot)`.
 
 - Length: at speed 1.2, the narrator speaks approximately 3.6 words each second. Each scene adds
-  0.6 s of lead and tail. Six scenes of 45 words come near 80 s.
+  0.6 s of lead and tail. Six scenes of 45 words come near 80 s. These figures are an
+  estimate. The `timeline` stage line shows the real length.
 - Hook: scene 1 is a `title` scene. Its narration is one sentence of 12 words or fewer. The
   sentence says why the subject matters. The cue of the scene is the first words of that
-  sentence. The check does not enforce this rule.
+  sentence. The `script` stage does not check the 12-word hook. It still checks the cue rule and
+  each limit in the table.
 - Before and after: the component stacks its two panels. The `before` panel is above the `after`
   panel.
 - Cues: the cue rule of `video.md` applies. In a brainrot short, the cue frame is the exact
@@ -83,7 +85,8 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
 ## 4. The background
 
 The `render.sh` command chooses the background after the `timeline` stage. It downloads no
-clip. The repository has no clip.
+clip. The skill ships no background clip for a run. One clip of 1 s in `tests/fixtures/` is for
+tests only.
 
 - The clip folder is the path in `EXPLAIN_BRAINROT_BACKGROUNDS`. If the variable is not set, it
   is `<ws>/backgrounds/`. `<ws>` is the workspace, `~/karpathy/video-workspace` or the path in
@@ -139,8 +142,11 @@ three more faults:
    cue still holds words of the cue sentence.
 2. A caption that overlaps the content of the panel. The caption band is on the seam between the
    two halves.
-3. A background that is black or frozen. Compare the bottom half of two stills from different
-   scenes. If the two halves are black, or they are the same, the background is at fault.
+3. A background that is black or frozen. Put the bottom halves of two stills from different
+   scenes side by side. A black half is a fault. A clip that shows the same picture in both
+   halves does not move, and that is a fault. A generated runner loop can look alike in two
+   stills. Compare the halves in view, never by guess. If they look alike, read a third still
+   before you decide.
 
 Fix each fault in `script.json`. For a bad clip, remove it from the folder, or force the
 generated loop (section 4). Run `render.sh` again in the same output directory. Repeat until all

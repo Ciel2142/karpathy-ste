@@ -15,13 +15,13 @@
       "id": "hook",
       "component": "title",
       "props": {
-        "title": "One script, four checks",
-        "subtitle": "It stops a bad page before you see it",
-        "cue": "One script stops"
+        "title": "One script, up to four checks",
+        "subtitle": "It checks the artifact before handoff",
+        "cue": "One script checks"
       },
-      "narration": "One script stops a bad page before you see it.",
+      "narration": "One script checks each artifact before it reaches you.",
       "cites": [
-        { "path": "scripts/verify.sh", "line": 2, "snippet": "the four checks an explain artifact must pass" }
+        { "path": "scripts/verify.sh", "line": 2, "snippet": "the four checks an explain artifact must pass before handoff" }
       ]
     },
     {
@@ -30,16 +30,17 @@
       "props": {
         "title": "The checks",
         "bullets": [
-          { "text": "No remote links", "cue": "The first check" },
-          { "text": "Every citation holds", "cue": "The second check" },
-          { "text": "The prose passes the lint", "cue": "The third check" },
+          { "text": "No remote links", "cue": "One check" },
+          { "text": "Every citation holds", "cue": "Another check" },
+          { "text": "The prose passes the lint", "cue": "One more check" },
           { "text": "Render: a sheet or a page", "cue": "A sheet or a page" }
         ]
       },
-      "narration": "The first check looks for remote links. The second check tests each citation. The third check lints the prose. A sheet or a page also gets a render check.",
+      "narration": "One check looks for remote links. Another check tests each citation. One more check lints the prose. A sheet or a page also gets a render check.",
       "cites": [
         { "path": "scripts/verify.sh", "line": 12, "snippet": "self-contained: ok" },
         { "path": "scripts/verify.sh", "line": 16, "snippet": "citations: ok" },
+        { "path": "scripts/verify.sh", "line": 17, "snippet": "prose: ok" },
         { "path": "scripts/verify.sh", "line": 21, "snippet": "a page two (1440x900, 500x844); a video none." }
       ]
     },
@@ -56,6 +57,7 @@
       },
       "narration": "Chrome opens the page by its file address. The function swaps four risky characters for safe codes. Then it adds a mark for the page check.",
       "cites": [
+        { "path": "scripts/verify.sh", "line": 28, "snippet": "in headless Chrome with --dump-dom" },
         { "path": "scripts/verify.sh", "line": 104, "snippet": "Percent-encode the characters that would end or corrupt" },
         { "path": "scripts/verify.sh", "line": 111, "snippet": "echo \"file://$p#verify\"" }
       ]
@@ -77,6 +79,7 @@
       },
       "narration": "Without the script, a person checks each item by hand. Now one command runs every check and prints one line for each.",
       "cites": [
+        { "path": "scripts/verify.sh", "line": 11, "snippet": "stdout carries one line per check" },
         { "path": "scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed" }
       ]
     }
