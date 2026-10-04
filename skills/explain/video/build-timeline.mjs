@@ -75,12 +75,17 @@ const arr = (item, min = 0, max = Infinity) => ({ t: "arr", item, min, max });
 const obj = (shape) => ({ t: "obj", shape });
 const cell = { t: "cell" };
 
-const SHAPES = {
-  title: { title: str(50), subtitle: str(80), cue },
-  "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(36), cue }), 2, 4) },
+// The shapes of one format: every limit comes from its FORMATS row.
+const shapesFor = (limits) => ({
+  title: { title: str(limits.titleTitle), subtitle: str(limits.titleSubtitle), cue },
+  "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(limits.bulletText), cue }), 2, 4) },
   "diagram-with-highlight-walk": {
     title: str(Infinity),
-    nodes: arr(obj({ id: str(Infinity), label: str(14), sub: str(24, true), cell }), 2, 7),
+    nodes: arr(
+      obj({ id: str(Infinity), label: str(limits.diagramLabel), sub: str(limits.diagramSub, true), cell }),
+      2,
+      7,
+    ),
     edges: arr(obj({ from: str(Infinity), to: str(Infinity), label: str(10, true) })),
     walk: arr(obj({ node: str(Infinity), cue })),
   },
@@ -91,11 +96,17 @@ const SHAPES = {
   },
   "before-after": {
     title: str(Infinity),
-    before: obj({ heading: str(36), lines: arr(str(36, true), 0, 10) }),
-    after: obj({ heading: str(36), lines: arr(str(36, true), 0, 10) }),
+    before: obj({
+      heading: str(limits.beforeAfterHeading),
+      lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
+    }),
+    after: obj({
+      heading: str(limits.beforeAfterHeading),
+      lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
+    }),
     cue,
   },
-};
+});
 
 // Cues of a component in the order its author listed them (defensive: props may be malformed).
 const list = (v) => (Array.isArray(v) ? v : []);
@@ -126,37 +137,41 @@ const limitsFor = (format) => (knownFormat(format) ? FORMATS[format] : FORMATS.e
 // Suffix of every FAIL line that names a limit: nothing for explainer, ", brainrot" for brainrot.
 const tagOf = (format) => (knownFormat(format) && format !== "explainer" ? `, ${format}` : "");
 
+const SHAPES_BY_FORMAT = Object.fromEntries(Object.entries(FORMATS).map(([name, limits]) => [name, shapesFor(limits)]));
+// An invalid format validates against the explainer shapes.
+const shapesOf = (format) => SHAPES_BY_FORMAT[knownFormat(format) ? format : "explainer"];
+
 // Check a value against a spec; `fail(cause)` records one cause.
-const checkSpec = (value, spec, where, fail) => {
+const checkSpec = (value, spec, where, fail, tag = "") => {
   if (spec.t === "str") {
     if (typeof value !== "string") return fail(`${where} must be a string`);
     if (value === "" && !spec.empty) return fail(`${where} is empty`);
     const n = charLength(value);
-    if (n > spec.max) fail(`${where} is ${n} chars (max ${spec.max})`);
+    if (n > spec.max) fail(`${where} is ${n} chars (max ${spec.max}${tag})`);
   } else if (spec.t === "int") {
     if (!isInt(value)) fail(`${where} must be an integer`);
   } else if (spec.t === "cell") {
     if (!CELLS.includes(value)) fail(`${where} ${q(value)} must be one of a1 to c3`);
   } else if (spec.t === "obj") {
-    checkShape(value, spec.shape, where, fail);
+    checkShape(value, spec.shape, where, fail, tag);
   } else if (spec.t === "arr") {
     if (!Array.isArray(value)) return fail(`${where} must be an array`);
     if (value.length < spec.min || value.length > spec.max) {
       const range = spec.max === Infinity ? `at least ${spec.min}` : `${spec.min} to ${spec.max}`;
-      fail(`${where} has ${value.length} items (needs ${range})`);
+      fail(`${where} has ${value.length} items (needs ${range}${tag})`);
     }
-    value.forEach((item, i) => checkSpec(item, spec.item, `${where}[${i}]`, fail));
+    value.forEach((item, i) => checkSpec(item, spec.item, `${where}[${i}]`, fail, tag));
   }
 };
 
-const checkShape = (value, shape, where, fail) => {
+const checkShape = (value, shape, where, fail, tag = "") => {
   if (!isObject(value)) return fail(`${where || "props"} must be an object`);
   const at = (key) => (where ? `${where}.${key}` : key);
   for (const [key, spec] of Object.entries(shape)) {
     if (!has(value, key)) {
       if (!spec.optional) fail(`missing prop ${q(at(key))}`);
     } else {
-      checkSpec(value[key], spec, at(key), fail);
+      checkSpec(value[key], spec, at(key), fail, tag);
     }
   }
   for (const key of Object.keys(value)) if (!has(shape, key)) fail(`unexpected prop ${q(at(key))}`);
@@ -290,7 +305,7 @@ const checkCites = (cites, subjectKind, fail) => {
 
 const SCENE_KEYS = ["id", "component", "props", "narration", "cites"];
 
-const checkScene = (scene, where, root, subjectKind, report, limits, tag) => {
+const checkScene = (scene, where, root, subjectKind, report, limits, shapes, tag) => {
   const fail = (cause) => report(where, cause);
   if (!isObject(scene)) return fail("must be an object");
   for (const key of SCENE_KEYS) if (!(key in scene) && key !== "cites") fail(`missing ${q(key)}`);
@@ -309,11 +324,11 @@ const checkScene = (scene, where, root, subjectKind, report, limits, tag) => {
   checkCites(scene.cites ?? [], subjectKind, fail);
 
   if ("component" in scene) {
-    const known = typeof scene.component === "string" && has(SHAPES, scene.component);
-    const shape = known ? SHAPES[scene.component] : undefined;
+    const known = typeof scene.component === "string" && has(shapes, scene.component);
+    const shape = known ? shapes[scene.component] : undefined;
     if (!shape) return fail(`unknown component ${q(scene.component)}`);
     if ("props" in scene) {
-      checkShape(scene.props, shape, "", fail);
+      checkShape(scene.props, shape, "", fail, tag);
       if (isObject(scene.props)) {
         checkCues(scene, fail);
         if (scene.component === "diagram-with-highlight-walk") checkDiagram(scene.props, fail);
@@ -364,6 +379,7 @@ const validate = (script, root) => {
   checkHeader(script, report);
   const format = formatOf(script);
   const limits = limitsFor(format);
+  const shapes = shapesOf(format);
   const tag = tagOf(format);
   if (!Array.isArray(script.scenes)) {
     report("script", "scenes must be an array");
@@ -381,7 +397,7 @@ const validate = (script, root) => {
       if (seen.has(id)) report("script", `duplicate scene id ${q(id)}`);
       seen.add(id);
     }
-    checkScene(scene, sceneWhere(scene, i), root, kind, report, limits, tag);
+    checkScene(scene, sceneWhere(scene, i), root, kind, report, limits, shapes, tag);
   });
   return lines;
 };
