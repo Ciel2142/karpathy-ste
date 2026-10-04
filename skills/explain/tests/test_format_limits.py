@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import string
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,7 @@ CELL_TEMPLATES = [
     ),
     ("diagram `label` / `sub`", "{diagramLabel} / {diagramSub}", "{diagramLabel} / {diagramSub}"),
     ("`title` title / subtitle", "{titleTitle} / {titleSubtitle}", "{titleTitle} / {titleSubtitle}"),
+    ("caption chunk", "—", "1–3 words, {captionChars} chars"),
 ]
 
 
@@ -48,6 +50,12 @@ def load_formats():
 
 
 def fill(template, row):
+    """A template with the fields of a formats row filled in. A null field (the explainer has no
+    caption cap) is for a template that is a plain text, such as `—`; a null that a template names
+    would print as the text "None", so it raises."""
+    for _, field, _, _ in string.Formatter().parse(template):
+        if field is not None and row[field] is None:
+            raise ValueError("the template %r names %r, which is null in the row" % (template, field))
     return template.format(**row)
 
 
@@ -100,6 +108,19 @@ class TestRungMatchesFormats(unittest.TestCase):
         row = load_formats()["brainrot"]
         sentence = "at most {codeLines} lines, and each line has at most {codeColumns} columns".format(**row)
         self.assertIn(sentence, " ".join(rung_text().split()))
+
+    def test_rung_caption_sentence_matches(self):
+        """Red: the Captions bullet of the rung holds another character cap than formats.json."""
+        cap = load_formats()["brainrot"]["captionChars"]
+        sentence = "caption holds at most %d characters" % cap
+        self.assertIn(sentence, " ".join(rung_text().split()))
+
+    def test_fill_refuses_a_null_field(self):
+        """Red: `fill` turns a null that a template names into the text "None" (the rung table
+        would then claim "None chars")."""
+        with self.assertRaises(ValueError):
+            fill("{captionChars} chars", {"captionChars": None})
+        self.assertEqual(fill("—", {"captionChars": None}), "—")
 
 
 class TestBuildTimelineReadsFormats(unittest.TestCase):

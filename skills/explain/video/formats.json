@@ -19,6 +19,7 @@
     "diagramSub": 24,
     "titleTitle": 50,
     "titleSubtitle": 80,
+    "captionChars": null,
     "wordTimed": false
   },
   "brainrot": {
@@ -41,6 +42,7 @@
     "diagramSub": 20,
     "titleTitle": 30,
     "titleSubtitle": 60,
+    "captionChars": 20,
     "wordTimed": true
   }
 }

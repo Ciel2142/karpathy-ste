@@ -61,6 +61,7 @@ Follow section 2 of `video.md`, with these changes.
 | `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 30 chars; heading 30 |
 | diagram `label` / `sub` | 14 / 24 | 12 / 20 |
 | `title` title / subtitle | 50 / 80 | 30 / 60 |
+| caption chunk | — | 1–3 words, 20 chars |
 
 A limit failure names the format. For example: `line 7 is 52 columns (max 40, brainrot)`.
 
@@ -75,8 +76,10 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
   panel.
 - Cues: the cue rule of `video.md` applies. In a brainrot short, the cue frame is the exact
   start of its sentence, not an estimate.
-- Captions: a caption shows 1 to 3 words of the narration at a time. The word that the voice
-  speaks is yellow. Backticks do not show in a caption.
+- Captions: a caption shows 1 to 3 words of the narration at a time. A caption holds at most 20
+  characters, so that it fits on one line. A code name that is longer than 20 characters shows
+  alone, in smaller type. The word that the voice speaks is yellow. Backticks do not show in a
+  caption.
 - Code: the range has at most 14 lines, and each line has at most 40 columns. A tab counts as 4
   columns. This command prints the number of each line that is too long:
   `awk '{ gsub(/\t/, "    "); if (length($0) > 40) print NR }' <file>`. If no range of 14 short

@@ -2,13 +2,16 @@
 limits and (in later tasks) build mode. Each test names the mutation that turns it red."""
 
 import copy
+import json
 import os
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_video_timeline import VideoCase, base_script
+from test_video_timeline import EXPLAIN, TOOL, VideoCase, base_script
 
 
 def brainrot_script():
@@ -535,7 +538,48 @@ class TestBrainrotCaptions(BrainrotBuildCase):
             [["See", "a,"], ["then", "b", "c"], ["d."]],
         )
 
+    def test_chunk_breaks_before_char_cap(self):
+        """Red: no character cap, so the third word joins and the chunk is "keyboards monitors speakers"
+        (27 characters, over the cap of 20)."""
+        captions = self.captions_of("keyboards monitors speakers", self.title_props("keyboards"))
+        self.assertEqual(self.chunk_texts(captions), ["keyboards monitors", "speakers"])
+
+    def test_chunk_at_cap_kept(self):
+        """Red: the cap is exclusive (`>=` instead of `>`), so a chunk of exactly 20 characters splits."""
+        captions = self.captions_of("abcdef ghijkl mnopqr", self.title_props("abcdef"))
+        self.assertEqual(self.chunk_texts(captions), ["abcdef ghijkl mnopqr"])
+
+    def test_chunk_cap_comes_from_formats_json(self):
+        """Red: the cap is a literal of build-timeline.mjs, so a changed formats.json has no effect
+        (with a cap of 13, "abcdef ghijkl mnopqr" splits after "abcdef ghijkl")."""
+        tool_dir = Path(self.dir) / "tool"  # a copy of the tool, with its own formats.json beside it
+        tool_dir.mkdir()
+        shutil.copy(TOOL, tool_dir / TOOL.name)
+        formats = json.loads((EXPLAIN / "video" / "formats.json").read_text(encoding="utf-8"))
+        formats["brainrot"]["captionChars"] = 13
+        (tool_dir / "formats.json").write_text(json.dumps(formats), encoding="utf-8")
+        self.node = lambda *args: subprocess.run(
+            ["node", str(tool_dir / TOOL.name), *args], capture_output=True, text=True, cwd=self.dir
+        )
+        captions = self.captions_of("abcdef ghijkl mnopqr", self.title_props("abcdef"))
+        self.assertEqual(self.chunk_texts(captions), ["abcdef ghijkl", "mnopqr"])
+
+    def test_long_word_is_its_own_chunk(self):
+        """Red: a word over the cap joins the open chunk ("the EXPLAIN_BRAINROT_BACKGROUNDS"), or the
+        word after it joins it."""
+        captions = self.captions_of("the `EXPLAIN_BRAINROT_BACKGROUNDS` folder", self.title_props("the"))
+        self.assertEqual(self.chunk_texts(captions), ["the", "EXPLAIN_BRAINROT_BACKGROUNDS", "folder"])
+
+    def test_chunk_cap_counts_the_text_without_backticks(self):
+        """Red: the cap counts the backticks of the token (the two extra characters would split
+        "abcdef ghijkl mnopq`r`" of 20 characters)."""
+        captions = self.captions_of("abcdef ghijkl `mnopqr`", self.title_props("abcdef"))
+        self.assertEqual(self.chunk_texts(captions), ["abcdef ghijkl mnopqr"])
+
     # -- helpers --
+    def chunk_texts(self, captions):
+        return [" ".join(w["text"] for w in c["words"]) for c in captions]
+
     def title_props(self, cue):
         return {"title": "T", "subtitle": "S", "cue": cue}
 

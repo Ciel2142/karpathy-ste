@@ -17,6 +17,8 @@ RUNNER_URL = (SRC / "runner.ts").as_uri()
 NODE = shutil.which("node")
 NO_NODE_REASON = "node is not on PATH"
 
+FORMATS = SRC.parent.parent / "formats.json"
+
 BEAT = 20
 EPS = 1e-9
 
@@ -101,6 +103,37 @@ class TestActiveCaption(unittest.TestCase):
         self.assertIsNone(got[11])
         self.assertIsNotNone(got[12])
         self.assertIsNone(self.active([], [0, 10])[0])
+
+
+@unittest.skipIf(NODE is None, NO_NODE_REASON)
+class TestCaptionFontSize(unittest.TestCase):
+    def font_size(self, text):
+        return run_node(
+            'import { captionFontSize } from "%s";'
+            "console.log(JSON.stringify(captionFontSize(%s)));" % (CAPTIONS_URL, json.dumps(text))
+        )
+
+    def test_caption_font_full_at_line_budget(self):
+        """Red: the full size is not 76, or a text that fits the line budget is scaled by the formula
+        (a text of 1 character would get size 1520)."""
+        self.assertEqual(self.font_size("x" * 20), 76)
+        self.assertEqual(self.font_size("x"), 76)
+
+    def test_caption_font_shrinks_long_word(self):
+        """Red: a text over the line budget keeps the full size (it overflows the band), or the size
+        rounds to the nearest or up instead of down: floor(76 * 20 / 25) is 60, not 61."""
+        self.assertEqual(self.font_size("EXPLAIN_BRAINROT_BACKGROUNDS"), 54)
+        self.assertEqual(self.font_size("x" * 25), 60)
+
+    def test_caption_line_budget_covers_chunk_cap(self):
+        """Red: the chunk cap of formats.json is raised above the line budget of captions.ts, so a
+        chunk that the chunker allows is drawn on one line only by chance (or not at all)."""
+        budget = run_node(
+            'import { CAPTION_LINE_CHARS } from "%s"; console.log(JSON.stringify(CAPTION_LINE_CHARS));'
+            % CAPTIONS_URL
+        )
+        cap = json.loads(FORMATS.read_text(encoding="utf-8"))["brainrot"]["captionChars"]
+        self.assertLessEqual(cap, budget)
 
 
 @unittest.skipIf(NODE is None, NO_NODE_REASON)

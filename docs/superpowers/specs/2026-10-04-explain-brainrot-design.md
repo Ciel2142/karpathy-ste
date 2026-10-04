@@ -98,6 +98,7 @@ explainer column is today's values.
 | `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 30 chars; heading 30 |
 | diagram `label` / `sub` | 14 / 24 | 12 / 20 |
 | `title` title / subtitle | 50 / 80 | 30 / 60 |
+| caption chunk | — | 1–3 words, 20 chars |
 
 The brainrot values are starting values. The live run (section 7.5) tunes them against the
 stills and writes the final values into this table, `build-timeline.mjs` and
@@ -220,6 +221,8 @@ the scene start:
 
 Backticks are removed from caption text, as the narrator already speaks code names as plain
 text.
+
+(Amended 2026-10-05 in wave brainrot-live-run: a chunk also closes before it passes the character cap of §3.4; a longer word is a chunk alone, drawn smaller.)
 
 ## 6. Pipeline, checks and errors
 

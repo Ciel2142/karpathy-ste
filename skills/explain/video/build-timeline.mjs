@@ -18,8 +18,9 @@
 // <id>.say.words.json). It holds the sentence and word times of the narration in seconds
 // from the clip start; each cue frame is its sentence start. Each brainrot scene also gets
 //   "captions": [{ "from", "to", "words": [{ "text", "from", "to" }] }]
-// chunks of up to three words that tile the speech without gaps, in frames from the scene start
-// (text is the narration token without its backticks). A brainrot build adds these FAIL lines
+// chunks of up to three words and up to captionChars characters (one word may be longer, alone)
+// that tile the speech without gaps, in frames from the scene start (text is the narration token
+// without its backticks). A brainrot build adds these FAIL lines
 // (prefix "FAIL scene <id>: ", <file> is that words file):
 //   cannot read <file>: <code>              file missing or unreadable
 //   <file> is not valid JSON: <message>
@@ -492,18 +493,27 @@ const cueFrameFromWords = (words, sentences, narration, cueText, leadFrames, bad
 
 // ---------- captions ----------
 // Caption chunks of a brainrot scene (spec 5.4). A chunk closes after CAPTION_WORDS words or
-// after a word whose text ends in a mark; each chunk lasts until the next one starts.
+// after a word whose text ends in a mark, and before a word that would take its text over the
+// character cap of the format (captionChars: the band draws one line). A word longer than the cap
+// is a chunk alone. Each chunk lasts until the next one starts.
 
 const CAPTION_WORDS = 3;
 const CAPTION_BREAK = /[.,;:?!]$/;
 
 // `words`: the words of a words file (seconds from the clip start); frames are scene-relative.
-const captionChunks = (words, leadFrames) => {
+// `captionChars`: the cap of a chunk's text, its words joined by one space, without backticks;
+// null (the explainer row) is no cap.
+const captionChunks = (words, leadFrames, captionChars) => {
+  const cap = captionChars ?? Infinity;
   const frame = (seconds) => leadFrames + Math.round(seconds * FPS);
   const groups = [];
   let open = [];
   for (const word of words) {
     const text = word.text.replaceAll("`", "");
+    if (open.length > 0 && charLength([...open.map((w) => w.text), text].join(" ")) > cap) {
+      groups.push(open);
+      open = [];
+    }
     open.push({ text, from: frame(word.from), to: frame(word.to) });
     if (open.length === CAPTION_WORDS || CAPTION_BREAK.test(text)) {
       groups.push(open);
@@ -524,7 +534,7 @@ const captionChunks = (words, leadFrames) => {
 // captions alike, whether a scene reads a words file. `wordsDir`: the directory of durations.json,
 // where those files live.
 const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) => {
-  const { leadFrames, tailFrames, wordTimed } = limits;
+  const { leadFrames, tailFrames, wordTimed, captionChars } = limits;
   const clips = isObject(durations?.scenes) ? durations.scenes : {};
   let from = 0;
   const out = [];
@@ -581,7 +591,7 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
       audioFrames: clipFrames,
       audio: `audio/${scene.id}.${engine}.wav`,
       cueFrames,
-      ...(timing && { captions: captionChunks(timing.words, leadFrames) }),
+      ...(timing && { captions: captionChunks(timing.words, leadFrames, captionChars) }),
     });
     from += durationInFrames;
   });
