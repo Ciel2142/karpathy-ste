@@ -28,7 +28,23 @@ from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT
 BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 CLIP = EXPLAIN / "tests" / "fixtures" / "bg-1s.mp4"
 SEED = "7"  # fixes the clip choice and start, whatever the caller's environment holds
-SCENES = 4  # the scenes of the brainrot template
+TEMPLATE_SCENES = json.loads(BRAINROT_TEMPLATE.read_text(encoding="utf-8"))["scenes"]
+SCENES = len(TEMPLATE_SCENES)
+# The prop that lists the cues of a component with one cue per item (build-timeline.mjs cuesOf).
+CUE_LISTS = {"bullets-appear": "bullets", "diagram-with-highlight-walk": "walk",
+             "code-with-line-highlights": "highlights"}
+
+
+def template_cues(scene):
+    """The cues of a template scene, read from the template the way build-timeline.mjs cuesOf
+    reads them: the one cue of a title or before-after scene, else one per listed item; only
+    non-empty strings count."""
+    props = scene.get("props", {})
+    if scene["component"] in ("title", "before-after"):
+        raw = [props.get("cue")]
+    else:
+        raw = [item.get("cue") for item in props.get(CUE_LISTS.get(scene["component"], ""), [])]
+    return [cue for cue in raw if isinstance(cue, str) and cue]
 
 # The ten stage lines of a brainrot run, in order; background is the one that differs per run.
 ORDER = [
@@ -102,6 +118,7 @@ class BrainrotRenderCase(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         lines = stage_lines(run.stdout)
         self.assertEqual([line.split(":")[0].split(" ")[0] for line in lines], list(STAGES), run.stdout)
+        self.assertEqual(len(ORDER), len(STAGES), "ORDER and STAGES disagree; zip would drop lines")
         for line, pattern in zip(lines, ORDER):
             self.assertRegex(line, "^%s$" % (pattern or BACKGROUND[kind]))
         return out
@@ -148,18 +165,19 @@ class BrainrotRenderCase(unittest.TestCase):
                 self.assertIn("<dt>Format</dt><dd>brainrot (1080×1920)</dd>", page)
                 self.assertIn("<dt>Background</dt><dd>%s</dd>" % BACKGROUND_ROW[kind], page)
 
-    # red: stills only for the scenes (the cue stills dropped), or a still in the wrong dir
+    # red: stills only for the scenes (the cue stills dropped), a still in the wrong dir, or a
+    # timeline that lost a scene or a cue of the template (the expected names come from the
+    # template, not from the render's own timeline.json)
     def test_stills_present(self):
+        expected = set()
+        for n, scene in enumerate(TEMPLATE_SCENES, 1):
+            expected.add("still-%02d-%s.png" % (n, scene["id"]))
+            for k in range(1, len(template_cues(scene)) + 1):
+                expected.add("still-%02d-%s-%d.png" % (n, scene["id"], k))
         for kind in ("generated", "clip"):
             with self.subTest(background=kind):
                 out, run = render_brainrot(kind)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                timeline = json.loads((out / "build" / "timeline.json").read_text(encoding="utf-8"))
-                expected = set()
-                for n, scene in enumerate(timeline["scenes"], 1):
-                    expected.add("still-%02d-%s.png" % (n, scene["id"]))
-                    for k in range(1, len(scene["cueFrames"]) + 1):
-                        expected.add("still-%02d-%s-%d.png" % (n, scene["id"], k))
                 found = {p.name for p in (out / "review").glob("*.png")}
                 self.assertEqual(found, expected)
                 self.assertGreater(len(expected), SCENES)
