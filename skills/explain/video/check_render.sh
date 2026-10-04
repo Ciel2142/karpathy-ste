@@ -23,7 +23,7 @@
 # emptied: "stills: FAIL review dir must be named review: <review-dir>", exit 1.
 #
 # The audio track goes to build/rendered-audio.wav next to the mp4. The review dir is
-# emptied first, then holds one still per scene at from + leadFrames
+# emptied first, then holds one still per scene at from + max(leadFrames, FADE_FRAMES)
 # (still-NN-<scene-id>.png) and one per cue at cueFrame + 15, clamped to the scene's last
 # frame (still-NN-<scene-id>-<k>.png, k in frame order). A still for frame N is taken at
 # (N - 0.5) / fps s: "-ss t" returns the first frame at or after t.
@@ -32,6 +32,10 @@
 set -eu
 
 STILL_AFTER_CUE=15
+# The frames FadeIn of src/sceneBody.tsx takes to bring a scene to full opacity: a scene still
+# is taken no earlier, so a short lead (brainrot, 6) does not catch the panel mid-fade. The
+# explainer lead (15) is longer, so its stills do not move.
+FADE_FRAMES=8
 
 usage() {
     echo "usage: check_render.sh <video.mp4> <timeline.json> <review-dir>" >&2
@@ -74,14 +78,14 @@ remo() {
 # "<fps> <totalFrames> <width> <height>", then "<frame> <still name>" per still, in scene and
 # frame order.
 read_timeline() {
-    python3 - "$timeline" "$STILL_AFTER_CUE" <<'PY'
+    python3 - "$timeline" "$STILL_AFTER_CUE" "$FADE_FRAMES" <<'PY'
 import json, sys
 t = json.load(open(sys.argv[1], encoding="utf-8"))
-after = int(sys.argv[2])
+after, fade = int(sys.argv[2]), int(sys.argv[3])
 print(t["fps"], t["totalFrames"], t["width"], t["height"])
 for n, s in enumerate(t["scenes"], 1):
     start, last = s["from"], s["from"] + s["durationInFrames"] - 1
-    print(start + s["leadFrames"], "still-%02d-%s.png" % (n, s["id"]))
+    print(start + max(s["leadFrames"], fade), "still-%02d-%s.png" % (n, s["id"]))
     for k, cue in enumerate(sorted(s["cueFrames"].values()), 1):
         print(min(start + cue + after, last), "still-%02d-%s-%d.png" % (n, s["id"], k))
 PY

@@ -8,6 +8,7 @@ needs EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from video_e2e import E2E, E2E_REASON, EXPLAIN, render_fixture
 
 CHECK_RENDER = EXPLAIN / "video" / "check_render.sh"
 VERIFY_SYNC = EXPLAIN / "video" / "verify_sync.py"
+SCENE_BODY = EXPLAIN / "video" / "src" / "sceneBody.tsx"
 RATE = 16000
 FPS = 30
 
@@ -189,6 +191,61 @@ class ContainerSizeCase(unittest.TestCase):
         run = self.check(1080, 1920, "")
         self.assertEqual((run.returncode, run.stdout),
                          (1, "container: FAIL size none, expected 1080x1920\n"), run.stderr)
+
+
+class StillFramesCase(unittest.TestCase):
+    """read_timeline of check_render.sh, run on its own with the script's top-level constants:
+    the frame and the name of every still, without a render."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="check-render-frames-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def still_frames(self, scenes, width, height):
+        """The lines read_timeline prints for a 30 fps timeline of `scenes`."""
+        source = CHECK_RENDER.read_text(encoding="utf-8")
+        constants = "".join(re.findall(r"^[A-Z_]+=\S+.*\n", source, re.M))
+        function = re.search(r"^read_timeline\(\) \{\n.*?^\}\n", source, re.M | re.S)
+        self.assertIsNotNone(function, "no read_timeline() in check_render.sh")
+        timeline = self.tmp / "timeline.json"
+        total = scenes[-1]["from"] + scenes[-1]["durationInFrames"]
+        timeline.write_text(json.dumps({"fps": FPS, "totalFrames": total, "width": width,
+                                        "height": height, "scenes": scenes}), encoding="utf-8")
+        run = subprocess.run(
+            ["/bin/bash", "-c", "set -eu\n%s%s\ntimeline=%s\nread_timeline\n"
+             % (constants, function.group(0), timeline)],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.splitlines()
+
+    @staticmethod
+    def scene(scene_id, start, lead, cues):
+        return {"id": scene_id, "from": start, "durationInFrames": 300, "leadFrames": lead,
+                "cueFrames": cues}
+
+    # red: the scene still taken at from + leadFrames, so a brainrot still (lead 6) catches the
+    # panel mid-fade (FadeIn runs 8 frames)
+    def test_lead_6_scene_still_after_the_fade(self):
+        lines = self.still_frames([self.scene("hook", 0, 6, {"x": 50}),
+                                   self.scene("checks", 300, 6, {})], 1080, 1920)
+        self.assertEqual(lines, ["30 600 1080 1920", "8 still-01-hook.png", "65 still-01-hook-1.png",
+                                 "308 still-02-checks.png"])
+
+    # red: the explainer (lead 15) still moved, which would change the landscape stills
+    def test_lead_15_scene_still_unchanged(self):
+        lines = self.still_frames([self.scene("one", 0, 15, {"b": 100, "a": 40}),
+                                   self.scene("two", 300, 15, {"c": 290})], 1280, 720)
+        self.assertEqual(lines, ["30 600 1280 720", "15 still-01-one.png", "55 still-01-one-1.png",
+                                 "115 still-01-one-2.png", "315 still-02-two.png",
+                                 "599 still-02-two-1.png"])
+
+    # red: FADE_FRAMES missing, or no longer the length of FadeIn in sceneBody.tsx
+    def test_fade_frames_is_the_fade_in_length(self):
+        fade = re.search(r"interpolate\(frame, \[0, (\d+)\]", SCENE_BODY.read_text(encoding="utf-8"))
+        self.assertIsNotNone(fade, "no FadeIn interpolate in sceneBody.tsx")
+        constant = re.search(r"^FADE_FRAMES=(\d+)\b", CHECK_RENDER.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(constant, "no FADE_FRAMES in check_render.sh")
+        self.assertEqual(constant.group(1), fade.group(1))
 
 
 @unittest.skipUnless(E2E, E2E_REASON)
