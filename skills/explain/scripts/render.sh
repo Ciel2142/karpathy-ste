@@ -32,7 +32,8 @@
 #   container: ok (<s> s)                   \
 #   sync: ok                                 > video/check_render.sh
 #   stills (<n>): ok <review-dir>           /
-#   transcript: ok                          transcript.py --narrator, then verify.sh
+#   transcript: ok                          transcript.py --narrator (a brainrot run also
+#                                           --background, read from the timeline), then verify.sh
 # A failing stage prints "<stage>: FAIL <cause>" and, below it, the tool's output indented
 # by two spaces (render: the last 40 log lines). The cost lines of video-workspace.sh and
 # the lines of narrate.sh (a FALLBACK line among them) are printed indented as they come, and
@@ -310,10 +311,29 @@ stage_checks() {
     "$video/check_render.sh" "$out/video.mp4" "$out/build/timeline.json" "$out/review" || exit 1
 }
 
+# The Background row of a brainrot transcript, from the timeline the picker wrote:
+# "<file> @ <start %.1f> s" plus " (loop)" for a looping clip, or "generated". The space after
+# the @ is the transcript's; the stage line of the picker has none.
+background_text() {
+    python3 - "$1" <<'PY'
+import json, sys
+b = json.load(open(sys.argv[1], encoding="utf-8"))["background"]
+if b["kind"] == "generated":
+    print("generated")
+else:
+    print("%s @ %.1f s%s" % (b["file"], b["start"], " (loop)" if b["loop"] else ""))
+PY
+}
+
 stage_transcript() {
-    local narrator
+    local narrator timeline="$out/build/timeline.json" background bg_args=()
     narrator=$(narrator_text "$used" "$fallback")
-    run_tool transcript python3 "$video/transcript.py" "$script" "$out" --narrator "$narrator"
+    if [ "$fmt" = "brainrot" ]; then
+        background=$(background_text "$timeline") || fail "transcript: FAIL cannot read $timeline"
+        bg_args=(--background "$background")
+    fi
+    run_tool transcript python3 "$video/transcript.py" "$script" "$out" --narrator "$narrator" \
+        ${bg_args[@]+"${bg_args[@]}"}
     run_tool transcript "$scripts/verify.sh" "$out/index.html"
     echo "transcript: ok"
 }

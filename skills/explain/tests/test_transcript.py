@@ -320,6 +320,64 @@ class OutputTest(TranscriptCase):
         self.assertIn("<dt>Narrator</dt><dd>kokoro</dd>", self.generate(script, "--narrator", "kokoro"))
         self.assertIn("<dt>Narrator</dt><dd>pending</dd>", self.generate(script))
 
+    def brainrot(self):
+        script = self.retargeted()
+        script["format"] = "brainrot"
+        return script
+
+    def test_brainrot_rows_and_portrait_video(self):
+        """Red: the Format or Background row missing or in the wrong order, the portrait class
+        not on the video element, or the flag value not written into the Background row."""
+        text = self.generate(self.brainrot(), "--background", "bg-1s.mp4 @ 0.0 s (loop)")
+        self.assertIn("<div><dt>Format</dt><dd>brainrot (1080\u00d71920)</dd></div>", text)
+        self.assertIn("<div><dt>Background</dt><dd>bg-1s.mp4 @ 0.0 s (loop)</dd></div>", text)
+        self.assertLess(text.index("<dt>Narrator</dt>"), text.index("<dt>Format</dt>"))
+        self.assertLess(text.index("<dt>Format</dt>"), text.index("<dt>Background</dt>"))
+        page = parse(text)
+        self.assertEqual(page.video["class"], "portrait")
+        self.assertEqual(page.video["src"], "video.mp4")
+        self.assertIn("controls", page.video)
+        self.assertFalse(page.video["inside_section"])
+
+    def test_brainrot_background_pending_by_default(self):
+        """Red: the default of --background is not "pending" (or the row is left out)."""
+        text = self.generate(self.brainrot())
+        self.assertIn("<div><dt>Background</dt><dd>pending</dd></div>", text)
+
+    def test_brainrot_background_is_escaped(self):
+        """Red: the --background value written without html.escape (a clip name can hold
+        & < > or quotes)."""
+        text = self.generate(self.brainrot(), "--background", '<b>Run & "Go".mp4 @ 0.0 s')
+        self.assertNotIn("<b>Run", text)
+        self.assertIn("<dd>%s</dd>" % html.escape('<b>Run & "Go".mp4 @ 0.0 s', quote=True), text)
+
+    def test_explainer_page_has_no_format_row(self):
+        """Red: the Format or Background row, a video class, or a whitespace line left where
+        {{format_rows}} sits in the explainer page; also for a --background flag on an
+        explainer script, and for a script that names its format "explainer"."""
+        explicit = self.retargeted()
+        explicit["format"] = "explainer"
+        for script, extra in ((self.retargeted(), ()), (explicit, ()),
+                              (self.retargeted(), ("--background", "x.mp4 @ 0.0 s"))):
+            text = self.generate(script, *extra)
+            self.assertNotIn("<dt>Format</dt>", text)
+            self.assertNotIn("<dt>Background</dt>", text)
+            self.assertNotIn("x.mp4", text)
+            self.assertIn('<video controls src="video.mp4"></video>', text)
+            self.assertIn("<dt>Narrator</dt><dd>pending</dd></div>\n    </dl>", text)
+            self.assertNotIn("class", parse(text).video)
+
+    def test_brainrot_transcript_passes_verify(self):
+        """Red: a Format or Background row, or the portrait video, that makes the page fail the
+        self-contained, citations or prose check of verify.sh (the rows sit in the
+        data-ste="skip" dl, so the prose check does not lint them)."""
+        self.generate(self.brainrot(), "--background", "bg-1s.mp4 @ 0.0 s (loop)")
+        run = subprocess.run([str(VERIFY_SH), str(self.out / "index.html")],
+                             capture_output=True, text=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines(),
+                         ["self-contained: ok", "citations: ok", "prose: ok"])
+
     def test_footer_rows_and_provenance_attributes(self):
         """Red: a footer row missing, or data-root or data-kind not taken from the script."""
         script = self.retargeted()
@@ -364,7 +422,7 @@ class UsageTest(TranscriptCase):
         bad = self.dir / "bad.json"
         bad.write_text("{not json", encoding="utf-8")
         for args in ([], [str(bad)], [str(bad), str(self.out)], [str(self.dir / "absent.json"), str(self.out)],
-                     [str(bad), str(self.out), "--narrator"]):
+                     [str(bad), str(self.out), "--narrator"], [str(bad), str(self.out), "--background"]):
             proc = self.run_tool(*args)
             self.assertEqual(proc.returncode, 2, (args, proc.stderr))
             self.assertEqual(proc.stdout, "")

@@ -133,6 +133,64 @@ class ReviewDirNameCase(unittest.TestCase):
         self.assertFalse((tmp / "stills").exists())
 
 
+class ContainerSizeCase(unittest.TestCase):
+    """The size check of check_container against a fake Remotion CLI: no workspace, no render.
+    The fake answers each ffprobe query by its -show_entries list and fails any other tool."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="check-render-size-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        cli = self.tmp / "ws" / "app" / "node_modules" / ".bin" / "remotion"
+        cli.parent.mkdir(parents=True)
+        cli.write_text(
+            "#!/bin/bash\n"
+            'case "$*" in\n'
+            '  *"stream=codec_type,codec_name"*) printf "h264,video\\naac,audio\\n" ;;\n'
+            '  *"-select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x"*)\n'
+            '    echo "$FAKE_SIZE" ;;\n'
+            '  *"format=duration"*) echo 1.000 ;;\n'
+            "  *) exit 1 ;;\n"
+            "esac\n", encoding="utf-8")
+        cli.chmod(0o755)
+        (self.tmp / "video.mp4").write_bytes(b"fake")
+
+    def check(self, width, height, size):
+        timeline = self.tmp / "timeline.json"
+        timeline.write_text(json.dumps({"fps": 30, "totalFrames": 30, "width": width, "height": height,
+                                        "scenes": []}), encoding="utf-8")
+        return subprocess.run(
+            ["/bin/bash", str(CHECK_RENDER), str(self.tmp / "video.mp4"), str(timeline),
+             str(self.tmp / "review")],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "EXPLAIN_VIDEO_WORKSPACE": str(self.tmp / "ws"), "FAKE_SIZE": size})
+
+    # red: the size is not compared, or compared with a constant instead of the timeline's size.
+    # The real ffprobe prints "1280x720x" (a trailing separator); the plain form is also read.
+    def test_size_other_than_the_timeline_fails(self):
+        for width, height, size in ((1080, 1920, "1280x720"), (1280, 720, "1080x1920")):
+            for shape in ("%sx", "%s"):
+                with self.subTest(size=size, shape=shape):
+                    run = self.check(width, height, shape % size)
+                    self.assertEqual((run.returncode, run.stdout),
+                                     (1, "container: FAIL size %s, expected %dx%d\n" % (size, width, height)),
+                                     run.stderr)
+
+    # red: the ok line changed, or a size equal to the timeline's rejected (the trailing separator
+    # of the real ffprobe left in the compared text)
+    def test_size_equal_to_the_timeline_passes_with_the_unchanged_ok_line(self):
+        for width, height in ((1080, 1920), (1280, 720)):
+            for shape in ("%dx%dx", "%dx%d"):
+                with self.subTest(size="%dx%d" % (width, height), shape=shape):
+                    run = self.check(width, height, shape % (width, height))
+                    self.assertEqual(run.stdout.splitlines()[0], "container: ok (1.00 s)", run.stdout)
+
+    # red: an empty ffprobe answer reported as a size, or passed
+    def test_empty_ffprobe_size_fails_as_none(self):
+        run = self.check(1080, 1920, "")
+        self.assertEqual((run.returncode, run.stdout),
+                         (1, "container: FAIL size none, expected 1080x1920\n"), run.stderr)
+
+
 @unittest.skipUnless(E2E, E2E_REASON)
 class CheckRenderCase(unittest.TestCase):
     @classmethod
@@ -161,6 +219,16 @@ class CheckRenderCase(unittest.TestCase):
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertEqual(len(run.stdout.splitlines()), 1, run.stdout)
         self.assertRegex(run.stdout, r"^container: FAIL duration \d+\.\d\d s, expected \d+\.\d\d s\n$")
+
+    # red: the frame size not compared with the timeline's width and height. The fixture render is
+    # 1280x720; the copy of its timeline names 1080x1920 and the shared files stay untouched.
+    def test_container_size_mismatch_fails(self):
+        timeline = dict(self.timeline, width=1080, height=1920)
+        path = self.tmp / "timeline.json"
+        path.write_text(json.dumps(timeline), encoding="utf-8")
+        run = self.check(path, self.tmp / "review")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(run.stdout, "container: FAIL size 1280x720, expected 1080x1920\n")
 
     # red: lead tolerance 2 s
     def test_shifted_speech_is_sync_fail(self):

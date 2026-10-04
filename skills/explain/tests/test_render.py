@@ -1,7 +1,8 @@
 """Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script).
 
-StageFunctionCase runs stage_narration and stage_background of render.sh against fake tools (the
-format -> --speed mapping, the picker's lines, exit codes and stderr). The stage-1 tests need no
+StageFunctionCase runs stage_narration, stage_background and stage_transcript of render.sh against
+fake tools (the format -> --speed mapping, the picker's lines, exit codes and stderr, the
+--background text of the transcript). The stage-1 tests need no
 workspace: they fail before any tool that needs one runs. A fake
 npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant that
 gets past stage 1 fails fast instead of installing. The end-to-end class renders the
@@ -178,8 +179,8 @@ def render_functions(names):
 
 
 class StageFunctionCase(unittest.TestCase):
-    """stage_narration and stage_background of render.sh, run against fake tools: no workspace,
-    no render."""
+    """stage_narration, stage_background and stage_transcript of render.sh, run against fake
+    tools: no workspace, no render."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="render-stage-test-"))
@@ -194,14 +195,15 @@ class StageFunctionCase(unittest.TestCase):
         path.write_text("#!/bin/bash\n" + body, encoding="utf-8")
         path.chmod(0o755)
 
-    def run_stage(self, stage, fmt, env=None):
-        """Run `stage` of render.sh with format `fmt`; every fake tool appends its argv to calls."""
-        functions = render_functions(["fail", "stream", stage])
+    def run_stage(self, stage, fmt, env=None, helpers=("fail", "stream"), setup=""):
+        """Run `stage` of render.sh with format `fmt`, after the shell text `setup`; every fake
+        tool appends its argv to calls. `helpers` are the other functions the stage calls."""
+        functions = render_functions([*helpers, stage])
         script = (
             "set -eu\n" + functions +
             'out=%(t)s/out video=%(t)s/video scripts=%(t)s/scripts script=%(t)s/out/script.json\n'
             'ws=%(t)s/ws app=%(t)s/ws/app remotion=%(t)s/ws/app/remote-cli engine=say fmt=%(fmt)s\n'
-            '%(stage)s\n' % {"t": self.tmp, "fmt": fmt, "stage": stage})
+            '%(setup)s\n%(stage)s\n' % {"t": self.tmp, "fmt": fmt, "stage": stage, "setup": setup})
         run_env = {k: v for k, v in os.environ.items()
                    if k not in ("EXPLAIN_BRAINROT_BACKGROUNDS", "EXPLAIN_BRAINROT_SEED")}
         run_env.update(env or {})
@@ -295,6 +297,81 @@ class StageFunctionCase(unittest.TestCase):
         run = self.run_stage("stage_background", "brainrot")
         self.assertEqual((run.returncode, run.stdout),
                          (1, "background: FAIL pick_background.py printed no result\n"))
+
+    TRANSCRIPT_HELPERS = ("fail", "first_cause", "run_tool", "narrator_text", "background_text")
+
+    def fake_transcript_tools(self):
+        """A transcript.py that logs its argv as one JSON list a line, and a passing verify.sh."""
+        (self.tmp / "video" / "transcript.py").write_text(
+            "import json, sys\nwith open(%r, 'a') as log:\n    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            % str(self.calls), encoding="utf-8")
+        self.fake(self.tmp / "scripts" / "verify.sh", "exit 0\n")
+
+    def run_transcript(self, fmt, background=None, raw=None):
+        """stage_transcript for `fmt`, with `background` in build/timeline.json (or the file
+        text `raw`); returns (run, the argv lists transcript.py was called with)."""
+        self.fake_transcript_tools()
+        timeline = self.tmp / "out" / "build" / "timeline.json"
+        if raw is not None:
+            timeline.write_text(raw, encoding="utf-8")
+        else:
+            body = {"format": fmt}
+            if background is not None:
+                body["background"] = background
+            timeline.write_text(json.dumps(body), encoding="utf-8")
+        run = self.run_stage("stage_transcript", fmt, helpers=self.TRANSCRIPT_HELPERS,
+                             setup="used=say fallback=")
+        calls = []
+        if self.calls.exists():
+            calls = [json.loads(line) for line in self.calls.read_text(encoding="utf-8").splitlines()]
+        return run, calls
+
+    def transcript_args(self, *background):
+        return ["%s/out/script.json" % self.tmp, "%s/out" % self.tmp, "--narrator", "say", *background]
+
+    # red: a brainrot run passes no --background, or a text other than "<file> @ <start %.1f> s"
+    # plus " (loop)" for a looping clip (the space after @ is the spec's; the stage line has none)
+    def test_brainrot_transcript_gets_the_clip_background_with_loop(self):
+        clip = {"kind": "clip", "file": "My Run & 4K.MP4", "src": "bg/clip.mp4", "start": 12.345,
+                "seconds": 40.0, "loop": True}
+        run, calls = self.run_transcript("brainrot", clip)
+        self.assertEqual((run.returncode, run.stdout), (0, "transcript: ok\n"), run.stderr)
+        self.assertEqual(calls, [self.transcript_args("--background", "My Run & 4K.MP4 @ 12.3 s (loop)")])
+
+    # red: " (loop)" written for a clip that does not loop
+    def test_brainrot_transcript_clip_without_loop_has_no_suffix(self):
+        clip = {"kind": "clip", "file": "bg-1s.mp4", "src": "bg/clip.mp4", "start": 0.0,
+                "seconds": 1.0, "loop": False}
+        run, calls = self.run_transcript("brainrot", clip)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(calls, [self.transcript_args("--background", "bg-1s.mp4 @ 0.0 s")])
+
+    # red: a generated background written as a clip row, or left "pending"
+    def test_brainrot_transcript_gets_generated(self):
+        run, calls = self.run_transcript("brainrot", {"kind": "generated"})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(calls, [self.transcript_args("--background", "generated")])
+
+    # red: the explainer gains --background (its page would get a Background row), or reads the
+    # timeline's background
+    def test_explainer_transcript_has_no_background_flag(self):
+        for background in (None, {"kind": "generated"}):
+            with self.subTest(background=background):
+                self.calls.unlink(missing_ok=True)
+                run, calls = self.run_transcript("explainer", background)
+                self.assertEqual((run.returncode, run.stdout), (0, "transcript: ok\n"), run.stderr)
+                self.assertEqual(calls, [self.transcript_args()])
+
+    # red: a brainrot timeline without a readable background goes on to the page with "pending"
+    def test_brainrot_transcript_fails_on_a_timeline_without_background(self):
+        timeline = "%s/out/build/timeline.json" % self.tmp
+        for raw in (None, "{not json"):
+            with self.subTest(raw=raw):
+                self.calls.unlink(missing_ok=True)
+                run, calls = self.run_transcript("brainrot", None, raw)
+                self.assertEqual((run.returncode, run.stdout),
+                                 (1, "transcript: FAIL cannot read %s\n" % timeline), run.stderr)
+                self.assertEqual(calls, [])
 
 
 ORDER = [
