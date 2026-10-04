@@ -4,23 +4,53 @@
 //   build-timeline.mjs --check <script.json> --root <data-root>
 //       validate; exit 0 silently, or one "FAIL <where>: <cause>" line per cause and exit 1
 //   build-timeline.mjs <script.json> <durations.json> <engine> <out.json> [--root <data-root>]
-//       write the timeline JSON for the Remotion app (engine: say | kokoro)
+//       write the timeline JSON for the Remotion app (engine: say | kokoro); it starts with the
+//       format, canvas and length budgets, and its lead and tail frames come from the format
 //
 // Exit 2 on a usage error. FAIL lines go to stdout. Build mode does not re-run the
 // budgets: render.sh runs --check first.
+//
+// script.json may carry "format": "explainer" (the default when absent) or "brainrot".
+// Every per-format limit lives in the FORMATS table below.
+//
+// A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
+// scene (engine is the one actually used, so a Kokoro run that fell back to say reads
+// <id>.say.words.json). It holds the sentence and word times of the narration in seconds
+// from the clip start; each cue frame is its sentence start. Each brainrot scene also gets
+//   "captions": [{ "from", "to", "words": [{ "text", "from", "to" }] }]
+// chunks of up to three words that tile the speech without gaps, in frames from the scene start
+// (text is the narration token without its backticks). A brainrot build adds these FAIL lines
+// (prefix "FAIL scene <id>: ", <file> is that words file):
+//   cannot read <file>: <code>              file missing or unreadable
+//   <file> is not valid JSON: <message>
+//   <file> has a bad shape at <where>       <where> is e.g. words[3].to or sentences
+//   <file> has <n> words, the narration has <m>
+//   <file> word <i> is "<text>", the narration has "<token>"
+//   <file> ends at <t> s, after the clip end <s> s
+//   cue "<cue>" does not start a sentence in <file>
+// An explainer build reads no words file.
 import fs from "node:fs";
 import path from "node:path";
 
 const FPS = 30;
-const WIDTH = 1280;
-const HEIGHT = 720;
-const LEAD_FRAMES = 15;
-const TAIL_FRAMES = 36;
 const MIN_CUE_GAP = 15;
-const MAX_NARRATION_WORDS = 45;
-const MAX_CODE_LINES = 14;
-const MAX_COLUMNS = 72;
 const TAB_COLUMNS = 4;
+// Limits per format. The brainrot values are the spec starting values; tune them here only.
+// wordTimed: build mode reads words files, takes cue frames from them and writes captions.
+const FORMATS = {
+  explainer: {
+    width: 1280, height: 720, minScenes: 3, maxScenes: 8, maxSceneSeconds: 60, maxTotalSeconds: 150,
+    maxNarrationWords: 45, leadFrames: 15, tailFrames: 36, codeLines: 14, codeColumns: 72,
+    bulletText: 36, beforeAfterLines: 10, beforeAfterLineChars: 36, beforeAfterHeading: 36,
+    diagramLabel: 14, diagramSub: 24, titleTitle: 50, titleSubtitle: 80, wordTimed: false,
+  },
+  brainrot: {
+    width: 1080, height: 1920, minScenes: 3, maxScenes: 6, maxSceneSeconds: 30, maxTotalSeconds: 90,
+    maxNarrationWords: 45, leadFrames: 6, tailFrames: 12, codeLines: 14, codeColumns: 40,
+    bulletText: 28, beforeAfterLines: 5, beforeAfterLineChars: 30, beforeAfterHeading: 30,
+    diagramLabel: 12, diagramSub: 20, titleTitle: 30, titleSubtitle: 60, wordTimed: true,
+  },
+};
 const ENGINES = ["say", "kokoro"];
 const KINDS = ["file", "directory", "topic", "conversation"];
 const SCENE_ID = /^[a-z0-9][a-z0-9-]*$/; // the id names audio files and stills
@@ -64,26 +94,32 @@ const arr = (item, min = 0, max = Infinity) => ({ t: "arr", item, min, max });
 const obj = (shape) => ({ t: "obj", shape });
 const cell = { t: "cell" };
 
-const SHAPES = {
-  title: { title: str(50), subtitle: str(80), cue },
-  "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(36), cue }), 2, 4) },
-  "diagram-with-highlight-walk": {
-    title: str(Infinity),
-    nodes: arr(obj({ id: str(Infinity), label: str(14), sub: str(24, true), cell }), 2, 7),
-    edges: arr(obj({ from: str(Infinity), to: str(Infinity), label: str(10, true) })),
-    walk: arr(obj({ node: str(Infinity), cue })),
-  },
-  "code-with-line-highlights": {
-    title: str(Infinity),
-    source: obj({ path: str(Infinity), from: int, to: int }),
-    highlights: arr(obj({ from: int, to: int, cue })),
-  },
-  "before-after": {
-    title: str(Infinity),
-    before: obj({ heading: str(36), lines: arr(str(36, true), 0, 10) }),
-    after: obj({ heading: str(36), lines: arr(str(36, true), 0, 10) }),
-    cue,
-  },
+// The shapes of one format: every limit comes from its FORMATS row.
+const shapesFor = (limits) => {
+  const side = obj({
+    heading: str(limits.beforeAfterHeading),
+    lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
+  });
+  return {
+    title: { title: str(limits.titleTitle), subtitle: str(limits.titleSubtitle), cue },
+    "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(limits.bulletText), cue }), 2, 4) },
+    "diagram-with-highlight-walk": {
+      title: str(Infinity),
+      nodes: arr(
+        obj({ id: str(Infinity), label: str(limits.diagramLabel), sub: str(limits.diagramSub, true), cell }),
+        2,
+        7,
+      ),
+      edges: arr(obj({ from: str(Infinity), to: str(Infinity), label: str(10, true) })),
+      walk: arr(obj({ node: str(Infinity), cue })),
+    },
+    "code-with-line-highlights": {
+      title: str(Infinity),
+      source: obj({ path: str(Infinity), from: int, to: int }),
+      highlights: arr(obj({ from: int, to: int, cue })),
+    },
+    "before-after": { title: str(Infinity), before: side, after: side, cue },
+  };
 };
 
 // Cues of a component in the order its author listed them (defensive: props may be malformed).
@@ -107,37 +143,49 @@ const cuesOf = (component, props) => {
 // Own keys only: a JSON key such as "constructor" or "__proto__" must not match an inherited name.
 const has = (object, key) => Object.hasOwn(object, key);
 
+// The script's format: "explainer" when the key is absent, else the raw value (possibly invalid).
+const formatOf = (script) => (has(script, "format") ? script.format : "explainer");
+const knownFormat = (format) => typeof format === "string" && has(FORMATS, format);
+// An invalid format validates against the explainer limits.
+const limitsFor = (format) => (knownFormat(format) ? FORMATS[format] : FORMATS.explainer);
+// Suffix of every FAIL line that names a limit: nothing for explainer, ", brainrot" for brainrot.
+const tagOf = (format) => (knownFormat(format) && format !== "explainer" ? `, ${format}` : "");
+
+const SHAPES_BY_FORMAT = Object.fromEntries(Object.entries(FORMATS).map(([name, limits]) => [name, shapesFor(limits)]));
+// An invalid format validates against the explainer shapes.
+const shapesOf = (format) => SHAPES_BY_FORMAT[knownFormat(format) ? format : "explainer"];
+
 // Check a value against a spec; `fail(cause)` records one cause.
-const checkSpec = (value, spec, where, fail) => {
+const checkSpec = (value, spec, where, fail, tag = "") => {
   if (spec.t === "str") {
     if (typeof value !== "string") return fail(`${where} must be a string`);
     if (value === "" && !spec.empty) return fail(`${where} is empty`);
     const n = charLength(value);
-    if (n > spec.max) fail(`${where} is ${n} chars (max ${spec.max})`);
+    if (n > spec.max) fail(`${where} is ${n} chars (max ${spec.max}${tag})`);
   } else if (spec.t === "int") {
     if (!isInt(value)) fail(`${where} must be an integer`);
   } else if (spec.t === "cell") {
     if (!CELLS.includes(value)) fail(`${where} ${q(value)} must be one of a1 to c3`);
   } else if (spec.t === "obj") {
-    checkShape(value, spec.shape, where, fail);
+    checkShape(value, spec.shape, where, fail, tag);
   } else if (spec.t === "arr") {
     if (!Array.isArray(value)) return fail(`${where} must be an array`);
     if (value.length < spec.min || value.length > spec.max) {
       const range = spec.max === Infinity ? `at least ${spec.min}` : `${spec.min} to ${spec.max}`;
-      fail(`${where} has ${value.length} items (needs ${range})`);
+      fail(`${where} has ${value.length} items (needs ${range}${tag})`);
     }
-    value.forEach((item, i) => checkSpec(item, spec.item, `${where}[${i}]`, fail));
+    value.forEach((item, i) => checkSpec(item, spec.item, `${where}[${i}]`, fail, tag));
   }
 };
 
-const checkShape = (value, shape, where, fail) => {
+const checkShape = (value, shape, where, fail, tag = "") => {
   if (!isObject(value)) return fail(`${where || "props"} must be an object`);
   const at = (key) => (where ? `${where}.${key}` : key);
   for (const [key, spec] of Object.entries(shape)) {
     if (!has(value, key)) {
       if (!spec.optional) fail(`missing prop ${q(at(key))}`);
     } else {
-      checkSpec(value[key], spec, at(key), fail);
+      checkSpec(value[key], spec, at(key), fail, tag);
     }
   }
   for (const key of Object.keys(value)) if (!has(shape, key)) fail(`unexpected prop ${q(at(key))}`);
@@ -197,11 +245,13 @@ const sourceOk = (props) =>
   isInt(props.source.from) &&
   isInt(props.source.to);
 
-const checkCode = (props, root, fail) => {
+const checkCode = (props, root, fail, limits, tag) => {
   if (!sourceOk(props)) return;
   const { path: file, from, to } = props.source;
   if (from < 1 || from > to) return fail(`source range ${from}-${to} is not a valid line range`);
-  if (to - from + 1 > MAX_CODE_LINES) fail(`source range ${from}-${to} is ${to - from + 1} lines (max ${MAX_CODE_LINES})`);
+  if (to - from + 1 > limits.codeLines) {
+    fail(`source range ${from}-${to} is ${to - from + 1} lines (max ${limits.codeLines}${tag})`);
+  }
   if (outsideRoot(file)) return fail(`source.path ${q(file)} must be a relative path inside the data root`);
   let lines;
   try {
@@ -214,7 +264,7 @@ const checkCode = (props, root, fail) => {
   } else {
     for (let n = from; n <= to; n++) {
       const cols = columns(lines[n - 1]);
-      if (cols > MAX_COLUMNS) fail(`line ${n} is ${cols} columns (max ${MAX_COLUMNS})`);
+      if (cols > limits.codeColumns) fail(`line ${n} is ${cols} columns (max ${limits.codeColumns}${tag})`);
     }
   }
   list(props.highlights).forEach((h, i) => {
@@ -269,7 +319,7 @@ const checkCites = (cites, subjectKind, fail) => {
 
 const SCENE_KEYS = ["id", "component", "props", "narration", "cites"];
 
-const checkScene = (scene, where, root, subjectKind, report) => {
+const checkScene = (scene, where, root, subjectKind, report, limits, shapes, tag) => {
   const fail = (cause) => report(where, cause);
   if (!isObject(scene)) return fail("must be an object");
   for (const key of SCENE_KEYS) if (!(key in scene) && key !== "cites") fail(`missing ${q(key)}`);
@@ -281,22 +331,22 @@ const checkScene = (scene, where, root, subjectKind, report) => {
 
   if ("narration" in scene) {
     if (typeof scene.narration !== "string" || scene.narration.trim() === "") fail("narration is empty");
-    else if (wordCount(scene.narration) > MAX_NARRATION_WORDS) {
-      fail(`narration is ${wordCount(scene.narration)} words (max ${MAX_NARRATION_WORDS})`);
+    else if (wordCount(scene.narration) > limits.maxNarrationWords) {
+      fail(`narration is ${wordCount(scene.narration)} words (max ${limits.maxNarrationWords}${tag})`);
     }
   }
   checkCites(scene.cites ?? [], subjectKind, fail);
 
   if ("component" in scene) {
-    const known = typeof scene.component === "string" && has(SHAPES, scene.component);
-    const shape = known ? SHAPES[scene.component] : undefined;
+    const known = typeof scene.component === "string" && has(shapes, scene.component);
+    const shape = known ? shapes[scene.component] : undefined;
     if (!shape) return fail(`unknown component ${q(scene.component)}`);
     if ("props" in scene) {
-      checkShape(scene.props, shape, "", fail);
+      checkShape(scene.props, shape, "", fail, tag);
       if (isObject(scene.props)) {
         checkCues(scene, fail);
         if (scene.component === "diagram-with-highlight-walk") checkDiagram(scene.props, fail);
-        if (scene.component === "code-with-line-highlights") checkCode(scene.props, root, fail);
+        if (scene.component === "code-with-line-highlights") checkCode(scene.props, root, fail, limits, tag);
       }
     }
   }
@@ -314,8 +364,9 @@ const validDate = (s) => {
 const checkHeader = (script, report) => {
   const fail = (cause) => report("script", cause);
   for (const key of Object.keys(script)) {
-    if (!["title", "subject", "provenance", "scenes"].includes(key)) fail(`unexpected key ${q(key)}`);
+    if (!["format", "title", "subject", "provenance", "scenes"].includes(key)) fail(`unexpected key ${q(key)}`);
   }
+  if (!knownFormat(formatOf(script))) fail("format must be explainer or brainrot");
   checkSpec(script.title, str(Infinity), "title", fail);
   checkShape(script.subject, { text: str(Infinity), kind: str(Infinity) }, "subject", fail);
   if (isObject(script.subject) && typeof script.subject.kind === "string" && !KINDS.includes(script.subject.kind)) {
@@ -340,12 +391,18 @@ const validate = (script, root) => {
   const report = (where, cause) => lines.push(`FAIL ${where}: ${cause}`);
   if (!isObject(script)) return ["FAIL script: top level must be an object"];
   checkHeader(script, report);
+  const format = formatOf(script);
+  const limits = limitsFor(format);
+  const shapes = shapesOf(format);
+  const tag = tagOf(format);
   if (!Array.isArray(script.scenes)) {
     report("script", "scenes must be an array");
     return lines;
   }
   const count = script.scenes.length;
-  if (count < 3 || count > 8) report("script", `${count} scenes (needs 3 to 8)`);
+  if (count < limits.minScenes || count > limits.maxScenes) {
+    report("script", `${count} scenes (needs ${limits.minScenes} to ${limits.maxScenes}${tag})`);
+  }
   const kind = script.subject?.kind;
   const seen = new Set();
   script.scenes.forEach((scene, i) => {
@@ -354,14 +411,118 @@ const validate = (script, root) => {
       if (seen.has(id)) report("script", `duplicate scene id ${q(id)}`);
       seen.add(id);
     }
-    checkScene(scene, sceneWhere(scene, i), root, kind, report);
+    checkScene(scene, sceneWhere(scene, i), root, kind, report, limits, shapes, tag);
   });
   return lines;
 };
 
+// ---------- words ----------
+// <id>.<engine>.words.json (spec 5.2): { sentences: [{from, to}], words: [{text, from, to}] },
+// seconds from the clip start. words[i].text is the i-th narration token, verbatim.
+
+// Seconds of slack for the producer's rounding: sentence-start matches and the clip end.
+const WORDS_TOLERANCE = 0.001;
+const tokensOf = (narration) => narration.split(/\s+/).filter(Boolean);
+const isSeconds = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+// Where the words object breaks the shape, or "" when it holds.
+const wordsShapeError = (value) => {
+  if (!isObject(value)) return "top level";
+  for (const key of ["sentences", "words"]) {
+    const items = value[key];
+    if (!Array.isArray(items)) return key;
+    for (let i = 0; i < items.length; i++) {
+      const at = `${key}[${i}]`;
+      const item = items[i];
+      if (!isObject(item)) return at;
+      if (key === "words" && typeof item.text !== "string") return `${at}.text`;
+      if (!isSeconds(item.from)) return `${at}.from`;
+      if (!isSeconds(item.to) || item.to < item.from) return `${at}.to`;
+      if (key === "words" && i > 0 && items[i - 1].to > item.from) return `${at}.from`;
+    }
+  }
+  return "";
+};
+
+// The words file of scene `id` next to durations.json, checked against the narration and the clip.
+// Reports one cause through `bad` and returns undefined on the first failure.
+const readWords = (dir, id, engine, narration, clipSeconds, bad) => {
+  const file = `${id}.${engine}.words.json`;
+  const stop = (cause) => {
+    bad(cause);
+  };
+  let text;
+  try {
+    text = fs.readFileSync(path.join(dir, file), "utf8");
+  } catch (err) {
+    return stop(`cannot read ${file}: ${err.code ?? err.message}`);
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (err) {
+    return stop(`${file} is not valid JSON: ${err.message}`);
+  }
+  const where = wordsShapeError(value);
+  if (where) return stop(`${file} has a bad shape at ${where}`);
+  const { sentences, words } = value;
+  const tokens = tokensOf(narration);
+  if (words.length !== tokens.length) return stop(`${file} has ${words.length} words, the narration has ${tokens.length}`);
+  const i = words.findIndex((w, k) => w.text !== tokens[k]);
+  if (i >= 0) return stop(`${file} word ${i} is ${q(words[i].text)}, the narration has ${q(tokens[i])}`);
+  const end = words.at(-1)?.to;
+  if (end > clipSeconds + WORDS_TOLERANCE) return stop(`${file} ends at ${end} s, after the clip end ${clipSeconds} s`);
+  return { file, sentences, words };
+};
+
+// The frame (relative to the scene start) of the sentence that `cueText` starts, or undefined
+// after reporting that no sentence starts at the cue's first word. `file` only names the cause.
+const cueFrameFromWords = (words, sentences, narration, cueText, leadFrames, bad, file) => {
+  const [offset] = cueMatches(narration, cueText);
+  const start = words[tokensOf(narration.slice(0, offset)).length]?.from;
+  const sentence = sentences.find((s) => Math.abs(s.from - start) <= WORDS_TOLERANCE);
+  if (sentence === undefined) {
+    bad(`cue ${q(cueText)} does not start a sentence in ${file}`);
+    return undefined;
+  }
+  return leadFrames + Math.round(sentence.from * FPS);
+};
+
+// ---------- captions ----------
+// Caption chunks of a brainrot scene (spec 5.4). A chunk closes after CAPTION_WORDS words or
+// after a word whose text ends in a mark; each chunk lasts until the next one starts.
+
+const CAPTION_WORDS = 3;
+const CAPTION_BREAK = /[.,;:?!]$/;
+
+// `words`: the words of a words file (seconds from the clip start); frames are scene-relative.
+const captionChunks = (words, leadFrames) => {
+  const frame = (seconds) => leadFrames + Math.round(seconds * FPS);
+  const groups = [];
+  let open = [];
+  for (const word of words) {
+    const text = word.text.replaceAll("`", "");
+    open.push({ text, from: frame(word.from), to: frame(word.to) });
+    if (open.length === CAPTION_WORDS || CAPTION_BREAK.test(text)) {
+      groups.push(open);
+      open = [];
+    }
+  }
+  if (open.length > 0) groups.push(open);
+  return groups.map((group, i) => ({
+    from: group[0].from,
+    to: i + 1 < groups.length ? groups[i + 1][0].from : group.at(-1).to,
+    words: group,
+  }));
+};
+
 // ---------- build mode ----------
 
-const buildScenes = (script, durations, engine, root, fail) => {
+// `limits`: the FORMATS row of the script's format; its wordTimed flag decides, for cue frames and
+// captions alike, whether a scene reads a words file. `wordsDir`: the directory of durations.json,
+// where those files live.
+const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) => {
+  const { leadFrames, tailFrames, wordTimed } = limits;
   const clips = isObject(durations?.scenes) ? durations.scenes : {};
   let from = 0;
   const out = [];
@@ -386,6 +547,8 @@ const buildScenes = (script, durations, engine, root, fail) => {
         return bad(`source.path ${props.source.path} cannot be read under the data root`);
       }
     }
+    const timing = wordTimed ? readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad) : undefined;
+    if (wordTimed && timing === undefined) return;
     const cueFrames = {};
     let previous = null;
     for (const cueText of cuesOf(scene.component, scene.props)) {
@@ -394,7 +557,10 @@ const buildScenes = (script, durations, engine, root, fail) => {
         bad(`cue ${q(cueText)} is not in the narration`);
         continue;
       }
-      const frame = LEAD_FRAMES + Math.round((hits[0] / scene.narration.length) * clipFrames);
+      const frame = timing
+        ? cueFrameFromWords(timing.words, timing.sentences, scene.narration, cueText, leadFrames, bad, timing.file)
+        : leadFrames + Math.round((hits[0] / scene.narration.length) * clipFrames);
+      if (frame === undefined) continue;
       // The 15-frame distance is checked here, not by --check: it needs the real clip length.
       if (previous !== null && frame - previous < MIN_CUE_GAP) {
         bad(`cue ${q(cueText)} is ${frame - previous} frames after the previous cue (minimum ${MIN_CUE_GAP})`);
@@ -402,17 +568,18 @@ const buildScenes = (script, durations, engine, root, fail) => {
       cueFrames[cueText] = frame;
       previous = frame;
     }
-    const durationInFrames = LEAD_FRAMES + clipFrames + TAIL_FRAMES;
+    const durationInFrames = leadFrames + clipFrames + tailFrames;
     out.push({
       id: scene.id,
       component: scene.component,
       props,
       from,
       durationInFrames,
-      leadFrames: LEAD_FRAMES,
+      leadFrames,
       audioFrames: clipFrames,
       audio: `audio/${scene.id}.${engine}.wav`,
       cueFrames,
+      ...(timing && { captions: captionChunks(timing.words, leadFrames) }),
     });
     from += durationInFrames;
   });
@@ -461,12 +628,18 @@ const main = () => {
   const durations = readJson(durationsFile, "durations");
   const failures = [script.fail, durations.fail].filter(Boolean);
   if (failures.length > 0) finish(failures);
-  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line));
+  const format = isObject(script.value) ? formatOf(script.value) : "explainer";
+  if (!knownFormat(format)) finish(["FAIL script: format must be explainer or brainrot"]);
+  const limits = FORMATS[format];
+  const wordsDir = path.dirname(durationsFile);
+  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line), limits, wordsDir);
   if (failures.length > 0) finish(failures);
   const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
+  const { width, height, maxSceneSeconds, maxTotalSeconds } = limits;
+  const timeline = { format, fps: FPS, width, height, totalFrames, maxSceneSeconds, maxTotalSeconds, engine, scenes };
   try {
     fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
-    fs.writeFileSync(outFile, JSON.stringify({ fps: FPS, width: WIDTH, height: HEIGHT, totalFrames, engine, scenes }, null, 2) + "\n");
+    fs.writeFileSync(outFile, JSON.stringify(timeline, null, 2) + "\n");
   } catch (err) {
     finish([`FAIL script: cannot write ${outFile}: ${err.code ?? err.message}`]);
   }

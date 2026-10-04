@@ -536,12 +536,14 @@ class TestBuild(VideoCase):
         _, timeline = self.build(self.two_scene_script(), {"intro": 5.0, "flow": 5.0}, "kokoro")
         self.assertEqual(
             list(timeline),
-            ["fps", "width", "height", "totalFrames", "engine", "scenes"],
+            ["format", "fps", "width", "height", "totalFrames", "maxSceneSeconds", "maxTotalSeconds", "engine", "scenes"],
         )
         self.assertEqual(
             (timeline["fps"], timeline["width"], timeline["height"], timeline["engine"]),
             (30, 1280, 720, "kokoro"),
         )
+        self.assertEqual(timeline["format"], "explainer")
+        self.assertEqual((timeline["maxSceneSeconds"], timeline["maxTotalSeconds"]), (60, 150))
         self.assertEqual(timeline["scenes"][0]["audio"], "audio/intro.kokoro.wav")
 
     def test_cue_frame_is_proportional(self):
