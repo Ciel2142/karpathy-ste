@@ -16,8 +16,11 @@
 // A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
 // scene (engine is the one actually used, so a Kokoro run that fell back to say reads
 // <id>.say.words.json). It holds the sentence and word times of the narration in seconds
-// from the clip start; each cue frame is its sentence start. Besides the cue lines above,
-// a brainrot build adds these lines (prefix "FAIL scene <id>: ", <file> is that words file):
+// from the clip start; each cue frame is its sentence start. Each brainrot scene also gets
+//   "captions": [{ "from", "to", "words": [{ "text", "from", "to" }] }]
+// chunks of up to three words that tile the speech without gaps, in frames from the scene start
+// (text is the narration token without its backticks). A brainrot build adds these FAIL lines
+// (prefix "FAIL scene <id>: ", <file> is that words file):
 //   cannot read <file>: <code>              file missing or unreadable
 //   <file> is not valid JSON: <message>
 //   <file> has a bad shape at <where>       <where> is e.g. words[3].to or sentences
@@ -33,18 +36,19 @@ const FPS = 30;
 const MIN_CUE_GAP = 15;
 const TAB_COLUMNS = 4;
 // Limits per format. The brainrot values are the spec starting values; tune them here only.
+// wordTimed: build mode reads words files, takes cue frames from them and writes captions.
 const FORMATS = {
   explainer: {
     width: 1280, height: 720, minScenes: 3, maxScenes: 8, maxSceneSeconds: 60, maxTotalSeconds: 150,
     maxNarrationWords: 45, leadFrames: 15, tailFrames: 36, codeLines: 14, codeColumns: 72,
     bulletText: 36, beforeAfterLines: 10, beforeAfterLineChars: 36, beforeAfterHeading: 36,
-    diagramLabel: 14, diagramSub: 24, titleTitle: 50, titleSubtitle: 80,
+    diagramLabel: 14, diagramSub: 24, titleTitle: 50, titleSubtitle: 80, wordTimed: false,
   },
   brainrot: {
     width: 1080, height: 1920, minScenes: 3, maxScenes: 6, maxSceneSeconds: 30, maxTotalSeconds: 90,
     maxNarrationWords: 45, leadFrames: 6, tailFrames: 12, codeLines: 14, codeColumns: 40,
     bulletText: 28, beforeAfterLines: 5, beforeAfterLineChars: 30, beforeAfterHeading: 30,
-    diagramLabel: 12, diagramSub: 20, titleTitle: 30, titleSubtitle: 60,
+    diagramLabel: 12, diagramSub: 20, titleTitle: 30, titleSubtitle: 60, wordTimed: true,
   },
 };
 const ENGINES = ["say", "kokoro"];
@@ -484,12 +488,41 @@ const cueFrameFromWords = (words, sentences, narration, cueText, leadFrames, bad
   return leadFrames + Math.round(sentence.from * FPS);
 };
 
+// ---------- captions ----------
+// Caption chunks of a brainrot scene (spec 5.4). A chunk closes after CAPTION_WORDS words or
+// after a word whose text ends in a mark; each chunk lasts until the next one starts.
+
+const CAPTION_WORDS = 3;
+const CAPTION_BREAK = /[.,;:?!]$/;
+
+// `words`: the words of a words file (seconds from the clip start); frames are scene-relative.
+const captionChunks = (words, leadFrames) => {
+  const frame = (seconds) => leadFrames + Math.round(seconds * FPS);
+  const groups = [];
+  let open = [];
+  for (const word of words) {
+    const text = word.text.replaceAll("`", "");
+    open.push({ text, from: frame(word.from), to: frame(word.to) });
+    if (open.length === CAPTION_WORDS || CAPTION_BREAK.test(text)) {
+      groups.push(open);
+      open = [];
+    }
+  }
+  if (open.length > 0) groups.push(open);
+  return groups.map((group, i) => ({
+    from: group[0].from,
+    to: i + 1 < groups.length ? groups[i + 1][0].from : group.at(-1).to,
+    words: group,
+  }));
+};
+
 // ---------- build mode ----------
 
-// `wordsDir`: the directory of durations.json, where a brainrot build finds the words files.
+// `limits`: the FORMATS row of the script's format; its wordTimed flag decides, for cue frames and
+// captions alike, whether a scene reads a words file. `wordsDir`: the directory of durations.json,
+// where those files live.
 const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) => {
-  const { leadFrames, tailFrames } = limits;
-  const brainrot = isObject(script) && formatOf(script) === "brainrot";
+  const { leadFrames, tailFrames, wordTimed } = limits;
   const clips = isObject(durations?.scenes) ? durations.scenes : {};
   let from = 0;
   const out = [];
@@ -514,8 +547,8 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
         return bad(`source.path ${props.source.path} cannot be read under the data root`);
       }
     }
-    const timing = brainrot ? readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad) : undefined;
-    if (brainrot && timing === undefined) return;
+    const timing = wordTimed ? readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad) : undefined;
+    if (wordTimed && timing === undefined) return;
     const cueFrames = {};
     let previous = null;
     for (const cueText of cuesOf(scene.component, scene.props)) {
@@ -546,6 +579,7 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
       audioFrames: clipFrames,
       audio: `audio/${scene.id}.${engine}.wav`,
       cueFrames,
+      ...(timing && { captions: captionChunks(timing.words, leadFrames) }),
     });
     from += durationInFrames;
   });

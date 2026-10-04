@@ -303,6 +303,14 @@ class TestBrainrotBuild(BrainrotBuildCase):
             "FAIL scene flow: cannot read flow.say.words.json: ENOENT",
         )
 
+    def test_brainrot_builds_with_kokoro_words_files(self):
+        """Red: the words file name hard-codes say, so a kokoro build cannot find <id>.kokoro.words.json."""
+        script = self.two_scene_brainrot()
+        result, timeline = self.build_brainrot(script, {"intro": 3.0, "flow": 4.5}, "kokoro")
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(timeline["engine"], "kokoro")
+        self.assertEqual(timeline["scenes"][0]["audio"], "audio/intro.kokoro.wav")
+
     def test_brainrot_missing_words_file_fails(self):
         """Red: a missing words file builds with estimated cue frames."""
         script = self.two_scene_brainrot()
@@ -449,6 +457,99 @@ class TestBrainrotBuild(BrainrotBuildCase):
             self.write_words(scene["id"], "say", words_for(scene["narration"]))
         self.write_words("intro", "say", intro_words)
         return self.build(script, {"intro": 3.0, "flow": 4.5})
+
+
+class TestBrainrotCaptions(BrainrotBuildCase):
+    NARRATION = "The router picks a handler. The handler replies."
+
+    def test_caption_chunk_words(self):
+        """Red: chunks hold more or fewer than 3 words, or a sentence end does not close a chunk."""
+        captions = self.captions_of()
+        self.assertEqual(
+            [[w["text"] for w in c["words"]] for c in captions],
+            [["The", "router", "picks"], ["a", "handler."], ["The", "handler", "replies."]],
+        )
+
+    def test_caption_chunks_tile(self):
+        """Red: a chunk ends at its own last word instead of the next chunk's start (a gap)."""
+        captions = self.captions_of()
+        for here, after in zip(captions, captions[1:]):
+            self.assertEqual(here["to"], after["from"])
+        self.assertEqual(captions[-1]["to"], captions[-1]["words"][-1]["to"])
+        for chunk in captions:
+            self.assertEqual(chunk["from"], chunk["words"][0]["from"])
+        # "handler." ends at 1.5 s (frame 51), the next sentence starts at 1.7 s: 6 + 51 = 57.
+        self.assertEqual((captions[1]["words"][-1]["to"], captions[1]["to"]), (51, 57))
+
+    def test_caption_word_frames(self):
+        """Red: seconds convert with floor (7) or ceil, or the lead is not added: 6 + Math.round(7.5) is 14."""
+
+        def start_late(words):
+            words["words"][0].update({"from": 0.25, "to": 0.3})
+            words["sentences"][0]["from"] = 0.25
+
+        first = self.captions_of(mutate_words=start_late)[0]["words"][0]
+        self.assertEqual((first["text"], first["from"], first["to"]), ("The", 14, 15))
+
+    def test_caption_words_cover_narration(self):
+        """Red: a chunk drops or repeats a word, or a chunk edge loses one."""
+        narration = "The `verify.sh` script runs. It stops, then `render.sh` starts."
+        captions = self.captions_of(narration, self.title_props("The `verify.sh` script"))
+        tokens = narration.replace("`", "").split()
+        self.assertEqual([w["text"] for c in captions for w in c["words"]], tokens)
+
+    def test_caption_text_has_no_backticks(self):
+        """Red: the caption keeps the backticks of the token, or drops the dots of the name."""
+        captions = self.captions_of("The `verify.sh` script runs.", self.title_props("The `verify.sh` script"))
+        self.assertEqual(captions[0]["words"][1]["text"], "verify.sh")
+
+    def test_caption_break_after_comma(self):
+        """Red: a comma does not close a chunk."""
+        captions = self.captions_of("First, the check runs.", self.title_props("First"))
+        self.assertEqual(
+            [[w["text"] for w in c["words"]] for c in captions], [["First,"], ["the", "check", "runs."]]
+        )
+
+    def test_caption_break_after_each_mark(self):
+        """Red: one of . , ; : ? ! is missing from the set that closes a chunk."""
+        for mark in ".,;:?!":
+            with self.subTest(mark=mark):
+                captions = self.captions_of("One%s two three four" % mark, self.title_props("One"))
+                self.assertEqual(
+                    [[w["text"] for w in c["words"]] for c in captions],
+                    [["One" + mark], ["two", "three", "four"]],
+                )
+
+    def test_caption_break_looks_at_the_text_without_backticks(self):
+        """Red: the mark check reads the raw token, whose last character is a backtick."""
+        captions = self.captions_of("See `a,` then b c d.", self.title_props("See"))
+        self.assertEqual(
+            [[w["text"] for w in c["words"]] for c in captions],
+            [["See", "a,"], ["then", "b", "c"], ["d."]],
+        )
+
+    # -- helpers --
+    def title_props(self, cue):
+        return {"title": "T", "subtitle": "S", "cue": cue}
+
+    def captions_of(self, narration=None, props=None, mutate_words=None):
+        """Build the two-scene brainrot script with `narration` (and title `props`) in scene intro and
+        return the captions of intro. Words are 0.3 s each with 0.2 s between sentences."""
+        script = self.two_scene_brainrot()
+        intro = self.scene(script, "intro")
+        if narration is not None:
+            intro["narration"] = narration
+        if props is not None:
+            intro["component"], intro["props"] = "title", props
+        words = words_for(intro["narration"], 0.3, 0.2)
+        if mutate_words is not None:
+            mutate_words(words)
+        for scene in script["scenes"]:
+            self.write_words(scene["id"], "say", words_for(scene["narration"]))
+        self.write_words("intro", "say", words)
+        result, timeline = self.build(script, {"intro": 6.0, "flow": 4.5})
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        return timeline["scenes"][0]["captions"]
 
 
 class TestWordsFixture(unittest.TestCase):
