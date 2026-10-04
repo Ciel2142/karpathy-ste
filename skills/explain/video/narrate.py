@@ -114,6 +114,15 @@ def sidecar_matches(sidecar, engine, text, mode):
     return sidecar.read_bytes().decode("utf-8") == sidecar_text(engine, text, mode)
 
 
+def words_match(words_path, text):
+    """True when words_path parses as a words.json whose word texts are exactly text.split()."""
+    try:
+        words = json.loads(words_path.read_text(encoding="utf-8"))["words"]
+        return [word["text"] for word in words] == text.split()
+    except (OSError, ValueError, KeyError, TypeError):   # missing, unreadable, not JSON, or the wrong shape
+        return False
+
+
 def spoken(text):
     """The text the engine reads: a code name in backticks is spoken as plain text."""
     return text.replace("`", "")
@@ -258,8 +267,12 @@ def join_clips(clips, out, gap_s):
                 joined.writeframes(silence)
                 position += gap
             with wave.open(str(clip), "rb") as src:
-                frames = src.getnframes()
-                joined.writeframes(src.readframes(frames))
+                size = src.getsampwidth() * src.getnchannels()
+                data = src.readframes(src.getnframes())
+            # The span comes from the frames actually read, not the header's count, and a partial
+            # trailing frame is dropped, so a truncated clip keeps every later span exact.
+            frames = len(data) // size
+            joined.writeframes(data[:frames * size])
             spans.append((position, position + frames))
             position += frames
     return rate, spans
@@ -294,26 +307,38 @@ def narrate(scenes, engine, audio_dir, mode):
     """Make or reuse one WAV per scene; return { id: seconds } after the sample-rate check.
 
     mode is "scene" (the narration is one clip) or "sentences" (one clip per sentence, joined,
-    with a words.json next to the WAV).
+    with a words.json next to the WAV). A clip is reused when its WAV exists and its sidecar
+    matches; in sentences mode its words.json must also exist, parse, and hold exactly the words
+    of the narration, because sentence spans cannot be recovered from a joined WAV (a clip that
+    fails this is re-made whole, never patched). Before a clip is re-made its sidecar and
+    words.json are removed; the files are written WAV, words.json, then the sidecar last (after
+    the rate check), and a failed sentence removes the WAV and words.json again, so a half-made
+    clip never looks current and captions never read old timings. In scene mode any words.json
+    beside the clip is a leftover of an earlier brainrot run and is removed, reused clip or not.
     """
     audio_dir.mkdir(parents=True, exist_ok=True)
     seconds = {}
     for scene in scenes:
         sid, text = scene["id"], scene["narration"]
         wav = audio_dir / f"{sid}.{engine.name}.wav"
-        sidecar = wav.with_suffix(".txt")
+        sidecar, words_path = wav.with_suffix(".txt"), wav.with_suffix(".words.json")
         reused = wav.is_file() and sidecar_matches(sidecar, engine, text, mode)
+        if mode == "sentences":
+            reused = reused and words_match(words_path, text)
+        else:
+            words_path.unlink(missing_ok=True)
         if not reused:
-            sidecar.unlink(missing_ok=True)   # a half-made clip must never look current
+            sidecar.unlink(missing_ok=True)       # a half-made clip must never look current
+            words_path.unlink(missing_ok=True)    # nor pair a new WAV with old timings
             try:
                 if mode == "sentences":
                     words = synth_sentences(engine, text, wav)
-                    wav.with_suffix(".words.json").write_text(
-                        json.dumps(words, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    words_path.write_text(json.dumps(words, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 else:
                     engine.synth(text, wav)
             except SynthError as exc:
                 wav.unlink(missing_ok=True)
+                words_path.unlink(missing_ok=True)
                 raise engine.failure(sid, str(exc)) from exc
         rate = afinfo_rate(wav)
         if rate != engine.rate:

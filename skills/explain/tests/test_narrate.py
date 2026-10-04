@@ -139,7 +139,7 @@ class NarrateCase(unittest.TestCase):
 
     def stub_modules(self):
         stubs = self.tmp / "stubs"
-        stubs.mkdir()
+        stubs.mkdir(exist_ok=True)   # a test may run Kokoro more than once
         (stubs / "kokoro_onnx.py").write_text(STUB_KOKORO, encoding="utf-8")
         (stubs / "soundfile.py").write_text(STUB_SOUNDFILE, encoding="utf-8")
         for name in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
@@ -688,13 +688,118 @@ class Sentences(NarrateCase):
             self.assertEqual(round(entry["from"], 6), entry["from"])
             self.assertEqual(round(entry["to"], 6), entry["to"])
 
+    def narration_words(self, sid, engine):
+        return [w["text"] for w in self.words_json(sid, engine)["words"]]
 
-def wav_bytes(rate, frames, width=2, channels=1, extra_chunk=b""):
-    """A PCM WAV by hand; extra_chunk (a full chunk, header included) sits between fmt and data."""
+    def test_missing_words_json_resynthesizes(self):
+        """Mutation: the reuse check looks at the WAV and sidecar only, so a clip whose words.json
+        was deleted is reused with no word times."""
+        script = self.brainrot(scene("one", f"{ONE} {TWO}"))
+        self.assertEqual(self.shell(script, "--engine", "say").returncode, 0)
+        words = self.audio / "one.say.words.json"
+        words.unlink()
+        run = self.shell(script, "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertRegex(run.stdout.splitlines()[0], r"^narration: one say .* \(synthesized\)$")
+        self.assertTrue(words.is_file(), "the words file is back")
+        self.assertEqual(self.narration_words("one", "say"), f"{ONE} {TWO}".split())
+
+    def test_stale_words_json_resynthesizes(self):
+        """Mutation: the reuse check only tests that words.json exists, so another narration's words ship."""
+        script = self.brainrot(scene("one", f"{ONE} {TWO}"))
+        self.assertEqual(self.shell(script, "--engine", "say").returncode, 0)
+        words = self.audio / "one.say.words.json"
+        stale = {"sentences": [{"from": 0.0, "to": 1.0}],
+                 "words": [{"text": "Something", "from": 0.0, "to": 0.5}, {"text": "else.", "from": 0.5, "to": 1.0}]}
+        words.write_text(json.dumps(stale), encoding="utf-8")
+        run = self.shell(script, "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertRegex(run.stdout.splitlines()[0], r"^narration: one say .* \(synthesized\)$")
+        self.assertEqual(self.narration_words("one", "say"), f"{ONE} {TWO}".split())
+
+    def test_unusable_words_json_resynthesizes(self):
+        """Mutation: an unparseable or wrongly shaped words.json crashes the reuse check or counts as current."""
+        script = self.brainrot(scene("one", ONE))
+        self.assertEqual(self.run_kokoro(script).returncode, 0)
+        words = self.audio / "one.kokoro.words.json"
+        for label, content in (
+            ("not json", "{ nope"), ("empty file", ""), ("a list", "[]"), ("no words key", "{}"),
+            ("words not a list", '{"words": 5}'), ("word not an object", '{"words": [1, 2]}'),
+            ("word without text", '{"words": [{"from": 0.0}, {"from": 1.0}]}'),
+        ):
+            with self.subTest(label):
+                words.write_text(content, encoding="utf-8")
+                run = self.run_kokoro(script)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertRegex(run.stdout.splitlines()[0], r"\(synthesized\)$")
+                self.assertEqual(self.narration_words("one", "kokoro"), ONE.split())
+
+    def test_reuse_keeps_wav_and_words(self):
+        """Mutation: a reused clip is rewritten, or its words.json is deleted and rebuilt on every run."""
+        script = self.brainrot(scene("one", f"{ONE} {TWO}"))
+        self.assertEqual(self.shell(script, "--engine", "say").returncode, 0)
+        files = [self.audio / "one.say.wav", self.audio / "one.say.words.json", self.audio / "one.say.txt"]
+        before = [(f.stat().st_ino, f.stat().st_mtime_ns) for f in files]
+        run = self.shell(script, "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertRegex(run.stdout.splitlines()[0], r"^narration: one say .* \(reused\)$")
+        self.assertEqual([(f.stat().st_ino, f.stat().st_mtime_ns) for f in files], before)
+
+    def test_failed_sentence_leaves_nothing(self):
+        """Mutation: the failed scene keeps its WAV, sidecar or words.json (or only the WAV is removed)."""
+        script = self.brainrot(scene("one", ONE), scene("two", "Fine. BOOM now."))
+        run = self.run_kokoro(script)
+        self.assertEqual(run.returncode, 3, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines()[-1], "narration: FAIL kokoro clip failed: two: stub exploded")
+        self.assertEqual(sorted(p.name for p in self.audio.glob("two.*")), [])
+        self.assertTrue((self.audio / "one.kokoro.words.json").is_file(), "the finished scene keeps its files")
+
+    def test_failed_resynthesis_removes_the_old_clip(self):
+        """Mutation: a scene that re-synthesises and fails leaves the previous run's words.json, which
+        then pairs with no WAV."""
+        self.assertEqual(self.run_kokoro(self.brainrot(scene("one", "Fine. Okay now."))).returncode, 0)
+        self.assertTrue((self.audio / "one.kokoro.words.json").is_file())
+        run = self.run_kokoro(self.brainrot(scene("one", "Fine. BOOM now.")))
+        self.assertEqual(run.returncode, 3, run.stdout + run.stderr)
+        self.assertEqual(sorted(p.name for p in self.audio.glob("one.*")), [])
+
+    def test_speed_reaches_every_sentence_and_the_sidecar(self):
+        """Mutation: the sentence path drops --speed (no -r, or one -r per scene), or the sidecar loses
+        the speed line before the mode line."""
+        env = self.rate_log_env()
+        run = self.shell(self.brainrot(scene("one", f"{ONE} {TWO}")), "--engine", "say", "--speed", "1.2", env=env)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.rate_log.read_text(encoding="utf-8"), "210\n210\n")
+        self.assertEqual(
+            (self.audio / "one.say.txt").read_text(encoding="utf-8"),
+            f"engine=say\nvoice=say-default\nspeed=1.2\nmode=sentences\n{ONE} {TWO}",
+        )
+
+    def test_explainer_run_removes_a_words_json_left_by_a_brainrot_run(self):
+        """Mutation: an explainer scene leaves a brainrot words.json beside its clip, whether the clip
+        is re-made (the earlier run was brainrot) or reused (the file was planted later)."""
+        brainrot_run = self.shell(self.brainrot(scene("one", ONE)), "--engine", "say")
+        self.assertEqual(brainrot_run.returncode, 0, brainrot_run.stdout + brainrot_run.stderr)
+        words = self.audio / "one.say.words.json"
+        self.assertTrue(words.is_file())
+        explainer = self.brainrot(scene("one", ONE), format="explainer")
+        run = self.shell(explainer, "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertRegex(run.stdout.splitlines()[0], r"\(synthesized\)$")
+        self.assertFalse(words.exists(), "re-made as a whole clip: no words file")
+        words.write_text('{"sentences": [], "words": []}', encoding="utf-8")
+        run = self.shell(explainer, "--engine", "say")
+        self.assertRegex(run.stdout.splitlines()[0], r"\(reused\)$")
+        self.assertFalse(words.exists(), "reused as a whole clip: the planted words file is removed")
+
+
+def wav_bytes(rate, frames, width=2, channels=1, extra_chunk=b"", claim_extra=0):
+    """A PCM WAV by hand; extra_chunk (a full chunk, header included) sits between fmt and data;
+    claim_extra makes the data chunk's header claim that many bytes more than the file holds."""
     data = frames
     fmt = struct.pack("<HHIIHH", 1, channels, rate, rate * width * channels, width * channels, width * 8)
     body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + extra_chunk
-    body += b"data" + struct.pack("<I", len(data)) + data
+    body += b"data" + struct.pack("<I", len(data) + claim_extra) + data
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
@@ -750,6 +855,24 @@ class JoinClips(unittest.TestCase):
         rate, spans = self.narrate.join_clips([a, b], self.out, 0.15)
         self.assertEqual((rate, spans), (22050, [(0, 40), (3348, 3388)]))
         self.assertEqual(len(self.read()[3]), 2 * 3388)
+
+    def test_join_spans_follow_the_frames_read_not_the_header(self):
+        """Mutation: a clip's span length comes from the header's frame count, so a truncated clip
+        (header claims 30 frames, data holds 10) shifts every later span past the audio."""
+        a = self.clip("a.wav", rate=1000, frames=b"\x01\x00" * 10, claim_extra=40)
+        b = self.clip("b.wav", rate=1000, frames=b"\x02\x00" * 5)
+        rate, spans = self.narrate.join_clips([a, b], self.out, 0.15)
+        self.assertEqual((rate, spans), (1000, [(0, 10), (160, 165)]))
+        self.assertEqual(len(self.read()[3]), 2 * 165, "the joined file holds exactly the span frames")
+
+    def test_join_drops_a_partial_trailing_frame(self):
+        """Mutation: a truncated clip that ends mid-frame keeps its stray byte, which shifts the next
+        clip's samples by one byte (and the file's frame count off the spans)."""
+        a = self.clip("a.wav", rate=1000, frames=b"\x01\x00" * 10 + b"\x07", claim_extra=40)
+        b = self.clip("b.wav", rate=1000, frames=b"\x02\x00" * 5)
+        _, spans = self.narrate.join_clips([a, b], self.out, 0.15)
+        self.assertEqual(spans, [(0, 10), (160, 165)])
+        self.assertEqual(self.read()[3], b"\x01\x00" * 10 + b"\x00\x00" * 150 + b"\x02\x00" * 5)
 
     def test_join_rejects_a_clip_that_differs_and_names_it(self):
         """Mutation: a clip with another rate, width or channel count is joined as if it matched."""
