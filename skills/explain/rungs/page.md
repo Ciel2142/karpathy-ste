@@ -25,7 +25,7 @@ on a page, write one step for each beat of the story.
 
 ## 3. Fill the template
 
-1. Copy `~/.claude/skills/explain/templates/page.html` to `<output-dir>/index.html`.
+1. Copy `<skill-dir>/templates/page.html` to `<output-dir>/index.html`.
 2. Write the page title in `<title>` and in `<h1>`.
 3. Copy the pattern that you need before you delete the demo content. Then delete the demo
    content and the HTML comments. Keep the CSS and script comments. Keep
@@ -107,18 +107,18 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
 ## 7. Verify and export
 
 Do these steps in the output directory, in this order.
-1. Run `~/.claude/skills/explain/scripts/verify.sh index.html`. All five lines must show `ok`:
+1. Run `<skill-dir>/scripts/verify.sh index.html`. All five lines must show `ok`:
    `self-contained`, `render 1440x900`, `render 500x844`, `citations` and `prose`. Fix each cause
    that the detail lines name.
-2. Run `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html page.png 1440 6000 1`.
+2. Run `SNAPSHOT_FRAGMENT=verify <skill-dir>/scripts/snapshot.sh index.html page.png 1440 6000 1`.
    It writes `page.png` and the tiles `review/page-01.png` and up. A page of 6000 px has six tiles.
    Tiles below the footer are blank. Find the tile that shows the footer. If no tile shows it, run
    the same command again with a larger height: 9000, then 12000, and so on. A page has no height
    limit. Never cut content to fit a render.
-3. Run `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html narrow.png 500 844 1`.
+3. Run `SNAPSHOT_FRAGMENT=verify <skill-dir>/scripts/snapshot.sh index.html narrow.png 500 844 1`.
    It writes `narrow.png` and `review/narrow-01.png`. This render shows the first screen only.
    If the page has a diagram, a table or the player below the first screen, also run
-   `SNAPSHOT_FRAGMENT=verify ~/.claude/skills/explain/scripts/snapshot.sh index.html narrow-tall.png 500 <H> 1`.
+   `SNAPSHOT_FRAGMENT=verify <skill-dir>/scripts/snapshot.sh index.html narrow-tall.png 500 <H> 1`.
    Find `<H>` with the footer rule of step 2. The page is taller at 500 px, thus `<H>` can be
    larger than the height of step 2. Read the tiles `review/narrow-tall-NN.png` that hold
    these parts.

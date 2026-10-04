@@ -8,7 +8,8 @@ argument-hint: "<subject> [--as ste|sheet|page|video]"
 # explain
 
 `explain` is a router. It resolves a subject, chooses a rung (a form of output), and builds
-the artifact. Only the user starts it, with `/explain`.
+the artifact. Only the user starts it, with `/explain`. `<skill-dir>` is the base directory of
+this skill, printed when it starts; the `ste` skill is its sibling `<skill-dir>/../ste`.
 
 ## Contract
 
@@ -69,7 +70,7 @@ names the flag and tells if the content fits the rung. Then follow these rules:
   (the title block of a sheet, the footer of a page). `Not covered` lists every facet
   that the artifact does not explain, for any reason.
 - The `ste` rung gives chat text only. It makes no output directory. Write that text under
-  the STE profile: read `~/.claude/skills/ste/SKILL.md` by path. The Build procedure
+  the STE profile: read `<skill-dir>/../ste/SKILL.md` by path. The Build procedure
   applies to the artifact rungs only.
 
 ## Conventions
@@ -118,13 +119,13 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 
 ## Build procedure
 
-1. Read `~/.claude/skills/ste/SKILL.md` by path. Write all prose under that profile.
-2. Read `~/.claude/skills/explain/rungs/<rung>.md` of the chosen rung only, and each section
+1. Read `<skill-dir>/../ste/SKILL.md` by path. Write all prose under that profile.
+2. Read `<skill-dir>/rungs/<rung>.md` of the chosen rung only, and each section
    that it names. For a video, the rung file replaces steps 3 to 6 (write `script.json`, run
    `render.sh`, read the stills).
 3. Write `index.html` in the output directory.
-4. Run `~/.claude/skills/explain/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
-5. Run `~/.claude/skills/explain/scripts/snapshot.sh` as the rung file shows. Read the
+4. Run `<skill-dir>/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
+5. Run `<skill-dir>/scripts/snapshot.sh` as the rung file shows. Read the
    review tiles. Never read the full render. Check the hierarchy and the layout.
    Check that no text gives a false picture.
 6. Fix each problem. Run steps 4 and 5 again.
@@ -132,9 +133,8 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
 
 ## Rung files
 
-- `~/.claude/skills/explain/rungs/sheet.md`: the sheet rung (canvas, panels, template,
+- `<skill-dir>/rungs/sheet.md`: the sheet rung (canvas, panels, template, snapshot arguments).
+- `<skill-dir>/rungs/page.md`: the page rung (sections, steps player, diagrams, template,
   snapshot arguments).
-- `~/.claude/skills/explain/rungs/page.md`: the page rung (sections, steps player, diagram
-  patterns, template, snapshot arguments).
-- `~/.claude/skills/explain/rungs/video.md`: the video rung (script, components, cue rule,
-  render pipeline, pinned versions).
+- `<skill-dir>/rungs/video.md`: the video rung (script, components, cue rule, render
+  pipeline, pinned versions).

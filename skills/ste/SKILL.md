@@ -176,7 +176,7 @@ Dropped candidates (not in the table):
 1. Draft the answer under this profile.
 2. For any text of more than five sentences, or any text that will land in an artifact or
    a document: write the draft to a temporary file, run
-   `python3 ~/.claude/skills/ste/scripts/ste_lint.py <file>`, and fix every error. Keep the
+   `python3 <skill-dir>/scripts/ste_lint.py <file>` (`<skill-dir>` is this skill's base directory), and fix every error. Keep the
    constructs listed under "Correct STE that looks wrong"; change everything else the
    warnings name. Then answer.
 3. Short chat answers skip the lint.

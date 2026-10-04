@@ -45,7 +45,7 @@ fi
 [ -f "$1" ] || { echo "check_render.sh: no such video: $1" >&2; exit 2; }
 [ -f "$2" ] || { echo "check_render.sh: no such timeline: $2" >&2; exit 2; }
 
-# The skill is reached through the ~/.claude/skills/explain symlink; pwd -P resolves it.
+# The skill may be reached through a symlink (~/.claude/skills/explain); pwd -P resolves it.
 self="$0"
 case "$self" in */*) ;; *) self="./$self" ;; esac
 video_dir=$(cd "${self%/*}" && pwd -P)

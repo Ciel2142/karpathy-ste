@@ -37,7 +37,9 @@ set -u
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 SCRIPTS=$(cd "$(dirname "$0")" && pwd -P)
 CITE_CHECK="$SCRIPTS/cite_check.py"
-STE_LINT="$HOME/.claude/skills/ste/scripts/ste_lint.py"
+STE_LINT="$SCRIPTS/../../ste/scripts/ste_lint.py"
+# ste is the sibling skill (same repo or plugin); the personal-skill symlink is the fallback.
+[ -f "$STE_LINT" ] || STE_LINT="$HOME/.claude/skills/ste/scripts/ste_lint.py"
 
 work=""          # temp dir: one Chrome profile and one dump file per viewport
 chrome_pid=""

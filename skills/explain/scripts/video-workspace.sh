@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
 done
 case "$engine" in kokoro | say) ;; *) usage ;; esac
 
-# The skill is reached through the ~/.claude/skills/explain symlink; pwd -P resolves it.
+# The skill may be reached through a symlink (~/.claude/skills/explain); pwd -P resolves it.
 self="$0"
 case "$self" in */*) ;; *) self="./$self" ;; esac
 scripts=$(cd "${self%/*}" && pwd -P)

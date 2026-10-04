@@ -24,7 +24,7 @@ facets. Write `Not covered: none` if you dropped nothing.
 
 ## 3. Fill the template
 
-1. Copy `~/.claude/skills/explain/templates/sheet.html` to `<output-dir>/index.html`.
+1. Copy `<skill-dir>/templates/sheet.html` to `<output-dir>/index.html`.
 2. Write the sheet title in `<title>` and in `.tb-title`.
 3. Delete the demo content of each panel body. Delete the HTML comments; keep the CSS and
    script comments. Keep `<meta name="explain-rung" content="sheet">`: without it, `verify.sh`
@@ -131,10 +131,10 @@ Write all prose in STE-80. These notes come from the lint of the `ste` skill.
 ## 6. Verify and export
 
 Do these steps in the output directory, in this order.
-1. Run `~/.claude/skills/explain/scripts/verify.sh index.html`. All four lines must show
+1. Run `<skill-dir>/scripts/verify.sh index.html`. All four lines must show
    `ok`: `self-contained`, `render 1920x1080`, `citations` and `prose`. Fix each cause that
    the detail lines name.
-2. Run `~/.claude/skills/explain/scripts/snapshot.sh index.html sheet.png 1920 1080 2`. It writes
+2. Run `<skill-dir>/scripts/snapshot.sh index.html sheet.png 1920 1080 2`. It writes
    `sheet.png` (3840x2160) and the tiles `review/sheet-01.png` to `review/sheet-04.png`.
    The output directory then holds `index.html`, `sheet.png` and `review/sheet-01..04.png`.
 3. Read the four tiles with the Read tool. Never read `sheet.png`.

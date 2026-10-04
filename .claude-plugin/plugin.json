@@ -1,0 +1,12 @@
+{
+  "name": "karpathy-ste",
+  "description": "Two Claude Code skills: /ste (STE-80 Simplified Technical English profile and lint) and /explain (grounded sheet, page and narrated video artifacts with verified citations).",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ciel2142",
+    "url": "https://github.com/Ciel2142"
+  },
+  "homepage": "https://github.com/Ciel2142/karpathy-ste#readme",
+  "repository": "https://github.com/Ciel2142/karpathy-ste",
+  "keywords": ["skills", "ste", "simplified-technical-english", "explain", "video", "remotion", "citations"]
+}

@@ -18,9 +18,9 @@ Say that the video rung is English only. Stop. Offer `page`.
 You write only one file, `script.json`. The `render.sh` command makes all other files from it.
 Never change a made file by hand.
 
-1. Copy `~/.claude/skills/explain/templates/video-script.json` to `<output-dir>/script.json`.
+1. Copy `<skill-dir>/templates/video-script.json` to `<output-dir>/script.json`.
 2. Replace every value. The template is an example video about `scripts/verify.sh`.
-3. Get the provenance with the recipe in `~/.claude/skills/explain/rungs/sheet.md` section 4.
+3. Get the provenance with the recipe in `<skill-dir>/rungs/sheet.md` section 4.
 
 | Key | Value |
 |---|---|
@@ -110,7 +110,7 @@ Example narration: "The first check looks for remote links. The second check loa
 Run one command. Add `--engine say` only when the user asks in words for the macOS voice.
 
 ```
-~/.claude/skills/explain/scripts/render.sh <output-dir>
+<skill-dir>/scripts/render.sh <output-dir>
 ```
 
 The command prints one line for each stage, in this order. It stops at the first `FAIL` line.

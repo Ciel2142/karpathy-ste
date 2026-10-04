@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "karpathy-ste",
+  "description": "Claude Code skills: STE-80 prose and grounded explain artifacts (sheet, page, video).",
+  "owner": {
+    "name": "Ciel2142",
+    "url": "https://github.com/Ciel2142"
+  },
+  "plugins": [
+    {
+      "name": "karpathy-ste",
+      "source": "./",
+      "description": "Two skills: /ste (STE-80 Simplified Technical English profile and lint) and /explain (grounded sheet, page and narrated video artifacts with verified citations).",
+      "version": "1.0.0",
+      "author": {
+        "name": "Ciel2142",
+        "url": "https://github.com/Ciel2142"
+      },
+      "homepage": "https://github.com/Ciel2142/karpathy-ste#readme",
+      "repository": "https://github.com/Ciel2142/karpathy-ste",
+      "keywords": ["skills", "ste", "explain", "video", "citations"],
+      "category": "productivity"
+    }
+  ]
+}
