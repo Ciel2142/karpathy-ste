@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Narration for the explain video rung: one WAV per scene, real lengths from afinfo.
 
-Usage: narrate.py --engine say|kokoro [--models <dir>] [--fallback "<cause>"] <script.json> <audio-dir>
+Usage: narrate.py --engine say|kokoro [--models <dir>] [--fallback "<cause>"] [--speed <d.d>]
+                  <script.json> <audio-dir>
+
+--speed is one digit, a full stop, one digit, from 0.5 to 2.0 (default 1.0). Kokoro takes it
+as its speed; say takes it as a rate of 175 wpm (say's default) times the speed, and gets no
+-r at all at 1.0.
 
 Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, say 22050 Hz),
 a sidecar <id>.<engine>.txt (engine, voice, speed, narration) and durations.json:
@@ -22,7 +27,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-SPEED = "1.0"
+DEFAULT_SPEED = "1.0"
+SAY_DEFAULT_WPM = 175   # macOS say's rate when -r is absent
+SPEED_SHAPE = re.compile(r"[0-9]\.[0-9]")
+SPEED_RANGE = (0.5, 2.0)
 KOKORO_VOICE = "af_heart"
 KOKORO_RATE = 24000
 SAY_VOICE = "say-default"
@@ -65,8 +73,23 @@ def afinfo_rate(wav):
     return int(match.group(1))
 
 
+def parse_speed(value):
+    """argparse type for --speed: one digit, a full stop, one digit, within SPEED_RANGE; returned unchanged."""
+    if not SPEED_SHAPE.fullmatch(value) or not SPEED_RANGE[0] <= float(value) <= SPEED_RANGE[1]:
+        raise argparse.ArgumentTypeError(
+            f"speed must be <d.d> between {SPEED_RANGE[0]} and {SPEED_RANGE[1]}, got {value!r}")
+    return value
+
+
+def say_rate_args(speed):
+    """say's -r option for a speed: none at the default 1.0, else the default wpm times the speed."""
+    if speed == DEFAULT_SPEED:
+        return []
+    return ["-r", str(round(SAY_DEFAULT_WPM * float(speed)))]
+
+
 def sidecar_text(engine, text):
-    return f"engine={engine.name}\nvoice={engine.voice}\nspeed={SPEED}\n{text}"
+    return f"engine={engine.name}\nvoice={engine.voice}\nspeed={engine.speed}\n{text}"
 
 
 def sidecar_matches(sidecar, engine, text):
@@ -81,14 +104,15 @@ def spoken(text):
     return text.replace("`", "")
 
 
-def synth_say(text, wav):
+def synth_say(text, wav, speed):
     # The text goes through a file (-f), never as an argument: a narration that starts
     # with "-" would otherwise be parsed by say as an option.
     with tempfile.TemporaryDirectory() as scratch:
         source = Path(scratch) / "narration.txt"
         source.write_text(spoken(text), encoding="utf-8")
         run = subprocess.run(
-            ["say", "--file-format=WAVE", f"--data-format=LEI16@{SAY_RATE}", "-o", str(wav), "-f", str(source)],
+            ["say", "--file-format=WAVE", f"--data-format=LEI16@{SAY_RATE}", *say_rate_args(speed),
+             "-o", str(wav), "-f", str(source)],
             capture_output=True, text=True, stdin=subprocess.DEVNULL,
         )
     if run.returncode != 0:
@@ -98,8 +122,11 @@ def synth_say(text, wav):
 class SayEngine:
     name, voice, rate = "say", SAY_VOICE, SAY_RATE
 
+    def __init__(self, speed):
+        self.speed = speed
+
     def synth(self, text, wav):
-        synth_say(text, wav)
+        synth_say(text, wav, self.speed)
 
     def failure(self, sid, message):
         return NarrationError(f"scene {sid}: {message}", 1)
@@ -108,7 +135,8 @@ class SayEngine:
 class KokoroEngine:
     name, voice, rate = "kokoro", KOKORO_VOICE, KOKORO_RATE
 
-    def __init__(self, models):
+    def __init__(self, models, speed):
+        self.speed = speed
         for name in MODEL_FILES:
             if not (Path(models) / name).is_file():
                 raise NarrationError(f"models missing: {name}", 3)
@@ -119,7 +147,7 @@ class KokoroEngine:
 
     def synth(self, text, wav):
         try:
-            samples, rate = self._kokoro.create(spoken(text), voice=KOKORO_VOICE, speed=float(SPEED), lang="en-us")
+            samples, rate = self._kokoro.create(spoken(text), voice=KOKORO_VOICE, speed=float(self.speed), lang="en-us")
             self._soundfile.write(str(wav), samples, rate, subtype="PCM_16")
         except Exception as exc:   # any engine fault is one failed clip, reported with its scene
             raise SynthError(str(exc)) from exc
@@ -180,6 +208,7 @@ def parse_args(argv):
     parser.add_argument("--engine", required=True, choices=("say", "kokoro"))
     parser.add_argument("--models")
     parser.add_argument("--fallback")
+    parser.add_argument("--speed", type=parse_speed, default=DEFAULT_SPEED)
     parser.add_argument("script")
     parser.add_argument("audio_dir")
     args = parser.parse_args(argv)
@@ -194,7 +223,7 @@ def main(argv=None):
     try:
         check_narrations(scenes)
         check_tools(args.engine)
-        engine = SayEngine() if args.engine == "say" else KokoroEngine(args.models)
+        engine = SayEngine(args.speed) if args.engine == "say" else KokoroEngine(args.models, args.speed)
         audio_dir = Path(args.audio_dir)
         seconds = narrate(scenes, engine, audio_dir)
     except NarrationError as exc:

@@ -21,7 +21,9 @@ ONE = "Hello there."
 TWO = "A second line."
 
 # A stand-in for kokoro_onnx: 0.5 s of silence at STUB_RATE (default 24000); the text BOOM
-# raises, as a real clip failure would. Its twin stand-in for soundfile writes a 16-bit WAV.
+# raises, as a real clip failure would. It insists on speed STUB_SPEED (default 1.0) and,
+# when STUB_LOG is set, appends each create() text to that file. Its twin stand-in for
+# soundfile writes a 16-bit WAV.
 STUB_KOKORO = '''
 import os
 class Kokoro:
@@ -29,7 +31,11 @@ class Kokoro:
         open(model, "rb").close()
         open(voices, "rb").close()
     def create(self, text, voice, speed, lang):
-        assert (voice, speed, lang) == ("af_heart", 1.0, "en-us"), (voice, speed, lang)
+        want = float(os.environ.get("STUB_SPEED", "1.0"))
+        assert (voice, speed, lang) == ("af_heart", want, "en-us"), (voice, speed, lang)
+        if os.environ.get("STUB_LOG"):
+            with open(os.environ["STUB_LOG"], "a", encoding="utf-8") as log:
+                log.write(text + "\\n")
         if "BOOM" in text:
             raise RuntimeError("stub exploded")
         rate = int(os.environ.get("STUB_RATE", "24000"))
@@ -45,16 +51,22 @@ def write(path, samples, rate, subtype):
         out.setframerate(rate)
         out.writeframes(b"\\0\\0" * len(samples))
 '''
-# A say that records the text file it is given, then runs the real say; FAKE_SAY_RATE moves
-# the output rate off 22050.
+# A say that records the text file it is given (and, when FAKE_SAY_RATE_LOG is set, the -r
+# value or "-" when absent), then runs the real say; FAKE_SAY_RATE moves the output rate off 22050.
 FAKE_SAY = """#!/bin/sh
+rate=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     -f) cat "$2" >> "$FAKE_SAY_LOG"; text="$2"; shift 2 ;;
+    -r) rate="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
+[ -z "${FAKE_SAY_RATE_LOG:-}" ] || echo "${rate:--}" >> "$FAKE_SAY_RATE_LOG"
+if [ -n "$rate" ]; then
+  exec /usr/bin/say --file-format=WAVE --data-format=LEI16@${FAKE_SAY_RATE:-22050} -r "$rate" -o "$out" -f "$text"
+fi
 exec /usr/bin/say --file-format=WAVE --data-format=LEI16@${FAKE_SAY_RATE:-22050} -o "$out" -f "$text"
 """
 # A uv that logs its arguments and runs the python3 command after them with the caller's env.
@@ -113,6 +125,14 @@ class NarrateCase(unittest.TestCase):
 
     def with_path_first(self, bin_dir, **extra):
         return dict(self.env, PATH=f"{bin_dir}:{os.environ['PATH']}", **extra)
+
+    def rate_log_env(self):
+        """An env whose say is FAKE_SAY, logging each -r value to self.rate_log."""
+        self.rate_log = self.tmp / "say-rate.log"
+        return self.with_path_first(
+            self.tool("say", FAKE_SAY),
+            FAKE_SAY_LOG=str(self.tmp / "say.log"), FAKE_SAY_RATE_LOG=str(self.rate_log),
+        )
 
     def stub_modules(self):
         stubs = self.tmp / "stubs"
@@ -175,6 +195,44 @@ class SayRun(NarrateCase):
         self.assertRegex(lines[1], r"^narration: two say .* \(reused\)$")
         self.assertNotEqual(wav.stat().st_mtime_ns, before)
         self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").endswith("\nHello again."))
+
+    def test_speed_is_recorded_in_sidecar(self):
+        """Mutation: the sidecar writes a fixed speed=1.0 whatever --speed says."""
+        run = self.shell(self.two_scenes(), "--engine", "say", "--speed", "1.2")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(
+            (self.audio / "one.say.txt").read_text(encoding="utf-8"),
+            "engine=say\nvoice=say-default\nspeed=1.2\nHello there.",
+        )
+
+    def test_say_rate_follows_speed(self):
+        """Mutation: say gets no -r at speed 1.2, or a -r at the default speed."""
+        env = self.rate_log_env()
+        script = self.write_script([scene("one", ONE)])
+        self.assertEqual(self.shell(script, "--engine", "say", "--speed", "1.2", env=env).returncode, 0)
+        self.assertEqual(self.rate_log.read_text(encoding="utf-8"), "210\n")
+        self.rate_log.unlink()
+        shutil.rmtree(self.audio)
+        self.assertEqual(self.shell(script, "--engine", "say", env=env).returncode, 0)
+        self.assertEqual(self.rate_log.read_text(encoding="utf-8"), "-\n")
+
+    def test_changed_speed_resynthesizes(self):
+        """Mutation: the reuse check compares the text but not the speed line."""
+        script = self.two_scenes()
+        self.shell(script, "--engine", "say")
+        run = self.shell(script, "--engine", "say", "--speed", "1.2")
+        lines = run.stdout.splitlines()
+        self.assertRegex(lines[0], r"^narration: one say .* \(synthesized\)$")
+        self.assertRegex(lines[1], r"^narration: two say .* \(synthesized\)$")
+
+    def test_speed_bounds_are_accepted(self):
+        """Mutation: the range check is off by one at either end (0.5 or 2.0 rejected)."""
+        for speed in ("0.5", "2.0"):
+            with self.subTest(speed):
+                run = self.shell(self.write_script([scene("one", ONE)]), "--engine", "say", "--speed", speed)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").startswith(
+                    f"engine=say\nvoice=say-default\nspeed={speed}\n"))
 
     def test_engine_in_filename_keeps_both_voices(self):
         """Mutation: one file per scene id (<id>.wav) instead of <id>.<engine>.wav."""
@@ -252,6 +310,25 @@ class UsageErrors(NarrateCase):
                 self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
         self.assertFalse(self.audio.exists())
 
+    def test_bad_speed_is_usage_error(self):
+        """Mutation: --speed is forwarded unchecked, or only the shape (not the 0.5-2.0 range) is checked."""
+        script = self.two_scenes()
+        for speed in ("1.25", "2.5", "2.1", "0.4", "-1.0", "fast", ""):
+            with self.subTest(speed=speed):
+                run = self.shell(script, "--speed", speed)
+                self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+                self.assertEqual(
+                    run.stderr.strip(), "usage: narrate.sh <script.json> <audio-dir> [--engine kokoro|say] [--speed <d.d>]")
+                self.assertFalse(self.audio.exists(), "no engine runs on a bad speed")
+        self.assertEqual(self.shell(script, "--speed").returncode, 2, "--speed without a value")
+
+    def test_python_bad_speed_exit_2(self):
+        """Mutation: narrate.py takes any --speed (only narrate.sh validates)."""
+        run = self.python(self.two_scenes(), "--engine", "say", "--speed", "3.0")
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("between 0.5 and 2.0", run.stderr, "rejected by the speed check, not as an unknown option")
+        self.assertFalse(self.audio.exists())
+
 
 class Fallback(NarrateCase):
     def assert_fallback(self, run, cause):
@@ -324,6 +401,27 @@ class Fallback(NarrateCase):
         self.assertEqual((durations["engine"], durations["fallback"]), ("kokoro", None))
         self.assertAlmostEqual(durations["scenes"]["one"], 0.5, places=2)
         self.assertRegex(run.stdout.splitlines()[0], r"^narration: one kokoro 0\.500 s \(synthesized\)$")
+
+    def test_kokoro_gets_speed(self):
+        """Mutation: the uv line drops --speed, or Kokoro is called with a fixed speed=1.0."""
+        stubs = self.stub_modules()
+        bin_dir = self.tool("uv", FAKE_UV)
+        env = self.with_path_first(bin_dir, PYTHONPATH=stubs, FAKE_UV_LOG=str(self.tmp / "uv.log"), STUB_SPEED="1.2")
+        run = self.shell(self.two_scenes(), "--speed", "1.2", env=env)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn("FALLBACK", run.stdout, "the stub fails a clip whose speed is not 1.2")
+        self.assertEqual(
+            (self.audio / "one.kokoro.txt").read_text(encoding="utf-8"),
+            f"engine=kokoro\nvoice=af_heart\nspeed=1.2\n{ONE}",
+        )
+
+    def test_fallback_keeps_speed(self):
+        """Mutation: the say fallback drops --speed (default rate, speed=1.0 in the sidecar)."""
+        run = self.shell(self.two_scenes(), "--speed", "1.2", env=self.rate_log_env())
+        self.assert_fallback(run, "models missing: kokoro-v1.0.onnx")
+        self.assertEqual(self.rate_log.read_text(encoding="utf-8"), "210\n210\n")
+        self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").startswith(
+            "engine=say\nvoice=say-default\nspeed=1.2\n"))
 
 
 class KokoroDirect(NarrateCase):
