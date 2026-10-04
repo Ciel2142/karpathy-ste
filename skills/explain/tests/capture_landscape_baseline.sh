@@ -15,7 +15,7 @@
 #     BASE                the hash of <ref>, written last: no BASE, no baseline
 #
 #   exit 0  the baseline is captured
-#   exit 1  the render of <ref> failed (no BASE is written)
+#   exit 1  the render of <ref> failed, or its worktree could not be made (no BASE is written)
 #   exit 2  usage, an unknown <ref>, or a baseline with a BASE already exists and --force is
 #           not given (re-capturing from a tree that already has the refactor would make the
 #           regression compare the new code with itself)
@@ -76,7 +76,10 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/landscape-baseline.XXXXXX")
-git -C "$skill" worktree add --quiet --detach "$tmp" "$hash"
+if ! made=$(git -C "$skill" worktree add --quiet --detach "$tmp" "$hash" 2>&1); then
+    echo "capture_landscape_baseline.sh: cannot add a worktree of $hash: $(printf '%s\n' "$made" | tail -n 1)" >&2
+    exit 1
+fi
 
 mkdir -p "$baseline"
 find "$baseline" -mindepth 1 -maxdepth 1 -exec rm -rf {} +

@@ -253,6 +253,36 @@ class CaptureScriptCase(unittest.TestCase):
         self.assertFalse((base / "BASE").exists())
         self.assertFalse((base / "stale.png").exists())
 
+    # red: a failing `git worktree add` leaves set -e to exit with git's status (128) and git's own
+    # message, or touches the old baseline first, or leaks the temp dir. A fake git passes every
+    # command through except `worktree add`.
+    def test_capture_failed_worktree_add_exits_1_with_one_line(self):
+        base = self.seed_baseline()
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        git = bin_dir / "git"
+        git.write_text(
+            "#!/bin/sh\n"
+            'if [ "$3" = worktree ] && [ "$4" = add ]; then\n'
+            "    echo 'fatal: simulated worktree failure' >&2\n"
+            "    exit 128\n"
+            "fi\n"
+            'exec %s "$@"\n' % shutil.which("git"),
+            encoding="utf-8")
+        git.chmod(git.stat().st_mode | stat.S_IXUSR)
+        scratch = self.tmp / "scratch"
+        scratch.mkdir()
+        env = dict(self.env, PATH="%s:%s" % (bin_dir, os.environ["PATH"]), TMPDIR=str(scratch))
+        before = worktrees()
+        run = self.capture("HEAD", "--force", env=env)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(len(run.stderr.splitlines()), 1, run.stderr)
+        self.assertTrue(run.stderr.startswith("capture_landscape_baseline.sh: "), run.stderr)
+        self.assertIn("simulated worktree failure", run.stderr)
+        self.assertEqual(worktrees(), before)
+        self.assertEqual(list(scratch.iterdir()), [], "the EXIT trap removes the temp dir")
+        self.assertTrue((base / "stale.png").is_file(), "the old baseline is untouched")
+
 
 @unittest.skipUnless(E2E, E2E_REASON)
 class LandscapeRegressionCase(unittest.TestCase):
