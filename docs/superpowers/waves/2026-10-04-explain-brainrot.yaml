@@ -12,7 +12,7 @@ waves:
       The explain unit suites pass, and the gated landscape regression renders the full
       template script (all five components) with every still within the spec §7.4
       threshold of the stills captured on `main` before the refactor.
-    status: pending
+    status: done   # 2026-10-04, commits 80ff4c9..6f689af + fix 2101274/fbcea9e; regression 0 px on 17 stills
     depends_on: []
     owns:
       - skills/explain/video/src/layout.tsx
@@ -39,7 +39,7 @@ waves:
     done_when: >-
       `test_narrate.py` passes, including the splitter, words.json and speed-cache cases
       of spec §7.2, with the existing narration cases unchanged.
-    status: pending
+    status: done   # 2026-10-04, commits c2c3cd9..fe61abe; real Kokoro smoke ok
     depends_on: []
     owns:
       - skills/explain/video/narrate.py
@@ -61,7 +61,7 @@ waves:
       cases; every pre-existing case passes unchanged except the expected top-level key
       list of `test_timeline_top_level_shape` (gains `format`, `maxSceneSeconds`,
       `maxTotalSeconds`).
-    status: pending
+    status: done   # 2026-10-04, commits 1c850c6..1608171 + fix 10bde68/c723675
     depends_on: []
     owns:
       - skills/explain/video/build-timeline.mjs
@@ -83,6 +83,14 @@ waves:
       place of its MAX_SCENE_S / MAX_TOTAL_S constants, and tests the 30/31 s and 90/91 s
       boundaries; `Short` wraps each scene in a positioned container of the panel size,
       because `Title` uses AbsoluteFill (scenebox plan, placement contract).
+      Carried from the wave-1 final review (feat/explain-brainrot at fbcea9e): the
+      renderer tolerates zero-length caption chunks (from == to); a portrait-size unit
+      test of cellCentre/segment; CodeHighlights MAX_LINES (14) must follow
+      FORMATS.codeLines; size type.code so 40 columns plus the line-number gutter fit the
+      984 px content width (rows clip with overflow hidden); watch sync tail headroom
+      (brainrot tail 12 frames = 0.4 s vs verify_sync MIN_TAIL 0.3 s); split
+      tests/test_narrate.py (904 lines) before it grows; optional: make --check
+      atSentenceStart backtick-aware for brainrot so a code-span cue fails at --check.
     done_when: >-
       All explain unit suites pass; the gated E2E renders the brainrot template once with
       the generated loop and once with the fixture clip, each with ten `ok` stage lines
