@@ -9,13 +9,13 @@
 // horizon.
 import type { ReactElement } from "react";
 import { useCurrentFrame } from "remotion";
-import { runnerState } from "./runner";
-import type { Lane } from "./runner";
+import { BRAINROT_BOX } from "../sceneBox";
+import { runnerState, type Lane } from "./runner";
 
-const WIDTH = 1080;
-const HEIGHT = 960;
+// The background is the lower half of the frame: as wide and as tall as the scene panel.
+const { width: WIDTH, height: HEIGHT } = BRAINROT_BOX;
 const CENTRE = WIDTH / 2;
-const HORIZON = 220; // y of the horizon inside the 1080 x 960 background
+const HORIZON = 220; // y of the horizon inside the background
 const LANE_WIDTH = WIDTH / 3; // a lane at z = 1
 const BLOCK = 120; // the runner's block, and an obstacle at z = 1
 const RUNNER_Z = 0.82; // the depth the runner stands at

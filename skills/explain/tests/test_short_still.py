@@ -120,14 +120,20 @@ class ShortStillCase(unittest.TestCase):
             self.stills[frame] = png
         return self.stills[frame]
 
-    # red: Explain keeps drawing the 1280 x 720 landscape stack for a brainrot timeline, so the
-    # frame is the timeline's size but its content is landscape in a portrait frame
+    # red: calculateMetadata ignores the timeline's width and height (the still is the composition's
+    # default size), or Short, a scene body or RunnerLoop throws at frame 20 (the still exits non-zero,
+    # so still() fails before the size is read). It cannot catch landscape content in a portrait frame:
+    # the frame size comes from the timeline either way; the tests below look at the content.
     def test_short_still_is_portrait(self):
         self.assertEqual(png_size(self.still(20)), (WIDTH, HEIGHT))
 
-    # red: Background missing, or RunnerLoop drawn from a constant frame instead of useCurrentFrame
+    # red: Background missing, or RunnerLoop drawn from a constant frame instead of useCurrentFrame.
+    # The stripes advance 24 px a frame with a 120 px period, so two frames a multiple of 5 apart draw
+    # identical stripes; 20 and 43 are 23 apart (72 px of scroll), so the stripes count here. They are
+    # not what the threshold guards: the runner and the obstacles alone move about 48000 pixels
+    # between these frames, so a RunnerLoop that ignores state.stripe still passes.
     def test_background_moves(self):
-        moved = differing_pixels(self.still(20), self.still(40), 0, WIDTH, 1000, HEIGHT, level=16)
+        moved = differing_pixels(self.still(20), self.still(43), 0, WIDTH, 1000, HEIGHT, level=16)
         self.assertGreater(moved, 1000)
 
     # red: CaptionBand missing, drawn off the seam, or the active word not #ffd400
@@ -135,13 +141,21 @@ class ShortStillCase(unittest.TestCase):
         frame = self.first_word_frame + 2
         self.assertGreater(yellow_pixels(self.still(frame), SEAM - 100, SEAM + 100), 200)
 
-    # red: the panel div missing or not 1080 x 960 white, so the black frame or the background shows
-    # above the seam; the scene title starts 48 px down, so row 20 is margin only
+    # red: the panel div missing, not 1080 x 960, or not white, so the black frame or the background
+    # shows above the seam. Each row guards one thing:
+    #   row 20  the panel's top and width: the div missing, off the frame's top, or narrower than 1080.
+    #           The scene title starts 48 px down, so the row is margin only.
+    #   row 900 the panel's height: a panel shorter than 901 px (a 1080 x 500 panel keeps row 20 white).
+    #           The row is below the panel content (it ends at or above y 840) and above a one-line
+    #           caption (its top is about y 914), so it is margin only too.
+    # A panel taller than 960 px is caught by test_background_moves, which then sees no background.
     def test_panel_is_white_above_the_seam(self):
-        _, channels, rows = read_png(self.still(20), 21)
-        row = rows[20]
-        off_white = [x for x in range(WIDTH) if tuple(row[x * channels:x * channels + 3]) != (255, 255, 255)]
-        self.assertEqual(off_white, [])
+        _, channels, rows = read_png(self.still(20), 901)
+        for y in (20, 900):
+            with self.subTest(row=y):
+                off_white = [x for x in range(WIDTH)
+                             if tuple(rows[y][x * channels:x * channels + 3]) != (255, 255, 255)]
+                self.assertEqual(off_white, [])
 
     # red: Short renders an empty bottom half instead of throwing when the timeline has no background
     def test_missing_background_fails_loudly(self):
