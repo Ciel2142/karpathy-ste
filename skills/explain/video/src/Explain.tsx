@@ -1,49 +1,19 @@
 // The whole video: the scenes of the timeline one after another, each fading in over its
-// first 8 frames, with its narration clip starting after leadFrames.
-import type { ReactNode } from "react";
-import {
-  AbsoluteFill,
-  Html5Audio,
-  interpolate,
-  Sequence,
-  Series,
-  staticFile,
-  useCurrentFrame,
-} from "remotion";
-import { BeforeAfter } from "./scenes/BeforeAfter";
-import { BulletsAppear } from "./scenes/BulletsAppear";
-import { CodeHighlights } from "./scenes/CodeHighlights";
-import { DiagramWalk } from "./scenes/DiagramWalk";
-import { Title } from "./scenes/Title";
+// first 8 frames, with its narration clip starting after leadFrames. A brainrot timeline is laid
+// out by Short instead; the landscape stack below is the explainer and never reads `background`,
+// `captions` or BRAINROT_BOX.
+import { AbsoluteFill, Html5Audio, Sequence, Series, staticFile } from "remotion";
 import { LANDSCAPE_BOX, SceneBoxProvider } from "./sceneBox";
+import { FadeIn, SceneBody } from "./sceneBody";
+import { Short } from "./short/Short";
 import { theme } from "./theme";
-import type { Timeline, TimelineScene } from "./types";
+import type { Timeline } from "./types";
 
-function SceneBody({ scene }: { scene: TimelineScene }) {
-  const { cueFrames } = scene;
-  switch (scene.component) {
-    case "title":
-      return <Title {...scene.props} cueFrames={cueFrames} />;
-    case "bullets-appear":
-      return <BulletsAppear {...scene.props} cueFrames={cueFrames} />;
-    case "diagram-with-highlight-walk":
-      return <DiagramWalk {...scene.props} cueFrames={cueFrames} />;
-    case "code-with-line-highlights":
-      return <CodeHighlights {...scene.props} cueFrames={cueFrames} />;
-    case "before-after":
-      return <BeforeAfter {...scene.props} cueFrames={cueFrames} />;
-    default:
-      throw new Error(`unknown scene component in ${JSON.stringify(scene)}`);
+export function Explain(timeline: Timeline) {
+  if (timeline.format === "brainrot") {
+    return <Short {...timeline} />;
   }
-}
-
-function FadeIn({ children }: { children: ReactNode }) {
-  const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, 8], [0, 1], { extrapolateRight: "clamp" });
-  return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
-}
-
-export function Explain({ scenes }: Timeline) {
+  const { scenes } = timeline;
   return (
     <AbsoluteFill style={{ backgroundColor: theme.bg }}>
       <SceneBoxProvider box={LANDSCAPE_BOX}>
