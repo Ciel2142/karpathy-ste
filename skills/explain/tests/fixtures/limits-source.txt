@@ -1,0 +1,14 @@
+def merge_wide_maps(maps, wide, mw_max):
+    total = 0  # the count of mixed maps
+    for mwm in maps:  # each map in turn
+        if mwm.width > wide:  # too wide
+            raise ValueError('wide map')
+        total += len(mwm.rows)  # add it
+    return total * mw_max  # the weights
+# --- the second mix: warm maps --------
+# --- the third mix: wide maps ---------
+def warm_mix(a, b):  # mix two warm maps
+    mixed = {**a, **b}  # b wins a clash
+    return mixed  # the wide mix of maps
+# --- the last mix: a weight cap -------
+WMAX = 99  # the maximum wide map weight

@@ -53,3 +53,20 @@ def differing_pixels(png_a, png_b, x0, x1, y0, y1, level=40):
             if any(abs(ra[x * ca + k] - rb[x * cb + k]) > level for k in range(3)):
                 count += 1
     return count
+
+
+def ink_extent(png, x0, x1, y0, y1, level=40):
+    """(x_min, x_max, y_min, y_max) of the pixels in the half-open box [x0, x1) x [y0, y1) that
+    differ from white by more than `level` in some channel (the box is read as drawn on white), or
+    None when the box holds none. The bounds of the result are pixel indexes, both ends included."""
+    _, channels, rows = read_png(png, y1)
+    found = None
+    for y in range(y0, y1):
+        row = rows[y]
+        for x in range(x0, x1):
+            if any(255 - row[x * channels + k] > level for k in range(3)):
+                if found is None:
+                    found = [x, x, y, y]
+                else:
+                    found = [min(found[0], x), max(found[1], x), found[2], y]
+    return None if found is None else tuple(found)
