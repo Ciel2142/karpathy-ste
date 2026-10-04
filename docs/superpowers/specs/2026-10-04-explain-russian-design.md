@@ -1,8 +1,7 @@
 # Explain: Russian artifacts and a voice per language — design
 
 Date: 2026-10-04
-Status: approved in conversation section by section; revised after a three-reviewer spec review
-(code fidelity, TTS and guard, contract and tests); written spec pending user review
+Status: approved by the user (2026-10-04), after section-by-section approval and a three-reviewer spec review
 Base: `feat/explain-brainrot` at `0976e0f` (the brainrot waves scenebox, sentence-narration and
 brainrot-timeline are merged there; brainrot-render is planned, not run). Line numbers below
 are as of that commit; the plan re-locates them after the rebase (§8).
