@@ -4,7 +4,8 @@
 //   build-timeline.mjs --check <script.json> --root <data-root>
 //       validate; exit 0 silently, or one "FAIL <where>: <cause>" line per cause and exit 1
 //   build-timeline.mjs <script.json> <durations.json> <engine> <out.json> [--root <data-root>]
-//       write the timeline JSON for the Remotion app (engine: say | kokoro)
+//       write the timeline JSON for the Remotion app (engine: say | kokoro); it starts with the
+//       format, canvas and length budgets, and its lead and tail frames come from the format
 //
 // Exit 2 on a usage error. FAIL lines go to stdout. Build mode does not re-run the
 // budgets: render.sh runs --check first.
@@ -76,37 +77,32 @@ const obj = (shape) => ({ t: "obj", shape });
 const cell = { t: "cell" };
 
 // The shapes of one format: every limit comes from its FORMATS row.
-const shapesFor = (limits) => ({
-  title: { title: str(limits.titleTitle), subtitle: str(limits.titleSubtitle), cue },
-  "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(limits.bulletText), cue }), 2, 4) },
-  "diagram-with-highlight-walk": {
-    title: str(Infinity),
-    nodes: arr(
-      obj({ id: str(Infinity), label: str(limits.diagramLabel), sub: str(limits.diagramSub, true), cell }),
-      2,
-      7,
-    ),
-    edges: arr(obj({ from: str(Infinity), to: str(Infinity), label: str(10, true) })),
-    walk: arr(obj({ node: str(Infinity), cue })),
-  },
-  "code-with-line-highlights": {
-    title: str(Infinity),
-    source: obj({ path: str(Infinity), from: int, to: int }),
-    highlights: arr(obj({ from: int, to: int, cue })),
-  },
-  "before-after": {
-    title: str(Infinity),
-    before: obj({
-      heading: str(limits.beforeAfterHeading),
-      lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
-    }),
-    after: obj({
-      heading: str(limits.beforeAfterHeading),
-      lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
-    }),
-    cue,
-  },
-});
+const shapesFor = (limits) => {
+  const side = obj({
+    heading: str(limits.beforeAfterHeading),
+    lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
+  });
+  return {
+    title: { title: str(limits.titleTitle), subtitle: str(limits.titleSubtitle), cue },
+    "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(limits.bulletText), cue }), 2, 4) },
+    "diagram-with-highlight-walk": {
+      title: str(Infinity),
+      nodes: arr(
+        obj({ id: str(Infinity), label: str(limits.diagramLabel), sub: str(limits.diagramSub, true), cell }),
+        2,
+        7,
+      ),
+      edges: arr(obj({ from: str(Infinity), to: str(Infinity), label: str(10, true) })),
+      walk: arr(obj({ node: str(Infinity), cue })),
+    },
+    "code-with-line-highlights": {
+      title: str(Infinity),
+      source: obj({ path: str(Infinity), from: int, to: int }),
+      highlights: arr(obj({ from: int, to: int, cue })),
+    },
+    "before-after": { title: str(Infinity), before: side, after: side, cue },
+  };
+};
 
 // Cues of a component in the order its author listed them (defensive: props may be malformed).
 const list = (v) => (Array.isArray(v) ? v : []);
@@ -404,8 +400,8 @@ const validate = (script, root) => {
 
 // ---------- build mode ----------
 
-const buildScenes = (script, durations, engine, root, fail) => {
-  const { leadFrames, tailFrames } = FORMATS.explainer; // build mode reads the explainer row for now
+const buildScenes = (script, durations, engine, root, fail, limits) => {
+  const { leadFrames, tailFrames } = limits;
   const clips = isObject(durations?.scenes) ? durations.scenes : {};
   let from = 0;
   const out = [];
@@ -505,13 +501,17 @@ const main = () => {
   const durations = readJson(durationsFile, "durations");
   const failures = [script.fail, durations.fail].filter(Boolean);
   if (failures.length > 0) finish(failures);
-  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line));
+  const format = isObject(script.value) ? formatOf(script.value) : "explainer";
+  if (!knownFormat(format)) finish(["FAIL script: format must be explainer or brainrot"]);
+  const limits = FORMATS[format];
+  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line), limits);
   if (failures.length > 0) finish(failures);
   const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
-  const { width, height } = FORMATS.explainer;
+  const { width, height, maxSceneSeconds, maxTotalSeconds } = limits;
+  const timeline = { format, fps: FPS, width, height, totalFrames, maxSceneSeconds, maxTotalSeconds, engine, scenes };
   try {
     fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
-    fs.writeFileSync(outFile, JSON.stringify({ fps: FPS, width, height, totalFrames, engine, scenes }, null, 2) + "\n");
+    fs.writeFileSync(outFile, JSON.stringify(timeline, null, 2) + "\n");
   } catch (err) {
     finish([`FAIL script: cannot write ${outFile}: ${err.code ?? err.message}`]);
   }

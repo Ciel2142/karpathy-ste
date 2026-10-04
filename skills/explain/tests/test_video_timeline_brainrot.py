@@ -2,6 +2,8 @@
 limits and (in later tasks) build mode. Each test names the mutation that turns it red."""
 
 import copy
+import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -15,6 +17,42 @@ def brainrot_script():
     script = base_script()
     script["format"] = "brainrot"
     return script
+
+
+def words_for(narration, seconds_per_word=0.3, pause=0.15):
+    """A consistent words.json object (spec 5.2) for `narration`: one word per whitespace token,
+    words back to back, `pause` seconds between sentences. A sentence ends after a token that
+    ends in ., ? or !, and at the last token. Seconds are rounded to 6 places."""
+    tokens = narration.split()
+    words, sentences = [], []
+    t, start = 0.0, 0.0
+    for i, token in enumerate(tokens):
+        words.append({"text": token, "from": round(t, 6), "to": round(t + seconds_per_word, 6)})
+        t += seconds_per_word
+        if token[-1] in ".?!" or i == len(tokens) - 1:
+            sentences.append({"from": round(start, 6), "to": round(t, 6)})
+            t += pause
+            start = t
+    return {"sentences": sentences, "words": words}
+
+
+class BrainrotBuildCase(VideoCase):
+    """Build-mode fixtures: a brainrot build needs one words.json per scene next to durations.json."""
+
+    def write_words(self, scene_id, engine, words_json):
+        """Write <scene_id>.<engine>.words.json beside durations.json."""
+        return self.write_json("%s.%s.words.json" % (scene_id, engine), words_json)
+
+    def build_brainrot(self, script, seconds, engine="say"):
+        """Build `script` with a words file for every scene that has a narration."""
+        for scene in script["scenes"]:
+            self.write_words(scene["id"], engine, words_for(scene["narration"]))
+        return self.build(script, seconds, engine)
+
+    def two_scene_brainrot(self):
+        script = brainrot_script()
+        script["scenes"] = script["scenes"][:2]
+        return script
 
 
 class TestBrainrotCheck(VideoCase):
@@ -129,15 +167,16 @@ class TestBrainrotCheck(VideoCase):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_brainrot_before_after_over_limits(self):
-        """Red: one of the three before-after limits still reads the explainer 36 or 10."""
+        """Red: one of the three before-after limits (either side) still reads the explainer 36 or 10."""
         script = brainrot_script()
         before = {"heading": "h" * 31, "lines": ["short"] * 6}
-        after = {"heading": "ok", "lines": ["x" * 31, "short"]}
+        after = {"heading": "h" * 31, "lines": ["x" * 31, "short"]}
         self.set_intro(script, "before-after", {"title": "Compare", "before": before, "after": after, "cue": "The router"})
         self.assertFails(
             self.check(script),
             "FAIL scene intro: before.heading is 31 chars (max 30, brainrot)",
             "FAIL scene intro: before.lines has 6 items (needs 0 to 5, brainrot)",
+            "FAIL scene intro: after.heading is 31 chars (max 30, brainrot)",
             "FAIL scene intro: after.lines[0] is 31 chars (max 30, brainrot)",
         )
 
@@ -200,6 +239,59 @@ class TestBrainrotCheck(VideoCase):
         script = brainrot_script()
         self.scene(script, "code")["props"]["source"] = {"path": "src/narrow.py", "from": 1, "to": 10}
         return script
+
+
+class TestBrainrotBuild(BrainrotBuildCase):
+    def test_brainrot_top_level_values(self):
+        """Red: build mode keeps writing the explainer canvas or budgets for a brainrot script."""
+        result, timeline = self.build_brainrot(self.two_scene_brainrot(), {"intro": 3.0, "flow": 4.5})
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(
+            (timeline["format"], timeline["width"], timeline["height"]), ("brainrot", 1080, 1920)
+        )
+        self.assertEqual((timeline["maxSceneSeconds"], timeline["maxTotalSeconds"]), (30, 90))
+        self.assertEqual(timeline["fps"], 30)
+
+    def test_brainrot_lead_and_tail(self):
+        """Red: lead 6 or tail 12 reads the explainer 15 or 36 (explainer would give 141 frames)."""
+        result, timeline = self.build_brainrot(self.two_scene_brainrot(), {"intro": 3.0, "flow": 4.5})
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        first, second = timeline["scenes"]
+        self.assertEqual(
+            (first["from"], first["durationInFrames"], first["leadFrames"], first["audioFrames"]),
+            (0, 108, 6, 90),
+        )
+        self.assertEqual(second["from"], 108)
+        self.assertEqual(timeline["totalFrames"], 108 + 6 + 135 + 12)
+
+    def test_explainer_scenes_have_no_captions(self):
+        """Red: build mode adds a captions key to explainer scenes."""
+        script = base_script()
+        _, timeline = self.build(script, {"intro": 2.0, "flow": 2.0, "code": 2.0})
+        self.assertEqual(len(timeline["scenes"]), 3)
+        for scene in timeline["scenes"]:
+            self.assertNotIn("captions", scene)
+
+    def test_build_mode_unknown_format_fails(self):
+        """Red: an unknown format builds as explainer instead of failing."""
+        script = self.two_scene_brainrot()
+        script["format"] = "vertical"
+        result, timeline = self.build(script, {"intro": 3.0, "flow": 4.5})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.splitlines(), ["FAIL script: format must be explainer or brainrot"])
+        self.assertIsNone(timeline)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "out", "timeline.json")))
+
+
+class TestWordsFixture(unittest.TestCase):
+    def test_words_for_closes_sentences_and_spaces_them(self):
+        """Red: the fixture helper puts a sentence end mid-sentence or drops the pause."""
+        got = words_for("Hi there. Again?", 0.5, 0.25)
+        self.assertEqual(
+            [(w["text"], w["from"], w["to"]) for w in got["words"]],
+            [("Hi", 0.0, 0.5), ("there.", 0.5, 1.0), ("Again?", 1.25, 1.75)],
+        )
+        self.assertEqual(got["sentences"], [{"from": 0.0, "to": 1.0}, {"from": 1.25, "to": 1.75}])
 
 
 if __name__ == "__main__":
