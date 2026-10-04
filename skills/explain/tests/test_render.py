@@ -5,7 +5,9 @@ fake tools (the format -> --speed mapping, the picker's lines, exit codes and st
 --background text of the transcript). The stage-1 tests need no
 workspace: they fail before any tool that needs one runs. A fake
 npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant that
-gets past stage 1 fails fast instead of installing. The end-to-end class renders the
+gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
+brainrot route: the template, SKILL.md, the rung file, and the format that stage_script reads
+from a real script.json. The end-to-end class renders the
 three-scene fixture once (tests/video_e2e.py) and needs EXPLAIN_VIDEO_E2E=1. Each test names
 the mutation that turns it red."""
 
@@ -22,6 +24,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, TEMPLATE, render_fixture
+
+BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
+BUILD_TIMELINE = EXPLAIN / "video" / "build-timeline.mjs"
+STE_LINT = EXPLAIN.parent / "ste" / "scripts" / "ste_lint.py"
+SKILL_MD = EXPLAIN / "SKILL.md"
+BRAINROT_RUNG = EXPLAIN / "rungs" / "brainrot.md"
 
 # "background" is the tenth, brainrot-only stage; the explainer run must print no such line.
 STAGES = ("script", "workspace", "narration", "timeline", "background", "render",
@@ -48,8 +56,8 @@ class StageOneCase(unittest.TestCase):
         self.env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
                         EXPLAIN_VIDEO_WORKSPACE=str(self.tmp / "ws"))
 
-    def write_script(self, edit=None, root=None):
-        script = json.loads(TEMPLATE.read_text(encoding="utf-8"))
+    def write_script(self, edit=None, root=None, template=TEMPLATE):
+        script = json.loads(template.read_text(encoding="utf-8"))
         script["provenance"]["root"] = str(EXPLAIN) if root is None else root
         if edit:
             edit(script)
@@ -111,6 +119,15 @@ class StageOneCase(unittest.TestCase):
         self.assertTrue(lines[0].startswith("script: FAIL prose: FAIL "), lines)
         self.assertIn("\n  prose: FAIL 1 error(s)\n", run.stdout)
         self.assertIn('contraction "doesn\'t"', run.stdout)
+
+    # red: the brainrot template breaks a brainrot limit or a cue rule, so the script stage fails
+    # before the workspace stage runs
+    def test_brainrot_template_passes_stage_one(self):
+        self.write_script(template=BRAINROT_TEMPLATE)
+        run = self.render()
+        lines = stage_lines(run.stdout)
+        self.assertEqual(lines[0], "script: ok (4 scenes)", run.stdout + run.stderr)
+        self.assertTrue(lines[1].startswith("workspace: FAIL "), run.stdout)
 
     def place_stale(self):
         (self.out / "video.mp4").write_bytes(b"old video")
@@ -372,6 +389,72 @@ class StageFunctionCase(unittest.TestCase):
                 self.assertEqual((run.returncode, run.stdout),
                                  (1, "transcript: FAIL cannot read %s\n" % timeline), run.stderr)
                 self.assertEqual(calls, [])
+
+
+class BrainrotRouteCase(unittest.TestCase):
+    """The user-facing brainrot route: template, router and rung file."""
+
+    def lint(self, path):
+        return subprocess.run([sys.executable, str(STE_LINT), str(path)],
+                              capture_output=True, text=True, timeout=60)
+
+    # red: a template text over a brainrot limit (a 31-char title), or a cue off a sentence start
+    def test_brainrot_template_checks(self):
+        run = subprocess.run(["node", str(BUILD_TIMELINE), "--check", str(BRAINROT_TEMPLATE),
+                              "--root", str(EXPLAIN)], capture_output=True, text=True, timeout=60)
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "", ""))
+
+    # red: brainrot missing from the argument-hint, the syntax line, or contract step 3
+    def test_skill_md_lists_five_rungs(self):
+        text = SKILL_MD.read_text(encoding="utf-8")
+        hint = re.search(r'^argument-hint: "(.*)"$', text, re.M)
+        self.assertIsNotNone(hint, "no argument-hint line")
+        self.assertEqual(hint.group(1), "<subject> [--as ste|sheet|page|video|brainrot]")
+        self.assertIn("Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot]`.", text)
+        step3 = re.search(r"^3\. .*?(?=^4\. )", text, re.M | re.S)
+        self.assertIsNotNone(step3, "no contract step 3")
+        for name in ("ste", "sheet", "page", "video", "brainrot"):
+            self.assertIn("`%s`" % name, step3.group(0))
+        self.assertIn("five names", step3.group(0))
+
+    # red: a rung file line that breaks the STE profile (a contraction, a long sentence)
+    def test_rung_file_lints_clean(self):
+        run = self.lint(BRAINROT_RUNG)
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, "0 errors, 0 warnings"),
+                         run.stdout + run.stderr)
+
+    # red: a SKILL.md line that breaks the STE profile
+    def test_skill_md_lints_clean(self):
+        run = self.lint(SKILL_MD)
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, "0 errors, 0 warnings"),
+                         run.stdout + run.stderr)
+
+    def stage_script_format(self, template):
+        """Run the real stage_script of render.sh on a copy of `template` (absolute root) with
+        the real tools and no workspace; returns (the stdout lines, the `fmt=<value>` line)."""
+        tmp = Path(tempfile.mkdtemp(prefix="render-format-test-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        out = tmp / "out"
+        out.mkdir()
+        script = json.loads(template.read_text(encoding="utf-8"))
+        script["provenance"]["root"] = str(EXPLAIN)
+        (out / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        text = (
+            "set -eu\n" + render_functions(["fail", "first_cause", "run_tool", "stage_script"]) +
+            'out=%(out)s script=%(out)s/script.json video=%(ex)s/video scripts=%(ex)s/scripts\n'
+            'root="" fmt=explainer\nstage_script\necho "fmt=$fmt"\n' % {"out": out, "ex": EXPLAIN})
+        run = subprocess.run(["/bin/bash", "-c", text], capture_output=True, text=True, timeout=120)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        lines = run.stdout.splitlines()
+        return lines[:-1], lines[-1]
+
+    # red: stage_script leaves fmt at its default, so a brainrot script gets explainer speed and
+    # no background stage; or it reads "brainrot" for a script without a format key
+    def test_stage_script_reads_the_format_from_the_script(self):
+        lines, fmt = self.stage_script_format(BRAINROT_TEMPLATE)
+        self.assertEqual((lines, fmt), (["script: ok (4 scenes)"], "fmt=brainrot"))
+        lines, fmt = self.stage_script_format(TEMPLATE)
+        self.assertEqual((lines, fmt), (["script: ok (5 scenes)"], "fmt=explainer"))
 
 
 ORDER = [
