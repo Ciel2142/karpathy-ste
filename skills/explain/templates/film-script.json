@@ -1,0 +1,75 @@
+{
+  "format": "film",
+  "title": "How explain checks an artifact",
+  "subject": { "text": "skills/explain", "kind": "directory" },
+  "provenance": {
+    "root": ".",
+    "commit": "f9c509c",
+    "dirty": "no",
+    "date": "2026-10-05",
+    "source": "skills/explain/scripts/verify.sh, skills/explain/scripts/cite_check.py and skills/ste/SKILL.md",
+    "not_covered": "The rungs, the build procedure, the render check and the lint rules."
+  },
+  "sources": [
+    { "id": "check", "path": "skills/explain/scripts/cite_check.py", "from": 138, "to": 139 }
+  ],
+  "scenes": [
+    {
+      "id": "subject",
+      "narration": "The prompt `/explain` takes a subject. It makes an artifact that must pass four checks before handoff.",
+      "cites": [
+        { "path": "skills/explain/scripts/verify.sh", "line": 2, "snippet": "the four checks an explain artifact must pass before handoff" }
+      ]
+    },
+    {
+      "id": "forms",
+      "narration": "The artifact is a sheet, a page or a video. This example uses a page.",
+      "cites": [
+        { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "all checks of the rung passed (sheet, page: four; video: three)" }
+      ]
+    },
+    {
+      "id": "artifact",
+      "narration": "The check script reads one file. That file is `index.html`.",
+      "cites": [
+        { "path": "skills/explain/scripts/verify.sh", "line": 4, "snippet": "verify.sh <index.html>" }
+      ]
+    },
+    {
+      "id": "gates",
+      "narration": "It prints one line for each check, in order. The checks run as self-contained, render, citations and prose.",
+      "cites": [
+        { "path": "skills/explain/scripts/verify.sh", "line": 11, "snippet": "stdout carries one line per check, in this order" }
+      ]
+    },
+    {
+      "id": "cite",
+      "narration": "The citations check reads the cited line of the source file. Here the source is `cite_check.py`.",
+      "cites": [
+        { "path": "skills/explain/scripts/cite_check.py", "line": 5, "snippet": "Exit 0 when every citation holds, 1 with one failure per line" }
+      ]
+    },
+    {
+      "id": "holds",
+      "narration": "The snippet must be on that line. If one word is different, the check fails.",
+      "cites": [
+        { "path": "skills/explain/scripts/cite_check.py", "line": 138, "snippet": "if _normalize(snippet) not in _normalize(lines[line_no - 1]):" },
+        { "path": "skills/explain/scripts/cite_check.py", "line": 139, "snippet": "snippet not found on that line" }
+      ]
+    },
+    {
+      "id": "prose",
+      "narration": "The prose check reads each sentence. A descriptive sentence has at most 25 words.",
+      "cites": [
+        { "path": "skills/ste/SKILL.md", "line": 52, "snippet": "Descriptive sentence: at most 25 words (6.3)." }
+      ]
+    },
+    {
+      "id": "handoff",
+      "narration": "Every check runs, even after a failure. When all checks pass, the artifact is ready.",
+      "cites": [
+        { "path": "skills/explain/scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed." }
+      ]
+    }
+  ]
+}
