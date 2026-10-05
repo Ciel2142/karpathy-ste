@@ -17,13 +17,15 @@
 //
 // A film script has no components: its scenes carry id, narration, cites and an optional pause
 // (frames of silence after the audio, an integer from 12 to 90), and the script may carry a
-// top-level "sources" array. --check adds these FAIL lines for a film (prefix "FAIL scene <id>: ";
-// the count, key, id, narration and cites lines are the explainer's, with the tag ", film" on a
-// line that names a limit):
+// top-level "sources" array. "sources" is an allowed top-level key of a film only; "pause" is a scene key
+// of a film only. --check applies the explainer's rules to a film (the scene count, the keys, the ids, the
+// narration and the cites), with the explainer's lines and the tag ", film" ending a line that names a
+// limit, for example
 //   FAIL script: <n> scenes (needs 3 to 30, film)
+// and two lines new to film, prefix "FAIL scene <id>: ":
 //   a film scene has no component or props    one line, for either key or both
 //   pause <v> must be an integer from 12 to 90    <v> as JSON text; 12.0 parses as the integer 12
-// "sources" is an allowed top-level key of a film only; "pause" is a scene key of a film only.
+// and the "FAIL source" lines of "sources", below.
 // The lines of a film come in this order: the header, the sources, the scene count, then for each scene
 // the duplicate id line and the scene's own lines (must be an object; missing id, narration; the
 // component line; unexpected keys; the id rules; the narration rules; the cites rules; the pause line).
@@ -43,6 +45,9 @@
 //   <path> has a NUL byte                                anywhere in the file
 //   to <to> is outside <path> (<n> lines)
 // The declared lines are split as a code scene's are (no "\r", no entry for a final newline), tabs kept.
+// One leading U+FEFF (a UTF-8 byte order mark, as Windows editors write one) is not part of line 1: it is
+// dropped from the file text before the split, since the kit draws one column per code point. A code scene's
+// source lines, read by the explainer's check, keep the file text as it is.
 //
 // A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
 // scene (engine is the one actually used, so a Kokoro run that fell back to say reads
@@ -75,8 +80,10 @@
 //   the words file lines above (cannot read ... ends at <t> s), or: <file> has no sentences
 //
 // A film timeline also carries
-//   "sources": { "<id>": { "path", "from", "lines": [..] } }    the declared lines of each source, in script
-//       order, each tab replaced by 4 spaces; {} when the film has none (absent and [] mean the same)
+//   "sources": { "<id>": { "path", "from", "lines": [..] } }    the declared lines of each source, keyed by
+//       id (a plain object: an id such as "2" or "10" serialises first, in numeric order, before the other
+//       ids in script order), each tab replaced by 4 spaces; {} when the film has none (absent and [] mean
+//       the same)
 //   "checkFrames": [{ "frame", "scene", "still" }]    film frames for the guard's stills, in script order:
 //       for each scene one entry per sentence at from + floor((start + end) / 2), start and end being the
 //       scene-relative frames of the sentence's from and to (as for the words), still "s<k>" from k = 1;
@@ -111,13 +118,18 @@ import path from "node:path";
 
 const FPS = 30;
 const MIN_CUE_GAP = 15;
-// The range of a film scene's own pause, in frames.
+// The range of a film scene's own pause, in frames. The pauseFrames of the film row, the pause of a scene
+// that has none, must lie in it too (spec 4.2 ties the default 12 to the range 12 to 90, so a change of
+// one moves the other). --check does not read the row, so a bad default passes it; build mode reports it
+// as the pause line of each scene that has no pause key.
 const MIN_PAUSE = 12;
 const MAX_PAUSE = 90;
 const TAB_COLUMNS = 4;
 // Limits per format. The brainrot and film values are the spec starting values; tune them in formats.json
 // only. The film row holds no component limit: a film has no components.
-// wordTimed: build mode reads words files, takes cue frames from them and writes captions.
+// wordTimed: the build of a component format (explainer, brainrot) reads words files, takes cue frames
+// from them and writes captions when it is true. The film build always reads words files and writes neither
+// cues nor captions, so the flag of the film row has no effect there.
 // A file that is missing, unreadable, not JSON or without the three rows ends the run here: the FAIL line
 // and exit 1 (the same as finish, which is not defined yet at load time).
 const loadFormats = () => {
@@ -382,6 +394,7 @@ const readSource = (entry, root, limits, tag) => {
   } catch {
     return { causes: [...causes, `path ${file} cannot be read under the data root`] };
   }
+  if (text.startsWith("\uFEFF")) text = text.slice(1); // one BOM: the kit draws a column per code point
   if (text.includes("\0")) return { causes: [...causes, `${file} has a NUL byte`] };
   const lines = splitLines(text);
   if (to > lines.length) return { causes: [...causes, `to ${to} is outside ${file} (${lines.length} lines)`] };
@@ -859,7 +872,7 @@ const buildFilmScenes = (script, durations, engine, fail, limits, wordsDir) => {
   return { scenes: out, checkFrames };
 };
 
-// The `sources` of a film timeline: { <id>: { path, from, lines } } in script order, with each tab of a
+// The `sources` of a film timeline: { <id>: { path, from, lines } } keyed by id, with each tab of a
 // line replaced by TAB_COLUMNS spaces. The entries go through the check of --check (checkSources), so a
 // fault gives its FAIL line through `fail` and the entry is left out. `script` has the film format.
 const buildSources = (script, root, limits, tag, fail) => {

@@ -603,11 +603,15 @@ class TestFilmBuild(FilmBuildCase):
             self.assertEqual(scene["sentences"], [6 + js_round(s["from"] * 30) for s in sentences])
 
     def test_film_word_frames(self):
-        """Red: a word frame misses the lead, `to` is the next word's start, the words are the
-        caption chunks (merged or cut at three words), or the text loses its backticks."""
+        """Red: a word frame misses the lead, the `to` of a word is the next word's start (the words
+        inside a sentence touch, so only a sentence-final word shows it: 96 for 81 below), the words are
+        the caption chunks (up to three words each), or the text loses its backticks. The rounding
+        of `to` is test_film_frames_round_half_up's."""
         scenes = self.built()["scenes"]
         words = scenes[0]["words"]
         self.assertEqual(words[0], {"text": "The", "from": 6, "to": 21})
+        # The sentence ends at 2.5 s (frame 81); the next word starts at 3.0 s (frame 96).
+        self.assertEqual(words[4], {"text": "handler.", "from": 66, "to": 81})
         self.assertEqual(words[-1], {"text": "replies.", "from": 126, "to": 141})
         script = film_script()
         script["scenes"][0]["narration"] = "Run `verify.sh` first. Then read the output."
@@ -620,16 +624,19 @@ class TestFilmBuild(FilmBuildCase):
         rounded half up. 0.25, 0.75 and 1.25 s are exactly 7.5, 22.5 and 37.5 frames (exact in
         binary floating point, so true halves: floor gives 7, 22, 37); 1.01 s is 30.3 frames (ceiling
         gives 31); 1.02 s is 30.6 (floor gives 30). The sentences start at 0.25 s and 1.01 s, so each
-        of floor and ceiling is caught on the sentence frames alone, and on the word frames alone."""
+        of floor and ceiling is caught on the sentence frames alone, and on the word `from`s alone;
+        the word `to`s are 0.75 s, 1.01 s, 1.02 s and 1.25 s, so floor is caught on them alone (22.5,
+        30.6 and 37.5 give 22, 30, 37 for 23, 31, 38) and so is ceiling (the 1.01 s of the second
+        word gives 37 for 36)."""
         script = film_script()
         script["scenes"][0]["narration"] = "Aa bb. Cc dd."
         clips = self.write_film_words(script)
-        times = [(0.25, 0.75), (0.75, 1.0), (1.01, 1.02), (1.02, 1.25)]
+        times = [(0.25, 0.75), (0.75, 1.01), (1.01, 1.02), (1.02, 1.25)]
         words = [
             {"text": text, "from": start, "to": end}
             for text, (start, end) in zip(script["scenes"][0]["narration"].split(), times)
         ]
-        sentences = [{"from": 0.25, "to": 1.0}, {"from": 1.01, "to": 1.25}]
+        sentences = [{"from": 0.25, "to": 1.01}, {"from": 1.01, "to": 1.25}]
         self.write_words("type", "say", {"sentences": sentences, "words": words})
         clips["type"] = 1.5
         result, timeline = self.build(script, clips)
@@ -767,6 +774,16 @@ class TestFilmBuild(FilmBuildCase):
         lines = self.built(script)["sources"]["app"]["lines"]
         self.assertEqual(lines, ["one", "two", "three"])
         self.assertFalse(any("\r" in line for line in lines))
+
+    def test_film_sources_drop_a_leading_byte_order_mark(self):
+        """Red: line 1 of a file that starts with a BOM (U+FEFF, which the kit draws as a column)
+        keeps it, the check refuses such a file, or every U+FEFF of the file goes (the one inside
+        line 2 must stay)."""
+        script = self.sourced("bom.py", "\ufeffone\ntwo \ufefftwo\nthree\n")
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        lines = self.built(script)["sources"]["app"]["lines"]
+        self.assertEqual(lines, ["one", "two \ufefftwo", "three"])
 
     def test_film_sources_last_line_without_a_final_newline(self):
         """Red: a file with no newline after its last line loses that line (the splitter drops the last
