@@ -105,7 +105,7 @@ Example narration: "The first check looks for remote links. The second check loa
 | `check` | Error: not unique, it occurs two times. |
 | `The second check`, then `The first check` | Error: out of narration order. |
 
-## 3. Build and check
+## 5. Build and check
 
 Run one command. Add `--engine say` only when the user asks in words for the macOS voice.
 
@@ -119,14 +119,98 @@ A `FAIL` line names the cause. The output of the tool follows it, indented.
 | Stage line | Meaning |
 |---|---|
 | `script: ok (<n> scenes)` | The script passed all checks, and the draft transcript passed `verify.sh`. This stage makes no audio. |
-| `workspace: ok <ws>` | The Remotion workspace is ready. |
-| `narration (<engine>): ok` | Each scene has a WAV file. `<engine>` is the narrator that the run used. |
-| `timeline (<n> scenes, <s> s): ok` | `build/timeline.json` exists. Each scene is 60 s or less, and the video is 150 s or less. |
-| `render (<s> s, <ratio> render-min/video-min): ok` | Remotion wrote `video.mp4`. The log is `build/render.log`. |
+| `workspace: ok <ws>` | The Remotion workspace is ready, and the run has its own directory in `<ws>/runs`. |
+| `scene: ok (<n> files)` | The `<n>` files of `scene/` obey the import and token rules, and `tsc` found no error. This stage comes before the narration, so a fault in the scene costs no synthesis. |
+| `narration (<engine>): ok[ (fallback: <cause>)]` | Each scene has a WAV file. `<engine>` is the narrator that the run used. The part in brackets shows only after a fallback. |
+| `timeline (<n> scenes, <s> s): ok` | The run wrote `build/timeline.json`, with the marks of each scene and the check frames. Each scene and the film are within the limits of section 3. |
+| `guard (<n> frames): ok` | The guard rendered the film at its `<n>` check frames only, into `build/guard.mp4`. At each frame, no text is off the canvas, too small, or on another text. The log is `build/guard.log`. This stage comes before the render, so a fault costs no full render. |
+| `render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok` | Remotion wrote `video.mp4`. The log is `build/render.log`. |
 | `container: ok (<s> s)` | The mp4 has one H.264 video stream and one AAC audio stream. Its length is within 0.2 s of the timeline. |
 | `sync: ok` | In each scene, the speech starts within 0.25 s of the lead end and stops more than 0.3 s before the scene end. |
-| `stills (<n>): ok <review-dir>` | The review stills are in `review/`. |
+| `stills (<n>): ok <review-dir>` | The stills are in `review/`, one for each check frame. |
 | `transcript: ok` | The final `index.html` has the narrator and passed `verify.sh`. Do not run `verify.sh` again. |
+
+The narration speaks at speed 1.0. If a line shows `FAIL`, fix its cause and run `render.sh`
+again in the same output directory. The run keeps the WAV file of a scene when its narration
+did not change. When all eleven lines show `ok`, read the stills with section 6.
+
+### The FAIL lines
+
+A `FAIL` line stops the run with exit 1, and the stages after it do not run. Find the line
+below, fix its cause, and run `render.sh` again. Never edit a file in `build/`: the next run
+writes these files again. A `FAIL` line that this section does not list names its cause.
+
+The `script` stage checks `script.json`. Most other `FAIL` lines of this stage name a key of
+`script.json` and the rule that it breaks.
+
+| Line | Cause and fix |
+|---|---|
+| `script: FAIL provenance.root must be an absolute path` | The root in the template is `.`, a relative path. Write the absolute path of the repo root. |
+| `script: FAIL provenance.root must be an existing directory: <path>` | No directory exists at `<path>`. Write the path of the repo root. |
+| `script: FAIL scene <id>: a film scene has no component or props` | The scene has a `component` or a `props` key. A film scene has `id`, `narration`, `cites` and an optional `pause`. Remove the two keys. |
+| `script: FAIL scene <id>: pause <v> must be an integer from 12 to 90` | `pause` is the number of silent frames after the narration of the scene. Write an integer in this range, or remove the key. |
+| `script: FAIL source <id>: <cause>` | An entry of `sources` breaks a rule, and `<cause>` names it. Each entry has the four keys `id`, `path`, `from` and `to`. The range is in the file and within the limit of section 3. |
+
+The `workspace` stage sets up the workspace and makes the run directory. Another `FAIL` line of
+this stage names the step that failed. For `npm ci` and the browser step, it also names the log.
+Read that log.
+
+| Line | Cause and fix |
+|---|---|
+| `workspace: FAIL cannot make a run directory in <ws>/runs` | The run cannot make its directory in `<ws>/runs`, or cannot copy the sources into it. Make sure that `<ws>/runs` is a directory that you can write to, and that the disk has free space. |
+
+The `scene` stage checks the files of `scene/` by their text, and then type-checks them with
+`tsc`. The check finds all causes. The first cause is in the stage line, and all causes follow
+it, indented. Thus the first cause shows two times. Nothing goes into the run directory before
+the check passes.
+
+| Line | Cause and fix |
+|---|---|
+| `scene: FAIL no scene directory: <path>` | `<output-dir>/scene` does not exist, or it is not a directory. Copy the example of section 4 to it. |
+| `scene: FAIL no Film.tsx` | The scene has no `Film.tsx`. Each scene has one. |
+| `scene: FAIL <name> is a directory` | The scene has a sub-directory. Move its files into `scene/`, or remove it. The check ignores an entry whose name starts with `.`. |
+| `scene: FAIL <name> is not a .ts or .tsx file` | The scene holds only `.ts` and `.tsx` files. Move the file out of `scene/`. |
+| `scene: FAIL Film.tsx has no "export function Film("` | `Film.tsx` must hold this text, the export of the function `Film`. Keep that line of the example. |
+| `scene: FAIL <file>:<line>: import from "<source>"` | The line imports from a source that section 4 does not let a scene use. `<source>` is the first 40 characters of the source. An import in a comment counts too. A string that ends with the word `from` or `import` also gives this line: `<source>` is then the text up to the next quote. |
+| `scene: FAIL <file>:<line>: "<name>" from remotion` | The line brings in a name from `remotion` that section 4 does not list. For an import of a different form, for example a default import, a comment in the braces, or two imports on one line, `<name>` is the text of that import. |
+| `scene: FAIL <file>:<line>: token "<token>"` | The line holds a token that section 4 refuses. A token in a comment counts too. The check finds `@ts-nocheck` in any case of its letters. |
+| `scene: FAIL cannot copy the scene to <path>` | The run cannot copy the files of the scene into its run directory. Make sure that the disk has free space. |
+| `scene: FAIL types: <cause>` | The run cannot write `script.gen.ts`, the scene and source names of the script. Its output follows. |
+| `scene: FAIL tsc: <first error line>` | `tsc` found an error. The first 20 lines of its output follow, indented. These lines name a file of your scene as `scene/<file>`. An unused local is an error too. |
+
+The `timeline` stage measures each scene and the film.
+
+| Line | Cause and fix |
+|---|---|
+| `timeline: FAIL scene <id> is <s> s (max <max>, film)` | The scene is longer than the limit of section 3. Write fewer words in its narration, or give it a shorter `pause`. |
+| `timeline: FAIL total <s> s (max <max>, film)` | The film is longer than the limit of section 3. Write fewer words, or drop a scene and write it in `provenance.not_covered`. |
+
+The `guard` stage renders the film at its check frames only and measures each text that shows.
+Its log is `build/guard.log`.
+
+| Line | Cause and fix |
+|---|---|
+| `guard: FAIL frame <f> (scene <id>): <fault>[; <fault> ...]` | At frame `<f>` of scene `<id>`, a text breaks a rule of the guard. The line gives at most five faults, then the number of the others. Fix the picture with one of the three honest fixes of section 4. |
+| `guard: FAIL mark: scene <id>: <cause>` | At a check frame, the scene code asks for a mark of scene `<id>` that the kit cannot find. `<cause>` names the mark, for example a word that the narration does not say, or a sentence after the last one. Fix the mark. |
+| `guard: FAIL remotion render exit <n> (log <path>)` | The guard pass stopped for a different cause, for example no browser, an error in the bundle, or a clip that it cannot get. The last 40 lines of the log follow, indented. Read the log: the error line is near its top. |
+| `guard: FAIL cannot read <out>/build/timeline.json` | The timeline is absent or not JSON, or it has no check frames. The guard pass does not start. Run `render.sh` again. |
+| `guard: FAIL cannot copy <out>/<clip>` | The run cannot copy a narration clip into its run directory. The guard pass does not start. Make sure that the clip is in `audio/` and that the disk has free space. |
+
+Each fault of the frame line is one of these. `<t>` is the first 24 characters of the text.
+
+- `OFFCANVAS "<t>"`: the box of the text goes more than 1 px past an edge of the canvas.
+- `SMALLTEXT <px> px "<t>"`: the size of the text on the canvas is less than the floor of
+  section 3.
+- `OVERLAP "<a>" | "<b>"`: the boxes of two texts overlap by more than 2 px on both axes.
+
+The `render` stage renders all frames of the film into `video.mp4`.
+
+| Line | Cause and fix |
+|---|---|
+| `render: FAIL remotion render exit <n> (log <path>)` | The render stopped. The last 40 lines of `build/render.log` follow, indented. Read the log: the error line is near its top. |
+| `render: FAIL remotion render exit 1 (log <path>)` | If `build/render.log` also has a `MARK scene` line, the scene code asks for a bad mark at a frame that the guard did not check. Fix the mark as for the mark line of the guard. |
+
+### First-run costs
 
 On the first run, the `workspace` stage sets up the workspace by itself. Do not install
 anything yourself. Before each costly step, the stage prints the cost, indented:
@@ -139,62 +223,63 @@ The `narration` stage of the first Kokoro run also resolves the Python packages 
 in approximately 30 s and with no cost line. The first run takes 3 to 6 minutes. If your shell
 tool has a shorter timeout, run `render.sh` in the background with its output in a log file.
 
+### Narration fallback
+
 If Kokoro cannot run, the narration changes to the macOS `say` voice. The run then prints
 `narration: FALLBACK say (<cause>)`, indented. The stage line becomes
 `narration (say): ok (fallback: <cause>)`. The `Narrator` row of the transcript then shows
 `say (fallback: <cause>)`. Tell the user about the fallback and its cause. Without a fallback,
 the row shows `kokoro (af_heart)` or `say`.
 
+### Render ratio
+
 The render ratio is advisory, with a limit of 2.0. The line adds `(limit 2.0)` when the ratio is
 more than 2.0. The stage does not fail.
 
-Then read the stills:
+### A stopped run
 
-1. Read each file in `review/` with the Read tool. Never read `video.mp4`.
-2. `still-NN-<scene>.png` shows scene NN at its start, after the lead.
-3. `still-NN-<scene>-<k>.png` shows cue k of the scene, 15 frames after the cue frame. The
-   number k counts the cues in frame order.
-4. Look for these faults. A title that is absent or clipped. Text that overlaps other text. A
-   motion state that does not agree with the narration, for example no bullet after its cue.
-   Text that gives a false picture of the subject.
-5. Fix each fault in `script.json`. A `workspace` FAIL names its log. Run `render.sh` again in
-   the same output directory. The run keeps the WAV file of a scene when its narration text did
-   not change.
-6. Repeat until all nine lines show `ok` and the stills are clean.
+A HUP, INT or TERM signal stops the run with exit 1 and no `FAIL` line. If TERM or HUP comes
+during `tsc`, the guard pass or the render, the run waits until that tool ends. In a long
+render, this can take minutes. Ctrl-C stops the tool at once. In each case, the run removes its
+run directory. A later run removes a run directory that a killed run left, after one day.
 
-## 4. Handoff
+## 7. Handoff, output directory and pinned versions
+
+### Handoff
 
 1. Print the path of the output directory.
 2. Run `open video.mp4` only when you run for the user directly. Never run `open` inside a
    subagent (`SKILL.md` convention 6).
 3. Tell the user the narrator: Kokoro `af_heart`, `say`, or `say` after a fallback.
 
-## 5. Output directory
+### Output directory
 
 | Path | Contents |
 |---|---|
-| `script.json` | The script that you wrote. All other files come from it. |
-| `index.html` | The transcript: the narration, the text on the screen and the cites of each scene. |
+| `script.json` | The script that you wrote. |
+| `scene/` | The picture that you wrote. The run ignores a `script.gen.ts` in it and writes its own. |
+| `index.html` | The transcript: the narration and the cites of each scene, under a heading that is the scene id. |
 | `video.mp4` | The narrated video. |
 | `narration.md` | The narration, one heading for each scene. |
-| `audio/` | For each scene, `<id>.<engine>.wav` and its sidecar `<id>.<engine>.txt`. Also `durations.json`. |
-| `build/` | `timeline.json`, `render.log` and `rendered-audio.wav`, the audio track of the mp4. |
-| `review/` | The stills `still-NN-<scene>.png` and `still-NN-<scene>-<k>.png`. |
+| `audio/` | For each scene, `<id>.<engine>.wav`, its sidecar `<id>.<engine>.txt` and `<id>.<engine>.words.json`. Also `durations.json`. |
+| `build/` | `timeline.json`, `guard.log`, `guard.mp4`, `render.log` and `rendered-audio.wav`, the audio track of the mp4. |
+| `review/` | The stills `still-NN-<id>-s<k>.png` and `still-NN-<id>-end.png`. |
 
-## 6. Pinned versions and environment
+### Pinned versions and environment
 
 - Remotion `4.0.532`, React `19.2.3` and TypeScript `5.9.3`, pinned in `video/package.json` and
   `video/package-lock.json`. They ran on Node `25.9.0`. An LTS line of Node is a safe substitute.
 - Kokoro runs through `uv run --python 3.12` with `kokoro-onnx==0.6.1`, `onnxruntime==1.30.0`,
   `soundfile==0.14.0`, `numpy==2.5.3` and `espeakng-loader==0.2.4`. The voice is `af_heart` at
-  speed 1.0 and 24 kHz. The `say` voice gives 22.05 kHz.
+  24 kHz. The `say` voice gives 22.05 kHz.
 - The model files come from release `model-files-v1.1` of `thewh1teagle/kokoro-onnx`, at
   `https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1`. sha256:
   `kokoro-v1.0.onnx` (325 MB) `beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a`,
   `voices-v1.0.bin` (28 MB) `bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d`.
-- Workspace: `~/karpathy/video-workspace`, or the path in `EXPLAIN_VIDEO_WORKSPACE`. It holds
-  `app/` (the sources and `node_modules`) and `models/`. Never install a package globally. Never
-  use `npx`.
-- Constants: 30 fps at 1280x720. Each scene has a lead of 15 frames and a tail of 36 frames.
+- Workspace: `~/karpathy/video-workspace`, or the path in `EXPLAIN_VIDEO_WORKSPACE`. Its `app/`
+  holds the installed packages and the two package files, `package.json` and
+  `package-lock.json`. Its `runs/` holds one directory for each render that runs. The render
+  removes its directory when it stops, so two renders can run at the same time. Its `models/`
+  holds the Kokoro files. Never install a package globally. Never use `npx`.
 - Licence: Remotion is free under the Remotion Free License for an individual. Check the licence
   again when the use moves to a for-profit organisation with more than 3 employees.
