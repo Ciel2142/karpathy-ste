@@ -17,10 +17,16 @@ of its prefix, and its sample starts with "<stage>: FAIL ". REQUIRED is the line
 the eleven ok lines, the fallback line and the FAIL lines of a film that an author meets.
 
 The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, lint) and the names
-FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too. Each test names the mutation
-that turns it red."""
+FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
+
+FilmRungCase ties the rest of video.md to its sources: the level-2 titles (FILM_TITLES), the one table
+headed "| Limit | film |" to the film row of video/formats.json and to MIN_TEXT of kit/palette.ts
+(FILM_CELLS, filled by fill of test_format_limits.py), the export lines of the ts blocks of section "Write
+the scene" to the exports of kit/index.ts, and section "Write the script" to templates/film-script.json.
+Each test names the mutation that turns it red."""
 
 import ast
+import json
 import re
 import subprocess
 import sys
@@ -28,6 +34,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_format_limits import fill
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 REPO = EXPLAIN.parent.parent
@@ -202,6 +211,35 @@ REQUIRED = (
     "render: FAIL remotion render exit <n> (log <path>)",
 )
 
+# The level-2 titles of video.md, in order; the rung numbers them from 1.
+FILM_TITLES = ("When a video", "The grammar of a film", "Write the script", "Write the scene", "Build and check",
+               "Read the stills", "Handoff, output directory and pinned versions")
+FORMATS_JSON = EXPLAIN / "video" / "formats.json"
+PALETTE_TS = EXPLAIN / "video" / "src" / "kit" / "palette.ts"
+KIT_INDEX = EXPLAIN / "video" / "src" / "kit" / "index.ts"
+FILM_TEMPLATE = EXPLAIN / "templates" / "film-script.json"
+FILM_TABLE_HEADER = "| Limit | film |"
+# (row label, template), in the order of the rows; fill() makes the cell from the film row of formats.json
+# with the key minText added.
+FILM_CELLS: tuple[tuple[str, str], ...] = (
+    ("canvas", "{width}×{height}"),
+    ("scenes", "{minScenes}–{maxScenes}"),
+    ("max scene length", "{maxSceneSeconds} s"),
+    ("max total length", "{maxTotalSeconds} s"),
+    ("narration words per scene", "{maxNarrationWords}"),
+    ("lead / default pause frames", "{leadFrames} / {pauseFrames}"),
+    ("source lines", "{sourceLines}"),
+    ("smallest text", "{minText} px"),
+)
+MIN_TEXT_LINE = re.compile(r"export const MIN_TEXT = (\d+);")
+IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
+# A list that index.ts exports from a kit file: group 1 is the text between the braces.
+EXPORT_LIST = re.compile(r"\bexport\s+(?:type\s+)?\{([^{}]*)\}\s*from\b")
+# A name that index.ts declares and exports itself.
+EXPORT_DECLARED = re.compile(r"\bexport\s+(?:const|function|type|interface|class)\s+(%s)" % IDENT)
+# One line of the kit block of video.md: group 1 is the one name that it declares.
+RUNG_EXPORT = re.compile(r"export (?:const|function|type) (%s)\b" % IDENT)
+
 
 def read(path):
     """The text of a file, UTF-8."""
@@ -326,6 +364,65 @@ def lint(path):
     """The STE lint of `path`, run from the repository root."""
     return subprocess.run([sys.executable, STE_LINT, str(path)], cwd=REPO, capture_output=True, text=True,
                           timeout=60)
+
+
+def min_text():
+    """The integer of the one code line `export const MIN_TEXT = <n>;` of kit/palette.ts."""
+    found = [MIN_TEXT_LINE.fullmatch(line.strip()) for line in code_lines(PALETTE_TS)]
+    found = [match for match in found if match]
+    if len(found) != 1:
+        raise AssertionError("%d MIN_TEXT lines in %s, not one" % (len(found), PALETTE_TS))
+    return int(found[0].group(1))
+
+
+def film_limits_table() -> dict[str, str]:
+    """Row label -> cell of the one table of video.md headed `| Limit | film |`, in the order of its rows.
+    Cells are the text between the pipes, stripped. AssertionError for no such table or more than one, a row
+    that is not two cells, or two rows with one label."""
+    lines = read(VIDEO_MD).split("\n")
+    starts = [index for index, line in enumerate(lines) if line.strip() == FILM_TABLE_HEADER]
+    if len(starts) != 1:
+        raise AssertionError("%d tables headed %r in video.md, not one" % (len(starts), FILM_TABLE_HEADER))
+    rows = {}
+    for line in lines[starts[0] + 2:]:  # the header and the separator row
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 2 or cells[0] in rows:
+            raise AssertionError("a row that is not two cells, or a second row with its label: %r" % line)
+        rows[cells[0]] = cells[1]
+    return rows
+
+
+def kit_exports() -> set[str]:
+    """The names that kit/index.ts exports: each name of an `export { ... } from` or `export type { ... }
+    from` list (its alias when it has one), and each name that the file declares in an export of its own
+    (`export type <Name>`). Comment lines are not read."""
+    code = "\n".join(code_lines(KIT_INDEX))
+    names = set()
+    for found in EXPORT_LIST.finditer(code):
+        names.update(item.split()[-1] for item in found.group(1).split(",") if item.strip())
+    names.update(EXPORT_DECLARED.findall(code))
+    return names
+
+
+def rung_kit_names() -> set[str]:
+    """The names that the export lines of the fenced ts blocks of section "Write the scene" of video.md
+    declare: each line of such a block that starts with `export` declares one name (`export const <Name>`,
+    `export function <Name>`, `export type <Name>`). AssertionError for an export line of another shape, or
+    for a name that two lines declare."""
+    names, fenced = [], None
+    for line in section(read(VIDEO_MD), "Write the scene").split("\n"):
+        if FENCE.match(line):
+            fenced = None if fenced is not None else line.strip()
+        elif fenced == "```ts" and line.startswith("export"):
+            found = RUNG_EXPORT.match(line)
+            if found is None:
+                raise AssertionError("an export line that declares no name: %r" % line)
+            names.append(found.group(1))
+    if len(names) != len(set(names)):
+        raise AssertionError("a name on two export lines: %r" % names)
+    return set(names)
 
 
 class HelperCase(unittest.TestCase):
@@ -454,6 +551,45 @@ class StageLineDriftCase(unittest.TestCase):
     def test_video_md_lints_clean(self):
         run = lint(VIDEO_MD)
         self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+
+class FilmRungCase(unittest.TestCase):
+    # red: a section is missing, two are swapped, or one is numbered out of turn (section 5 points at
+    # sections 3, 4 and 6 by number)
+    def test_the_headings_of_video_md(self):
+        lines = read(VIDEO_MD).split("\n")
+        found = [lines[index] for index, level, _ in heading_rows(lines) if level == 2]
+        self.assertEqual(found, ["## %d. %s" % (number, title) for number, title in enumerate(FILM_TITLES, 1)])
+        self.assertEqual([title for level, title in headings(read(VIDEO_MD)) if level == 2], list(FILM_TITLES))
+
+    # red: a value changed in formats.json or palette.ts and not in the rung, or a row on one side only
+    def test_film_limits_table_matches_formats(self):
+        row = dict(json.loads(read(FORMATS_JSON))["film"], minText=min_text())
+        expected = [(label, fill(template, row)) for label, template in FILM_CELLS]
+        self.assertEqual(list(film_limits_table().items()), expected)
+
+    # red: a kit export missing from the rung, or a rung name that the kit does not export (MonoRun, makeAt)
+    def test_the_kit_block_is_the_kit_index(self):
+        exports = kit_exports()
+        # one name of each form of index.ts: an export list, an export type list, a declaration of its own
+        self.assertLessEqual({"CodeCard", "Pt", "FilmProps"}, exports)
+        self.assertEqual(rung_kit_names(), exports)
+
+    # red: the rung names the old template, or leaves out "format": "film"
+    def test_the_script_section_copies_the_film_template(self):
+        body = section(read(VIDEO_MD), "Write the script")
+        self.assertEqual([text for text in ("templates/film-script.json", '"format": "film"') if text not in body],
+                         [])
+        self.assertFalse("video-script.json" in read(VIDEO_MD), "video.md names the old template")
+        self.assertEqual(json.loads(read(FILM_TEMPLATE))["format"], "film")
+
+    # red: a row of the old components table, or the cue rule, is left in
+    def test_video_md_has_no_components(self):
+        text = read(VIDEO_MD)
+        words = ("bullets-appear", "diagram-with-highlight-walk", "code-with-line-highlights", "before-after",
+                 "cue rule")
+        self.assertEqual([word for word in words if word in text], [])
+        self.assertFalse("explainer" in text.lower(), "video.md holds the word explainer")
 
 
 if __name__ == "__main__":

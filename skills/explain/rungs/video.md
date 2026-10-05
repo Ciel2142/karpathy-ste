@@ -7,103 +7,344 @@ Choose a video for a temporal narrative where motion carries meaning: data that 
 pipeline, or a handshake between two parts. The reader watches the video from start to end and
 does not search in it. For reference material, choose `sheet` or `page`.
 
-A forced `--as video` keeps the content, also when the content fits a page. A video has at most
-8 scenes. Keep the most important facets. Write each dropped facet in `provenance.not_covered`.
+A forced `--as video` keeps the content, also when the content fits a page. A video has no more
+scenes than the scene limit in the table of section 3. Keep the most important facets. Write each
+dropped facet in `provenance.not_covered`.
 
 The video rung is English only. If the user asks for another language, print the rung line.
 Say that the video rung is English only. Stop. Offer `page`.
 
-## 2. Write the script
+## 2. The grammar of a film
 
-You write only one file, `script.json`. The `render.sh` command makes all other files from it.
-Never change a made file by hand.
+A film is one picture that you make for the subject, and the voice walks through it. Obey these
+rules:
 
-1. Copy `<skill-dir>/templates/video-script.json` to `<output-dir>/script.json`.
-2. Replace every value. The template is an example video about `scripts/verify.sh`.
-3. Get the provenance with the recipe in `<skill-dir>/rungs/sheet.md` section 4.
+- Keep one picture for the whole film. Objects stay and change. Never clear the stage between
+  scenes.
+- Change the picture in each scene while the voice speaks. A scene is one or two sentences, with
+  one motion for each sentence.
+- Decide the picture first. Then write the narration that fits it.
+- Put only three types of text on the stage: a label, a source line in a code card, or a claim
+  under test. A list of sentences is a fault.
+- Give each colour one meaning. Yellow (`C.yellow`) is the subject, and blue (`C.blue`) is a
+  chosen item. Green (`C.green`) is a pass, and red (`C.red`) is a fail.
+
+## 3. Write the script
+
+You write `script.json` and the files of `scene/` (section 4). The `render.sh` command makes all
+other files from them. Never change a made file by hand.
+
+1. Copy `<skill-dir>/templates/film-script.json` to `<output-dir>/script.json`.
+2. Keep `"format": "film"`. Without this key, the `script` stage fails.
+3. Replace every value. The template is the worked example, a film about how `/explain` checks
+   an artifact.
+4. Replace the root `.` with the absolute path of the repo root.
+5. Get the provenance with the recipe in `<skill-dir>/rungs/sheet.md` section 4.
 
 | Key | Value |
 |---|---|
-| `title` | The video title. |
+| `format` | `film`. Keep this key. |
+| `title` | The film title. |
 | `subject.text`, `subject.kind` | The subject as the user typed it, and its kind: `file`, `directory`, `topic` or `conversation` (`SKILL.md` convention 2). |
-| `provenance.root` | The ABSOLUTE path of the repo root, the `data-root` of convention 2. The template value is relative. `render.sh` stops if the value is not an absolute path of a directory. |
+| `provenance.root` | The ABSOLUTE path of the repo root, the `data-root` of convention 2. The template value is `.`, a relative path. `render.sh` stops if the value is not an absolute path of a directory. |
 | `provenance.commit`, `.dirty`, `.date` | The commit hash or `none`; `dirty` or `no`; `YYYY-MM-DD`. |
 | `provenance.source` | The repo root, `model knowledge` or the URLs. |
 | `provenance.not_covered` | The dropped facets, or `none`. Always write this key. The transcript shows it as `Not covered`. |
-| `scenes` | 3 to 8 scenes. Each scene has `id`, `component`, `props`, `narration` and `cites`. |
+| `sources` | The ranges of files that a code card shows. For a film with no code card, leave out the key or write `[]`. |
+| `scenes` | The scenes, in the order of the film. The table of limits below gives their number. |
+
+A scene has only these keys:
+
+| Scene key | Rule |
+|---|---|
+| `id` | Unique, and matches `[a-z0-9][a-z0-9-]*`. It names the audio file, the stills, the marks and the heading of the scene in the transcript. |
+| `narration` | Not empty, and within the word limit of the table below. The run counts the words that white space separates. |
+| `cites` | The cites of the scene. A `file` or a `directory` subject needs at least one cite in each scene. Only a `topic` or a `conversation` subject lets a scene have no cites. |
+| `pause` | Optional. A JSON integer from 12 to 90: the frames of silence after the speech. Without the key, the pause is the default pause of the table below. |
+
+A film scene has no `component`, no `props` and no cue. The `script` stage refuses a scene with a
+`component` or a `props` key. The picture comes from `scene/`, and its timing comes from the
+marks of section 4.
 
 Rules for each scene:
 
-- Give each scene a unique `id` that matches `[a-z0-9][a-z0-9-]*`. Show one motion in each scene.
-- Write the narration in STE. Write 45 words or fewer. Keep each sentence at 20 words or fewer.
-- The prose lint also reads each `title`, the subtitle, the bullets, the headings and lines of
-  `before-after`, and `provenance.not_covered`. Write them in STE. The lint does not read the
-  diagram labels, the code or the cites.
-- The `timeline` stage fails a scene longer than 60 s or a video longer than 150 s. The narrator
-  speaks approximately 3 words each second, and each scene adds 1.7 s of lead and tail. Eight
-  scenes of 45 words come near 150 s. With 7 or 8 scenes, write fewer words in each scene. A safe
-  total is approximately 300 words.
+- Write the narration in STE. Keep each sentence at 20 words or fewer.
+- The prose lint reads only the narration and `provenance.not_covered`. Write them in STE. The
+  lint never reads the labels of the scene, the code or the cites.
 - Put a code name in backticks. The transcript shows it as code, and the narrator speaks it as
   plain text. Prefer words, such as "the check script", to a file name.
 - Write the cites as `{ "path": …, "line": …, "snippet": … }`. The `path` is relative to
   `provenance.root`. The snippet has at most 12 words, copied verbatim from that line.
 - `line` is necessary unless `path` starts with `http://` or `https://`.
-- A `file` or a `directory` subject needs at least one cite in each scene.
 - The transcript adds the word `untracked` by itself.
-- Never write a password, a token or a key in the narration, the props or a snippet. Never
-  show one in a code range.
+- Never write a password, a token or a key in the narration, the scene or a snippet. Never
+  show one in a source range.
 
-### Components
+Declare in `sources` each range of a file that a code card shows. A code card can show no other
+text.
 
-Each prop is necessary, except `sub` and the edge `label`. An unknown or extra prop is an error.
-Each `title` prop is the heading of the scene.
+- Write each entry as `{ "id": …, "path": …, "from": …, "to": … }`. All four keys are necessary.
+- Give each entry a unique `id` that matches `[a-z0-9][a-z0-9-]*`. The scene gets the lines as
+  `sources.<id>`.
+- Write the `path` relative to `provenance.root`. The file must be under the root.
+- `from` and `to` are line numbers of the file, from 1. The range is in the file, and it has no
+  more lines than the source limit of the table below.
+- The run replaces each tab with 4 spaces. A file with a NUL byte fails.
 
-| Component | Props and limits | Motion |
-|---|---|---|
-| `title` | `title` (max 50 chars), `subtitle` (max 80 chars), `cue` | The subtitle fades in at the cue. |
-| `bullets-appear` | `title`; `bullets`: 2 to 4 items `{ text, cue }`, `text` max 36 chars | Each bullet slides in at its cue. Earlier bullets stay. |
-| `diagram-with-highlight-walk` | `title`; `nodes`: 2 to 7 items `{ id, label, sub, cell }`, `label` max 14, `sub` max 24; `edges`: `{ from, to, label }`, `label` max 10; `walk`: `{ node, cue }` | At each cue, the next node gets the highlight. A token moves to it along an edge. The label of the active edge hides while the token is on it. |
-| `code-with-line-highlights` | `title`; `source`: `{ path, from, to }`; `highlights`: `{ from, to, cue }` | At each cue, a blue band marks the line range. Earlier bands become dim. |
-| `before-after` | `title`; `before` and `after`: `{ heading, lines }`, `heading` max 36, 0 to 10 lines of max 36 chars; `cue` | At the cue, the `after` column comes in. The `before` column becomes dim. The `before` heading is red and the `after` heading is blue: use the pair for worse and better. |
-
-- Diagram: `cell` is one of `a1` to `c3`. The letter is the column (left to right), and the digit
-  is the row (top to bottom). Each node has its own cell.
-- Diagram: each walk step and each edge end names a node `id`. The token moves along the edge
-  between the previous step and this step, in either direction. Without one, it takes the first
-  edge into this step from an earlier step. With no such edge, no token shows.
-- Code: the `script` stage reads the lines from `<provenance.root>/<path>`. The range has at most
-  14 lines. Each line has at most 72 columns. The leading indent counts, and the component shows
-  it. A tab counts as 4 columns. This command prints the number of each line that is too long:
-  `awk '{ gsub(/\t/, "    "); if (length($0) > 72) print NR }' <file>`. If no range of 14 short
-  lines shows the point, show it in a diagram.
-- Code: each highlight range is inside the `source` range.
-
-### The cue rule
-
-A cue starts the motion of one item. Each cue is a string in the props.
-
-- A cue is the first words of a sentence in the narration of the same scene.
-- A cue starts and ends at word boundaries.
-- A cue occurs one time only in the narration.
-- The cues of a scene come in narration order.
-- Two cue frames are 15 frames (0.5 s) apart or more. One sentence for each cue is the safe form.
-
-The `script` stage checks the first four rules. The `timeline` stage checks the distance, because
-the distance needs the real clip length. The cue frame is `15 + round(offset / length × clip
-frames)`. Here `offset` is the character position of the cue, `length` is the character count of
-the narration, and `clip frames` is `ceil(seconds × 30)` of the WAV file. The cue accuracy is
-approximately 0.3 s. A test run measured this accuracy for cues that start a sentence, the only
-form that the check accepts.
-
-Example narration: "The first check looks for remote links. The second check loads the page."
-
-| Cue | Result |
+| Limit | film |
 |---|---|
-| `The first check` | Correct. It starts sentence 1. |
-| `The second check` | Correct. It starts sentence 2, after the first cue. |
-| `the page` | Error: not at a sentence start. |
-| `check` | Error: not unique, it occurs two times. |
-| `The second check`, then `The first check` | Error: out of narration order. |
+| canvas | 1280×720 |
+| scenes | 3–30 |
+| max scene length | 30 s |
+| max total length | 150 s |
+| narration words per scene | 45 |
+| lead / default pause frames | 6 / 12 |
+| source lines | 20 |
+| smallest text | 14 px |
+
+The `timeline` stage fails a scene or a film that is longer than its limit. Plan the length with
+these approximate values:
+
+- The narrator speaks approximately 2.8 words each second.
+- Each scene adds 0.6 s of lead and default pause. A longer `pause` adds its frames.
+- Each sentence after the first sentence of a scene adds 0.15 s.
+- The template has 8 scenes and 121 words. Its length is 49 s with Kokoro and 43 s with `say`.
+- A safe total for the longest film is approximately 350 words.
+
+The stage line of `timeline` shows the real length.
+
+## 4. Write the scene
+
+The directory `scene/` holds the picture of the film. You write it in TypeScript and React.
+
+1. Copy the directory `<skill-dir>/video/src/film/` to `<output-dir>/scene/`.
+2. Change the copy into your picture. It is the worked example, the picture of the template.
+3. Keep the timing in `Film.tsx`, as the example does. Let the other files draw.
+
+The directory obeys these rules:
+
+- `scene/` holds only `.ts` and `.tsx` files. A sub-directory, or a file of a different type,
+  fails the `scene` stage. The check ignores each entry whose name starts with `.`, also a
+  directory.
+- `Film.tsx` is necessary, and it holds `export function Film(`.
+- The run writes its own `script.gen.ts`, with the scene ids and the source ids of `script.json`.
+  It ignores the copy in `scene/`, and it does not count it. Do not edit the copy.
+
+### The stage
+
+The run owns the stage, and you own what is on it. The stage is one SVG of 1280×720 on the colour
+`C.bg`, at 30 frames each second. It holds your `Film`. The voice of each scene starts at the
+first mark of the scene.
+
+- `Film.tsx` exports `function Film(props: Props): ReactElement`. `Props` comes from
+  `./script.gen`.
+- `props.at` gives the marks of the narration. `props.sources` holds each source of `script.json`
+  by its id.
+- The scene ids and the source ids are types. Thus `tsc` refuses an id that `script.json` does
+  not have.
+- `Film` returns SVG elements only. It reads the frame with `useCurrentFrame()`.
+- Make the picture a function of the frame and the props only. Use no state and no effect.
+
+### The kit
+
+Import the kit with `import { … } from "../kit";`. These are all the names of the kit, as the kit
+files declare them:
+
+```ts
+// palette.ts
+export const C: Record<"bg" | "panel" | "text" | "muted" | "line" | "blue" | "green" | "yellow" | "red", string>;
+export const MONO: string; // the font stack of Mono
+export const SANS: string; // the font stack of Sans
+export const STAGE: { readonly width: 1280; readonly height: 720; readonly fps: 30 };
+export const MIN_TEXT: number; // the smallest text, in px: the table of section 3
+// motion.ts
+export const p: (frame: number, start: number, len: number) => number;
+export const lin: (frame: number, start: number, len: number) => number;
+export const lerp: (a: number, b: number, t: number) => number;
+export type Pt = { x: number; y: number };
+export const mix: (a: Pt, b: Pt, t: number) => Pt;
+export const mixColor: (a: string, b: string, t: number) => string;
+// marks.ts
+export type Where = { sentence: number } | { word: string; nth?: number };
+export type At<S extends string> = {
+  (scene: S, where?: Where): number;
+  said(scene: S): number;
+  end(scene: S): number;
+};
+// source.ts
+declare const fromDisk: unique symbol; // not exported
+export type Source = {
+  readonly path: string;
+  readonly from: number;
+  readonly lines: readonly string[];
+  readonly [fromDisk]: true;
+};
+// text.tsx
+type TextProps = { // not exported
+  x: number; y: number; size: number; text: string; fill?: string; opacity?: number;
+  anchor?: "start" | "middle" | "end"; weight?: number;
+};
+export function Mono(props: TextProps): ReactElement | null;
+export function Sans(props: TextProps): ReactElement | null;
+// draw.tsx
+export function Draw(props: { d: string; t: number; stroke: string; width?: number;
+  opacity?: number }): ReactElement | null;
+export function Mark(props: { kind: "check" | "cross"; x: number; y: number; t: number;
+  scale?: number; opacity?: number }): ReactElement;
+// mono.ts
+export type Card = { x: number; y: number; width: number; size: number };
+export type Band = { line: number; color: string; opacity: number };
+export type Tint = { line: number; from: number; to: number; color: string };
+export const colX: (card: Card, index: number) => number;
+export const lineY: (card: Card, source: Source, line: number) => number;
+// code.tsx
+export function CodeCard(props: { card: Card; source: Source; bands?: Band[]; tints?: Tint[];
+  opacity?: number }): ReactElement;
+// index.ts
+export type FilmProps<S extends string, R extends string> = { at: At<S>; sources: Record<R, Source> };
+```
+
+- `C` holds the nine colours of the film. `bg` is the ground of the stage, and `panel` is the
+  ground of a card.
+- `p(frame, start, len)` is 0 up to `start`, then an eased curve over `len` frames, then 1. `lin`
+  is the same curve with no easing. With a `len` of 0 or less, each one is a step at `start`.
+- `lerp` and `mix` do not clamp `t`. `mixColor` takes `#rrggbb` or `rgb(r, g, b)`, and it clamps
+  `t` to the range from 0 to 1.
+- `Mono` and `Sans` draw a text at the baseline `y`, in `size` px. The default fill is `C.text`.
+  Each one draws nothing for an empty text or an opacity of 0 or less.
+- `Draw` shows the first part `t` of the stroke `d`: 0 shows nothing, and 1 shows all of it. Give
+  it one subpath, because a second `M` starts the dash again.
+- `Mark` draws a green check or a red cross over `t`. At scale 1, it is approximately 16 px wide,
+  with its centre at `x`, `y`.
+- `CodeCard` draws a frame, the line numbers and the lines of a source of `props.sources`. `tsc`
+  refuses a source that you write, and the kit throws an error for a copy of a source.
+- `line` in `Band`, `Tint` and `lineY` is a line number of the file. A band or a tint on a line
+  that the source does not hold throws an error.
+- A band is a tinted bar behind one line. A tint draws the columns `from` (included) to `to`
+  (excluded) of a line in a colour, in the same text element. The columns count code points, and
+  the first column is 0. Mark words of a line with a tint.
+- The card cuts a line, with no ellipsis, to the characters that fit `card.width`.
+- The kit owns the inner geometry of the card. Get a position in the card only from `colX` and
+  `lineY`. `colX(card, index)` is the x of column `index` of the code, from 0.
+  `lineY(card, source, line)` is the baseline of a line.
+
+### Marks
+
+Time every motion from a mark. A mark is the frame where the voice starts a scene, a sentence or
+a word. Each mark is a frame of the film.
+
+- `at(id)` is the frame where the speech of scene `id` starts. It is equal to
+  `at(id, { sentence: 1 })`.
+- `at(id, { sentence: k })` is the start of sentence `k` of the scene.
+- `at(id, { word: "w" })` is approximately where the voice says the word `w`. With `nth: n`, the
+  mark is the time `n` that the scene says the word.
+- `at.said(id)` is the frame where the speech of the scene ends.
+- `at.end(id)` is the first frame after the scene, its pause included.
+- `sentence` and `nth` count from 1. Without `nth`, the mark is the first time of the word.
+
+Rules for the marks:
+
+- A number in the scene code is a length in frames, never a position in time. Add it to a mark.
+- The run measures the start of each sentence. A word mark is an estimate: the words of a
+  sentence share its time in proportion to their length.
+- Use a word mark for "approximately when the voice says the word". For a motion that needs an
+  exact frame, use a sentence mark.
+- End a motion that starts at a sentence mark before the middle of that sentence. The guard
+  measures that frame, and the still of the sentence shows it.
+- A sentence ends at `.`, `?` or `!` before white space or the end of the narration. A full
+  stop in backticks does not end a sentence.
+- To find the word of a mark, the kit puts it and each word of the narration in lower case. It
+  removes each character that is not a letter or a digit.
+- The match is on the whole word: `self` does not match `self-contained`.
+- The run makes the voice of each sentence alone, with 0.15 s of silence between two sentences.
+  A scene lasts its lead, its speech and its pause.
+
+For a bad mark, the kit throws an error with the message `MARK scene <id>: <cause>`. At a check
+frame, the `guard` stage stops with its mark line of section 5. At another frame, the `render`
+stage stops, and `build/render.log` holds the `MARK scene` line.
+
+| Cause | Fault |
+|---|---|
+| `no such scene` | The scene id is not in `script.json`. `tsc` refuses most of these ids first. |
+| `sentence <k> is not a positive integer` | `k` is not an integer of 1 or more. |
+| `sentence <k> is past the last one (<n>)` | The scene has only `<n>` sentences. |
+| `word "<w>" has no letter or digit` | The word holds no letter and no digit. |
+| `nth <n> is not a positive integer` | `n` is not an integer of 1 or more. |
+| `word "<w>" is not in the narration` | The narration of the scene does not say the word. |
+| `nth <n> is past the last "<w>" (<count>)` | The scene says the word only `<count>` times. |
+| `a mark is a sentence or a word, not both` | The object has `sentence` and also `word` or `nth`. `tsc` does not refuse this object. |
+
+### Text on the stage
+
+- `Mono` gives each character an advance of `0.6 * size`. With the default anchor `start`, the
+  character at `index` of a `Mono` text is at `x + index * 0.6 * size`. The index counts code
+  points.
+- The film renders in Menlo, because the first two fonts of `MONO` are not in the renderer.
+  Menlo keeps the grid within 0.05 px.
+- A wide character, such as an emoji or a CJK character, keeps its width. The other gaps of the
+  text get smaller, and the characters move off `colX` by up to approximately 14 px. Thus, keep
+  a code card and a `Mono` text to characters of one column.
+- A `Sans` text has no fixed width. Leave space around it.
+- Draw each text at `MIN_TEXT` px or more on the canvas. The size on the canvas is the font size
+  times the scale of each group around the text.
+
+### Imports and tokens
+
+The `scene` stage checks each file of `scene/` by its text, before `tsc`. These rules keep the
+picture to pinned code and to its props.
+
+- Import only from `react`, `remotion`, `../kit`, `./script.gen`, and `./<Name>` for a file
+  `<Name>.ts` or `<Name>.tsx` of `scene/`. The rule applies to each `import … from`, each
+  `export … from` and each `import "<source>"`.
+- From `remotion`, import only `useCurrentFrame`, `interpolate`, `Easing`, `spring` and
+  `interpolateColors`. `Sequence`, `AbsoluteFill` and the media components render HTML or load
+  files, and they do not belong on the stage.
+- Import from `remotion` with one list in braces, such as
+  `import { spring, useCurrentFrame } from "remotion";`. The check refuses each other form.
+- The check refuses a default import, `* as`, and a comment in the braces. It also refuses an
+  alias in quotes, or an alias with a character that is not ASCII.
+- Write each import on its own line. The check refuses an import of `remotion` after another
+  import on the same line.
+- Never write these tokens: `require(`, `import(`, `fetch(`, `foreignObject`,
+  `dangerouslySetInnerHTML`, `clipPath`, `href`, `http://`, `https://`, `@ts-nocheck`,
+  `@ts-ignore`, `@ts-expect-error`, `as unknown` and `<any>`.
+- Never write `<mask`, `<use`, `<image`, `as any` or `: any` before a character that is not a
+  letter or a digit.
+- The check finds `@ts-nocheck` in any case of its letters.
+- A string that ends with the word `from` or `import` fails too. The check reads the text up to
+  the next quote as a source. Change the last word of such a string.
+- The check has no comment parser. A token or a `from "<x>"` in a comment counts.
+
+Then `tsc` checks the types of the scene with the kit. The type check is strict, and an unused
+local or an unused import fails `tsc`. Its lines name a file of your scene as `scene/<file>`, and
+a kit file by its path in the run directory, such as `src/kit/marks.ts`.
+
+### The guard
+
+The `guard` stage renders the film at its check frames only: the middle frame of each sentence,
+and the last frame of each scene. At each check frame, it measures each text that holds a
+character other than white space and has an opacity of 0.1 or more. That opacity is the product
+of the opacity of the text and of each group around it.
+
+The guard finds three faults: a text off the canvas, a text under `MIN_TEXT`, and two texts on
+each other. Section 5 gives their lines. No fault is exempt. Fix the picture with one of the three
+honest fixes:
+
+1. Mark words with a tint or a box, not with a second text on top of them.
+2. Bring an object in with a fade, or from inside the canvas.
+3. Finish a cross-fade before the next check frame.
+
+The guard does not see the faults below. Do not rely on the guard for them. Find them in the
+stills of section 6.
+
+- A fault at a frame that is not a check frame.
+- A fault of a thing that is not text, such as a shape over a label.
+- A text of the colour of the ground, or behind an opaque shape. The guard measures it as visible,
+  and it can only give a false fault.
+- A text that `display: none` or `visibility: hidden` hides. The guard measures it as visible.
+- A text that the scene adds after the frame shows, for example through a change of state in an
+  effect. The guard does not measure it.
+- A bad mark at a frame that is not a check frame. The `render` stage stops for it.
 
 ## 5. Build and check
 
@@ -242,6 +483,33 @@ A HUP, INT or TERM signal stops the run with exit 1 and no `FAIL` line. If TERM 
 during `tsc`, the guard pass or the render, the run waits until that tool ends. In a long
 render, this can take minutes. Ctrl-C stops the tool at once. In each case, the run removes its
 run directory. A later run removes a run directory that a killed run left, after one day.
+
+## 6. Read the stills
+
+Read each file in `review/` with the Read tool. Never read `video.mp4`. The stills are the frames
+that the guard measured. `NN` is the place of the scene in the script, from `01`.
+
+- `still-NN-<id>-s<k>.png` is the middle of sentence k of scene NN.
+- `still-NN-<id>-end.png` is the last frame of scene NN.
+
+A still in the middle of a sentence shows that moment of the scene. A label that waits for a
+later word is not there yet, and that is not a fault. For example, the still
+`still-04-gates-s2.png` of the worked example shows one label: each label waits for its spoken
+word.
+
+Look for these faults in each still:
+
+1. Text that a shape clips or covers.
+2. A picture that does not agree with the narration of its scene.
+3. An `-end` still that is equal to the `-end` still of the scene before it. The scene changed
+   nothing.
+4. A picture that is a list of sentences.
+5. Text that gives a false picture of the subject, such as a quoted line that the source does
+   not hold.
+
+Fix each fault in `script.json` or in `scene/`. Then run `render.sh` again in the same output
+directory. The run keeps the WAV file of a scene whose narration did not change. Repeat until all
+eleven lines show `ok` and the stills are clean.
 
 ## 7. Handoff, output directory and pinned versions
 
