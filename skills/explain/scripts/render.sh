@@ -407,6 +407,55 @@ stage_timeline() {
     echo "timeline ($2 scenes, $3 s): ok"
 }
 
+# Film only. The guard pass renders composition Film at the checkFrames of the timeline alone, one
+# one-frame range each (a comma list of frames makes an image sequence, which an output named *.mp4
+# refuses), into build/guard.mp4, in the run directory as the render stage does. FilmStage measures the
+# text of each of those frames and ends the pass through cancelRender, with the stage line of the frame
+# as the message, at the first frame with a fault (spec 7.3); the log holds that line. The pass needs
+# the narration clips, so it copies them into the run directory as the render stage does: --muted
+# leaves the sound out of guard.mp4, but the renderer still fetches the clip of every <Html5Audio> of a
+# rendered frame, and a clip it cannot fetch ends the pass.
+stage_guard() {
+    local timeline="$out/build/timeline.json" log="$out/build/guard.log" info count ranges clip line rc=0
+    [ "$fmt" = "film" ] || return 0
+    info=$(python3 - "$timeline" <<'PY'
+import json, sys
+try:
+    frames = [check["frame"] for check in json.load(open(sys.argv[1], encoding="utf-8"))["checkFrames"]]
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(1)
+if not frames or not all(type(f) is int and f >= 0 for f in frames):
+    sys.exit(1)
+print(len(frames))
+print(",".join("%d-%d" % (f, f) for f in frames))
+PY
+) || fail "guard: FAIL cannot read $timeline"
+    count="${info%%$'\n'*}"
+    ranges="${info#*$'\n'}"
+    mkdir -p "$run/public/audio"
+    while IFS= read -r clip; do
+        cp "$out/$clip" "$run/public/$clip" || fail "guard: FAIL cannot copy $out/$clip"
+    done <<< "$(python3 -c '
+import json, sys
+for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
+    print(s["audio"])
+' "$timeline")"
+    # exec, as for the Remotion CLI in stage_render: render.sh waits for the CLI itself. A subshell
+    # would end at once on TERM or HUP, and the EXIT trap would remove the run directory while the CLI,
+    # which outlives both, goes on in it.
+    (cd "$run" && exec "$remotion" render Film "$out/build/guard.mp4" "--frames=$ranges" \
+        --concurrency=1 --muted --props "$timeline") > "$log" 2>&1 < /dev/null || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in *"guard: FAIL frame "*) fail "guard: FAIL frame ${line#*guard: FAIL frame }" ;; esac
+        done < "$log"
+        echo "guard: FAIL remotion render exit $rc (log $log)"
+        tail -n 40 "$log" | sed 's/^/  /'
+        exit 1
+    fi
+    echo "guard ($count frames): ok"
+}
+
 # Brainrot only: the picker writes the background into the timeline. Its SKIP lines and its
 # stderr (merged by stream) print indented; its one "background: ok ..." line is held back and
 # printed unindented.
@@ -494,6 +543,7 @@ stage_workspace
 stage_scene
 stage_narration
 stage_timeline
+stage_guard
 stage_background
 stage_render
 stage_checks

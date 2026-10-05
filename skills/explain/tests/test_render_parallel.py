@@ -7,7 +7,7 @@ right after the other: the film, the worked example (template_script() of test_f
 with out/scene a copy of its scene FILM_DIR), and the brainrot template (an empty clip folder, so
 the generated background, and SEED). Each runs in a session of its own, in a temp dir of its own
 with its stdout and stderr in files. The two overlap in time, both print all their ok lines (the
-film the ten of ORDER of test_render_film.py, brainrot its ten), <ws>/app is the same afterwards
+film the eleven of ORDER of test_render_film.py, brainrot its ten), <ws>/app is the same afterwards
 (node_modules aside: the film's scene goes only into its run directory), and neither leaves its
 run directory <ws>/runs/run.<pid>.<6 chars>. Two more renders show that no run directory is left
 after a fail (a brainrot render with an invalid seed) and after SIGTERM to the process group of an

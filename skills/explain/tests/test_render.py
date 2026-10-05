@@ -41,10 +41,11 @@ BRAINROT_RUNG = EXPLAIN / "rungs" / "brainrot.md"
 
 # STAGES: the ten stages of a brainrot run, in order. test_render_brainrot compares a run with it, so it
 # holds no stage that a brainrot run does not print; an explainer run has no "background".
-# FILM_STAGES: the stages that only a film run has, not part of STAGES. stage_lines finds the lines of both.
+# FILM_STAGES: the stages that only a film run has, not part of STAGES: the scene, after the workspace, and
+# the guard, after the timeline. stage_lines finds the lines of both.
 STAGES = ("script", "workspace", "narration", "timeline", "background", "render", "container", "sync",
           "stills", "transcript")
-FILM_STAGES = ("scene",)
+FILM_STAGES = ("scene", "guard")
 STAGE_LINE = re.compile(r"^(%s)\b" % "|".join(STAGES + FILM_STAGES))
 
 

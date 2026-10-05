@@ -12,26 +12,32 @@ four FAIL lines and the lines of tsc, cut and renamed.
 
 SceneRunCase runs a copy of render.sh as RunDirectoryCase does (RunHarness of test_render.py), on a film
 script, against the same fakes with the real check_scene.py, FAKE_TSC and a build-timeline.mjs that takes
---types: the ten stage lines of a film and none of the scene stage for another format, the scene that the
-render draws and where tsc runs, the three FAIL lines that stop a run before any synthesis, and a tsc that
-outlives TERM and HUP.
+--types and writes two checkFrames: the eleven stage lines of a film and none of the scene and guard stages
+for another format, the scene that the guard pass and the render draw, where they and tsc run, the three
+FAIL lines that stop a run before any synthesis, and a tsc that outlives TERM and HUP.
 
 FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders the worked example through scripts/render.sh
 --engine say once per process (render_film() of film_output(): a temporary output directory removed
 at exit, with script.json the template templates/film-script.json, template_script() of
 test_film_example.py rooted at the repository, and scene/ a copy of the example scene FILM_DIR; the
-environment render_env() of video_e2e.py, so the render uses workspace()). It holds the ten stage
-lines (the scene stage counts SCENE_FILES), the stills at the check frames, the size, the transcript
-page, the speed of the narration, the place of each clip (the voice starts leadFrames after the
-scene start) and a picture that changes in every scene. The expected scene ids, sentences and stills
-come from the template, not from the render's timeline.
+environment render_env() of video_e2e.py, so the render uses workspace()). It holds the eleven stage
+lines (the scene stage counts SCENE_FILES, the guard CHECK_FRAMES), the stills at the check frames,
+the size, the transcript page, the speed of the narration, the place of each clip (the voice starts
+leadFrames after the scene start) and a picture that changes in every scene. The expected scene ids,
+sentences and stills come from the template, not from the render's timeline.
 
 ScenePlantCase (EXPLAIN_VIDEO_E2E=1 only) holds the four stage plants of spec 9.2: the output
 directory of FilmRenderCase with one edit (a cite snippet with one word changed, a mark on an
 unknown scene, a used import of another package, // @ts-nocheck on line 1), rendered the same way.
 Each stops with its line before any synthesis; FilmRenderCase, with the same output directory and no
 edit, is their control. The expected lines come from the template and the edited files, not from
-the render. Each test names the mutation that turns it red."""
+the render.
+
+GuardPlantCase (EXPLAIN_VIDEO_E2E=1 only) proves the browser rules of the guard (spec 7.3, 9.2) on the
+same output directory with one scene file added by add_to_film: the planted film, rendered three times,
+stops at its first check frame with the same four faults each time; a label off the canvas at the last
+frame alone stops at the last check frame. FilmRenderCase is their control. Each test names the mutation
+that turns it red."""
 
 import atexit
 import importlib.util
@@ -118,13 +124,18 @@ SCENES = len(TEMPLATE_SCENES)
 SCENE_FILES = len([path for path in FILM_DIR.iterdir()
                    if path.suffix in (".ts", ".tsx") and path.is_file() and not path.name.startswith(".")
                    and path.name != "script.gen.ts"])
-# The ten stage lines of a film run, in order: the explainer's nine names, and the scene stage third.
+# The check frames of the template, which the guard measures: for each scene, the middle of each of its
+# sentences and its last frame.
+CHECK_FRAMES = sum(len(split_sentences(scene["narration"])) + 1 for scene in TEMPLATE_SCENES)
+# The eleven stage lines of a film run, in order: the explainer's nine names, the scene stage third and the
+# guard sixth, after the timeline.
 ORDER = [
     r"script: ok \(%d scenes\)" % SCENES,
     r"workspace: ok /.+",
     r"scene: ok \(%d files\)" % SCENE_FILES,
     r"narration \(say\): ok",
     r"timeline \(%d scenes, \d+\.\d s\): ok" % SCENES,
+    r"guard \(%d frames\): ok" % CHECK_FRAMES,
     r"render \(\d+\.\d s, \d+\.\d\d render-min/video-min\)( \(limit 2\.0\))?: ok",
     r"container: ok \(\d+\.\d\d s\)",
     r"sync: ok",
@@ -147,6 +158,23 @@ def film_output(edit=None):
     if edit is not None:
         edit(out)
     return out
+
+
+def add_to_film(test, out, name, text, element):
+    """An edit of film_output(): writes `text` to out/scene/<name>.tsx, and makes out/scene/Film.tsx import
+    <name> (on the line after the import of Props) and draw the line `element` (before the prompt, the last
+    object of the stage). `test` fails if Film.tsx has no such import or no such prompt."""
+    scene = out / "scene"
+    (scene / ("%s.tsx" % name)).write_text(text, encoding="utf-8")
+    film = scene / "Film.tsx"
+    lines = film.read_text(encoding="utf-8").split("\n")
+    anchor = 'import type { Props } from "./script.gen";'
+    test.assertIn(anchor, lines)
+    lines.insert(lines.index(anchor) + 1, 'import { %s } from "./%s";' % (name, name))
+    prompt = [k for k, line in enumerate(lines) if line.startswith("      <Prompt subject=")]
+    test.assertTrue(prompt, "%s draws no <Prompt subject=" % film)
+    lines.insert(prompt[0], "      %s" % element)
+    film.write_text("\n".join(lines), encoding="utf-8")
 
 
 def render_output(out):
@@ -429,17 +457,24 @@ FAKE_TYPES = (
     '  process.exit(0);\n'
     '}\n')
 
+# The timeline that build-timeline.mjs of SceneRunCase writes: that of RUN_FAKES, with the checkFrames of a
+# film: frame 3 (the middle of sentence 1) and frame 89 (the last frame) of scene s1.
+FAKE_CHECK_FRAMES = (
+    ', checkFrames: [{frame: 3, scene: "s1", still: "s1"}, {frame: 89, scene: "s1", still: "end"}]')
+FAKE_FILM_TIMELINE = RUN_FAKES["skill/video/build-timeline.mjs"].replace(
+    'background: {kind: "generated"}', 'background: {kind: "generated"}' + FAKE_CHECK_FRAMES)
+
 # The temp tree of SceneRunCase, by path under FAKE_DIR: RUN_FAKES, and on top of it the fake tsc, the
 # workspace fake that also puts it beside the fake CLI in the shared packages (its commands follow its ok
-# line, which render.sh holds back), the real check_scene.py, the build-timeline.mjs above, and a file of
-# the example in src/film of the skill.
+# line, which render.sh holds back), the real check_scene.py, the build-timeline.mjs above (FAKE_TYPES, then
+# FAKE_FILM_TIMELINE), and a file of the example in src/film of the skill.
 SCENE_RUN_FAKES = {
     **RUN_FAKES,
     "tsc": FAKE_TSC,
     "skill/scripts/video-workspace.sh":
         RUN_FAKES["skill/scripts/video-workspace.sh"] + 'cp "$FAKE_DIR/tsc" "$nm/.bin/tsc"\n',
     "skill/video/check_scene.py": CHECK_SCENE.read_text(encoding="utf-8"),
-    "skill/video/build-timeline.mjs": FAKE_TYPES + RUN_FAKES["skill/video/build-timeline.mjs"],
+    "skill/video/build-timeline.mjs": FAKE_TYPES + FAKE_FILM_TIMELINE,
     "skill/video/src/film/Example.tsx": "// the example\n",
 }
 
@@ -481,16 +516,19 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                 self.fail("tsc did not run:\n" + "".join(self.output()))
             time.sleep(0.05)
 
-    # red: the stage is not called (nine lines), or it is called after the narration (the third line is
-    # not the scene), or for every format (an explainer or a brainrot run prints a scene line and runs tsc)
-    def test_a_film_run_prints_ten_stage_lines(self):
+    # red: the scene stage is not called (ten lines), or it is called after the narration (the third line
+    # is not the scene), or for every format (an explainer or a brainrot run prints a scene line and runs
+    # tsc); the guard stage is not called (ten lines, no guard), or for every format (an explainer or a
+    # brainrot run prints a guard line and calls the CLI twice)
+    def test_a_film_run_prints_eleven_stage_lines(self):
         run = self.finish(self.start("film"))
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         lines = stage_lines(run.stdout)
         self.assertEqual([STAGE_LINE.match(line).group(1) for line in lines],
-                         ["script", "workspace", "scene", "narration", "timeline", "render", "container",
-                          "sync", "stills", "transcript"], run.stdout)
+                         ["script", "workspace", "scene", "narration", "timeline", "guard", "render",
+                          "container", "sync", "stills", "transcript"], run.stdout)
         self.assertEqual(lines[2], "scene: ok (2 files)")
+        self.assertEqual(lines[5], "guard (2 frames): ok")
         for fmt in ("explainer", "brainrot"):
             with self.subTest(fmt=fmt):
                 run = self.finish(self.start(fmt))
@@ -498,6 +536,9 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                 self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("scene")], [],
                                  run.stdout)
                 self.assertFalse(self.tsc_log.exists())
+                self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("guard")], [],
+                                 run.stdout)
+                self.assertEqual(len(self.cli_calls()), 1, run.stdout)
 
     # red: STAGES holds the name of a stage that only a film run has (scene, and the guard of the next
     # wave). The gated BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES;
@@ -509,17 +550,26 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                          list(STAGES), run.stdout)
 
     # red: the scene is copied under <ws>/app (decision 12), tsc runs in the app, or the removal of
-    # src/film reaches the shared packages
+    # src/film reaches the shared packages; the guard pass runs in the app, renders its frames as a
+    # comma list (an image sequence, which an output named guard.mp4 refuses), or runs before the clips
+    # are copied (the renderer fetches the clip of each audio of a frame, --muted or not)
     def test_the_render_draws_the_copied_scene(self):
         proc = self.start("film")
         run = self.finish(proc)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        [call] = self.cli_calls()
-        self.assertEqual([path for path in call["files"] if path.startswith("src/film/")],
-                         ["src/film/Film.tsx", "src/film/Part.tsx", "src/film/script.gen.ts"])
-        self.assertRegex(call["cwd"], self.run_pattern(os.path.realpath(self.runs), proc.pid))
+        out = os.path.realpath(self.out)
+        [guard, call] = self.cli_calls()
+        self.assertEqual(guard["argv"], [
+            "render", "Film", "%s/build/guard.mp4" % out, "--frames=3-3,89-89", "--concurrency=1", "--muted",
+            "--props", "%s/build/timeline.json" % out])
+        self.assertEqual(guard["audio"], ["s1.say.wav"])
+        self.assertEqual(call["argv"][:3], ["render", "Film", "%s/video.mp4" % out])
         [typed] = self.tsc_calls()
-        self.assertEqual(typed["cwd"], call["cwd"])
+        for drawn in (guard, call):
+            self.assertEqual([path for path in drawn["files"] if path.startswith("src/film/")],
+                             ["src/film/Film.tsx", "src/film/Part.tsx", "src/film/script.gen.ts"])
+            self.assertEqual(drawn["cwd"], typed["cwd"])
+        self.assertRegex(call["cwd"], self.run_pattern(os.path.realpath(self.runs), proc.pid))
         self.assertEqual(names(self.ws / "app"), ["node_modules"])
         self.assertEqual(names(self.shared), [".bin", "sentinel.txt"])
         self.assertEqual(names(self.runs), [])
@@ -581,10 +631,11 @@ class FilmRenderCase(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         return out, run
 
-    # red: the scene stage counts the author's script.gen.ts (scene: ok (6 files)) or does not run (nine
-    # lines), a film rendered as Explain (the render stage fails: render: FAIL remotion render exit 1),
-    # or another stage of the film path fails or prints another line
-    def test_film_prints_ten_ok_lines(self):
+    # red: the scene stage counts the author's script.gen.ts (scene: ok (6 files)) or does not run (ten
+    # lines), the guard stage does not run (ten lines) or counts other frames, a film rendered as Explain
+    # (the render stage fails: render: FAIL remotion render exit 1), or another stage of the film path fails
+    # or prints another line
+    def test_film_prints_eleven_ok_lines(self):
         _, run = self.rendered()
         self.assertNotIn("FAIL", run.stdout)
         lines = stage_lines(run.stdout)
@@ -781,6 +832,93 @@ class ScenePlantCase(unittest.TestCase):
         self.assertEqual(stage_lines(run.stdout), self.ok_before_the_scene() + [
             'scene: FAIL Film.tsx:1: token "@ts-nocheck"'], run.stdout)
         self.assertNoSynthesis(out, run)
+
+
+# The planted film of spec 9.2, drawn at every frame: five labels that the guard names (a label off the
+# canvas, one of 10 px, one of 20 px in a group scaled by half, two on one spot) and one that it does not (a
+# label off the canvas in a group of opacity 0). PLANT_FAULTS is what the guard says of them, in their order.
+PLANT = """import type { ReactElement } from "react";
+import { Sans } from "../kit";
+
+export function Plant(): ReactElement {
+  return (
+    <g>
+      <Sans x={1400} y={700} size={20} text="off canvas" />
+      <Sans x={40} y={700} size={10} text="ten px" />
+      <g transform="scale(0.5)">
+        <Sans x={400} y={1400} size={20} text="half scale" />
+      </g>
+      <Sans x={600} y={700} size={20} text="twin one" />
+      <Sans x={600} y={700} size={20} text="twin two" />
+      <g opacity={0}>
+        <Sans x={1400} y={660} size={20} text="hidden" />
+      </g>
+    </g>
+  );
+}
+"""
+PLANT_FAULTS = ('OFFCANVAS "off canvas"; SMALLTEXT 10.0 px "ten px"; SMALLTEXT 10.0 px "half scale"; '
+                'OVERLAP "twin one" | "twin two"')
+
+# A label off the canvas at one frame only: `last`, which the test sets to the last frame of the film.
+LATE = """import type { ReactElement } from "react";
+import { useCurrentFrame } from "remotion";
+import { Sans } from "../kit";
+
+export function Late(props: { last: number }): ReactElement | null {
+  return useCurrentFrame() === props.last ? <Sans x={1400} y={700} size={20} text="late" /> : null;
+}
+"""
+
+
+@unittest.skipUnless(E2E, E2E_REASON)
+class GuardPlantCase(unittest.TestCase):
+    """The browser rules of the guard (spec 7.3), proven on planted films: film_output(edit), the output
+    directory of FilmRenderCase with one scene file added to it by add_to_film, rendered by render.sh
+    --engine say. Each stops at the guard: render.sh exits 1 after the timeline, with no render line and no
+    video.mp4. FilmRenderCase, with the same output directory and no edit, is their control. The expected
+    lines come from the plants and the run's own checkFrames."""
+
+    def stops_at_the_guard(self, edit):
+        """(out, last stage line, checkFrames of out/build/timeline.json) of the render of
+        film_output(edit), once render.sh is seen to stop at the guard."""
+        out = film_output(edit)
+        run = render_output(out)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        lines = stage_lines(run.stdout)
+        self.assertEqual(len(lines), 6, run.stdout)
+        # ORDER[:5], with the scene stage counting the file that add_to_film added
+        before = ORDER[:2] + [r"scene: ok \(%d files\)" % (SCENE_FILES + 1)] + ORDER[3:5]
+        for line, pattern in zip(lines, before):
+            self.assertRegex(line, "^%s$" % pattern)
+        self.assertEqual([line for line in lines if line.startswith("render")], [], run.stdout)
+        self.assertFalse((out / "video.mp4").exists())
+        self.assertTrue((out / "build" / "guard.log").exists())
+        timeline = json.loads((out / "build" / "timeline.json").read_text(encoding="utf-8"))
+        return out, lines[-1], timeline["checkFrames"]
+
+    # red: no guard stage (the run exits 0), a measure that ignores the scale of a group (no SMALLTEXT of
+    # "half scale") or its opacity (an OFFCANVAS of "hidden"), or faults in another order. Three runs in a
+    # row give the same line: the first frame with a fault is the same in every run
+    def test_the_planted_film_fails_at_its_first_check_frame(self):
+        lines = []
+        for _ in range(3):
+            _, last, check_frames = self.stops_at_the_guard(
+                lambda out: add_to_film(self, out, "Plant", PLANT, "<Plant />"))
+            self.assertEqual(last, "guard: FAIL frame %d (scene subject): %s"
+                             % (check_frames[0]["frame"], PLANT_FAULTS))
+            lines.append(last)
+        self.assertEqual(len(set(lines)), 1, lines)
+
+    # red: the pass ends before the cancel of its last frame is read (the run goes on to the render)
+    def test_a_fault_at_the_last_check_frame_fails(self):
+        out, last, check_frames = self.stops_at_the_guard(
+            lambda out: add_to_film(self, out, "Late", LATE, '<Late last={at.end("handoff") - 1} />'))
+        timeline = json.loads((out / "build" / "timeline.json").read_text(encoding="utf-8"))
+        self.assertEqual((check_frames[-1]["scene"], check_frames[-1]["frame"]),
+                         ("handoff", timeline["totalFrames"] - 1))
+        self.assertEqual(last, 'guard: FAIL frame %d (scene handoff): OFFCANVAS "late"'
+                         % check_frames[-1]["frame"])
 
 
 if __name__ == "__main__":
