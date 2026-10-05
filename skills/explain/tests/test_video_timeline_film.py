@@ -1,8 +1,10 @@
-"""Tests for the film format of video/build-timeline.mjs: the formats.json row and the script
-check (--check). Each test names the mutation that turns it red."""
+"""Tests for the film format of video/build-timeline.mjs: the formats.json row, the script
+check (--check) and build mode. Each test names the mutation that turns it red."""
 
 import copy
 import json
+import math
+import os
 import shutil
 import subprocess
 import sys
@@ -11,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_video_timeline import EXPLAIN, FLOW_NARRATION, TOOL, VideoCase, base_script, cite
-from test_video_timeline_brainrot import brainrot_script
+from test_video_timeline_brainrot import BrainrotBuildCase, brainrot_script, words_for
 
 FORMATS = EXPLAIN / "video" / "formats.json"
 
@@ -489,6 +491,192 @@ class TestFilmSources(VideoCase):
                 script = make()
                 script["sources"] = 5
                 self.assertFails(self.check(script), 'FAIL script: unexpected key "sources"')
+
+
+def js_round(value):
+    """Math.round of JavaScript: a half rounds up."""
+    return math.floor(value + 0.5)
+
+
+class FilmBuildCase(VideoCase):
+    """Build-mode fixtures of a film: a words file for every scene, next to durations.json. The
+    words are half a second long with half a second between sentences, so the clips of
+    film_script() last 4.5 s, 8.0 s and 5.0 s."""
+
+    write_words = BrainrotBuildCase.write_words
+
+    def write_film_words(self, script, engine="say"):
+        """Write <id>.<engine>.words.json for every scene that has an id and a narration; return
+        the clip seconds of each scene (the end of its last word)."""
+        clips = {}
+        for scene in script["scenes"]:
+            if not (isinstance(scene, dict) and isinstance(scene.get("id"), str)):
+                continue
+            if not isinstance(scene.get("narration"), str):
+                continue
+            words = words_for(scene["narration"], 0.5, 0.5)
+            self.write_words(scene["id"], engine, words)
+            clips[scene["id"]] = words["words"][-1]["to"]
+        return clips
+
+    def build_film(self, script, seconds=None, engine="say"):
+        """Build `script` with the words files of write_film_words; `seconds` (a clip length per
+        scene id) defaults to the end of each scene's last word. Returns (result, timeline)."""
+        clips = self.write_film_words(script, engine)
+        return self.build(script, clips if seconds is None else seconds, engine)
+
+
+class TestFilmBuild(FilmBuildCase):
+    def built(self, script=None, **kwargs):
+        """The timeline of a build that must succeed."""
+        result, timeline = self.build_film(script or film_script(), **kwargs)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        return timeline
+
+    def test_film_top_level_values(self):
+        """Red: build mode keeps the explainer or brainrot canvas or budgets for a film, totalFrames
+        is not the sum of the scenes, the engine is not written, `sources` or `checkFrames` is
+        missing, or the timeline gains a key such as `background`."""
+        timeline = self.built()
+        self.assertEqual(
+            (timeline["format"], timeline["fps"], timeline["width"], timeline["height"]),
+            ("film", 30, 1280, 720),
+        )
+        self.assertEqual((timeline["maxSceneSeconds"], timeline["maxTotalSeconds"]), (30, 150))
+        self.assertEqual(timeline["engine"], "say")
+        self.assertEqual(timeline["totalFrames"], 597)
+        self.assertEqual(
+            sorted(timeline),
+            sorted(
+                ["format", "fps", "width", "height", "totalFrames", "maxSceneSeconds",
+                 "maxTotalSeconds", "engine", "sources", "checkFrames", "scenes"]
+            ),
+        )
+
+    def test_film_scene_is_lead_audio_pause(self):
+        """Red: the scene length drops the lead, the clip or the pause, the pause of `forms` (30) is
+        ignored for the row's 12, the tail of a component format (36) is added instead, the clip is
+        rounded instead of ceilinged, or `from` is not the sum of the scenes before."""
+        scenes = self.built()["scenes"]
+        self.assertEqual([s["durationInFrames"] for s in scenes], [153, 276, 168])
+        self.assertEqual([s["from"] for s in scenes], [0, 153, 429])
+        self.assertEqual([s["leadFrames"] for s in scenes], [6, 6, 6])
+        self.assertEqual([s["audioFrames"] for s in scenes], [135, 240, 150])
+        self.assertEqual(scenes[0]["audio"], "audio/type.say.wav")
+        # A clip of 4.51 s is 135.3 frames: the audio lasts 136 (ceiling), not 135 (rounding).
+        scenes = self.built(seconds={"type": 4.51, "forms": 8.0, "ends": 5.0})["scenes"]
+        self.assertEqual([s["audioFrames"] for s in scenes], [136, 240, 150])
+        self.assertEqual([s["durationInFrames"] for s in scenes], [154, 276, 168])
+        self.assertEqual([s["from"] for s in scenes], [0, 154, 430])
+
+    def test_film_scene_keys(self):
+        """Red: a film scene carries a key of a component scene (component, props, cueFrames,
+        captions), carries the pause, or loses one of its own keys."""
+        for scene in self.built()["scenes"]:
+            self.assertEqual(
+                sorted(scene),
+                sorted(["id", "from", "durationInFrames", "leadFrames", "audioFrames", "audio", "sentences", "words"]),
+            )
+
+    def test_film_sentence_frames(self):
+        """Red: a sentence frame misses the lead (0, 90, ...), uses the seconds of the sentence end
+        or the clip length instead of its start, or rounds another way than the caption formula."""
+        script = film_script()
+        scenes = self.built(script)["scenes"]
+        self.assertEqual([s["sentences"] for s in scenes], [[6, 96], [6, 81, 186], [6, 96]])
+        for scene, source in zip(scenes, script["scenes"]):
+            sentences = words_for(source["narration"], 0.5, 0.5)["sentences"]
+            self.assertEqual(scene["sentences"], [6 + js_round(s["from"] * 30) for s in sentences])
+
+    def test_film_word_frames(self):
+        """Red: a word frame misses the lead, `to` is the next word's start, the words are the
+        caption chunks (merged or cut at three words), or the text loses its backticks."""
+        scenes = self.built()["scenes"]
+        words = scenes[0]["words"]
+        self.assertEqual(words[0], {"text": "The", "from": 6, "to": 21})
+        self.assertEqual(words[-1], {"text": "replies.", "from": 126, "to": 141})
+        script = film_script()
+        script["scenes"][0]["narration"] = "Run `verify.sh` first. Then read the output."
+        words = self.built(script)["scenes"][0]["words"]
+        self.assertEqual([w["text"] for w in words], script["scenes"][0]["narration"].split())
+        self.assertIn("`verify.sh`", [w["text"] for w in words])
+
+    def test_film_one_sentence_without_an_end_mark(self):
+        """Red: a narration whose last sentence has no end mark yields no sentence frame, or one too
+        many."""
+        script = film_script()
+        script["scenes"][0]["narration"] = "No end mark here"
+        self.assertEqual(self.built(script)["scenes"][0]["sentences"], [6])
+
+    def test_film_reads_the_words_file_of_the_engine(self):
+        """Red: build mode reads <id>.say.words.json whatever the engine, or the audio name keeps the
+        say suffix; with no words file the cause is not the read error naming that file."""
+        script = film_script()
+        clips = self.write_film_words(script)
+        os.remove(os.path.join(self.dir, "type.say.words.json"))
+        result, timeline = self.build(script, clips)
+        self.assertFails(result, "FAIL scene type: cannot read type.say.words.json: ENOENT")
+        self.assertIsNone(timeline)
+        timeline = self.built(engine="kokoro")
+        self.assertEqual(timeline["engine"], "kokoro")
+        self.assertEqual(timeline["scenes"][0]["audio"], "audio/type.kokoro.wav")
+
+    def test_film_words_file_faults(self):
+        """Red: a words file with a word fewer is accepted, a words file with no sentence yields a
+        scene with no sentence frame, or the line names another file or count."""
+        script = film_script()
+        clips = self.write_film_words(script)
+        words = words_for(script["scenes"][0]["narration"], 0.5, 0.5)
+        words["words"].pop(3)
+        self.write_words("type", "say", words)
+        result, timeline = self.build(script, clips)
+        self.assertFails(result, "FAIL scene type: type.say.words.json has 7 words, the narration has 8")
+        self.assertIsNone(timeline)
+        words = words_for(script["scenes"][0]["narration"], 0.5, 0.5)
+        words["sentences"] = []
+        self.write_words("type", "say", words)
+        result, timeline = self.build(script, clips)
+        self.assertFails(result, "FAIL scene type: type.say.words.json has no sentences")
+        self.assertIsNone(timeline)
+
+    def test_film_build_faults(self):
+        """Red: a missing or non-positive duration builds, a pause that is not an integer from 12 to
+        90 builds, a scene that is not an object crashes the build or is skipped, or the film is
+        written although a scene failed."""
+        script = film_script()
+        result, timeline = self.build_film(script, seconds={"forms": 8.0, "ends": 5.0})
+        self.assertFails(result, "FAIL scene type: no duration in durations.json")
+        self.assertIsNone(timeline)
+        for value in (0, -1, "4"):
+            with self.subTest(duration=value):
+                result, timeline = self.build_film(script, seconds={"type": value, "forms": 8.0, "ends": 5.0})
+                self.assertFails(
+                    result, "FAIL scene type: duration %s must be a positive number of seconds" % json.dumps(value)
+                )
+        script = film_script()
+        script["scenes"][1]["pause"] = "12"
+        result, timeline = self.build_film(script)
+        self.assertFails(result, 'FAIL scene forms: pause "12" must be an integer from 12 to 90')
+        self.assertIsNone(timeline)
+        broken = ((7, "#1"), (None, "#1"), ([], "#1"), ({"id": "type"}, "type"), ({"narration": "A."}, "#1"))
+        for value, where in broken:
+            with self.subTest(scene=value):
+                script = film_script()
+                script["scenes"][0] = value
+                result, timeline = self.build_film(script)
+                self.assertFails(result, "FAIL scene %s: needs id and narration to build" % where)
+                self.assertIsNone(timeline)
+
+    def test_film_scene_id_constructor(self):
+        """Red: the duration of a scene is read with a plain lookup, so a scene called `constructor`
+        takes the inherited function as its duration; or the scene id pattern refuses it."""
+        script = film_script()
+        script["scenes"][0]["id"] = "constructor"
+        result, timeline = self.build_film(script, seconds={"forms": 8.0, "ends": 5.0})
+        self.assertFails(result, "FAIL scene constructor: no duration in durations.json")
+        self.assertIsNone(timeline)
+        scene = self.built(script)["scenes"][0]
+        self.assertEqual((scene["id"], scene["audio"]), ("constructor", "audio/constructor.say.wav"))
 
 
 if __name__ == "__main__":

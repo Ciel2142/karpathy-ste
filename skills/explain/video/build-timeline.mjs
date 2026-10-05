@@ -59,6 +59,18 @@
 //   <file> ends at <t> s, after the clip end <s> s
 //   cue "<cue>" does not start a sentence in <file>
 // An explainer build reads no words file.
+//
+// A film build reads that words file for every scene too (the same read, the same FAIL lines) and has no
+// cue and no captions. Each film scene is { id, from, durationInFrames, leadFrames, audioFrames, audio,
+// sentences, words } with durationInFrames = leadFrames + audioFrames + pause, where pause is the scene's
+// own, else pauseFrames of the film row; sentences[k] is the start of sentence k and words[i] the
+// { text, from, to } of narration token i (text verbatim, backticks kept), in frames from the scene start
+// (leadFrames + round(seconds * 30), as for captions). The film timeline has no background key.
+// Its build adds these FAIL lines (prefix "FAIL scene <id>: "), at most one per scene, in this order:
+//   needs id and narration to build          the scene is not an object, or id or narration is not a string
+//   no duration in durations.json            or: duration <v> must be a positive number of seconds
+//   pause <v> must be an integer from 12 to 90    <v> as JSON text, the same cause as --check
+//   the words file lines above (cannot read ... ends at <t> s), or: <file> has no sentences
 import fs from "node:fs";
 import path from "node:path";
 
@@ -566,6 +578,8 @@ const validate = (script, root) => {
 // Seconds of slack for the producer's rounding: sentence-start matches and the clip end.
 const WORDS_TOLERANCE = 0.001;
 const tokensOf = (narration) => narration.split(/\s+/).filter(Boolean);
+// The frame, relative to the scene start, of `seconds` from the clip start.
+const frameOf = (leadFrames, seconds) => leadFrames + Math.round(seconds * FPS);
 const isSeconds = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
 
 // Where the words object breaks the shape, or "" when it holds.
@@ -628,7 +642,7 @@ const cueFrameFromWords = (words, sentences, narration, cueText, leadFrames, bad
     bad(`cue ${q(cueText)} does not start a sentence in ${file}`);
     return undefined;
   }
-  return leadFrames + Math.round(sentence.from * FPS);
+  return frameOf(leadFrames, sentence.from);
 };
 
 // ---------- captions ----------
@@ -645,7 +659,7 @@ const CAPTION_BREAK = /[.,;:?!]$/;
 // null (the explainer row) is no cap.
 const captionChunks = (words, leadFrames, captionChars) => {
   const cap = captionChars ?? Infinity;
-  const frame = (seconds) => leadFrames + Math.round(seconds * FPS);
+  const frame = (seconds) => frameOf(leadFrames, seconds);
   const groups = [];
   let open = [];
   for (const word of words) {
@@ -670,12 +684,30 @@ const captionChunks = (words, leadFrames, captionChars) => {
 
 // ---------- build mode ----------
 
+// The `scenes` object of durations.json (clip seconds by scene id), or {} when it is not an object.
+const clipsOf = (durations) => (isObject(durations?.scenes) ? durations.scenes : {});
+
+// The clip length in seconds of scene `id`, or undefined after reporting through `bad` that durations.json
+// has none for it (own keys only: `constructor` is an ordinary id) or that it is not a positive number.
+const clipSecondsOf = (clips, id, bad) => {
+  const seconds = has(clips, id) ? clips[id] : undefined;
+  if (seconds === undefined) {
+    bad("no duration in durations.json");
+    return undefined;
+  }
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
+    bad(`duration ${q(seconds)} must be a positive number of seconds`);
+    return undefined;
+  }
+  return seconds;
+};
+
 // `limits`: the FORMATS row of the script's format; its wordTimed flag decides, for cue frames and
 // captions alike, whether a scene reads a words file. `wordsDir`: the directory of durations.json,
 // where those files live.
 const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) => {
   const { leadFrames, tailFrames, wordTimed, captionChars } = limits;
-  const clips = isObject(durations?.scenes) ? durations.scenes : {};
+  const clips = clipsOf(durations);
   let from = 0;
   const out = [];
   list(script?.scenes).forEach((scene, i) => {
@@ -684,11 +716,8 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
     if (!isObject(scene) || typeof scene.id !== "string" || typeof scene.narration !== "string" || !isObject(scene.props)) {
       return bad("needs id, narration and props to build");
     }
-    const seconds = has(clips, scene.id) ? clips[scene.id] : undefined;
-    if (seconds === undefined) return bad("no duration in durations.json");
-    if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
-      return bad(`duration ${q(seconds)} must be a positive number of seconds`);
-    }
+    const seconds = clipSecondsOf(clips, scene.id, bad);
+    if (seconds === undefined) return;
     const clipFrames = Math.ceil(seconds * FPS);
     const props = { ...scene.props };
     if (scene.component === "code-with-line-highlights") {
@@ -732,6 +761,43 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
       audio: `audio/${scene.id}.${engine}.wav`,
       cueFrames,
       ...(timing && { captions: captionChunks(timing.words, leadFrames, captionChars) }),
+    });
+    from += durationInFrames;
+  });
+  return out;
+};
+
+// The scenes of a film: lead + audio + pause frames each, and the sentence and word frames of the words
+// file. `limits`: the film row. A scene that fails reports one cause through `fail` and is left out.
+const buildFilmScenes = (script, durations, engine, fail, limits, wordsDir) => {
+  const { leadFrames, pauseFrames } = limits;
+  const clips = clipsOf(durations);
+  let from = 0;
+  const out = [];
+  list(script?.scenes).forEach((scene, i) => {
+    const bad = (cause) => fail(`FAIL ${sceneWhere(scene, i)}: ${cause}`);
+    if (!isObject(scene) || typeof scene.id !== "string" || typeof scene.narration !== "string") {
+      return bad("needs id and narration to build");
+    }
+    const seconds = clipSecondsOf(clips, scene.id, bad);
+    if (seconds === undefined) return;
+    const pause = has(scene, "pause") ? scene.pause : pauseFrames;
+    const pauseFault = pauseCause(pause);
+    if (pauseFault !== "") return bad(pauseFault);
+    const timing = readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad);
+    if (timing === undefined) return;
+    if (timing.sentences.length === 0) return bad(`${timing.file} has no sentences`);
+    const audioFrames = Math.ceil(seconds * FPS);
+    const durationInFrames = leadFrames + audioFrames + pause;
+    out.push({
+      id: scene.id,
+      from,
+      durationInFrames,
+      leadFrames,
+      audioFrames,
+      audio: `audio/${scene.id}.${engine}.wav`,
+      sentences: timing.sentences.map((s) => frameOf(leadFrames, s.from)),
+      words: timing.words.map((w) => ({ text: w.text, from: frameOf(leadFrames, w.from), to: frameOf(leadFrames, w.to) })),
     });
     from += durationInFrames;
   });
@@ -784,11 +850,17 @@ const main = () => {
   if (!knownFormat(format)) finish(["FAIL script: format must be explainer or brainrot"]);
   const limits = FORMATS[format];
   const wordsDir = path.dirname(durationsFile);
-  const scenes = buildScenes(script.value, durations.value, engine, root, (line) => failures.push(line), limits, wordsDir);
+  const addFailure = (line) => failures.push(line);
+  const isFilm = format === "film";
+  const scenes = isFilm
+    ? buildFilmScenes(script.value, durations.value, engine, addFailure, limits, wordsDir)
+    : buildScenes(script.value, durations.value, engine, root, addFailure, limits, wordsDir);
   if (failures.length > 0) finish(failures);
   const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
   const { width, height, maxSceneSeconds, maxTotalSeconds } = limits;
-  const timeline = { format, fps: FPS, width, height, totalFrames, maxSceneSeconds, maxTotalSeconds, engine, scenes };
+  const head = { format, fps: FPS, width, height, totalFrames, maxSceneSeconds, maxTotalSeconds, engine };
+  // A film also has the keys `sources` and `checkFrames`; they stay empty until the film build fills them.
+  const timeline = isFilm ? { ...head, sources: {}, checkFrames: [], scenes } : { ...head, scenes };
   try {
     fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
     fs.writeFileSync(outFile, JSON.stringify(timeline, null, 2) + "\n");
