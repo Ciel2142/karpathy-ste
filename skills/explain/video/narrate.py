@@ -314,7 +314,8 @@ def narrate(scenes, engine, audio_dir, mode):
     words.json are removed; the files are written WAV, words.json, then the sidecar last (after
     the rate check), and a failed sentence removes the WAV and words.json again, so a half-made
     clip never looks current and captions never read old timings. In scene mode any words.json
-    beside the clip is a leftover of an earlier brainrot run and is removed, reused clip or not.
+    beside the clip is a leftover of an earlier brainrot or film run and is removed, reused clip
+    or not.
     """
     audio_dir.mkdir(parents=True, exist_ok=True)
     seconds = {}

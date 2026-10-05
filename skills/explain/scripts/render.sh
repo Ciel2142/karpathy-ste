@@ -9,8 +9,9 @@
 #   env EXPLAIN_BRAINROT_SEED          brainrot only: an integer that fixes the clip choice and
 #                                      its start (pick_background.py reads it; default random)
 #
-# The format is script.json's "format" ("explainer" when absent, else "brainrot"), read once
-# the script stage has passed. An explainer run has nine stages and a brainrot run ten.
+# The format is script.json's "format" ("explainer" when absent, "film" or "brainrot"), read
+# once the script stage has passed. An explainer run has nine stages and a brainrot run ten. A
+# film run has the nine stages of the explainer, until the scene and guard stages exist.
 #
 #   exit 0  all stages of the format passed
 #   exit 1  a stage failed; the stages after it do not run; or HUP, INT or TERM stopped the run
@@ -18,8 +19,8 @@
 #   exit 2  usage, no <output-dir>/script.json, or script.json is not valid JSON (one line
 #           on stderr)
 #
-# stdout carries one line per stage, in this order, up to the first FAIL (the explainer
-# prints no "background" line):
+# stdout carries one line per stage, in this order, up to the first FAIL (the explainer and
+# the film print no "background" line):
 #   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
 #   workspace: ok <ws>                      video-workspace.sh --engine <engine>, then the run
 #                                           directory (below)
@@ -27,7 +28,8 @@
 #                                           brainrot script narrates at --speed 1.2
 #   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
 #                                           limits from it (explainer scene <= 60 s, total
-#                                           <= 150 s; brainrot 30 s and 90 s)
+#                                           <= 150 s; film scene <= 30 s, total <= 150 s;
+#                                           brainrot 30 s and 90 s)
 #   background: ok <name> @<start> s[ (loop)]   brainrot only: pick_background.py chooses the
 #   background: ok generated                    clip, or the generated runner, into the timeline
 #   render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok      log build/render.log
@@ -36,6 +38,10 @@
 #   stills (<n>): ok <review-dir>           /
 #   transcript: ok                          transcript.py --narrator (a brainrot run also
 #                                           --background, read from the timeline), then verify.sh
+# The render stage renders composition Film for a film and composition Explain for an
+# explainer or a brainrot script. The stills of a film are cut at the checkFrames of its timeline:
+# still-NN-<scene-id>-s<k>.png at the middle of sentence k of a scene and
+# still-NN-<scene-id>-end.png at its last frame.
 # A failing stage prints "<stage>: FAIL <cause>" and, below it, the tool's output indented
 # by two spaces (render: the last 40 log lines). The cost lines of video-workspace.sh and
 # the lines of narrate.sh (a FALLBACK line among them) are printed indented as they come, and
@@ -48,8 +54,8 @@
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
 # that fell back to say says so. The Narrator row reads "kokoro (af_heart)", "say" or
-# "say (fallback: <cause>)". Once stage 1 passes, a video.mp4 and the stills of an earlier
-# run are removed, so a later FAIL never leaves them next to the new transcript.
+# "say (fallback: <cause>)". Once stage 1 passes, a video.mp4, the stills and build/guard.mp4 of
+# an earlier run are removed, so a later FAIL never leaves them next to the new transcript.
 #
 # Each render compiles in a run directory of its own, <ws>/runs/run.<pid>.<6 chars>, so two
 # renders can run at the same time and render.sh writes nothing under <ws>/app. It holds a
@@ -128,7 +134,7 @@ app="$ws/app"
 remotion="$app/node_modules/.bin/remotion"
 
 root=""       # provenance.root
-fmt="explainer"   # the script's format: explainer, or brainrot
+fmt="explainer"   # the script's format: explainer, film, or brainrot
 used=""       # the engine that made the audio (durations.json)
 fallback=""   # the fallback cause, empty when none
 video_s=""    # video length in seconds (totalFrames / fps)
@@ -224,7 +230,7 @@ PY
     case "$root" in /*) ;; *) fail "script: FAIL provenance.root must be an absolute path" ;; esac
     [ -d "$root" ] || fail "script: FAIL provenance.root must be an existing directory: $root"
     run_tool script node "$video/build-timeline.mjs" --check "$script" --root "$root"
-    # --check has accepted the format, so it is explainer or brainrot.
+    # --check has accepted the format, so it is explainer, film or brainrot.
     fmt=$(python3 -c '
 import json, sys
 print(json.load(open(sys.argv[1], encoding="utf-8")).get("format", "explainer"))
@@ -234,9 +240,10 @@ print(json.load(open(sys.argv[1], encoding="utf-8")).get("format", "explainer"))
     echo "script: ok ($count scenes)"
 }
 
-# The video and the stills of an earlier run: removed once the script is valid.
+# The video, the stills and the guard video (build/guard.mp4, of a film run) of an earlier run:
+# removed, for every format, once the script is valid.
 clear_stale() {
-    rm -f "$out/video.mp4"
+    rm -f "$out/video.mp4" "$out/build/guard.mp4"
     [ ! -d "$out/review" ] || find "$out/review" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 }
 
@@ -345,7 +352,8 @@ stage_background() {
 }
 
 stage_render() {
-    local log="$out/build/render.log" clip t0 t1 rc=0 verdict
+    local log="$out/build/render.log" clip t0 t1 rc=0 verdict composition=Explain
+    [ "$fmt" != "film" ] || composition=Film
     [ -x "$remotion" ] || fail "render: FAIL no Remotion CLI at $remotion"
     mkdir -p "$run/public/audio"
     while IFS= read -r clip; do
@@ -359,7 +367,7 @@ for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
     # exec: render.sh waits for the CLI itself. A subshell would end at once on TERM or HUP, and
     # the EXIT trap would remove the run directory while the CLI, which outlives both, goes on
     # in it.
-    (cd "$run" && exec "$remotion" render Explain "$out/video.mp4" \
+    (cd "$run" && exec "$remotion" render "$composition" "$out/video.mp4" \
         --props "$out/build/timeline.json") > "$log" 2>&1 < /dev/null || rc=$?
     t1=$(now)
     if [ "$rc" -ne 0 ]; then

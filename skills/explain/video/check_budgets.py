@@ -5,16 +5,16 @@ Usage: check_budgets.py <timeline.json>
 
 The limits are the timeline's own: maxSceneSeconds is the longest scene and maxTotalSeconds the
 longest video, both in seconds (build-timeline.mjs writes them per format: explainer 60 and 150,
-brainrot 30 and 90). A scene is durationInFrames / fps seconds, the video totalFrames / fps; a
-length equal to its limit passes.
+film 30 and 150, brainrot 30 and 90). A scene is durationInFrames / fps seconds, the video
+totalFrames / fps; a length equal to its limit passes.
 
 stdout, one line, exit 0:
   ok <n> <total %.1f> <total %.3f>                 <n> scenes, total seconds
   FAIL scene <id> is <s %.1f> s (max <%g><tag>)    the first scene over its limit
   FAIL total <s %.1f> s (max <%g><tag>)            every scene fits, the video does not
 <tag> names the format the way build-timeline.mjs (tagOf) does on its limit lines: ", <format>"
-for a timeline whose "format" is a string other than "explainer" (", brainrot"), and nothing for
-an explainer timeline or one without the key, so the explainer texts are unchanged.
+for a timeline whose "format" is a string other than "explainer" (", film", ", brainrot"), and
+nothing for an explainer timeline or one without the key, so the explainer texts are unchanged.
 Exit 2 (one line on stderr) for a usage error, a timeline that cannot be read, or one without a
 usable fps, totalFrames, scenes[].durationInFrames, maxSceneSeconds or maxTotalSeconds; there is
 no default limit. Stdlib only.
