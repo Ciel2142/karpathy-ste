@@ -397,3 +397,7 @@ transcript: ok
 ```
 
 Stills read: `still-04-finding-1.png` (the cyan block is in the centre lane; the only near red block is in the right lane, not over the runner; this still showed the collision in run 2), `still-02-flow-1.png` (the diagram is whole; the edge `text` to `tokenize` has no label, the others show `sorted` and `severity` in full; the runner is on the left lane, one small red block far away) and `still-03-rules-2.png` (two bullets; the runner in the centre lane, red blocks in the left and right lanes, and one in the centre lane at a lower depth than the runner's, which the rule allows because the runner changes lane before it arrives). The scenes are the same as in run 2 apart from the removed label; the red blocks differ where the lane of an obstacle was re-picked.
+
+## Acceptance
+
+2026-10-05. The user watched the final `video.mp4` of the live run (`~/karpathy/out/2026-10-05-020741-brainrot-ste-lint/`, 51.7 s, Kokoro `af_heart` at speed 1.2, generated background) on a phone. Their words: "ok". No fault was named, so no further fix round ran.
