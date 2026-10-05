@@ -456,6 +456,138 @@ class OutputTest(TranscriptCase):
             self.assertIn(label, diagram)
 
 
+class FilmTest(TranscriptCase):
+
+    def film(self, kind="file"):
+        """A film script rooted at self.dir: three scenes, each an id, a narration and one cite
+        on src/big.txt line 3. A film scene has no component and no props."""
+        narrations = {
+            "type": "The author types the prompt.",
+            "forms": "Three forms come out of it.",
+            "ends": "The film ends on the card.",
+        }
+        scenes = [
+            {"id": scene_id, "narration": narration,
+             "cites": [{"path": "src/big.txt", "line": 3, "snippet": "alpha beta"}]}
+            for scene_id, narration in narrations.items()
+        ]
+        script = small_script(scenes, self.dir, kind=kind)
+        script["format"] = "film"
+        return script
+
+    def run_tool(self, script):
+        path = self.dir / "script.json"
+        path.write_text(json.dumps(script), encoding="utf-8")
+        return subprocess.run([sys.executable, "-B", str(TOOL), str(path), str(self.out)],
+                              capture_output=True, text=True, timeout=60)
+
+    def test_film_section_is_id_narration_and_cites(self):
+        """Red: a film scene sent through BODIES (KeyError 'component', exit 2); a heading other
+        than the id; a backtick span left as text, or a narration written without html.escape;
+        a cite list that is not the scene's own; an on-screen block (a <figure> or a <ul>)
+        in a film section."""
+        script = self.film()
+        script["scenes"][0]["narration"] = "Type `verify.sh` first."
+        script["scenes"][1]["narration"] = '<b> & "q" come next.'
+        text = self.generate(script)
+        page = parse(text)
+        ids = ["type", "forms", "ends"]
+        self.assertEqual([s["id"] for s in page.sections], ids)
+        self.assertEqual(page.text["h2"], ids)
+        bodies = re.findall(r'<section id="[a-z]+">\n(.*?)\n</section>', text, re.S)
+        paragraphs = ["Type <code>verify.sh</code> first.",
+                      "&lt;b&gt; &amp; &quot;q&quot; come next.",
+                      script["scenes"][2]["narration"]]
+        self.assertEqual(len(bodies), 3)
+        for section, body, paragraph in zip(page.sections, bodies, paragraphs):
+            self.assertEqual(re.findall(r"<p>(.*?)</p>", body), [paragraph], section["id"])
+            cites = [(c["attrs"]["data-path"], c["attrs"]["data-line"], c["attrs"]["data-snippet"])
+                     for c in section["cites"]]
+            self.assertEqual(cites, [("src/big.txt", "3", "alpha beta")], section["id"])
+        self.assertNotIn("<figure", text)
+        self.assertEqual(re.findall(r"<ul[^>]*>", text), ['<ul class="cites" data-ste="skip">'] * 3)
+
+    def test_film_nav_and_narration_md_use_the_id(self):
+        """Red: props["title"] read for a film in the nav or in narration.md (KeyError, exit 2),
+        or a nav link or a ## line that shows anything but the scene id."""
+        script = self.film()
+        script["scenes"][0]["narration"] = "Type `verify.sh` first."
+        text = self.generate(script)
+        ids = [s["id"] for s in script["scenes"]]
+        nav = re.search(r'<nav id="toc">(.*?)</nav>', text, re.S).group(1)
+        self.assertEqual(re.findall(r'<a href="#([^"]*)">([^<]*)</a>', nav), [(i, i) for i in ids])
+        narration = (self.out / "narration.md").read_text(encoding="utf-8")
+        self.assertEqual([l for l in narration.split("\n") if l.startswith("#")],
+                         ["# " + script["title"]] + ["## " + i for i in ids])
+        self.assertEqual(
+            narration, "\n".join(["# %s\n" % script["title"]]
+                                 + ["## %s\n\n%s\n" % (s["id"], s["narration"]) for s in script["scenes"]]),
+        )
+
+    def test_film_cite_labels_come_from_the_cites_alone(self):
+        """Red: Cites reads component (or props.source) of a film scene (KeyError, exit 2), or
+        builds its labels from anything but the cites (two util.py files shown as util.py)."""
+        script = self.film()
+        for scene, folder in zip(script["scenes"], ("a", "b")):
+            (self.dir / folder).mkdir()
+            (self.dir / folder / "util.py").write_text("import os\n", encoding="utf-8")
+            scene["cites"] = [{"path": folder + "/util.py", "line": 1, "snippet": "import os"}]
+        page = parse(self.generate(script))
+        self.assertEqual([text.split(" ")[0] for _, text in self.cite_names(page)],
+                         ["a/util.py:1", "b/util.py:1", "big.txt:3"])
+
+    def test_film_page_has_no_format_row_and_a_landscape_video(self):
+        """Red: a film laid out as brainrot (a Format or Background row, class="portrait" on the
+        video, a whitespace line left where {{format_rows}} sits), or --background written into
+        a film page, or the Narrator row not taken from the flag."""
+        for extra in ((), ("--background", "x.mp4 @ 0.0 s")):
+            text = self.generate(self.film(), "--narrator", "say", *extra)
+            self.assertNotIn("<dt>Format</dt>", text)
+            self.assertNotIn("<dt>Background</dt>", text)
+            self.assertNotIn("x.mp4", text)
+            self.assertIn('<video controls src="video.mp4"></video>', text)
+            self.assertNotIn("class", parse(text).video)
+            self.assertIn("<dt>Narrator</dt><dd>say</dd></div>\n    </dl>", text)
+
+    def test_film_scene_without_a_cites_key(self):
+        """Red: scene["cites"] read for a film scene (KeyError 'cites', exit 2): a topic film
+        scene has no cites and the page is still written, with an empty cite list."""
+        script = self.film(kind="topic")
+        del script["scenes"][1]["cites"]
+        text = self.generate(script)
+        page = parse(text)
+        self.assertEqual([len(s["cites"]) for s in page.sections], [1, 0, 1])
+        self.assertEqual(text.count('<ul class="cites" data-ste="skip"></ul>'), 1)
+
+    def test_film_scene_without_narration_exits_two(self):
+        """Red: narration or id read with a default (scene.get) at every place a film scene is
+        read (the section and narration.md for the narration; the section, the nav and the
+        heading for the id), so a scene without one writes a page instead of ending in the
+        one-line contract error."""
+        for missing in ("narration", "id"):
+            with self.subTest(missing):
+                script = self.film()
+                del script["scenes"][1][missing]
+                proc = self.run_tool(script)
+                self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+                self.assertEqual(proc.stdout, "")
+                lines = proc.stderr.strip().split("\n")
+                self.assertEqual(len(lines), 1, proc.stderr)
+                self.assertTrue(
+                    lines[0].startswith("transcript.py: script does not match the contract:"), lines[0])
+                self.assertFalse((self.out / "index.html").exists())
+
+    def test_film_transcript_passes_verify(self):
+        """Red: a film section without its cites (citations), a heading that fails the lint
+        (prose), or a remote reference on the page (self-contained)."""
+        self.generate(self.film())
+        run = subprocess.run([str(VERIFY_SH), str(self.out / "index.html")],
+                             capture_output=True, text=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines(),
+                         ["self-contained: ok", "citations: ok", "prose: ok"])
+
+
 class UsageTest(TranscriptCase):
 
     def run_tool(self, *args):

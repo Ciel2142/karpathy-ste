@@ -6,7 +6,10 @@ Usage: transcript.py <script.json> <output-dir> [--narrator "<text>"] [--backgro
 Writes <output-dir>/index.html (from templates/video.html) and <output-dir>/narration.md.
 A script whose "format" is "brainrot" gets a Format row, a Background row (the --background
 text, default "pending") and a portrait video player; an explainer page has none of the three
-and ignores --background.
+and ignores --background. A script whose "format" is "film" has scenes with no component and
+no props: each section of its page is the scene id as the heading, the narration and the cites
+(none for a scene with no "cites" key); the nav link and the narration.md heading are the id
+too. A film page has none of the three either, and ignores --background.
 Exit 0 on success; exit 2 with one line on stderr for a usage error, an unreadable or
 invalid script, or a code source that cannot be read. Stdlib only.
 """
@@ -80,9 +83,10 @@ class Cites:
     """Renders <cite> elements for one script: labels and the untracked mark."""
 
     def __init__(self, script):
-        paths = [c["path"] for scene in script["scenes"] for c in scene["cites"]]
-        paths += [s["props"]["source"]["path"] for s in script["scenes"]
-                  if s["component"] == "code-with-line-highlights"]
+        paths = [c["path"] for scene in script["scenes"] for c in scene_cites(script, scene)]
+        if not is_film(script):
+            paths += [s["props"]["source"]["path"] for s in script["scenes"]
+                      if s["component"] == "code-with-line-highlights"]
         self.labels = tail_labels(paths)
         self.root = script["provenance"]["root"]
         self.has_git = os.path.exists(os.path.join(self.root, ".git"))
@@ -178,16 +182,23 @@ BODIES = {
 }
 
 
-def render_scene(scene, ctx):
+def scene_blocks(script, scene, ctx):
+    """The on-screen blocks of a scene and the cites of its figure; a film scene has none."""
+    if is_film(script):
+        return [], []
     try:
         body = BODIES[scene["component"]]
     except KeyError:
         raise ScriptError("scene %s: unknown component %s" % (scene["id"], scene["component"]))
-    blocks, extra = body(scene["props"], ctx)
-    cites = "".join("<li>%s</li>" % ctx["cites"].render(c) for c in extra + scene["cites"])
+    return body(scene["props"], ctx)
+
+
+def render_scene(script, scene, ctx):
+    blocks, extra = scene_blocks(script, scene, ctx)
+    cites = "".join("<li>%s</li>" % ctx["cites"].render(c) for c in extra + scene_cites(script, scene))
     return "\n".join(
         ['<section id="%s">' % esc(scene["id"]),
-         "<h2>%s</h2>" % esc(scene["props"]["title"]),
+         "<h2>%s</h2>" % esc(scene_heading(script, scene)),
          "<p>%s</p>" % inline(scene["narration"])]
         + blocks
         + ['<ul class="cites" data-ste="skip">%s</ul>' % cites, "</section>"]
@@ -198,6 +209,21 @@ def render_scene(scene, ctx):
 
 def is_brainrot(script):
     return script.get("format", "explainer") == "brainrot"
+
+
+def is_film(script):
+    return script.get("format") == "film"
+
+
+def scene_heading(script, scene):
+    """The heading of a scene (section, nav link, narration.md): the id of a film scene,
+    else the title of its props."""
+    return scene["id"] if is_film(script) else scene["props"]["title"]
+
+
+def scene_cites(script, scene):
+    """The cites of a scene; a film scene with no "cites" key has none."""
+    return scene.get("cites", []) if is_film(script) else scene["cites"]
 
 
 def canvas_label(fmt):
@@ -224,11 +250,11 @@ def format_rows(script, background):
 def render_page(template, script, narrator, background):
     prov = script["provenance"]
     ctx = {"root": prov["root"], "cites": Cites(script)}
-    nav = "".join('<a href="#%s">%s</a>' % (esc(s["id"]), esc(s["props"]["title"])) for s in script["scenes"])
+    nav = "".join('<a href="#%s">%s</a>' % (esc(s["id"]), esc(scene_heading(script, s))) for s in script["scenes"])
     values = {
         "title": esc(script["title"]),
         "nav": nav,
-        "sections": "\n\n".join(render_scene(s, ctx) for s in script["scenes"]),
+        "sections": "\n\n".join(render_scene(script, s, ctx) for s in script["scenes"]),
         "root": esc(prov["root"]),
         "kind": esc(script["subject"]["kind"]),
         "subject": esc("%s (%s)" % (script["subject"]["text"], script["subject"]["kind"])),
@@ -247,7 +273,7 @@ def render_page(template, script, narrator, background):
 def render_narration(script):
     parts = ["# %s\n" % script["title"]]
     for scene in script["scenes"]:
-        parts.append("## %s\n\n%s\n" % (scene["props"]["title"], scene["narration"]))
+        parts.append("## %s\n\n%s\n" % (scene_heading(script, scene), scene["narration"]))
     return "\n".join(parts)
 
 
