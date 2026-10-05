@@ -120,7 +120,7 @@ A `FAIL` line names the cause. The output of the tool follows it, indented.
 |---|---|
 | `script: ok (<n> scenes)` | The script passed all checks, and the draft transcript passed `verify.sh`. This stage makes no audio. |
 | `workspace: ok <ws>` | The Remotion workspace is ready, and the run has its own directory in `<ws>/runs`. |
-| `scene: ok (<n> files)` | The `<n>` files of `scene/` obey the import and token rules, and `tsc` found no error. This stage comes before the narration, so a fault in the scene costs no synthesis. |
+| `scene: ok (<n> files)` | The `.ts` and `.tsx` files of `scene/` obey the import and token rules, and `tsc` found no error. `<n>` counts these files, but not a `script.gen.ts` or a hidden file. This stage comes before the narration, so a fault in the scene costs no synthesis. |
 | `narration (<engine>): ok[ (fallback: <cause>)]` | Each scene has a WAV file. `<engine>` is the narrator that the run used. The part in brackets shows only after a fallback. |
 | `timeline (<n> scenes, <s> s): ok` | The run wrote `build/timeline.json`, with the marks of each scene and the check frames. Each scene and the film are within the limits of section 3. |
 | `guard (<n> frames): ok` | The guard rendered the film at its `<n>` check frames only, into `build/guard.mp4`. At each frame, no text is off the canvas, too small, or on another text. The log is `build/guard.log`. This stage comes before the render, so a fault costs no full render. |
@@ -191,7 +191,7 @@ Its log is `build/guard.log`.
 | Line | Cause and fix |
 |---|---|
 | `guard: FAIL frame <f> (scene <id>): <fault>[; <fault> ...]` | At frame `<f>` of scene `<id>`, a text breaks a rule of the guard. The line gives at most five faults, then the number of the others. Fix the picture with one of the three honest fixes of section 4. |
-| `guard: FAIL mark: scene <id>: <cause>` | At a check frame, the scene code asks for a mark of scene `<id>` that the kit cannot find. `<cause>` names the mark, for example a word that the narration does not say, or a sentence after the last one. Fix the mark. |
+| `guard: FAIL mark: scene <id>: <cause>` | At a check frame, the scene code asks the kit for a mark of scene `<id>`, and the kit refuses it. `<cause>` gives the reason, for example a scene that does not exist, a word that the narration does not say, a sentence after the last one, or a mark with both a sentence and a word. Fix the mark. |
 | `guard: FAIL remotion render exit <n> (log <path>)` | The guard pass stopped for a different cause, for example no browser, an error in the bundle, or a clip that it cannot get. The last 40 lines of the log follow, indented. Read the log: the error line is near its top. |
 | `guard: FAIL cannot read <out>/build/timeline.json` | The timeline is absent or not JSON, or it has no check frames. The guard pass does not start. Run `render.sh` again. |
 | `guard: FAIL cannot copy <out>/<clip>` | The run cannot copy a narration clip into its run directory. The guard pass does not start. Make sure that the clip is in `audio/` and that the disk has free space. |
@@ -257,7 +257,7 @@ run directory. A later run removes a run directory that a killed run left, after
 | Path | Contents |
 |---|---|
 | `script.json` | The script that you wrote. |
-| `scene/` | The picture that you wrote. The run ignores a `script.gen.ts` in it and writes its own. |
+| `scene/` | The picture that you wrote. The run never changes this directory. It ignores a `script.gen.ts` in it, and writes its own `script.gen.ts` in the run directory. |
 | `index.html` | The transcript: the narration and the cites of each scene, under a heading that is the scene id. |
 | `video.mp4` | The narrated video. |
 | `narration.md` | The narration, one heading for each scene. |
