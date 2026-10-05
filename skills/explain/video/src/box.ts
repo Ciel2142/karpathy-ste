@@ -1,7 +1,6 @@
-// The box a scene lays out in. The composition gives every scene one SceneBox: the panel size,
-// its margins and title band, and the type sizes the scenes use. Scenes read it with useBox()
-// (sceneBox.tsx) instead of module constants, so the same scene renders in the landscape frame
-// or in a smaller panel.
+// The box a scene lays out in: the panel of a brainrot scene. The composition gives every scene
+// one SceneBox: the panel size, its margins and title band, and the type sizes the scenes use.
+// Scenes read it with useBox() (sceneBox.tsx) instead of module constants.
 //
 // This file is plain TypeScript with no imports, so Node can run it directly: the Python
 // geometry tests import it without a bundler. sceneBox.tsx re-exports everything here.
@@ -35,29 +34,6 @@ export type SceneBox = Size & {
   type: SceneType;
 };
 
-// Today's explainer frame: 1280 x 720 at 30 fps, rendered exactly as before the box existed.
-export const LANDSCAPE_BOX: SceneBox = {
-  width: 1280,
-  height: 720,
-  margin: 48,
-  titleSize: 44,
-  titleBand: 60,
-  stackPanels: false,
-  type: {
-    heroTitle: 64,
-    heroSubtitle: 36,
-    bullet: 32,
-    code: 24,
-    codeLine: 36,
-    node: { width: 260, height: 96 },
-    nodeLabel: 28,
-    nodeSub: 20,
-    edgeLabel: 22,
-    panelHeading: 32,
-    panelLine: 26,
-  },
-};
-
 // The scene panel of a brainrot short: the top 1080 x 960 of the 1080 x 1920 frame. Its content
 // box (984 x 758) is wider than tall, so before-after stacks by an explicit flag, not by aspect.
 // A code row of a 3-digit gutter plus 40 columns is 45ch + 16 px: 45 x 0.61 x 34 + 16 = 949 px,
@@ -85,7 +61,7 @@ export const BRAINROT_BOX: SceneBox = {
 };
 
 // How many code lines CodeHighlights shows: the rows that fit the content box.
-// 14 at 1280 x 720 (floor(534 / 36)), 15 at 1080 x 960 (floor(758 / 48)).
+// 15 at 1080 x 960 (floor(758 / 48)).
 export function codeLineLimit(box: SceneBox): number {
   return Math.floor(contentRect(box).height / box.type.codeLine);
 }

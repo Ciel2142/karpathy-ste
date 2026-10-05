@@ -1,5 +1,5 @@
-// The body of one scene and its fade-in, shared by both layouts: Explain (landscape) and Short
-// (brainrot) lay the same scene components out, each under its own SceneBox.
+// The body of one scene and its fade-in: the scene body of the brainrot layout (Short), which lays
+// the scene components out under BRAINROT_BOX.
 import type { ReactNode } from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
 import { BeforeAfter } from "./scenes/BeforeAfter";

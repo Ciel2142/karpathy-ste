@@ -1,6 +1,6 @@
 // The stage of a film (spec 5.1). The pipeline owns the stage and the author owns what is on it: FilmStage
 // renders one <svg> of the film's size on the ground of the film palette, which holds the author's Film
-// (src/film/Film.tsx), then the narration clip of each scene, placed as Explain.tsx places a clip: it
+// (src/film/Film.tsx), then the narration clip of each scene, placed as short/Short.tsx places a clip: it
 // starts leadFrames after the scene start, so the voice starts at the scene's first mark.
 //
 // `at` and the sources are made here, in the render, memoised on the timeline: Remotion passes the props

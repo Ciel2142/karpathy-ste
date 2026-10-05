@@ -5,14 +5,14 @@ import type { FilmTimeline, Timeline } from "./types";
 
 // Real props always come from build/timeline.json via --props.
 const EMPTY: Timeline = {
-  format: "explainer",
+  format: "brainrot",
   engine: "none",
   fps: 30,
-  width: 1280,
-  height: 720,
+  width: 1080,
+  height: 1920,
   totalFrames: 30,
-  maxSceneSeconds: 60,
-  maxTotalSeconds: 150,
+  maxSceneSeconds: 30,
+  maxTotalSeconds: 90,
   scenes: [],
 };
 

@@ -67,32 +67,24 @@ class TestSceneBox(unittest.TestCase):
         self.assertLessEqual(45 * 0.61 * got["code"] + 16, got["width"])
         self.assertLessEqual(14 * got["codeLine"], got["height"])
 
-    def test_landscape_box_unchanged(self):
-        """Red: a landscape value changes (the explainer pixels move) or stackPanels is not false."""
+    def test_box_exports_the_brainrot_box_only(self):
+        """Red: a second box (any other SceneBox value) is left in box.ts, or BRAINROT_BOX,
+        codeLineLimit or contentRect stops being exported."""
         got = run_node(
-            'import { LANDSCAPE_BOX } from "%s";'
-            "console.log(JSON.stringify(LANDSCAPE_BOX));" % BOX_URL
+            'import * as box from "%s";'
+            "console.log(JSON.stringify(Object.keys(box).sort()));" % BOX_URL
         )
-        self.assertEqual(got, {
-            "width": 1280, "height": 720, "margin": 48, "titleSize": 44, "titleBand": 60,
-            "stackPanels": False,
-            "type": {
-                "heroTitle": 64, "heroSubtitle": 36, "bullet": 32, "code": 24, "codeLine": 36,
-                "node": {"width": 260, "height": 96}, "nodeLabel": 28, "nodeSub": 20,
-                "edgeLabel": 22, "panelHeading": 32, "panelLine": 26,
-            },
-        })
+        self.assertEqual(got, ["BRAINROT_BOX", "codeLineLimit", "contentRect"])
 
-    def test_code_line_limit_per_box(self):
-        """Red: codeLineLimit (the number of code lines CodeHighlights slices to) is not 14 for
-        LANDSCAPE_BOX, the old fixed MAX_LINES, or not 15 for BRAINROT_BOX. Guards the helper's
-        value for each box, not that CodeHighlights calls it."""
+    def test_code_line_limit_of_the_brainrot_box(self):
+        """Red: codeLineLimit (the number of code lines CodeHighlights slices to) is not 15 for
+        BRAINROT_BOX (floor(758 / 48)). Guards the helper's value, not that CodeHighlights calls
+        it."""
         got = run_node(
-            'import { LANDSCAPE_BOX, BRAINROT_BOX, codeLineLimit } from "%s";'
-            "console.log(JSON.stringify({ landscape: codeLineLimit(LANDSCAPE_BOX),"
-            " brainrot: codeLineLimit(BRAINROT_BOX) }));" % BOX_URL
+            'import { BRAINROT_BOX, codeLineLimit } from "%s";'
+            "console.log(JSON.stringify(codeLineLimit(BRAINROT_BOX)));" % BOX_URL
         )
-        self.assertEqual(got, {"landscape": 14, "brainrot": 15})
+        self.assertEqual(got, 15)
 
 
 @unittest.skipIf(NODE is None, NO_NODE_REASON)

@@ -1,5 +1,5 @@
-"""Tests for ink_extent in png_diff.py, on synthetic 8-bit RGB PNGs written with zlib and struct
-(no render needed). Each test names the mutation that turns it red."""
+"""Tests for ink_extent and differing_pixels in png_diff.py, on synthetic 8-bit RGB PNGs written
+with zlib and struct (no render needed). Each test names the mutation that turns it red."""
 
 import struct
 import sys
@@ -9,7 +9,7 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from png_diff import ink_extent
+from png_diff import differing_pixels, ink_extent
 
 
 def write_png(path, width, height, ink):
@@ -64,6 +64,21 @@ class InkExtentCase(unittest.TestCase):
         path = self.png("grey.png", {(1, 1): (215, 215, 215), (5, 5): (214, 255, 255)})
         self.assertEqual(ink_extent(path, 0, 10, 0, 10), (5, 5, 5, 5))
         self.assertEqual(ink_extent(path, 0, 10, 0, 10, level=39), (1, 5, 1, 5))
+
+
+class DifferingPixelsCase(unittest.TestCase):
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory(prefix="explain-png-diff-")
+        self.addCleanup(self._dir.cleanup)
+        self.dir = Path(self._dir.name)
+
+    # red: the level parameter ignored (a fixed threshold of 40 or of 16)
+    def test_differing_pixels_level(self):
+        a, b = self.dir / "a.png", self.dir / "b.png"
+        write_png(a, 4, 1, {})
+        write_png(b, 4, 1, {(2, 0): (255, 235, 255)})   # 20 below white in one channel of one pixel
+        self.assertEqual(differing_pixels(a, b, 0, 4, 0, 1, level=16), 1)
+        self.assertEqual(differing_pixels(a, b, 0, 4, 0, 1, level=40), 0)
 
 
 if __name__ == "__main__":

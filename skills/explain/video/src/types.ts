@@ -36,8 +36,6 @@ export type BeforeAfterProps = {
   cue: string;
 };
 
-export type Format = "explainer" | "brainrot";
-
 // One spoken word of a caption chunk; frames are relative to the scene start.
 export type CaptionWord = { text: string; from: number; to: number };
 // 1 to 3 words shown together from `from` up to (not including) `to`. A chunk can be
@@ -60,7 +58,7 @@ type SceneTiming = {
   audioFrames: number; // ceil(clip seconds * fps)
   audio: string; // path under public/, e.g. audio/intro.say.wav
   cueFrames: CueFrames;
-  captions?: CaptionChunk[]; // brainrot scenes only
+  captions?: CaptionChunk[]; // the captions of a brainrot scene
 };
 
 export type TimelineScene = SceneTiming &
@@ -72,8 +70,9 @@ export type TimelineScene = SceneTiming &
     | { component: "before-after"; props: BeforeAfterProps }
   );
 
+// The timeline of a brainrot short: what build/timeline.json holds when its format is brainrot.
 export type Timeline = {
-  format: Format;
+  format: "brainrot";
   engine: string;
   fps: number;
   width: number;
@@ -81,7 +80,7 @@ export type Timeline = {
   totalFrames: number;
   maxSceneSeconds: number;
   maxTotalSeconds: number;
-  background?: Background; // brainrot only, added by pick_background.py
+  background?: Background; // the brainrot background, added by pick_background.py
   scenes: TimelineScene[];
 };
 
