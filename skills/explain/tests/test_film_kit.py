@@ -1,35 +1,121 @@
 """Tests for the film kit of the explain skill's video rung (video/src/kit/): the palette, the motion
 helpers and the other modules a film scene is written against. The pure modules run through Node
-(which strips the types), so the values checked here are the ones a scene draws with. Always on;
-skipped only when `node` is missing. Each test names the mutation that turns it red."""
+(which strips the types), so the values checked here are the ones a scene draws with; they are
+skipped only when `node` is missing. The components are bundled with the workspace's esbuild and
+rendered to static SVG markup (<ws>/app/node_modules/.bin/esbuild, ws = $EXPLAIN_VIDEO_WORKSPACE or
+~/karpathy/video-workspace) from a temporary copy of the app that links node_modules to the
+workspace's, so nothing is written there; those cases are skipped, naming video-workspace.sh, when
+esbuild or tsc is missing. Each test names the mutation that turns it red."""
 
 import json
+import os
+import re
 import shutil
 import subprocess
+import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent / "video" / "src" / "kit"
+VIDEO = KIT.parent.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "film-timeline.json"
 
 NODE = shutil.which("node")
 NO_NODE_REASON = "node is not on PATH"
 
+WORKSPACE = Path(os.environ.get("EXPLAIN_VIDEO_WORKSPACE") or Path.home() / "karpathy" / "video-workspace")
+MODULES = WORKSPACE / "app" / "node_modules"
+TSC = MODULES / ".bin" / "tsc"
+ESBUILD = MODULES / ".bin" / "esbuild"
+NO_TOOLS_REASON = "workspace tsc or esbuild missing under %s: run scripts/video-workspace.sh" % MODULES
+
+
+def needs_kit_tools(cls):
+    """Class decorator: skip the class unless node and the workspace's tsc and esbuild are all there."""
+    if NODE is None:
+        return unittest.skip(NO_NODE_REASON)(cls)
+    if not (TSC.exists() and ESBUILD.exists()):
+        return unittest.skip(NO_TOOLS_REASON)(cls)
+    return cls
+
+
+def run_checked(argv, cwd=None):
+    """Run `argv` (in `cwd`) and return its stdout. A non-zero exit raises an AssertionError that
+    carries the command's name, its exit code and its stderr, so a failing test says why."""
+    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise AssertionError("%s exited %d: %s" % (Path(argv[0]).name, done.returncode, done.stderr.strip()))
+    return done.stdout
+
 
 def run_node(script):
     """Run `script` (ES module source) in Node and return what it prints as parsed JSON."""
-    done = subprocess.run(
-        [NODE, "--input-type=module", "-e", script],
-        capture_output=True, text=True, timeout=60,
-    )
-    if done.returncode != 0:
-        raise AssertionError("node exited %d: %s" % (done.returncode, done.stderr.strip()))
-    return json.loads(done.stdout)
+    return json.loads(run_checked([NODE, "--input-type=module", "-e", script]))
 
 
 def kit_url(name):
     """The file URL of the kit module `name` (for example "motion.ts"), as Node imports it."""
     return (KIT / name).as_uri()
+
+
+def kit_app():
+    """A fresh temporary copy of video/ (the Remotion app: tsconfig.json, package.json, src/) whose
+    node_modules is a link to the workspace's, so tsc and esbuild run in it and nothing is written
+    under the workspace. The caller removes it with shutil.rmtree, which unlinks the link and leaves
+    the workspace alone."""
+    app = Path(tempfile.mkdtemp(prefix="film-kit-"))
+    shutil.copytree(VIDEO, app, ignore=shutil.ignore_patterns("node_modules"), dirs_exist_ok=True)
+    (app / "node_modules").symlink_to(MODULES)
+    return app
+
+
+def render_kit(entry_source):
+    """Write `entry_source` as src/kitcheck/entry.tsx of a fresh kit_app(), bundle it with esbuild, run
+    the bundle in Node and return the JSON object it prints. A failing esbuild or Node run raises an
+    AssertionError that carries its stderr. The copy is removed afterwards."""
+    app = kit_app()
+    try:
+        entry = app / "src" / "kitcheck" / "entry.tsx"
+        entry.parent.mkdir()
+        entry.write_text(entry_source, encoding="utf-8")
+        run_checked(
+            ["node_modules/.bin/esbuild", "src/kitcheck/entry.tsx", "--bundle", "--format=cjs",
+             "--platform=node", "--outfile=out.cjs", "--log-level=warning"],
+            cwd=app,
+        )
+        return json.loads(run_checked([NODE, "out.cjs"], cwd=app))
+    finally:
+        shutil.rmtree(app)
+
+
+# What an entry of render_cases continues with, after the kit imports: `show(name, element)` renders
+# one case as static markup inside an <svg>, and `print()` prints every markup as one JSON line.
+SHOW = """
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactNode } from "react";
+const out: Record<string, string> = {};
+const show = (name: string, element: ReactNode) => {
+  out[name] = renderToStaticMarkup(<svg>{element}</svg>);
+};
+const print = () => console.log(JSON.stringify(out));
+"""
+
+
+def render_cases(imports, cases):
+    """Render each case of `cases` (a dict from a name to JSX source) inside an <svg>, in an entry that
+    starts with `imports` (TSX import lines of the kit), and return a dict from the name to the list of
+    the <svg>'s child elements, parsed with xml.etree.ElementTree. The markup has no xmlns, so tags
+    carry no namespace."""
+    shows = "".join("show(%s, %s);\n" % (json.dumps(name), jsx) for name, jsx in cases.items())
+    markups = render_kit(imports + SHOW + shows + "print();\n")
+    return {name: list(ET.fromstring(markups[name])) for name in cases}
+
+
+def attrs(element, expected):
+    """The attributes of `element` that `expected` names, as a dict to compare with `expected`: an
+    attribute the element does not carry reads None, so `{"textLength": None}` asserts it is absent."""
+    return {name: element.get(name) for name in expected}
 
 
 def rgb(hex_colour):
@@ -595,6 +681,146 @@ class TestMono(EvaluatesJs):
             "CodeCard: line 47.5 is outside src/app.py:47-54",
             "CodeCard: line NaN is outside src/app.py:47-54",
         ])
+
+
+@needs_kit_tools
+class TestKitDraws(unittest.TestCase):
+    """The text and stroke components, rendered to static markup (see render_cases)."""
+
+    IMPORTS = 'import { Mono, Sans } from "../kit/text";\nimport { Draw, Mark } from "../kit/draw";\n'
+    TEXT = "  ab\U0001F600"  # two leading spaces, then one code point outside the BMP
+    BLUE = PALETTE["C"]["blue"]
+
+    def render(self, **cases):
+        """render_cases with the kit components in scope: each keyword is a case name, its value JSX."""
+        return render_cases(self.IMPORTS, cases)
+
+    def test_mono_forces_the_advance(self):
+        """Red: textLength counts UTF-16 units instead of code points (72, not 60: the smiley is
+        two), is left out, or the font is not MONO; the default fill is not C.text, the default
+        anchor or weight is not start and 400; white-space:pre is dropped or the text is trimmed
+        (the two leading spaces are the point); or x and y are swapped."""
+        got = self.render(mono='<Mono x={10} y={20} size={20} text="%s" />' % self.TEXT)
+        (text,) = got["mono"]
+        self.assertEqual(text.tag, "text")
+        expected = {
+            "x": "10", "y": "20", "textLength": "60", "font-size": "20", "font-family": PALETTE["MONO"],
+            "fill": PALETTE["C"]["text"], "text-anchor": "start", "font-weight": "400",
+            "style": "white-space:pre",
+        }
+        self.assertEqual(attrs(text, expected), expected)
+        self.assertEqual(text.text, self.TEXT)
+
+    def test_sans_has_no_forced_advance(self):
+        """Red: Sans sets a textLength (it reuses the mono width), its font is not SANS, its anchor
+        or weight is ignored (the centred case would still be start and 400), its default fill, anchor
+        or weight is not C.text, start and 400, or the text is not passed through."""
+        got = self.render(
+            plain='<Sans x={10} y={20} size={20} text="%s" />' % self.TEXT,
+            centred='<Sans x={10} y={20} size={20} text="ab" anchor="middle" weight={600} />',
+        )
+        (plain,) = got["plain"]
+        expected = {
+            "x": "10", "y": "20", "textLength": None, "font-size": "20", "font-family": PALETTE["SANS"],
+            "fill": PALETTE["C"]["text"], "text-anchor": "start", "font-weight": "400",
+        }
+        self.assertEqual(attrs(plain, expected), expected)
+        self.assertEqual(plain.text, self.TEXT)
+        (centred,) = got["centred"]
+        expected = {"text-anchor": "middle", "font-weight": "600", "textLength": None}
+        self.assertEqual(attrs(centred, expected), expected)
+
+    def test_text_takes_fill_opacity_anchor_and_weight(self):
+        """Red: Mono or Sans, one alone or both, ignores its fill, opacity, anchor or weight and
+        draws the default instead (C.text, 1, start or 400)."""
+        props = 'x={10} y={20} size={20} text="ab" fill="%s" opacity={0.5} anchor="end" weight={700}' % self.BLUE
+        got = self.render(mono="<Mono %s />" % props, sans="<Sans %s />" % props)
+        expected = {"fill": self.BLUE, "opacity": "0.5", "text-anchor": "end", "font-weight": "700"}
+        for name in ("mono", "sans"):
+            (text,) = got[name]
+            self.assertEqual(attrs(text, expected), expected, name)
+
+    def test_empty_or_invisible_text_draws_nothing(self):
+        """Red: an empty text draws an element (a text of no characters, with a textLength of 0), an
+        opacity of 0 draws one (the check is `< 0`), an opacity below 0 draws one (the check is
+        `=== 0`), Mono or Sans alone lacks one of the checks, or every text draws nothing (the visible
+        control case, which proves that the harness sees an element)."""
+        cases = {}
+        for component in ("Mono", "Sans"):
+            for name, props in (("empty", 'text=""'), ("hidden", 'text="ab" opacity={0}'),
+                                ("negative", 'text="ab" opacity={-0.5}'), ("visible", 'text="ab"')):
+                cases["%s %s" % (component, name)] = "<%s x={10} y={20} size={20} %s />" % (component, props)
+        got = self.render(**cases)
+        self.assertEqual({name: len(children) for name, children in got.items()}, {
+            "Mono empty": 0, "Mono hidden": 0, "Mono negative": 0, "Mono visible": 1,
+            "Sans empty": 0, "Sans hidden": 0, "Sans negative": 0, "Sans visible": 1,
+        })
+
+    def test_draw_shows_the_first_part_of_a_stroke(self):
+        """Red: t of 0 or less draws a path (the check is `< 0`: a round cap would show a dot), the
+        dash offset is t instead of 1 - t (0.25, not 0.75), t above 1 is not clamped (-1, not 0), the
+        dash array or pathLength is left out (the whole stroke would show), the fill is not none, the
+        caps or joins are not round, the default width is not 2, a given width or the stroke colour
+        is ignored, or an opacity of 0 or less draws a path (or the given opacity is dropped)."""
+        d = "M0 0 L10 0"
+        paint = 'd="%s" stroke="%s"' % (d, self.BLUE)
+        got = self.render(
+            unseen="<Draw %s t={0} />" % paint,
+            backwards="<Draw %s t={-0.5} />" % paint,
+            part="<Draw %s t={0.25} />" % paint,
+            whole="<Draw %s t={1} />" % paint,
+            past="<Draw %s t={2} />" % paint,
+            hidden="<Draw %s t={1} opacity={0} />" % paint,
+            styled="<Draw %s t={1} width={5} opacity={0.4} />" % paint,
+        )
+        self.assertEqual([len(got[name]) for name in ("unseen", "backwards", "hidden")], [0, 0, 0])
+        (part,) = got["part"]
+        self.assertEqual(part.tag, "path")
+        expected = {
+            "d": d, "fill": "none", "stroke": self.BLUE, "stroke-width": "2", "pathLength": "1",
+            "stroke-dasharray": "1", "stroke-dashoffset": "0.75",
+            "stroke-linecap": "round", "stroke-linejoin": "round",
+        }
+        self.assertEqual(attrs(part, expected), expected)
+        self.assertEqual([got[name][0].get("stroke-dashoffset") for name in ("whole", "past")], ["0", "0"])
+        expected = {"stroke-width": "5", "opacity": "0.4"}
+        self.assertEqual(attrs(got["styled"][0], expected), expected)
+
+    def test_mark_kinds(self):
+        """Red: a kind takes the other's colour (the check is red or the cross green), both kinds
+        draw the same path, the group's transform is not `translate(x y) scale(s)` (the scale is
+        dropped or put before the translate, which moves the mark by twice the offset), the default
+        scale is not 1, the stroke width is not 3, the mark is not drawn about 16 px wide and centred
+        on the origin (a path that starts at the origin, or is twice as large), a mark at t 0 draws
+        a path or no longer returns its group, or t and opacity are not passed on to the stroke."""
+        got = self.render(
+            check='<Mark kind="check" x={10} y={20} t={1} scale={2} />',
+            cross='<Mark kind="cross" x={10} y={20} t={1} scale={2} />',
+            plain='<Mark kind="check" x={10} y={20} t={1} />',
+            unseen='<Mark kind="cross" x={10} y={20} t={0} scale={2} />',
+            half='<Mark kind="check" x={10} y={20} t={0.5} scale={2} opacity={0.4} />',
+        )
+        shapes = {}
+        for name, stroke in (("check", PALETTE["C"]["green"]), ("cross", PALETTE["C"]["red"])):
+            (group,) = got[name]
+            self.assertEqual(group.tag, "g")
+            self.assertEqual(group.get("transform"), "translate(10 20) scale(2)", name)
+            (path,) = group
+            expected = {"stroke": stroke, "stroke-width": "3", "stroke-dashoffset": "0"}
+            self.assertEqual(attrs(path, expected), expected, name)
+            numbers = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", path.get("d"))]
+            xs, ys = numbers[0::2], numbers[1::2]
+            self.assertTrue(12 <= max(xs) - min(xs) <= 16, "%s is %s px wide" % (name, max(xs) - min(xs)))
+            self.assertLessEqual(abs(max(xs) + min(xs)) / 2, 1, "%s is off-centre in x" % name)
+            self.assertLessEqual(abs(max(ys) + min(ys)) / 2, 1, "%s is off-centre in y" % name)
+            shapes[name] = path.get("d")
+        self.assertNotEqual(shapes["check"], shapes["cross"])
+        self.assertEqual(got["plain"][0].get("transform"), "translate(10 20) scale(1)")
+        (unseen,) = got["unseen"]
+        self.assertEqual((unseen.tag, len(unseen)), ("g", 0))
+        (half_path,) = got["half"][0]
+        expected = {"stroke-dashoffset": "0.5", "opacity": "0.4"}
+        self.assertEqual(attrs(half_path, expected), expected)
 
 
 if __name__ == "__main__":
