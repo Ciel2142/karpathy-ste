@@ -229,9 +229,9 @@ class Sentences(NarrateCase):
                 )
 
     def test_unknown_format_exit_2(self):
-        """Mutation: an unknown format (the name of the removed whole-scene format among them) is
-        narrated as a film, or fails with another code or text."""
-        for value in ("tiktok", "explainer", "", "Brainrot", 7, None, ["brainrot"]):
+        """Mutation: an unknown format is narrated as a film instead of refused, or fails with
+        another code or text."""
+        for value in ("tiktok", "", "Brainrot", 7, None, ["brainrot"]):
             with self.subTest(format=value):
                 script = self.brainrot(scene("one", ONE), format=value)
                 run = self.python(script, "--engine", "say")

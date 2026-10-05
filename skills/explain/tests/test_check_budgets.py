@@ -85,12 +85,12 @@ class CheckBudgetsCase(unittest.TestCase):
         self.assertEqual(over.returncode, 0, over.stderr)
         self.assertEqual(over.stdout, "FAIL total 151.0 s (max 150, film)\n")
 
-    # red: a timeline without the key, or of another format (the name of the removed row, an
-    # empty name, a number), is judged with untagged lines instead of exit 2, the stderr line is
-    # another one, or the format is checked after any number (a timeline that also lacks fps and
-    # maxSceneSeconds names fps, the first number read, instead)
+    # red: a timeline without the key, or of another format ("slides", an empty name, a number), is
+    # judged with untagged lines instead of exit 2, the stderr line is another one, or the format is
+    # checked after any number (a timeline that also lacks fps and maxSceneSeconds names fps, the
+    # first number read, instead)
     def test_a_timeline_of_another_format_exits_2(self):
-        for fmt in (None, "explainer", "", 7):
+        for fmt in (None, "slides", "", 7):
             for drop in ((), ("fps", "maxSceneSeconds")):
                 with self.subTest(format=fmt, drop=drop):
                     path = self.write_timeline([900], 30, 150, drop=drop, fmt=fmt)

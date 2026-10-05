@@ -311,7 +311,7 @@ of an earlier run, as the base does for the first two.
 
 - The format table (`video/formats.json`, read by `build-timeline.mjs`) gets a `film` row: 1280x720, 3 to 30 scenes, a scene of at
   most 30 s, a film of at most 150 s, 45 narration words, lead 6, default pause 12, 20 source
-  lines, `wordTimed: true`, and no component limits. These are starting values.
+  lines, and no component limits. These are starting values.
 - `--check` validates a film by section 4.2. The component shapes and the cue rules stay for
   brainrot.
 - Build mode writes, for a film: `format`, the canvas and budgets, `engine`, `sources`

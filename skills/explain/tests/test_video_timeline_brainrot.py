@@ -49,13 +49,6 @@ class TestBrainrotCheck(VideoCase):
         script["format"] = "vertical"
         self.assertFails(self.check(script), FORMAT_LINE, *FILM_COMPONENT_LINES)
 
-    def test_explainer_format_is_refused(self):
-        """Red: the name of the removed row is still a known format (the script passes as before),
-        or the rest of the script is not validated as a film (no component lines)."""
-        script = base_script()
-        script["format"] = "explainer"
-        self.assertFails(self.check(script), FORMAT_LINE, *FILM_COMPONENT_LINES)
-
     def test_a_brainrot_script_without_the_key_is_a_film(self):
         """Red: a script without the key is validated by another row than the film's (it passes as
         before), or a component scene of a film is not refused."""
@@ -110,9 +103,9 @@ class TestBrainrotCheck(VideoCase):
         )
 
     def test_invalid_format_values_fail_with_the_format_line(self):
-        """Red: knownFormat accepts null, a number, an inherited name, a differently cased name or
-        the name of the removed row, or the rest of such a script is not validated as a film."""
-        for value in (None, 5, "constructor", "__proto__", ["brainrot"], "Brainrot", "explainer"):
+        """Red: knownFormat accepts null, a number, an inherited name or a differently cased name,
+        or the rest of such a script is not validated as a film."""
+        for value in (None, 5, "constructor", "__proto__", ["brainrot"], "Brainrot"):
             with self.subTest(format=value):
                 script = base_script()
                 script["format"] = value
@@ -232,17 +225,14 @@ class TestBrainrotBuild(BrainrotBuildCase):
         self.assertEqual(timeline["totalFrames"], 108 + 6 + 135 + 12)
 
     def test_build_mode_unknown_format_fails(self):
-        """Red: an unknown format, or the name of the removed row, builds instead of failing, or
-        the line is another one."""
-        for value in ("vertical", "explainer"):
-            with self.subTest(format=value):
-                script = self.two_scene_brainrot()
-                script["format"] = value
-                result, timeline = self.build_brainrot(script, {"intro": 3.0, "flow": 4.5})
-                self.assertEqual(result.returncode, 1)
-                self.assertEqual(result.stdout.splitlines(), [FORMAT_LINE])
-                self.assertIsNone(timeline)
-                self.assertFalse(os.path.exists(os.path.join(self.dir, "out", "timeline.json")))
+        """Red: an unknown format builds instead of failing, or the line is another one."""
+        script = self.two_scene_brainrot()
+        script["format"] = "vertical"
+        result, timeline = self.build_brainrot(script, {"intro": 3.0, "flow": 4.5})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.splitlines(), [FORMAT_LINE])
+        self.assertIsNone(timeline)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "out", "timeline.json")))
 
     def test_brainrot_cue_frame_is_sentence_start(self):
         """Red: cue frames stay the proportional estimate instead of the sentence start seconds."""

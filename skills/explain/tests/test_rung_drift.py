@@ -574,7 +574,7 @@ class StageLineDriftCase(unittest.TestCase):
                         gives_stage = gives_stage or text.startswith((stage + ":", stage + " ("))
                 self.assertTrue(gives_stage, "no evidence gives the stage %r" % stage)
 
-    # red: video.md lists the explainer's nine lines, or the guard comes before the timeline
+    # red: video.md lists other ok lines than the eleven of a film run, or the guard comes before the timeline
     def test_the_ok_lines_are_the_eleven_of_a_film_run(self):
         names = []
         for line in self.quoted:
@@ -630,7 +630,6 @@ class FilmRungCase(unittest.TestCase):
         words = ("bullets-appear", "diagram-with-highlight-walk", "code-with-line-highlights", "before-after",
                  "cue rule")
         self.assertEqual([word for word in words if word in text], [])
-        self.assertFalse("explainer" in text.lower(), "video.md holds the word explainer")
 
 
 # The level-2 titles that brainrot.md holds besides its own pointers, and the components that it explains.
@@ -688,14 +687,12 @@ class BrainrotRungCase(unittest.TestCase):
                 self.assertTrue(body.strip(), "the section is empty")
                 self.assertEqual([value for value in FILM_VALUES if value in body], [])
 
-    # red: the components table left with neither rung, a rule left out of brainrot.md, or the word explainer
-    # left in it
+    # red: the components table left with neither rung, or a rule left out of brainrot.md
     def test_brainrot_holds_its_own_rules(self):
         level_two = [title for level, title in headings(self.text) if level == 2]
         self.assertEqual([title for title in BRAINROT_TITLES if title not in level_two], [])
         components = section(self.text, "Components")
         self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
-        self.assertFalse("explainer" in self.text.lower(), "brainrot.md holds the word explainer")
 
 
 class SkillMdCase(unittest.TestCase):

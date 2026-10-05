@@ -130,11 +130,11 @@ class StageOneCase(unittest.TestCase):
         self.assertIn("\n  prose: FAIL 1 error(s)\n", run.stdout)
         self.assertIn('contraction "doesn\'t"', run.stdout)
 
-    # red: --check takes the name of the removed row as a format again. It then checks the template as a
-    # film, so the stage still fails, but with "script: FAIL scene hook: a film scene has no component or
-    # props", not with the refusal of the name; or the narration runs before the check
-    def test_an_explainer_script_stops_at_the_script_stage(self):
-        self.write_script(lambda script: script.update(format="explainer"))
+    # red: --check takes an unknown name as a format. It then checks the template as a film, so the stage
+    # still fails, but with "script: FAIL scene hook: a film scene has no component or props", not with
+    # the refusal of the name; or the narration runs before the check
+    def test_an_unknown_format_stops_at_the_script_stage(self):
+        self.write_script(lambda script: script.update(format="slides"))
         run = self.render()
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertEqual(stage_lines(run.stdout), ["script: FAIL script: format must be film or brainrot"])

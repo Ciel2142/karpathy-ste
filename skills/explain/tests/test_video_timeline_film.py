@@ -279,14 +279,14 @@ class TestFilmCheck(VideoCase):
         )
         self.assertEqual(result.stderr, "")
 
-    def test_an_explainer_row_does_not_make_a_format(self):
-        """Red: knownFormat reads the rows of formats.json (has(FORMATS, format)), so a stale row
-        of the removed format makes its name valid again. The copy of the tool has the two real
-        rows and a third, a copy of the brainrot row."""
+    def test_an_extra_row_does_not_make_a_format(self):
+        """Red: knownFormat reads the rows of formats.json (has(FORMATS, format)), so a row beyond
+        the two real ones makes its name valid. The copy of the tool has the two real rows and a
+        third, "slides", a copy of the brainrot row."""
         rows = json.loads(FORMATS.read_text(encoding="utf-8"))
-        rows["explainer"] = copy.deepcopy(rows["brainrot"])
+        rows["slides"] = copy.deepcopy(rows["brainrot"])
         script = film_script()
-        script["format"] = "explainer"
+        script["format"] = "slides"
         self.assertFails(self.check_with_formats(rows, script), FORMAT_LINE)
 
 
@@ -1081,11 +1081,11 @@ class TestFilmTypes(VideoCase):
 
     def test_types_refuses_a_script_that_is_not_a_film(self):
         """Red: --types writes names for a brainrot script or for one whose format is another value
-        (the name of the removed row), crashes on JSON that is not an object (null, an array, a
-        number), or writes the file before it knows the script is a film."""
+        ("slides"), crashes on JSON that is not an object (null, an array, a number), or writes the
+        file before it knows the script is a film."""
         film_line = "FAIL script: --types needs a film script"
         scripts = {}
-        for value in ("brainrot", "explainer"):
+        for value in ("brainrot", "slides"):
             scripts[value] = film_script()
             scripts[value]["format"] = value
         scripts.update({"null": None, "array": [], "number": 3})
