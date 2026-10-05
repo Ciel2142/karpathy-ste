@@ -156,7 +156,7 @@ export const C: Record<"bg" | "panel" | "text" | "muted" | "line" | "blue" | "gr
 export const MONO: string; // the font stack of Mono
 export const SANS: string; // the font stack of Sans
 export const STAGE: { readonly width: 1280; readonly height: 720; readonly fps: 30 };
-export const MIN_TEXT: number; // the smallest text, in px: the table of section 3
+export const MIN_TEXT: 14; // the smallest text, in px: the table of section 3
 // motion.ts
 export const p: (frame: number, start: number, len: number) => number;
 export const lin: (frame: number, start: number, len: number) => number;
@@ -246,7 +246,8 @@ Rules for the marks:
 
 - A number in the scene code is a length in frames, never a position in time. Add it to a mark.
 - The run measures the start of each sentence. A word mark is an estimate: the words of a
-  sentence share its time in proportion to their length.
+  sentence share its time in proportion to their length. A word that ends with `,`, `;` or `:`,
+  and the last word of the sentence, get a little more time.
 - Use a word mark for "approximately when the voice says the word". For a motion that needs an
   exact frame, use a sentence mark.
 - End a motion that starts at a sentence mark before the middle of that sentence. The guard
@@ -301,15 +302,15 @@ picture to pinned code and to its props.
   files, and they do not belong on the stage.
 - Import from `remotion` with one list in braces, such as
   `import { spring, useCurrentFrame } from "remotion";`. The check refuses each other form.
-- The check refuses a default import, `* as`, and a comment in the braces. It also refuses an
-  alias in quotes, or an alias with a character that is not ASCII.
+- In an import from `remotion`, the check refuses a default import, `* as`, and a comment in the
+  braces. It also refuses an alias in quotes, or an alias with a character that is not ASCII.
 - Write each import on its own line. The check refuses an import of `remotion` after another
   import on the same line.
 - Never write these tokens: `require(`, `import(`, `fetch(`, `foreignObject`,
   `dangerouslySetInnerHTML`, `clipPath`, `href`, `http://`, `https://`, `@ts-nocheck`,
   `@ts-ignore`, `@ts-expect-error`, `as unknown` and `<any>`.
 - Never write `<mask`, `<use`, `<image`, `as any` or `: any` before a character that is not a
-  letter or a digit.
+  letter or a digit. The end of a line counts as such a character.
 - The check finds `@ts-nocheck` in any case of its letters.
 - A string that ends with the word `from` or `import` fails too. The check reads the text up to
   the next quote as a source. Change the last word of such a string.
