@@ -1,4 +1,5 @@
 {
+  "format": "brainrot",
   "title": "How verify.sh checks an artifact",
   "subject": { "text": "scripts/verify.sh", "kind": "file" },
   "provenance": {

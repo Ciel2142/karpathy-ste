@@ -35,7 +35,7 @@ You write `script.json` and the files of `scene/` (section 4). The `render.sh` c
 other files from them. Never change a made file by hand.
 
 1. Copy `<skill-dir>/templates/film-script.json` to `<output-dir>/script.json`.
-2. Keep `"format": "film"`. Without this key, the `script` stage fails.
+2. Keep `"format": "film"`. A script without the key is also a film.
 3. Replace every value. The template is the worked example, a film about how `/explain` checks
    an artifact.
 4. Replace the root `.` with the absolute path of the repo root.

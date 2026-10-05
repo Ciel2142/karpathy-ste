@@ -851,38 +851,26 @@ class BrainrotRouteCase(unittest.TestCase):
         self.assertEqual((run.returncode, run.stdout.strip()), (0, "0 errors, 0 warnings"),
                          run.stdout + run.stderr)
 
-    def stage_script_format(self, script, fake_page=False):
+    def stage_script_format(self, script):
         """Run the real stage_script of render.sh on `script` (a dict, with its provenance.root set),
         with fmt unset before it, so that only stage_script can set it; returns the CompletedProcess.
-        The tools are the real ones, unless `fake_page`: then video/ is a temp directory with a link to
-        the real build-timeline.mjs (Node follows the link, so it reads the real formats.json) and an
-        empty transcript.py, and scripts/ is a temp directory whose verify.sh exits 0. transcript.py
-        reads a script with no format as another format until the next wave (decision 2); the fakes
-        leave the format read of stage_script alone."""
+        The tools are the real ones: build-timeline.mjs, transcript.py and verify.sh."""
         tmp = Path(tempfile.mkdtemp(prefix="render-format-test-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         out = tmp / "out"
         out.mkdir()
         (out / "script.json").write_text(json.dumps(script), encoding="utf-8")
-        video, scripts = EXPLAIN / "video", EXPLAIN / "scripts"
-        if fake_page:
-            video, scripts = tmp / "video", tmp / "scripts"
-            video.mkdir()
-            scripts.mkdir()
-            (video / "build-timeline.mjs").symlink_to(BUILD_TIMELINE)
-            (video / "transcript.py").write_text("", encoding="utf-8")
-            (scripts / "verify.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-            (scripts / "verify.sh").chmod(0o755)
         text = (
             "set -eu\n" + render_functions(["fail", "first_cause", "run_tool", "stage_script"]) +
             'out=%(out)s script=%(out)s/script.json video=%(video)s scripts=%(scripts)s\n'
             'root="" fmt=unset\nstage_script\necho "fmt=$fmt"\n'
-            % {"out": out, "video": video, "scripts": scripts})
+            % {"out": out, "video": EXPLAIN / "video", "scripts": EXPLAIN / "scripts"})
         return subprocess.run(["/bin/bash", "-c", text], capture_output=True, text=True, timeout=120)
 
     # red: stage_script leaves fmt at its start value, so a brainrot script gets the film's speed and
     # no background stage; or its format read has another default than film for a script with no
-    # format key
+    # format key; or transcript.py reads a script without the key as another format, so the script
+    # stage fails
     def test_stage_script_reads_the_format_from_the_script(self):
         brainrot = json.loads(BRAINROT_TEMPLATE.read_text(encoding="utf-8"))
         brainrot["provenance"]["root"] = str(EXPLAIN)
@@ -892,7 +880,7 @@ class BrainrotRouteCase(unittest.TestCase):
         film = json.loads((EXPLAIN / "templates" / "film-script.json").read_text(encoding="utf-8"))
         film["provenance"]["root"] = str(EXPLAIN.parent.parent)
         del film["format"]
-        run = self.stage_script_format(film, fake_page=True)
+        run = self.stage_script_format(film)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
                          (0, ["script: ok (8 scenes)", "fmt=film"]), run.stdout + run.stderr)
 
