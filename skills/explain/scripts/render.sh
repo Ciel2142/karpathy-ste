@@ -407,6 +407,21 @@ stage_timeline() {
     echo "timeline ($2 scenes, $3 s): ok"
 }
 
+# The narration clips of the timeline (the audio of each scene) go from the output directory into the
+# public directory of the run, where the renderer fetches them. $1 is the stage whose FAIL line a clip
+# that cannot be copied prints.
+copy_clips() {
+    local stage="$1" clip
+    mkdir -p "$run/public/audio"
+    while IFS= read -r clip; do
+        cp "$out/$clip" "$run/public/$clip" || fail "$stage: FAIL cannot copy $out/$clip"
+    done <<< "$(python3 -c '
+import json, sys
+for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
+    print(s["audio"])
+' "$out/build/timeline.json")"
+}
+
 # Film only. The guard pass renders composition Film at the checkFrames of the timeline alone, one
 # one-frame range each (a comma list of frames makes an image sequence, which an output named *.mp4
 # refuses), into build/guard.mp4, in the run directory as the render stage does. FilmStage measures the
@@ -416,7 +431,7 @@ stage_timeline() {
 # leaves the sound out of guard.mp4, but the renderer still fetches the clip of every <Html5Audio> of a
 # rendered frame, and a clip it cannot fetch ends the pass.
 stage_guard() {
-    local timeline="$out/build/timeline.json" log="$out/build/guard.log" info count ranges clip line rc=0
+    local timeline="$out/build/timeline.json" log="$out/build/guard.log" info count ranges line rc=0
     [ "$fmt" = "film" ] || return 0
     info=$(python3 - "$timeline" <<'PY'
 import json, sys
@@ -432,14 +447,7 @@ PY
 ) || fail "guard: FAIL cannot read $timeline"
     count="${info%%$'\n'*}"
     ranges="${info#*$'\n'}"
-    mkdir -p "$run/public/audio"
-    while IFS= read -r clip; do
-        cp "$out/$clip" "$run/public/$clip" || fail "guard: FAIL cannot copy $out/$clip"
-    done <<< "$(python3 -c '
-import json, sys
-for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
-    print(s["audio"])
-' "$timeline")"
+    copy_clips guard
     # exec, as for the Remotion CLI in stage_render: render.sh waits for the CLI itself. A subshell
     # would end at once on TERM or HUP, and the EXIT trap would remove the run directory while the CLI,
     # which outlives both, goes on in it.
@@ -477,17 +485,10 @@ stage_background() {
 }
 
 stage_render() {
-    local log="$out/build/render.log" clip t0 t1 rc=0 verdict composition=Explain
+    local log="$out/build/render.log" t0 t1 rc=0 verdict composition=Explain
     [ "$fmt" != "film" ] || composition=Film
     [ -x "$remotion" ] || fail "render: FAIL no Remotion CLI at $remotion"
-    mkdir -p "$run/public/audio"
-    while IFS= read -r clip; do
-        cp "$out/$clip" "$run/public/$clip" || fail "render: FAIL cannot copy $out/$clip"
-    done <<< "$(python3 -c '
-import json, sys
-for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
-    print(s["audio"])
-' "$out/build/timeline.json")"
+    copy_clips render
     t0=$(now)
     # exec: render.sh waits for the CLI itself. A subshell would end at once on TERM or HUP, and
     # the EXIT trap would remove the run directory while the CLI, which outlives both, goes on

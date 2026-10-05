@@ -247,7 +247,7 @@ class FilmFunctionCase(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 calls.unlink(missing_ok=True)
                 run = run_functions(
-                    self.tmp, ["fail", "now", "stage_render"],
+                    self.tmp, ["fail", "now", "copy_clips", "stage_render"],
                     "RATIO_LIMIT=2.0 video_s=3.000 out=%s run=%s/run remotion=%s fmt=%s\n"
                     "stage_render\n" % (self.out, self.tmp, remotion, fmt))
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
@@ -540,9 +540,9 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                                  run.stdout)
                 self.assertEqual(len(self.cli_calls()), 1, run.stdout)
 
-    # red: STAGES holds the name of a stage that only a film run has (scene, and the guard of the next
-    # wave). The gated BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES;
-    # here it is made on every run, through the fakes
+    # red: STAGES holds the name of a stage that only a film run has (scene, and guard). The gated
+    # BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES; here it is
+    # made on every run, through the fakes
     def test_a_brainrot_run_prints_exactly_the_stages_of_STAGES(self):
         run = self.finish(self.start("brainrot"))
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

@@ -1,4 +1,4 @@
-"""Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script or a film).
+"""Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script, eleven for a film).
 
 StageFunctionCase runs stage_narration, stage_background and stage_transcript of render.sh against
 fake tools (the format -> --speed mapping, the picker's lines, exit codes and stderr, the
