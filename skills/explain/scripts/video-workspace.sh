@@ -1,14 +1,16 @@
 #!/bin/bash
 # video-workspace.sh: set up the Remotion workspace for the explain video rung, outside the
-# repo and without global installs. Idempotent; the first run downloads, later runs only sync.
+# repo and without global installs. Idempotent; the first run downloads, later runs only check.
 #
 #   video-workspace.sh [--engine kokoro|say]          (default kokoro)
 #   env EXPLAIN_VIDEO_WORKSPACE   workspace root (default $HOME/karpathy/video-workspace)
 #
-#   <ws>/app      the synced video/ sources plus node_modules (public/ is left alone)
-#   <ws>/bg-stage where pick_background.py stages the brainrot background clip; <ws>/app/public/bg
-#                 is the relative symlink ../../bg-stage to it, so it must exist (an empty one is
-#                 made here). It lies beside the app, where no version's sync reaches it.
+#   <ws>/app      package.json and package-lock.json of the skill's video/, plus the installed
+#                 node_modules and the install logs. Nothing else is written there, and
+#                 nothing else in it is touched: no source is synced, so a file that older
+#                 code left in <ws>/app or <ws>/bg-stage stays as it was found.
+#   <ws>/runs     where render.sh keeps one directory for each running render (a copy of
+#                 video/ with node_modules linked to <ws>/app/node_modules); made by render.sh
 #   <ws>/backgrounds    the default folder of brainrot background clips (EXPLAIN_BRAINROT_BACKGROUNDS)
 #   <ws>/models   the Kokoro model files (--engine kokoro only)
 #
@@ -67,21 +69,22 @@ sha256() {
     printf '%s\n' "${out%% *}"
 }
 
-# 1. Sources. node_modules/ and public/ (the render's audio) stay as they are; anything else in
-# the app that video/ lacks is deleted, a stage left in <app>/bg-stage by earlier versions too.
-# The stage and the clip folder are made beside the app so that the public/bg symlink the picker
-# keeps never dangles: a dangling link in public/ breaks the bundler, and with it every render.
-# For the same reason a public/bg link that does not resolve (the absolute link to
-# <app>/bg-stage of earlier versions, or a stage deleted by hand) is removed; the picker makes
-# it again. A link that resolves, or a real directory, is left alone, and no link is followed.
+# 1. Package files. Only package.json and package-lock.json of video/ are copied to the app. A
+# file whose bytes are already the same is not touched: a render that reads the lock file for
+# its checksum at that moment sees a whole file. A changed file is copied to a temporary name in
+# the app and renamed over the old one, so a reader sees the old file or the new one, never half.
+# Nothing else in the app is created, changed or removed, and nothing in <ws>/bg-stage: the
+# renders compile in <ws>/runs, and what older code left here is left as found.
 mkdir -p "$app" "$models" || fail "mkdir $ws"
-rsync -a --delete --exclude /node_modules/ --exclude /public/ \
-    "$skill/video/" "$app/" || fail "sync $skill/video/ to $app/"
 mkdir -p "$ws/backgrounds" || fail "mkdir $ws/backgrounds"
-mkdir -p "$ws/bg-stage" || fail "mkdir $ws/bg-stage"
-if [ -L "$app/public/bg" ] && [ ! -e "$app/public/bg" ]; then
-    rm -f "$app/public/bg" || fail "rm dangling link $app/public/bg"
-fi
+for name in package.json package-lock.json; do
+    cmp -s "$skill/video/$name" "$app/$name" && continue
+    tmp="$app/.$name.$$.tmp"
+    if ! cp "$skill/video/$name" "$tmp" || ! mv -f "$tmp" "$app/$name"; then
+        rm -f "$tmp"
+        fail "copy package files to $app"
+    fi
+done
 
 # 2 and 3. Dependencies and the headless browser, when the lock file changed.
 lock_sha=$(sha256 "$app/package-lock.json") || fail "sha256 $app/package-lock.json"

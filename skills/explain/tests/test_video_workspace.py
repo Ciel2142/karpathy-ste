@@ -1,7 +1,7 @@
 """Tests for scripts/video-workspace.sh: the Remotion workspace outside the repo. The real
-rsync and shasum run on the real video/ tree; npm, curl and the remotion binary that npm
-installs are fakes that log their arguments, so no registry, Chrome or model download is
-needed. Each test names the mutation that turns it red."""
+cmp, cp, mv and shasum run on the real video/ package files; npm, curl and the remotion
+binary that npm installs are fakes that log their arguments, so no registry, Chrome or
+model download is needed. Each test names the mutation that turns it red."""
 
 import hashlib
 import os
@@ -103,73 +103,95 @@ class WorkspaceCase(unittest.TestCase):
         return skill
 
 
-class Sync(WorkspaceCase):
-    def test_sync_excludes_node_modules_and_public_and_deletes_stale(self):
-        """Mutation: rsync without --delete."""
-        self.assert_ok(self.run_ws("--engine", "say"))
-        (self.app / "stale.txt").write_text("old\n", encoding="utf-8")
-        (self.app / "public" / "audio").mkdir(parents=True)
-        (self.app / "public" / "audio" / "keep.wav").write_bytes(b"RIFF")
+class PackageFiles(WorkspaceCase):
+    def app_names(self):
+        return sorted(p.name for p in self.app.iterdir())
 
+    def test_app_gets_the_two_package_files_and_nothing_else(self):
+        """Mutation: the source sync is back (src and the tools of video/ are listed)."""
         self.assert_ok(self.run_ws("--engine", "say"))
 
-        self.assertFalse((self.app / "stale.txt").exists())
-        self.assertTrue((self.app / "public" / "audio" / "keep.wav").exists())
-        self.assertTrue((self.app / "node_modules" / ".explain-lock-sha").exists())
-        self.assertTrue((self.app / "package.json").exists())
-        self.assertTrue((self.app / "src" / "Root.tsx").exists())
+        self.assertEqual(
+            self.app_names(),
+            ["browser-ensure.log", "node_modules", "npm-ci.log", "package-lock.json",
+             "package.json"],
+        )
+        for name in ("package.json", "package-lock.json"):
+            self.assertEqual(
+                (self.app / name).read_bytes(), (EXPLAIN / "video" / name).read_bytes(), name
+            )
 
-    def test_backgrounds_and_stage_made_beside_the_app_and_stage_survives_sync(self):
-        """Mutation: the folders are not made, or the stage is made under <app> (where the
-        --delete of any checkout's sync removes it and leaves public/bg dangling)."""
+    def test_what_is_already_in_the_app_stays(self):
+        """Mutation: the sync keeps --delete, or the dangling public/bg link is still removed."""
+        self.assert_ok(self.run_ws("--engine", "say"))
+        planted = {
+            "stale.txt": b"old\n",
+            "src/Old.tsx": b"export {};\n",
+            "public/audio/keep.wav": b"RIFF",
+            "bg-stage/clip.mp4": b"old staged clip",
+        }
+        for name, data in planted.items():
+            (self.app / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.app / name).write_bytes(data)
+        link = self.app / "public" / "bg"
+        target = str(self.tmp / "gone")
+        link.symlink_to(target)
+
+        self.assert_ok(self.run_ws("--engine", "say"))
+
+        for name, data in planted.items():
+            self.assertEqual((self.app / name).read_bytes(), data, name)
+        self.assertTrue(link.is_symlink(), "the dangling link was removed")
+        self.assertEqual(os.readlink(link), target)
+        self.assertFalse(link.exists(), "the link no longer dangles")
+
+    def test_unchanged_package_files_are_not_touched(self):
+        """Mutation: a copy on every run (cp, cp -p, or rsync, which sets the times again)."""
+        self.assert_ok(self.run_ws("--engine", "say"))
+
+        def marks():
+            found = {}
+            for name in ("package.json", "package-lock.json"):
+                info = (self.app / name).stat()
+                found[name] = (info.st_ino, info.st_mtime_ns, info.st_ctime_ns)
+            return found
+
+        before = marks()
+
+        self.assert_ok(self.run_ws("--engine", "say"))
+
+        self.assertEqual(marks(), before)
+
+    def test_changed_package_file_arrives_by_a_rename(self):
+        """Mutation: the file is overwritten in place (same inode), or the temporary file is
+        left behind in the app."""
+        skill = self.copy_skill()
+        script = skill / "scripts" / WORKSPACE_SH.name
+        self.assert_ok(self.run_ws("--engine", "say", script=script))
+        names = self.app_names()
+        inode = (self.app / "package.json").stat().st_ino
+        source = skill / "video" / "package.json"
+        source.write_bytes(source.read_bytes() + b"\n")
+
+        self.assert_ok(self.run_ws("--engine", "say", script=script))
+
+        self.assertEqual((self.app / "package.json").read_bytes(), source.read_bytes())
+        self.assertNotEqual((self.app / "package.json").stat().st_ino, inode)
+        self.assertEqual(self.app_names(), names)
+
+    def test_backgrounds_made_and_the_old_stage_left_alone(self):
+        """Mutation: backgrounds is not made, or the stage is made (a fresh workspace) or
+        emptied (one that has it)."""
         self.assert_ok(self.run_ws("--engine", "say"))
         self.assertTrue((self.ws / "backgrounds").is_dir())
-        self.assertTrue((self.ws / "bg-stage").is_dir())
-        self.assertFalse((self.app / "bg-stage").exists())
+        self.assertFalse((self.ws / "bg-stage").exists())
+        (self.ws / "bg-stage").mkdir()
         (self.ws / "bg-stage" / "clip.mp4").write_bytes(b"staged clip")
 
         self.assert_ok(self.run_ws("--engine", "say"))
 
         self.assertEqual((self.ws / "bg-stage" / "clip.mp4").read_bytes(), b"staged clip")
         self.assertTrue((self.ws / "backgrounds").is_dir())
-
-        shutil.rmtree(self.ws / "bg-stage")
-        shutil.rmtree(self.ws / "backgrounds")
-        self.assert_ok(self.run_ws("--engine", "say"))
-        self.assertTrue((self.ws / "bg-stage").is_dir())
-        self.assertTrue((self.ws / "backgrounds").is_dir())
-
-    def test_old_stage_in_the_app_is_removed_by_the_sync(self):
-        """Mutation: the rsync keeps --exclude /bg-stage/, so the stage of earlier runs (a hard
-        link to a user's clip) stays under <app> for good."""
-        self.assert_ok(self.run_ws("--engine", "say"))
-        (self.app / "bg-stage").mkdir(exist_ok=True)
-        (self.app / "bg-stage" / "clip.mp4").write_bytes(b"old staged clip")
-
-        self.assert_ok(self.run_ws("--engine", "say"))
-
-        self.assertFalse((self.app / "bg-stage").exists())
-
-    def test_dangling_bg_link_removed_after_the_sync(self):
-        """Mutation: a public/bg link that does not resolve is kept, so the bundler fails every
-        render (realpath ENOENT). The old absolute link to <app>/bg-stage dangles once the sync
-        has deleted that folder; a link to a missing folder dangles already."""
-        self.assert_ok(self.run_ws("--engine", "say"))
-        link = self.app / "public" / "bg"
-        link.parent.mkdir(parents=True, exist_ok=True)
-        for label, target in (("the old absolute link", self.app / "bg-stage"),
-                              ("a link to a missing folder", self.tmp / "gone")):
-            with self.subTest(label):
-                if label == "the old absolute link":
-                    (self.app / "bg-stage").mkdir(exist_ok=True)
-                    (self.app / "bg-stage" / "clip.mp4").write_bytes(b"old staged clip")
-                link.unlink(missing_ok=True)
-                link.symlink_to(target)
-
-                self.assert_ok(self.run_ws("--engine", "say"))
-
-                self.assertFalse(os.path.lexists(link), "%s survived" % label)
-                self.assertTrue((self.app / "public").is_dir())
 
     def test_resolving_bg_link_and_real_dir_kept(self):
         """Mutation: every public/bg is removed (a link that resolves, or a real directory), or
