@@ -169,7 +169,8 @@ class FilmFunctionCase(unittest.TestCase):
 @unittest.skipUnless(E2E, E2E_REASON)
 class FilmRenderCase(unittest.TestCase):
     def rendered(self):
-        """The output directory of the template render, which passed."""
+        """The output directory and the run of the template render, as (out, run), once the run is seen
+        to exit 0."""
         out, run = render_film()
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         return out, run

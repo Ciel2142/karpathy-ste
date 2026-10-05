@@ -246,9 +246,9 @@ class ExampleTimelineCase(unittest.TestCase):
 
 
 # The rules of a scene file (spec 5.1 and 7.2), as lists: the sources a file of video/src/film may import
-# besides ./<Name> for a file <Name>.ts or <Name>.tsx of the directory, the names it may import from
-# remotion, the tokens it may not hold anywhere, and the tokens it may not hold before a character that
-# is not a letter or a digit (`<mask` refuses <mask> but not <maskUnits).
+# besides ./<Name> for a file <Name>.ts or <Name>.tsx of the directory, the names it may import or
+# re-export from remotion, the tokens it may not hold anywhere, and the tokens it may not hold before a
+# character that is not a letter or a digit (`<mask` refuses <mask> but not <maskUnits).
 SCENE_SOURCES = {"react", "remotion", "../kit", "./script.gen"}
 REMOTION_NAMES = {"useCurrentFrame", "interpolate", "Easing", "spring", "interpolateColors"}
 REFUSED = ["require(", "import(", "fetch(", "foreignObject", "dangerouslySetInnerHTML", "clipPath", "href",
@@ -257,13 +257,15 @@ REFUSED_WORDS = ["<mask", "<use", "<image", "as any", ": any"]
 
 # `from "<source>"` of an import or a re-export, and the bare `import "<source>"`.
 SOURCE = re.compile(r"""\b(?:from|import)\s*["']([^"']*)["']""")
-# What an import from remotion brings in: `{ a, b as c, type d }`, a default or a namespace.
-REMOTION_IMPORT = re.compile(r"""\bimport\s+(?:type\s+)?([^;]*?)\s*\bfrom\s*["']remotion["']""", re.S)
+# What an import from remotion brings in, or a re-export from it passes on: `{ a, b as c, type d }`, a
+# default or a namespace of an import, `*` or `* as e` of an export.
+REMOTION_IMPORT = re.compile(r"""\b(?:import|export)\s+(?:type\s+)?([^;]*?)\s*\bfrom\s*["']remotion["']""", re.S)
 
 
 def remotion_names(text):
-    """The names that `text` imports from remotion: each name of a braced list (its own name, before an
-    `as`), and the whole clause of a default or a namespace import (which no allowed name equals)."""
+    """The names that `text` imports or re-exports from remotion: each name of a braced list (its own name,
+    before an `as`), and the whole clause of a default or a namespace import or of `export *` (which no
+    allowed name equals)."""
     names = []
     for clause in REMOTION_IMPORT.findall(text):
         braced = re.fullmatch(r"\{(.*)\}", clause.strip(), re.S)
@@ -282,7 +284,8 @@ def remotion_names(text):
 def scene_faults(directory):
     """The broken scene rules of the files of `directory`, as sorted strings: an entry that is not a file
     named *.ts or *.tsx (hidden entries apart), an import of a source the list does not allow, a name
-    imported from remotion that the list does not allow, and a refused token."""
+    imported or re-exported from remotion that the list does not allow (`export *` among them), and a
+    refused token."""
     entries = sorted(p for p in Path(directory).iterdir() if not p.name.startswith("."))
     own = {p.stem for p in entries if p.is_file() and p.suffix in (".ts", ".tsx")}
     allowed = SCENE_SOURCES | {"./" + name for name in own}
@@ -321,8 +324,9 @@ class ExampleSceneCase(unittest.TestCase):
     def test_the_example_follows_the_scene_rules(self):
         """Red: a file of video/src/film imports what a scene may not (../kit/marks, whose makeAt is the
         pipeline's; a file of another directory), imports Sequence (or any name but the five) from remotion,
-        holds a refused token (`: any`, `as unknown`, an href), or the directory holds another kind of file
-        or a directory; or Film.tsx is missing or does not export the function Film."""
+        re-exports one (`export { Sequence } from "remotion"`) or all of remotion (`export * from
+        "remotion"`), holds a refused token (`: any`, `as unknown`, an href), or the directory holds another
+        kind of file or a directory; or Film.tsx is missing or does not export the function Film."""
         film = FILM_DIR / "Film.tsx"
         self.assertTrue(film.is_file())
         self.assertIn("export function Film(", film.read_text(encoding="utf-8"))

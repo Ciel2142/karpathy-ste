@@ -5,8 +5,10 @@
 //
 // Every motion starts at a mark of `at`: at(id) and at(id, { sentence }) where the voice starts a sentence,
 // at(id, { word }) about where it says a word. A number written here is a length in frames, never a
-// position in time. A motion from a sentence mark ends within about 20 frames, before the middle of the
-// sentence, where the stills are cut. This file holds the timing; the other files of the directory draw.
+// position in time. A motion from a sentence mark ends before the middle of its sentence, where the stills
+// are cut: within 24 frames of its mark, or within 33 for the three longest (the sketch of the pipeline in
+// subject, the run of the checks and the move of the card in handoff). This file holds the timing; the
+// other files of the directory draw.
 import type { ReactElement } from "react";
 import { useCurrentFrame } from "remotion";
 import { C, CodeCard, Draw, Mark, Mono, lerp, lin, lineY, mixColor, p } from "../kit";
@@ -26,6 +28,9 @@ const MOVE = 20;
 const STAGGER = 5; // frames between the gates of one motion
 const PER_CELL = 0.6; // frames between two cells of the word bar
 const CELL_FILL = 3; // frames to fill one cell
+const TURN = 7; // frames between two checks of one run, and to draw the mark of one: one after the other
+const FAILING = 2; // the gate of the check that fails in handoff: citations
+const LEAVE = 28; // frames for the card to cross from its place to past the handoff
 
 // Line 138 of cite_check.py compares the two normalised strings: columns of `_normalize(snippet)` and of
 // `lines[line_no - 1]`. Line 139 is the failure it reports.
@@ -72,6 +77,8 @@ export function Film(props: Props): ReactElement {
   const become = ease(at("artifact"), MOVE);
   const muted = ease(at("artifact"), FADE);
   const pageLabelOut = ease(at("artifact"), 8);
+  // The card crosses the label "sheet" about 9 to 11 frames into its move: the label steps out of its way.
+  const sheetAside = ease(at("artifact") + 4, 4) * (1 - ease(at("artifact") + 12, 6));
   const slotOut = ease(at("artifact") + 10, 10);
   const name = Array.from(FILE).slice(0, typedOf(FILE, at("artifact", { sentence: 2 }))).join("");
 
@@ -100,25 +107,36 @@ export function Film(props: Props): ReactElement {
   const cellFull = (cell: number): number => ease(barAt + PER_CELL * cell, CELL_FILL);
   const barGreen = ease(barAt + (WORDS - 1) * PER_CELL + CELL_FILL, 6);
 
-  // handoff: each gate gets a green check in turn. Then the card moves past the last gate and turns green.
-  const passed = GATES.map((_, k) => ease(at("handoff") + k * STAGGER, 10));
-  const leaveAt = at("handoff", { sentence: 2 });
-  const leave = ease(leaveAt, MOVE);
-  const ready = ease(leaveAt + 12, 10);
+  // handoff: the checks run in turn, left to right. Self-contained and render pass (a green check),
+  // citations fails (the gate turns red and takes a red cross), and the run goes on: prose passes after it.
+  // Then citations passes too: its cross gives way to a green check, so all four pass. The card moves past
+  // the handoff and turns green, and the empty place it left comes back at the start of the line.
+  const ran = GATES.map((_, k) => ease(at("handoff") + k * TURN, TURN));
+  const fixAt = at("handoff", { sentence: 2 });
+  const fixed = ease(fixAt, 8);
+  const passed = GATES.map((_, k) => (k === FAILING ? ease(fixAt + 4, 10) : ran[k]));
+  const leave = ease(fixAt + 4, LEAVE);
+  const slotBack = ease(fixAt + 14, 10);
+  const ready = ease(fixAt + 18, 10);
 
-  // The look of each gate: muted until the line reaches it, blue while it is the chosen check, green once
-  // it passed.
+  // The look of each gate: muted until the line reaches it, blue while it is the chosen check, red while it
+  // fails, green once it passed.
   const chosen = [0, 0, cited, prosed];
+  const tint = (colour: string): string => mixColor(C.bg, colour, 0.16);
   const gates: GateLook[] = GATES.map((_, k) => {
     const lit = mixColor(mixColor(C.line, C.text, reached(k)), C.blue, chosen[k]);
-    const done = passed[k];
+    const litFill = mixColor(C.bg, C.blue, 0.16 * chosen[k]);
+    const failed = k === FAILING ? ran[k] : 0;
+    const green = k === FAILING ? fixed : passed[k];
     return {
       ring: ringIn[k],
-      stroke: mixColor(lit, C.green, done),
-      fill: mixColor(mixColor(C.bg, C.blue, 0.16 * chosen[k]), mixColor(C.bg, C.green, 0.16), done),
+      stroke: mixColor(mixColor(lit, C.red, failed), C.green, green),
+      fill: mixColor(mixColor(litFill, tint(C.red), failed), tint(C.green), green),
       label: named[k],
-      labelFill: mixColor(mixColor(C.text, C.blue, chosen[k]), C.text, done),
-      check: done,
+      labelFill: mixColor(mixColor(C.text, C.blue, chosen[k]), C.text, green),
+      check: passed[k],
+      cross: failed,
+      crossOpacity: 1 - fixed,
     };
   });
 
@@ -144,11 +162,16 @@ export function Film(props: Props): ReactElement {
 
   return (
     <g>
-      <Pipeline slot={slotIn * (1 - slotOut)} line={line} handoff={handoffIn} gates={gates} />
+      <Pipeline slot={slotIn * (1 - slotOut) + slotBack} line={line} handoff={handoffIn} gates={gates} />
 
       <Sheet look={{ stroke: otherInk, opacity: formIn[0] * otherOpacity }} />
       <Video look={{ stroke: otherInk, opacity: formIn[2] * otherOpacity }} />
-      <FormLabel x={FORM_X.sheet} text="sheet" fill={otherInk} opacity={formIn[0] * otherOpacity} />
+      <FormLabel
+        x={FORM_X.sheet}
+        text="sheet"
+        fill={otherInk}
+        opacity={formIn[0] * otherOpacity * (1 - sheetAside)}
+      />
       <FormLabel
         x={FORM_X.page}
         text="page"

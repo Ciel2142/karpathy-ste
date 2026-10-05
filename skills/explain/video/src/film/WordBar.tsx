@@ -3,12 +3,18 @@
 // many are full. Film gives how full each cell is and how green the bar is.
 import type { ReactElement } from "react";
 import { C, Mono, Sans, mixColor } from "../kit";
+import { GATES } from "./Pipeline";
 
 export const WORDS = 25;
 const CELL = 30;
 const GAP = 8;
 const HEIGHT = 36;
-const LEFT = 640 - (WORDS * CELL + (WORDS - 1) * GAP) / 2;
+// The bar hangs from the prose gate (GATES[3]). It is centred on the stage, then moved by at most half the
+// step from one cell to the next, so that the cell nearest to the gate is right under it: the line from the
+// gate ends on that cell, not in a gap.
+const CENTRED = 640 - (WORDS * CELL + (WORDS - 1) * GAP) / 2;
+const UNDER_GATE = Math.round((GATES[3].x - CELL / 2 - CENTRED) / (CELL + GAP));
+const LEFT = GATES[3].x - CELL / 2 - UNDER_GATE * (CELL + GAP);
 export const BAR_TOP = 536;
 const COUNT_X = LEFT + WORDS * (CELL + GAP) + 14;
 const FILL = 0.6; // how strong the colour of a full cell is against the ground

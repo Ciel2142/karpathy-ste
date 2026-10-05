@@ -240,7 +240,7 @@ def canvas_label(fmt):
 
 
 def format_rows(script, background):
-    """The Format and Background rows of a brainrot page; "" for the explainer."""
+    """The Format and Background rows of a brainrot page; "" for any other format (the explainer, a film)."""
     if not is_brainrot(script):
         return ""
     rows = [("Format", "brainrot (%s)" % canvas_label("brainrot")), ("Background", background)]

@@ -26,7 +26,7 @@ export const GATES = ["self-contained", "render", "citations", "prose"].map((nam
   x: LINE_START + (k + 1) * STEP,
 }));
 
-// How one gate looks: the ring, its label and the check mark inside it.
+// How one gate looks: the ring, its label, and the green check or the red cross inside it.
 export type GateLook = {
   ring: number; // opacity of the ring
   stroke: string;
@@ -34,6 +34,8 @@ export type GateLook = {
   label: number; // opacity of the label
   labelFill: string;
   check: number; // how much of the green check is drawn
+  cross: number; // how much of the red cross is drawn
+  crossOpacity: number;
 };
 
 export function Pipeline(props: {
@@ -89,6 +91,14 @@ export function Pipeline(props: {
             opacity={gates[k].ring}
           />
           <Mark kind="check" x={gate.x} y={LINE_Y} t={gates[k].check} scale={1.5} />
+          <Mark
+            kind="cross"
+            x={gate.x}
+            y={LINE_Y}
+            t={gates[k].cross}
+            opacity={gates[k].crossOpacity}
+            scale={1.3}
+          />
           <Sans
             x={gate.x}
             y={LABEL_Y}
