@@ -113,8 +113,8 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
 ## 4. Components
 
 Each prop is necessary, except `sub` and the edge `label`. An unknown or extra prop is an error.
-Each `title` prop is the heading of the scene. Section 3 has the limits of the texts and of the
-code range. Section 5 has the rule of each `cue`.
+Each `title` prop is the heading of the scene. Section 3 has the limits of the title, bullet, node
+and panel texts and of the code range. Section 5 has the rule of each `cue`.
 
 | Component | Props | Motion |
 |---|---|---|
@@ -207,6 +207,9 @@ A `FAIL` line names the cause. The output of the tool follows it, indented.
 | `sync: ok` | In each scene, the speech starts within 0.25 s of the lead end and stops more than 0.3 s before the scene end. |
 | `stills (<n>): ok <review-dir>` | The review stills are in `review/`. |
 | `transcript: ok` | The final `index.html` has the narrator, the Format row and the Background row, and passed `verify.sh`. Do not run `verify.sh` again. |
+
+A `workspace` `FAIL` line names the step that failed. For `npm ci` and the browser step, it also
+names the log. Read that log.
 
 The first run takes minutes. Before it, read "First-run costs" in `video.md`.
 

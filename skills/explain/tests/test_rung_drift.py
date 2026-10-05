@@ -631,7 +631,7 @@ BRAINROT_COMPONENTS = ("title", "bullets-appear", "diagram-with-highlight-walk",
                        "before-after")
 # What no shared section of video.md may hold: a value of the film, or the word for it.
 FILM_VALUES = ("film", "Film", "1280", "720", "scene/", "eleven", "speed")
-SECTION_NUMBER = re.compile(r"\b[Ss]ection \d")
+SECTION_NUMBER = re.compile(r"\b[Ss]ections? \d")
 
 
 class BrainrotRungCase(unittest.TestCase):
@@ -652,14 +652,14 @@ class BrainrotRungCase(unittest.TestCase):
         self.assertTrue(self.pointers, "brainrot.md names video.md in no block")
         held = set()
         for block in self.pointers:
+            quoted = self.quoted_titles(block)
+            held.update(quoted)
             with self.subTest(block=block[:60]):
-                quoted = self.quoted_titles(block)
                 self.assertTrue(set(quoted) & set(SHARED_TITLES), "no shared title in double quotes")
                 self.assertEqual([title for title in quoted if title not in SHARED_TITLES], [])
-            held.update(self.quoted_titles(block))
         self.assertEqual([title for title in SHARED_TITLES if title not in held], [])
 
-    # red: "as in section 3 of `video.md`"
+    # red: "as in section 3 of `video.md`", or "sections 3 and 7 of `video.md`"
     def test_brainrot_names_no_section_of_video_md_by_number(self):
         for block in self.pointers:
             with self.subTest(block=block[:60]):
