@@ -579,8 +579,9 @@ class TestFilmBuild(FilmBuildCase):
             )
 
     def test_film_sentence_frames(self):
-        """Red: a sentence frame misses the lead (0, 90, ...), uses the seconds of the sentence end
-        or the clip length instead of its start, or rounds another way than the caption formula."""
+        """Red: a sentence frame misses the lead (0, 90, ...), or uses the seconds of the sentence
+        end or the clip length instead of its start. Every time of this fixture is a multiple of
+        0.5 s, so the rounding is not exercised here: test_film_frames_round_half_up does."""
         script = film_script()
         scenes = self.built(script)["scenes"]
         self.assertEqual([s["sentences"] for s in scenes], [[6, 96], [6, 81, 186], [6, 96]])
@@ -600,6 +601,34 @@ class TestFilmBuild(FilmBuildCase):
         words = self.built(script)["scenes"][0]["words"]
         self.assertEqual([w["text"] for w in words], script["scenes"][0]["narration"].split())
         self.assertIn("`verify.sh`", [w["text"] for w in words])
+
+    def test_film_frames_round_half_up(self):
+        """Red: a sentence frame or a word frame (from or to) is floored or ceilinged instead of
+        rounded half up. 0.25, 0.75 and 1.25 s are exactly 7.5, 22.5 and 37.5 frames (exact in
+        binary floating point, so true halves: floor gives 7, 22, 37); 1.01 s is 30.3 frames (ceiling
+        gives 31); 1.02 s is 30.6 (floor gives 30). The sentences start at 0.25 s and 1.01 s, so each
+        of floor and ceiling is caught on the sentence frames alone, and on the word frames alone."""
+        script = film_script()
+        script["scenes"][0]["narration"] = "Aa bb. Cc dd."
+        clips = self.write_film_words(script)
+        times = [(0.25, 0.75), (0.75, 1.0), (1.01, 1.02), (1.02, 1.25)]
+        words = [
+            {"text": text, "from": start, "to": end}
+            for text, (start, end) in zip(script["scenes"][0]["narration"].split(), times)
+        ]
+        sentences = [{"from": 0.25, "to": 1.0}, {"from": 1.01, "to": 1.25}]
+        self.write_words("type", "say", {"sentences": sentences, "words": words})
+        clips["type"] = 1.5
+        result, timeline = self.build(script, clips)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        scene = timeline["scenes"][0]
+        self.assertEqual(scene["sentences"], [14, 36])
+        self.assertEqual([(w["from"], w["to"]) for w in scene["words"]], [(14, 29), (29, 36), (36, 37), (37, 44)])
+        self.assertEqual(scene["sentences"], [6 + js_round(s["from"] * 30) for s in sentences])
+        self.assertEqual(
+            [(w["from"], w["to"]) for w in scene["words"]],
+            [(6 + js_round(w["from"] * 30), 6 + js_round(w["to"] * 30)) for w in words],
+        )
 
     def test_film_one_sentence_without_an_end_mark(self):
         """Red: a narration whose last sentence has no end mark yields no sentence frame, or one too
