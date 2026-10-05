@@ -25,6 +25,7 @@ from video_e2e import E2E, E2E_REASON, EXPLAIN, render_fixture
 CHECK_RENDER = EXPLAIN / "video" / "check_render.sh"
 VERIFY_SYNC = EXPLAIN / "video" / "verify_sync.py"
 SCENE_BODY = EXPLAIN / "video" / "src" / "sceneBody.tsx"
+FILM_TIMELINE = EXPLAIN / "tests" / "fixtures" / "film-timeline.json"
 RATE = 16000
 FPS = 30
 
@@ -203,17 +204,21 @@ class StillFramesCase(unittest.TestCase):
 
     def still_frames(self, scenes, width, height):
         """The lines read_timeline prints for a 30 fps timeline of `scenes`."""
+        total = scenes[-1]["from"] + scenes[-1]["durationInFrames"]
+        return self.read_timeline_lines({"fps": FPS, "totalFrames": total, "width": width,
+                                         "height": height, "scenes": scenes})
+
+    def read_timeline_lines(self, timeline):
+        """The lines read_timeline prints for the timeline object `timeline`."""
         source = CHECK_RENDER.read_text(encoding="utf-8")
         constants = "".join(re.findall(r"^[A-Z_]+=\S+.*\n", source, re.M))
         function = re.search(r"^read_timeline\(\) \{\n.*?^\}\n", source, re.M | re.S)
         self.assertIsNotNone(function, "no read_timeline() in check_render.sh")
-        timeline = self.tmp / "timeline.json"
-        total = scenes[-1]["from"] + scenes[-1]["durationInFrames"]
-        timeline.write_text(json.dumps({"fps": FPS, "totalFrames": total, "width": width,
-                                        "height": height, "scenes": scenes}), encoding="utf-8")
+        path = self.tmp / "timeline.json"
+        path.write_text(json.dumps(timeline), encoding="utf-8")
         run = subprocess.run(
             ["/bin/bash", "-c", "set -eu\n%s%s\ntimeline=%s\nread_timeline\n"
-             % (constants, function.group(0), timeline)],
+             % (constants, function.group(0), path)],
             capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         return run.stdout.splitlines()
@@ -239,6 +244,29 @@ class StillFramesCase(unittest.TestCase):
                                  "115 still-01-one-2.png", "315 still-02-two.png",
                                  "599 still-02-two-1.png"])
 
+    # red: no film branch (cueFrames read from a film scene: a non-zero exit), a still numbered by
+    # its place in checkFrames instead of its scene's place in scenes, or a frame moved by the
+    # cue or fade offsets
+    def test_film_stills_are_the_check_frames(self):
+        timeline = json.loads(FILM_TIMELINE.read_text(encoding="utf-8"))
+        self.assertEqual(self.read_timeline_lines(timeline), [
+            "30 324 1280 720",
+            "43 still-01-type-s1.png", "118 still-01-type-s2.png", "152 still-01-type-end.png",
+            "196 still-02-checks-s1.png", "271 still-02-checks-s2.png", "323 still-02-checks-end.png"])
+
+    # red: the film branch taken on the presence of checkFrames, not on format "film" (the lead-6
+    # scene object of test_lead_6_scene_still_after_the_fade, a brainrot timeline, would then be
+    # cut at the frames of an unrelated checkFrames list)
+    def test_a_timeline_that_is_not_a_film_ignores_check_frames(self):
+        scenes = [self.scene("hook", 0, 6, {"x": 50}), self.scene("checks", 300, 6, {})]
+        lines = self.read_timeline_lines({
+            "format": "brainrot", "fps": FPS, "totalFrames": 600, "width": 1080, "height": 1920,
+            "scenes": scenes,
+            "checkFrames": [{"frame": 43, "scene": "hook", "still": "s1"},
+                            {"frame": 599, "scene": "checks", "still": "end"}]})
+        self.assertEqual(lines, ["30 600 1080 1920", "8 still-01-hook.png", "65 still-01-hook-1.png",
+                                 "308 still-02-checks.png"])
+
     # red: FADE_FRAMES missing, or no longer the length of FadeIn in sceneBody.tsx
     def test_fade_frames_is_the_fade_in_length(self):
         fade = re.search(r"interpolate\(frame, \[0, (\d+)\]", SCENE_BODY.read_text(encoding="utf-8"))
@@ -246,6 +274,36 @@ class StillFramesCase(unittest.TestCase):
         constant = re.search(r"^FADE_FRAMES=(\d+)\b", CHECK_RENDER.read_text(encoding="utf-8"), re.M)
         self.assertIsNotNone(constant, "no FADE_FRAMES in check_render.sh")
         self.assertEqual(constant.group(1), fade.group(1))
+
+
+class FilmTimelineFaultCase(unittest.TestCase):
+    """A film timeline that cannot be read: no render, no workspace. The whole script runs."""
+
+    # red: an unknown scene of checkFrames skipped instead of failing the read, or the review dir
+    # emptied before the timeline is read
+    def test_broken_film_timeline_is_unreadable(self):
+        tmp = Path(tempfile.mkdtemp(prefix="check-render-film-fault-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "video.mp4").write_bytes(b"not a video")
+        review = tmp / "review"
+        review.mkdir()
+        (review / "keep.png").write_bytes(b"keep")
+        fixture = json.loads(FILM_TIMELINE.read_text(encoding="utf-8"))
+        unknown_scene = dict(fixture, checkFrames=[dict(fixture["checkFrames"][0], scene="nope"),
+                                                   *fixture["checkFrames"][1:]])
+        no_check_frames = {key: value for key, value in fixture.items() if key != "checkFrames"}
+        for name, timeline in (("unknown scene", unknown_scene), ("no checkFrames", no_check_frames)):
+            with self.subTest(timeline=name):
+                (tmp / "timeline.json").write_text(json.dumps(timeline), encoding="utf-8")
+                run = subprocess.run(
+                    ["/bin/bash", str(CHECK_RENDER), str(tmp / "video.mp4"), str(tmp / "timeline.json"),
+                     str(review)],
+                    capture_output=True, text=True, timeout=60,
+                    env={**os.environ, "EXPLAIN_VIDEO_WORKSPACE": str(tmp / "ws")})
+                self.assertEqual((run.returncode, run.stdout), (2, ""), run.stderr)
+                self.assertEqual(len(run.stderr.splitlines()), 1, run.stderr)
+                self.assertTrue(run.stderr.startswith("check_render.sh: cannot read timeline "), run.stderr)
+                self.assertTrue((review / "keep.png").exists())
 
 
 @unittest.skipUnless(E2E, E2E_REASON)

@@ -25,8 +25,11 @@
 # The audio track goes to build/rendered-audio.wav next to the mp4. The review dir is
 # emptied first, then holds one still per scene at from + max(leadFrames, FADE_FRAMES)
 # (still-NN-<scene-id>.png) and one per cue at cueFrame + 15, clamped to the scene's last
-# frame (still-NN-<scene-id>-<k>.png, k in frame order). A still for frame N is taken at
-# (N - 0.5) / fps s: "-ss t" returns the first frame at or after t.
+# frame (still-NN-<scene-id>-<k>.png, k in frame order). A film (timeline format "film") has no
+# cue frames: its review dir holds one still for the middle of each sentence
+# (still-NN-<scene-id>-s<k>.png) and one for the last frame of each scene
+# (still-NN-<scene-id>-end.png), at the frames of the timeline's checkFrames. A still for frame N
+# is taken at (N - 0.5) / fps s: "-ss t" returns the first frame at or after t.
 # The Remotion CLI of the workspace runs with cwd <ws>/app, so every path is made absolute.
 
 set -eu
@@ -76,18 +79,24 @@ remo() {
 }
 
 # "<fps> <totalFrames> <width> <height>", then "<frame> <still name>" per still, in scene and
-# frame order.
+# frame order; for a film, one per entry of checkFrames, in its order. A film entry naming a
+# scene that is not in scenes, or a film without checkFrames, is an unreadable timeline.
 read_timeline() {
     python3 - "$timeline" "$STILL_AFTER_CUE" "$FADE_FRAMES" <<'PY'
 import json, sys
 t = json.load(open(sys.argv[1], encoding="utf-8"))
 after, fade = int(sys.argv[2]), int(sys.argv[3])
 print(t["fps"], t["totalFrames"], t["width"], t["height"])
-for n, s in enumerate(t["scenes"], 1):
-    start, last = s["from"], s["from"] + s["durationInFrames"] - 1
-    print(start + max(s["leadFrames"], fade), "still-%02d-%s.png" % (n, s["id"]))
-    for k, cue in enumerate(sorted(s["cueFrames"].values()), 1):
-        print(min(start + cue + after, last), "still-%02d-%s-%d.png" % (n, s["id"], k))
+if t.get("format") == "film":
+    place = {s["id"]: n for n, s in enumerate(t["scenes"], 1)}
+    for c in t["checkFrames"]:
+        print(c["frame"], "still-%02d-%s-%s.png" % (place[c["scene"]], c["scene"], c["still"]))
+else:
+    for n, s in enumerate(t["scenes"], 1):
+        start, last = s["from"], s["from"] + s["durationInFrames"] - 1
+        print(start + max(s["leadFrames"], fade), "still-%02d-%s.png" % (n, s["id"]))
+        for k, cue in enumerate(sorted(s["cueFrames"].values()), 1):
+            print(min(start + cue + after, last), "still-%02d-%s-%d.png" % (n, s["id"], k))
 PY
 }
 
