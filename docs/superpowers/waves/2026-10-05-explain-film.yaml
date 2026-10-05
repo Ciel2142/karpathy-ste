@@ -1,0 +1,284 @@
+version: 2
+feature: explain-film
+spec: docs/superpowers/specs/2026-10-05-explain-film-design.md
+coverage: waived
+# Base: one feature branch `feat/explain-film`, cut from `feat/explain-brainrot` (tip `86e71d8`
+# when this map was written), as the lesson and Russian features are. It does not wait for
+# brainrot's acceptance and is rebased when brainrot merges to `main`. This feature never
+# commits to the brainrot branch. Until wave `run-directory` closes, a film-branch render uses
+# its own workspace (`EXPLAIN_VIDEO_WORKSPACE`: a full install, about a minute and 447 MB),
+# because the default workspace is shared; after it, a film-branch render writes nothing that
+# the other session reads.
+# Concurrency: `film-timeline`, `film-kit` and `run-directory` share the base and own disjoint
+# files (the first two meet only at the timeline shape that spec §6 fixes), so they may run
+# together. Every other wave runs in the order of its `depends_on`.
+# Order: the live runs come before the removal. If a cold agent cannot make a film, the design
+# returns to the user with the explainer still in place (spec D7 asks only that the removal
+# follows a working film).
+waves:
+  - id: film-timeline
+    slice: domain
+    goal: >-
+      A script with `"format": "film"` validates by spec §4.2 and builds the film timeline of
+      spec §6 and §7.1 (a scene of lead + audio + pause, `sentences`, `words`, `checkFrames`,
+      `sources` read from disk), `build-timeline.mjs --types` writes the names of spec §7.2,
+      and `narrate.py` narrates a film in sentence mode at speed 1.0. Explainer and brainrot
+      output is unchanged.
+    done_when: >-
+      `test_video_timeline_film.py` passes the spec §9.1 cases (each rule of §4.2 failing and
+      passing, the build output from a words-file fixture, `--types`, `"format": "slides"` and
+      a film scene with `component` refused); `test_narrate_sentences.py` and
+      `test_check_budgets.py` each pass a film case; one producer-to-consumer test runs
+      `narrate.py` then `build-timeline.mjs` on a film script; every pre-existing case passes
+      unchanged.
+    status: done
+    depends_on: []
+    owns:
+      - skills/explain/video/build-timeline.mjs (film check, film build, `--types`)
+      - skills/explain/video/formats.json (film row)
+      - skills/explain/video/narrate.py (format table only)
+      - skills/explain/tests/test_video_timeline_film.py
+      - skills/explain/tests/test_film_contract.py
+      - skills/explain/tests/test_narrate_sentences.py, test_check_budgets.py (film case)
+    risk: low
+    plan: docs/superpowers/plans/2026-10-05-explain-film-timeline.md
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_video_timeline_film tests.test_film_contract tests.test_video_timeline tests.test_video_timeline_brainrot tests.test_narrate tests.test_narrate_sentences tests.test_check_budgets
+
+  - id: film-kit
+    slice: domain
+    goal: >-
+      The kit of spec §5.2 exists under `skills/explain/video/src/kit/` with the signatures of
+      the spec: palette, motion, text, strokes, the code card with `colX` and `lineY`, the
+      branded `Source` of spec §5.1 and the marks of spec §6.
+    done_when: >-
+      `test_film_kit.py` runs `motion.ts` and `marks.ts` in Node and passes the spec §9.1
+      cases (`p` and `lin` at the start, the middle, the end and with `len` 0; `mixColor` on
+      both input forms; every mark and every `MARK` error by its message); `tsc` exits 0 on
+      the app with the kit in place; a fixture that builds a `Source` by hand does not
+      compile.
+    status: done
+    depends_on: []
+    owns:
+      - skills/explain/video/src/kit/ (all but guard.ts)
+      - skills/explain/tests/test_film_kit.py
+      - skills/explain/tests/fixtures/ (a film timeline fixture, the hand-made Source fixture)
+    risk: low
+    plan: docs/superpowers/plans/2026-10-05-explain-film-kit.md
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_film_kit
+      - tsc exits 0 on a temporary copy of `video/` linked to the installed packages
+
+  - id: run-directory
+    slice: domain
+    goal: >-
+      Each render compiles in its own `<ws>/runs/<unique>/` (spec §7.6): two renders at the
+      same time both pass, and a render writes nothing under `<ws>/app` except the two package
+      files.
+    done_when: >-
+      The gated test starts a brainrot render and an explainer render together and both end
+      with their ten and nine `ok` lines; the checksum of `<ws>/app` without `node_modules` is
+      the same before and after; `<ws>/runs/` is empty after a run that passes, a run that
+      fails and a run stopped with SIGTERM; `test_video_workspace.py` passes the
+      two-package-files case; brainrot's end-to-end cases pass with the background stage in
+      the run directory.
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/scripts/render.sh (the run directory, its removal, the project of each render step)
+      - skills/explain/scripts/video-workspace.sh (package files only)
+      - skills/explain/video/pick_background.py (the stage in the run directory, the refusal rule)
+      - skills/explain/rungs/brainrot.md (the paths of its background section)
+      - skills/explain/tests/test_video_workspace.py, test_pick_background.py
+      - skills/explain/tests/test_render_parallel.py
+      - skills/explain/tests/test_render.py, test_render_brainrot.py, test_short_still.py (workspace paths only)
+    risk: high   # concurrency, removal on a signal, and the workspace layout that every render and test shares
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_video_workspace tests.test_pick_background
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_parallel tests.test_render tests.test_render_brainrot
+
+  - id: film-render
+    slice: vertical
+    goal: >-
+      `render.sh` on the film template renders the worked example of spec §5.3 into a checked
+      `video.mp4` with nine `ok` lines (the `scene` and `guard` stages come later):
+      `FilmStage` and composition `Film`, the stills of spec §7.4 at `checkFrames`, and the
+      film transcript of spec §7.5. Brainrot and the explainer render as before.
+    done_when: >-
+      The gated film end-to-end test passes with nine `ok` lines and a transcript that passes
+      `verify.sh`; its stills are read with no fault of spec §8.4; the two always-run tests of
+      spec §5.3 pass (the generated names equal the checked-in `script.gen.ts`; the template's
+      cites pass the cite check); `test_transcript.py` and `test_check_render.py` each pass a
+      film case; brainrot keeps ten lines and the explainer nine.
+    status: pending
+    depends_on: [film-timeline, film-kit, run-directory]
+    owns:
+      - skills/explain/video/src/FilmStage.tsx
+      - skills/explain/video/src/Root.tsx, types.ts (composition `Film`, the film timeline type)
+      - skills/explain/video/src/film/ (the worked example and its script.gen.ts)
+      - skills/explain/templates/film-script.json
+      - skills/explain/scripts/render.sh (composition by format, stale files of a film run)
+      - skills/explain/video/check_render.sh (film stills)
+      - skills/explain/video/transcript.py (film body)
+      - skills/explain/tests/test_render_film.py, test_film_example.py
+      - skills/explain/tests/test_transcript.py, test_check_render.py (film case)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film tests.test_render tests.test_render_brainrot
+      - the stills of the example read with no fault of spec §8.4
+
+  - id: film-scene-stage
+    slice: vertical
+    goal: >-
+      A film renders from the author's `<output-dir>/scene/`: the `scene` stage of spec §7.2
+      checks the directory, copies it over `src/film/` of the run directory, writes
+      `script.gen.ts` and runs `tsc`. A film run prints ten `ok` lines.
+    done_when: >-
+      `test_check_scene.py` passes one failing fixture for each rule and each token of spec
+      §7.2, asserted by its line, and the clean fixture; the gated test renders the example
+      from a `scene/` copy with ten `ok` lines; the four stage plants of spec §9.2 each stop
+      with their line before any synthesis; a film run leaves `<ws>/app` unchanged.
+    status: pending
+    depends_on: [film-render]
+    owns:
+      - skills/explain/video/check_scene.py
+      - skills/explain/scripts/render.sh (the `scene` stage)
+      - skills/explain/tests/test_check_scene.py
+      - skills/explain/tests/test_render_film.py (scene copy, stage plants)
+      - skills/explain/tests/fixtures/ (scene fixtures)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_check_scene
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film
+
+  - id: film-guard
+    slice: vertical
+    goal: >-
+      The `guard` stage of spec §7.3 measures the text of the film in the browser at
+      `checkFrames` and fails a film whose text is off the canvas, too small or overlapping.
+      A film run prints eleven `ok` lines.
+    done_when: >-
+      First the measurement is proven: the planted film of spec §9.2 gives one
+      `guard: FAIL frame` line that names the four planted faults and not the label of
+      opacity 0, and the line is the same in three runs in a row. Then the guard logic cases
+      of spec §9.1 pass in Node, the mark plant gives `guard: FAIL mark:` with the word, and
+      the unedited example passes with eleven `ok` lines. If the measurement cannot be made
+      to work, the wave is marked blocked here and the design returns to the user (spec §7.3).
+    status: pending
+    depends_on: [film-scene-stage]
+    owns:
+      - skills/explain/video/src/kit/guard.ts
+      - skills/explain/video/src/FilmStage.tsx (the measurement)
+      - skills/explain/scripts/render.sh (the `guard` stage, its log markers, `build/guard.mp4`)
+      - skills/explain/tests/test_film_guard.py
+      - skills/explain/tests/test_render_film.py (planted film, mark plant)
+    risk: high   # rests on Remotion's render internals: `--frames`, `cancelRender`, effect timing
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_film_guard
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film
+      - the planted film gives the same guard line in three runs
+
+  - id: film-docs
+    slice: domain
+    goal: >-
+      The rung files describe the film. `rungs/video.md` is rewritten by spec §8.1;
+      `rungs/brainrot.md` holds its own scene rules, components, cue rule, stills faults,
+      output directory and constants (spec §8.2); `SKILL.md` and `README.md` follow (spec
+      §8.3).
+    done_when: >-
+      `ste_lint.py` reports 0 errors on both rung files; `brainrot.md` points at `video.md`
+      only by section title and only for the five shared sections of spec §8.2; a drift test
+      shows that each stage line and FAIL line quoted in `video.md` is a line that `render.sh`
+      or its tools print; brainrot renders from its template with ten `ok` lines.
+    status: pending
+    depends_on: [film-guard]
+    owns:
+      - skills/explain/rungs/video.md
+      - skills/explain/rungs/brainrot.md
+      - skills/explain/SKILL.md
+      - README.md
+      - skills/explain/tests/test_rung_drift.py
+    risk: low
+    plan: null
+    acceptance:
+      - python3 skills/ste/scripts/ste_lint.py skills/explain/rungs/video.md
+      - python3 skills/ste/scripts/ste_lint.py skills/explain/rungs/brainrot.md
+      - cd skills/explain && python3 -B -m unittest tests.test_rung_drift
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_brainrot
+
+  - id: film-live-run
+    slice: vertical
+    goal: >-
+      The two live runs of spec §9.3: a cold agent that reads only the rung file makes a film
+      of `ImportController.java`, a second agent makes a film of `skills/explain/` near 150 s,
+      a third judges the stills of both, the measured limits are folded back, and the user
+      accepts.
+    done_when: >-
+      `docs/superpowers/spikes/<date>-explain-film-live-run.md` records, for both runs, every
+      `render.sh` run with its exit code and first FAIL line, the judge's findings, the lines
+      of scene code and the stills of the long run, each guard fault that had no honest fix,
+      and each fold-back change with its reason; the cold run passed within two fix rounds
+      and ten runs; the folded values are in `formats.json`, `MIN_TEXT`, the `checkFrames`
+      rule, `rungs/video.md` and the spec; the user states acceptance.
+    status: pending
+    depends_on: [film-docs]
+    owns:
+      - docs/superpowers/spikes/ (the film live-run note)
+      - skills/explain/video/formats.json (film row), skills/explain/video/src/kit/palette.ts (MIN_TEXT)
+      - skills/explain/video/build-timeline.mjs (the `checkFrames` rule)
+      - skills/explain/rungs/video.md (length guidance, fold-back wording)
+      - spec §7.1 and §7.3 values
+    risk: low
+    plan: null
+    acceptance:
+      - each live run ends with eleven `ok` lines
+      - the judge reports no open fault of spec §8.4 on the final stills
+      - the user watches both films and states acceptance
+
+  - id: explainer-removal
+    slice: cohesive
+    goal: >-
+      Spec §10: a script without a format is a film, `explainer` is refused, everything that
+      only the explainer used is gone, the tests that brainrot needs are ported to the
+      brainrot format, and the film template is `templates/video-script.json`.
+    done_when: >-
+      The four conditions of spec §10 hold: both greps print nothing, `narrate.py` has one
+      narration mode, the unit suites pass, and the film and brainrot end-to-end tests pass
+      (eleven and ten lines). kp-5a2 is closed as superseded.
+    status: pending
+    depends_on: [film-live-run]
+    owns:
+      - skills/explain/video/build-timeline.mjs, narrate.py, check_budgets.py, transcript.py, check_render.sh
+      - skills/explain/video/formats.json (explainer row)
+      - skills/explain/scripts/render.sh
+      - skills/explain/video/src/Explain.tsx, Root.tsx, types.ts, box.ts, sceneBox.tsx
+      - skills/explain/templates/video-script.json, film-script.json, video.html
+      - skills/explain/tests/test_video_timeline.py, test_narrate.py, test_render.py, test_check_render.py, test_transcript.py, test_scene_geometry.py, video_e2e.py (ports and cuts)
+      - skills/explain/tests/test_landscape_regression.py, capture_landscape_baseline.sh (deleted)
+      - skills/explain/rungs/video.md, rungs/brainrot.md, README.md (the template name, the default format)
+    risk: high   # a format is refused and the default changes; 69 unit cases move
+    plan: null
+    acceptance:
+      - git grep -n -i explainer -- skills/ README.md   (prints nothing)
+      - git grep -n "LANDSCAPE_BOX\|test_landscape_regression\|capture_landscape_baseline" -- skills/   (prints nothing)
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film tests.test_render_brainrot
+deferred:
+  - capability: an exemption from the guard
+    waits_for:
+      - film-live-run (the guard faults that had no honest fix)
+      - a user decision on spec D6
+    reason: >-
+      Whether an exemption exists, and what it may exempt, cannot be chosen honestly before a
+      real author meets a false alarm. The first draft's exemption switched the whole guard
+      off from one attribute.
+approval:
+  required: true
+  reason: >-
+    User rule (CLAUDE.md wave gate): the wave map needs user approval before per-wave
+    planning when the feature does not fit one plan of at most 10 tasks.
