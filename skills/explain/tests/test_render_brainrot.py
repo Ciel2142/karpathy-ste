@@ -7,8 +7,8 @@ environment is render_env() of video_e2e.py.
 The generated run has EXPLAIN_BRAINROT_BACKGROUNDS pointing at an empty temp dir, so the picker
 chooses the generated runner loop. The clip run points it at a temp dir that holds a copy of
 fixtures/bg-1s.mp4, a 1 s clip that is shorter than the video, so it loops. Each render is cached
-once per process and script (the pattern of video_e2e.py: temp output dir, an absolute
-provenance.root, the temp dirs removed at exit). Both folders lie outside the workspace, because the
+once per process and script (each in a temp output dir, with an absolute provenance.root, and the
+temp dirs are removed at exit). Both folders lie outside the workspace, because the
 picker refuses a --dir that is, or lies under, <ws>/runs: the folder that holds the run directory
 it is given. test_check_render reuses the generated render (render_brainrot("generated")).
 

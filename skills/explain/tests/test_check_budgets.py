@@ -87,11 +87,11 @@ class CheckBudgetsCase(unittest.TestCase):
 
     # red: a timeline without the key, or of another format (the name of the removed row, an
     # empty name, a number), is judged with untagged lines instead of exit 2, the stderr line is
-    # another one, or the format is checked after the numbers (a timeline that also lacks
-    # maxSceneSeconds names that key instead)
+    # another one, or the format is checked after any number (a timeline that also lacks fps and
+    # maxSceneSeconds names fps, the first number read, instead)
     def test_a_timeline_of_another_format_exits_2(self):
         for fmt in (None, "explainer", "", 7):
-            for drop in ((), ("maxSceneSeconds",)):
+            for drop in ((), ("fps", "maxSceneSeconds")):
                 with self.subTest(format=fmt, drop=drop):
                     path = self.write_timeline([900], 30, 150, drop=drop, fmt=fmt)
                     run = self.check(path)

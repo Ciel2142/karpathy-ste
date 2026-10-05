@@ -275,20 +275,23 @@ class ParallelRenderCase(unittest.TestCase):
     # red: no trap, a removal through the node_modules link, or a render.sh that exits before the
     # Remotion CLI (which outlives TERM), so that the CLI makes the removed run directory again.
     # The render is the brainrot template: an empty clip folder gives the generated background.
+    # TERM goes out after the "background: ok" line, the last stage line before the render stage
+    # starts the CLI: the picker has ended, so the TERM cannot land in it and spare the CLI.
     def test_no_run_directory_is_left_after_sigterm(self):
         render = Render(self.addCleanup, brainrot_script())
         deadline = time.monotonic() + RENDER_TIMEOUT
 
-        def timeline_lines():
+        def background_lines():
             lines = stage_lines(render.output()[0])
-            return [line for line in lines if line.startswith("timeline (")]
+            return [line for line in lines if line.startswith("background: ok ")]
 
-        while not timeline_lines():
+        while not background_lines():
             if render.proc.poll() is not None or time.monotonic() > deadline:
-                self.fail("render.sh printed no timeline line while it ran:\n"
+                self.fail("render.sh printed no background line while it ran:\n"
                           + "".join(render.output()))
             time.sleep(0.2)
         self.assertEqual(len(run_dirs(render.pid)), 1, names(workspace() / "runs"))
+        # the render stage copies the clips and starts the CLI right after that line
         time.sleep(2)
         os.killpg(render.pid, signal.SIGTERM)
         run = self.finish(render, 60)

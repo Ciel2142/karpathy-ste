@@ -602,8 +602,9 @@ class TestFilmBuild(FilmBuildCase):
 
     def test_film_scene_is_lead_audio_pause(self):
         """Red: the scene length drops the lead, the clip or the pause, the pause of `forms` (30) is
-        ignored for the row's 12, the tail of the brainrot row (12) is added instead, the clip is
-        rounded instead of ceilinged, or `from` is not the sum of the scenes before."""
+        ignored for the row's 12, the tail of the brainrot row (12) is added on top of the pause (a
+        scene of lead + clip + pause + tail), the clip is rounded instead of ceilinged, or `from` is
+        not the sum of the scenes before."""
         scenes = self.built()["scenes"]
         self.assertEqual([s["durationInFrames"] for s in scenes], [153, 276, 168])
         self.assertEqual([s["from"] for s in scenes], [0, 153, 429])
