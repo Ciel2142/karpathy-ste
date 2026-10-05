@@ -16,7 +16,7 @@ from pathlib import Path
 EXPLAIN = Path(__file__).resolve().parent.parent
 NARRATE_SH = EXPLAIN / "scripts" / "narrate.sh"
 NARRATE_PY = EXPLAIN / "video" / "narrate.py"
-TEMPLATE = EXPLAIN / "templates" / "video-script.json"
+TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 ONE = "Hello there."
 TWO = "A second line."
 
@@ -159,14 +159,14 @@ class NarrateCase(unittest.TestCase):
 
 class SayRun(NarrateCase):
     def test_say_engine_writes_wav_sidecar_and_durations(self):
-        """Mutation: the sidecar omits the speed line."""
+        """Mutation: the sidecar omits the speed line or the mode line."""
         run = self.shell(self.two_scenes(), "--engine", "say")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         for sid, text in (("one", ONE), ("two", TWO)):
             self.assertEqual(self.rate_of(self.audio / f"{sid}.say.wav"), 22050)
             self.assertEqual(
                 (self.audio / f"{sid}.say.txt").read_text(encoding="utf-8"),
-                f"engine=say\nvoice=say-default\nspeed=1.0\n{text}",
+                f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{text}",
             )
         durations = self.durations()
         self.assertEqual((durations["engine"], durations["fallback"]), ("say", None))
@@ -202,12 +202,12 @@ class SayRun(NarrateCase):
         self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").endswith("\nHello again."))
 
     def test_speed_is_recorded_in_sidecar(self):
-        """Mutation: the sidecar writes a fixed speed=1.0 whatever --speed says."""
+        """Mutation: the sidecar writes a fixed speed=1.0 whatever --speed says, or drops the mode line."""
         run = self.shell(self.two_scenes(), "--engine", "say", "--speed", "1.2")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(
             (self.audio / "one.say.txt").read_text(encoding="utf-8"),
-            "engine=say\nvoice=say-default\nspeed=1.2\nHello there.",
+            "engine=say\nvoice=say-default\nspeed=1.2\nmode=sentences\nHello there.",
         )
 
     def test_say_rate_follows_speed(self):
@@ -237,7 +237,7 @@ class SayRun(NarrateCase):
                 run = self.shell(self.write_script([scene("one", ONE)]), "--engine", "say", "--speed", speed)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
                 self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").startswith(
-                    f"engine=say\nvoice=say-default\nspeed={speed}\n"))
+                    f"engine=say\nvoice=say-default\nspeed={speed}\nmode=sentences\n"))
 
     def test_engine_in_filename_keeps_both_voices(self):
         """Mutation: one file per scene id (<id>.wav) instead of <id>.<engine>.wav."""
@@ -400,7 +400,7 @@ class Fallback(NarrateCase):
         self.assertEqual(self.rate_of(self.audio / "one.kokoro.wav"), 24000)
         self.assertEqual(
             (self.audio / "one.kokoro.txt").read_text(encoding="utf-8"),
-            f"engine=kokoro\nvoice=af_heart\nspeed=1.0\n{ONE}",
+            f"engine=kokoro\nvoice=af_heart\nspeed=1.0\nmode=sentences\n{ONE}",
         )
         durations = self.durations()
         self.assertEqual((durations["engine"], durations["fallback"]), ("kokoro", None))
@@ -417,7 +417,7 @@ class Fallback(NarrateCase):
         self.assertNotIn("FALLBACK", run.stdout, "the stub fails a clip whose speed is not 1.2")
         self.assertEqual(
             (self.audio / "one.kokoro.txt").read_text(encoding="utf-8"),
-            f"engine=kokoro\nvoice=af_heart\nspeed=1.2\n{ONE}",
+            f"engine=kokoro\nvoice=af_heart\nspeed=1.2\nmode=sentences\n{ONE}",
         )
 
     def test_fallback_keeps_speed(self):
@@ -426,7 +426,7 @@ class Fallback(NarrateCase):
         self.assert_fallback(run, "models missing: kokoro-v1.0.onnx")
         self.assertEqual(self.rate_log.read_text(encoding="utf-8"), "210\n210\n")
         self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").startswith(
-            "engine=say\nvoice=say-default\nspeed=1.2\n"))
+            "engine=say\nvoice=say-default\nspeed=1.2\nmode=sentences\n"))
 
 
 class KokoroDirect(NarrateCase):

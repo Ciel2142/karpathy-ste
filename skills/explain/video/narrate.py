@@ -9,15 +9,16 @@ as its speed; say takes it as a rate of 175 wpm (say's default) times the speed,
 -r at all at 1.0.
 
 Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, say 22050 Hz),
-a sidecar <id>.<engine>.txt (engine, voice, speed, narration) and durations.json:
-{ "engine", "fallback", "scenes": { "<id>": seconds } }.
+a sidecar <id>.<engine>.txt (engine, voice, speed, "mode=sentences", narration) and
+durations.json: { "engine", "fallback", "scenes": { "<id>": seconds } }.
 
-A script whose "format" is "brainrot" or "film" is narrated one sentence at a time: each sentence is
-synthesised alone, the clips are joined with 0.15 s of silence between them, and
-<id>.<engine>.words.json gets the exact start and end of every sentence and word:
+Every scene is narrated one sentence at a time: each sentence is synthesised alone, the clips
+are joined with 0.15 s of silence between them, and <id>.<engine>.words.json gets the exact
+start and end of every sentence and word:
 { "sentences": [{ "from", "to" }], "words": [{ "text", "from", "to" }] } (seconds from the
-clip start). The sidecar of such a scene has a "mode=sentences" line after the speed line.
-Any other format ("explainer", or none) is narrated whole, with no words.json.
+clip start). A script's "format" is "film" or "brainrot"; a script with no "format" is a film.
+Any other value is refused with exit 2, before a clip is made. A clip from an earlier run that
+has no "mode=sentences" line in its sidecar is made again.
 
 Exit 0 on success; 1 on a failed scene or a missing tool; 2 on a usage error or an
 unreadable script; 3 when Kokoro cannot run (models missing, or a clip failed), which
@@ -50,7 +51,7 @@ SENTENCE_END = ".?!"
 CLAUSE_END = ",;:"
 END_WEIGHT = 2          # a word that ends a clause or a sentence is followed by a pause
 JOIN_GAP_S = 0.15       # silence between two sentence clips
-FORMATS = {"explainer": "scene", "brainrot": "sentences", "film": "sentences"}   # script format -> narration mode
+NARRATED_FORMATS = ("film", "brainrot")   # the script formats narrate.py accepts; a script with no format is a film
 
 
 class NarrationError(Exception):
@@ -101,17 +102,16 @@ def say_rate_args(speed):
     return ["-r", str(round(SAY_DEFAULT_WPM * float(speed)))]
 
 
-def sidecar_text(engine, text, mode):
-    """The sidecar: engine, voice, speed, then (sentence mode only) mode=sentences, then the narration."""
-    mode_line = "mode=sentences\n" if mode == "sentences" else ""
-    return f"engine={engine.name}\nvoice={engine.voice}\nspeed={engine.speed}\n{mode_line}{text}"
+def sidecar_text(engine, text):
+    """The sidecar: engine, voice, speed, mode=sentences, then the narration."""
+    return f"engine={engine.name}\nvoice={engine.voice}\nspeed={engine.speed}\nmode=sentences\n{text}"
 
 
-def sidecar_matches(sidecar, engine, text, mode):
+def sidecar_matches(sidecar, engine, text):
     """True when the sidecar exists and every field equals what this run would write."""
     if not sidecar.is_file():
         return False
-    return sidecar.read_bytes().decode("utf-8") == sidecar_text(engine, text, mode)
+    return sidecar.read_bytes().decode("utf-8") == sidecar_text(engine, text)
 
 
 def words_match(words_path, text):
@@ -303,19 +303,17 @@ def synth_sentences(engine, text, wav):
     }
 
 
-def narrate(scenes, engine, audio_dir, mode):
+def narrate(scenes, engine, audio_dir):
     """Make or reuse one WAV per scene; return { id: seconds } after the sample-rate check.
 
-    mode is "scene" (the narration is one clip) or "sentences" (one clip per sentence, joined,
-    with a words.json next to the WAV). A clip is reused when its WAV exists and its sidecar
-    matches; in sentences mode its words.json must also exist, parse, and hold exactly the words
-    of the narration, because sentence spans cannot be recovered from a joined WAV (a clip that
-    fails this is re-made whole, never patched). Before a clip is re-made its sidecar and
-    words.json are removed; the files are written WAV, words.json, then the sidecar last (after
-    the rate check), and a failed sentence removes the WAV and words.json again, so a half-made
-    clip never looks current and captions never read old timings. In scene mode any words.json
-    beside the clip is a leftover of an earlier brainrot or film run and is removed, reused clip
-    or not.
+    Every scene is narrated one sentence at a time, with a words.json next to the WAV. A clip is
+    reused when its WAV exists, its sidecar matches (a sidecar of an earlier run, with no mode
+    line, does not), and its words.json exists, parses, and holds exactly the words of the
+    narration, because sentence spans cannot be recovered from a joined WAV (a clip that fails
+    this is re-made whole, never patched). Before a clip is re-made its sidecar and words.json
+    are removed; the files are written WAV, words.json, then the sidecar last (after the rate
+    check), and a failed sentence removes the WAV and words.json again, so a half-made clip
+    never looks current and captions never read old timings.
     """
     audio_dir.mkdir(parents=True, exist_ok=True)
     seconds = {}
@@ -323,20 +321,13 @@ def narrate(scenes, engine, audio_dir, mode):
         sid, text = scene["id"], scene["narration"]
         wav = audio_dir / f"{sid}.{engine.name}.wav"
         sidecar, words_path = wav.with_suffix(".txt"), wav.with_suffix(".words.json")
-        reused = wav.is_file() and sidecar_matches(sidecar, engine, text, mode)
-        if mode == "sentences":
-            reused = reused and words_match(words_path, text)
-        else:
-            words_path.unlink(missing_ok=True)
+        reused = wav.is_file() and sidecar_matches(sidecar, engine, text) and words_match(words_path, text)
         if not reused:
             sidecar.unlink(missing_ok=True)       # a half-made clip must never look current
             words_path.unlink(missing_ok=True)    # nor pair a new WAV with old timings
             try:
-                if mode == "sentences":
-                    words = synth_sentences(engine, text, wav)
-                    words_path.write_text(json.dumps(words, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-                else:
-                    engine.synth(text, wav)
+                words = synth_sentences(engine, text, wav)
+                words_path.write_text(json.dumps(words, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             except SynthError as exc:
                 wav.unlink(missing_ok=True)
                 words_path.unlink(missing_ok=True)
@@ -345,21 +336,24 @@ def narrate(scenes, engine, audio_dir, mode):
         if rate != engine.rate:
             raise NarrationError(f"scene {sid}: {wav} is {rate} Hz (expected {engine.rate})")
         if not reused:
-            sidecar.write_bytes(sidecar_text(engine, text, mode).encode("utf-8"))
+            sidecar.write_bytes(sidecar_text(engine, text).encode("utf-8"))
         seconds[sid] = afinfo_seconds(wav)
         print(f"narration: {sid} {engine.name} {seconds[sid]:.3f} s ({'reused' if reused else 'synthesized'})")
     return seconds
 
 
 def load_script(path):
-    """(format, scenes) of a script; format is "explainer" when the script names none."""
+    """The scenes of a script, [{"id", "narration"}]; the format is "film" when the script names none.
+
+    A format that is not in NARRATED_FORMATS (any type, null included) is refused: the line
+    'narration: FAIL script <path>: ...' and exit 2, before any clip is made.
+    """
     try:
         script = json.loads(Path(path).read_text(encoding="utf-8"))
         scenes = [{"id": scene["id"], "narration": scene["narration"]} for scene in script["scenes"]]
-        script_format = script.get("format", "explainer")
-        if not isinstance(script_format, str) or script_format not in FORMATS:
-            raise ValueError("format must be explainer or brainrot")
-        return script_format, scenes
+        if script.get("format", "film") not in NARRATED_FORMATS:
+            raise ValueError("format must be film or brainrot")
+        return scenes
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"narration: FAIL script {path}: {exc}")
         sys.exit(2)
@@ -393,13 +387,13 @@ def parse_args(argv):
 
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    script_format, scenes = load_script(args.script)
+    scenes = load_script(args.script)
     try:
         check_narrations(scenes)
         check_tools(args.engine)
         engine = SayEngine(args.speed) if args.engine == "say" else KokoroEngine(args.models, args.speed)
         audio_dir = Path(args.audio_dir)
-        seconds = narrate(scenes, engine, audio_dir, FORMATS[script_format])
+        seconds = narrate(scenes, engine, audio_dir)
     except NarrationError as exc:
         print(f"narration: FAIL {exc}")
         return exc.code

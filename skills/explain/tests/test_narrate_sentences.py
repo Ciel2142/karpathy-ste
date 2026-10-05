@@ -1,4 +1,4 @@
-"""Tests for the sentence-by-sentence narration of video/narrate.py (brainrot scripts): the
+"""Tests for the sentence-by-sentence narration of video/narrate.py (every script): the
 text splitting and word timings, the per-sentence narration with its words.json, and joining
 the clips. The shared doubles and the NarrateCase base live in test_narrate. Each test names
 the mutation that turns it red."""
@@ -106,7 +106,7 @@ class SentenceText(unittest.TestCase):
 
 
 class Sentences(NarrateCase):
-    """A brainrot script is narrated one sentence at a time and gets a words.json."""
+    """Every script is narrated one sentence at a time and gets a words.json."""
 
     def brainrot(self, *scenes, format="brainrot"):
         path = self.write_script(list(scenes))
@@ -181,8 +181,8 @@ class Sentences(NarrateCase):
         )
 
     def test_film_is_narrated_in_sentences(self):
-        """Mutation: film is missing from the format table of narrate.py (exit 2), or it maps to the
-        whole-scene mode (no words.json, no mode line in the sidecar)."""
+        """Mutation: film is missing from the narrated formats of narrate.py (exit 2), or a film
+        script gets no words.json or no mode line in its sidecar."""
         run = self.shell(self.brainrot(scene("one", ONE), format="film"), "--engine", "say")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertTrue((self.audio / "one.say.words.json").is_file())
@@ -191,45 +191,53 @@ class Sentences(NarrateCase):
             f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{ONE}",
         )
 
-    def test_explainer_writes_no_words_json(self):
-        """Mutation: every script gets a words.json or a mode line, or an explicit explainer is
-        treated as brainrot."""
-        for label, script in (
-            ("no format", self.two_scenes()),
-            ("explainer", self.brainrot(scene("one", ONE), scene("two", TWO), format="explainer")),
-        ):
+    def test_a_script_without_a_format_is_narrated_in_sentences(self):
+        """Mutation: a script with no format key is narrated whole (no words.json, no mode line), or
+        is refused as an unknown format."""
+        path = self.brainrot(scene("one", ONE))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        del data["format"]
+        path.write_text(json.dumps(data), encoding="utf-8")
+        run = self.shell(path, "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue((self.audio / "one.say.words.json").is_file())
+        sidecar = (self.audio / "one.say.txt").read_text(encoding="utf-8")
+        self.assertEqual(sidecar.split("\n")[3], "mode=sentences")
+
+    def test_a_whole_scene_clip_is_remade(self):
+        """Mutation: the reuse check ignores the mode line, so a clip made whole by an earlier
+        run (a sidecar with no mode line) is reused as if it had been made by sentence. The first
+        case also loses its words file, as a whole clip never had one; the second keeps it, so only
+        the mode line can tell the clip is old."""
+        script = self.brainrot(scene("one", ONE))
+        for label, keep_words in (("no words file", False), ("words file kept", True)):
             with self.subTest(label):
                 shutil.rmtree(self.audio, ignore_errors=True)
+                self.assertEqual(self.shell(script, "--engine", "say").returncode, 0)
+                words = self.audio / "one.say.words.json"
+                (self.audio / "one.say.txt").write_text(
+                    f"engine=say\nvoice=say-default\nspeed=1.0\n{ONE}", encoding="utf-8")
+                if not keep_words:
+                    words.unlink()
                 run = self.shell(script, "--engine", "say")
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                self.assertEqual(list(self.audio.glob("*.words.json")), [])
+                self.assertRegex(run.stdout.splitlines()[0], r"^narration: one say .* \(synthesized\)$")
+                self.assertTrue(words.is_file(), "the words file is written")
                 self.assertEqual(
                     (self.audio / "one.say.txt").read_text(encoding="utf-8"),
-                    f"engine=say\nvoice=say-default\nspeed=1.0\n{ONE}",
+                    f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{ONE}",
                 )
 
-    def test_mode_change_resynthesizes(self):
-        """Mutation: the reuse check ignores the mode line, so a scene made whole is reused as sentences."""
-        for before, after in (("explainer", "brainrot"), ("brainrot", "explainer")):
-            with self.subTest(f"{before} then {after}"):
-                shutil.rmtree(self.audio, ignore_errors=True)
-                first = self.shell(self.brainrot(scene("one", ONE), format=before), "--engine", "say")
-                self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-                again = self.shell(self.brainrot(scene("one", ONE), format=before), "--engine", "say")
-                self.assertRegex(again.stdout.splitlines()[0], r"\(reused\)$")
-                run = self.shell(self.brainrot(scene("one", ONE), format=after), "--engine", "say")
-                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                self.assertRegex(run.stdout.splitlines()[0], r"^narration: one say .* \(synthesized\)$")
-
     def test_unknown_format_exit_2(self):
-        """Mutation: an unknown format is narrated as an explainer, or fails with another code or text."""
-        for value in ("tiktok", "", "Brainrot", 7, None, ["brainrot"]):
+        """Mutation: an unknown format (the name of the removed whole-scene format among them) is
+        narrated as a film, or fails with another code or text."""
+        for value in ("tiktok", "explainer", "", "Brainrot", 7, None, ["brainrot"]):
             with self.subTest(format=value):
                 script = self.brainrot(scene("one", ONE), format=value)
                 run = self.python(script, "--engine", "say")
                 self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
                 self.assertEqual(
-                    run.stdout.strip(), f"narration: FAIL script {script}: format must be explainer or brainrot")
+                    run.stdout.strip(), f"narration: FAIL script {script}: format must be film or brainrot")
                 self.assertFalse(self.audio.exists(), "nothing is narrated for an unknown format")
 
     def test_fallback_writes_say_words(self):
@@ -338,23 +346,6 @@ class Sentences(NarrateCase):
             (self.audio / "one.say.txt").read_text(encoding="utf-8"),
             f"engine=say\nvoice=say-default\nspeed=1.2\nmode=sentences\n{ONE} {TWO}",
         )
-
-    def test_explainer_run_removes_a_words_json_left_by_a_brainrot_run(self):
-        """Mutation: an explainer scene leaves a brainrot words.json beside its clip, whether the clip
-        is re-made (the earlier run was brainrot) or reused (the file was planted later)."""
-        brainrot_run = self.shell(self.brainrot(scene("one", ONE)), "--engine", "say")
-        self.assertEqual(brainrot_run.returncode, 0, brainrot_run.stdout + brainrot_run.stderr)
-        words = self.audio / "one.say.words.json"
-        self.assertTrue(words.is_file())
-        explainer = self.brainrot(scene("one", ONE), format="explainer")
-        run = self.shell(explainer, "--engine", "say")
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertRegex(run.stdout.splitlines()[0], r"\(synthesized\)$")
-        self.assertFalse(words.exists(), "re-made as a whole clip: no words file")
-        words.write_text('{"sentences": [], "words": []}', encoding="utf-8")
-        run = self.shell(explainer, "--engine", "say")
-        self.assertRegex(run.stdout.splitlines()[0], r"\(reused\)$")
-        self.assertFalse(words.exists(), "reused as a whole clip: the planted words file is removed")
 
 
 def wav_bytes(rate, frames, width=2, channels=1, extra_chunk=b"", claim_extra=0):
