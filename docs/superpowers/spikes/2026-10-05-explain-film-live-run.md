@@ -13,7 +13,7 @@ Date: 2026-10-05. Branch `feat/explain-film` at `a35fc9d`. This is the record of
 - The cold run did not pass the limit of two fix rounds. Its author stopped after two fix rounds
   with a clean pipeline, but the judge then found three faults of type 2 that were true against
   the source. Two more fix rounds removed them. The long run has the same pattern.
-- The acceptance of the user is open.
+- The user watched both films and accepted them on 2026-10-05.
 
 ## How the runs were made
 
@@ -197,7 +197,9 @@ These are outside the files of this wave, or they need a decision:
 
 ## Acceptance
 
-Open. The user watches both films and accepts, or names what to change:
+Accepted. The user watched both films on 2026-10-05 and said "looks good". The user named
+nothing to change. On the cost of a film the user said: "it's fine for now, if it's going to be
+too much, we will deal with it later".
 
 - `~/karpathy/out/2026-10-05-192833-video-importcontroller/video.mp4`
 - `~/karpathy/out/2026-10-05-192733-video-explain/video.mp4`
