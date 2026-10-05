@@ -10,8 +10,7 @@ fixtures/bg-1s.mp4, a 1 s clip that is shorter than the video, so it loops. Each
 once per process and script (the pattern of video_e2e.py: temp output dir, an absolute
 provenance.root, the temp dirs removed at exit). Both folders lie outside the workspace, because the
 picker refuses a --dir that is, or lies under, <ws>/runs: the folder that holds the run directory
-it is given. The explainer E2E and the landscape regression run after this module in the same
-workspace, to show that a brainrot run leaves the explainer alone.
+it is given. test_check_render reuses the generated render (render_brainrot("generated")).
 
 The limits case renders fixtures/brainrot-limits-script.json the same way (generated background,
 seed 7): every limited text of the script sits at its brainrot limit, so its stills show the worst

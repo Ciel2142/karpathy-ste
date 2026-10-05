@@ -2,8 +2,9 @@
 still checks after a render.
 
 The verify_sync tests synthesize their WAVs (a 440 Hz tone where the speech should be) and
-always run. The end-to-end class reuses the one fixture render of tests/video_e2e.py and
-needs EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
+always run. The end-to-end class reuses the generated-background brainrot render of
+test_render_brainrot.py (render_brainrot("generated"), cached for each process) and needs
+EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
 
 import json
 import math
@@ -20,7 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from png_diff import differing_pixels
-from video_e2e import E2E, E2E_REASON, EXPLAIN, render_fixture
+from test_render_brainrot import render_brainrot
+from video_e2e import E2E, E2E_REASON, EXPLAIN
 
 CHECK_RENDER = EXPLAIN / "video" / "check_render.sh"
 VERIFY_SYNC = EXPLAIN / "video" / "verify_sync.py"
@@ -236,8 +238,10 @@ class StillFramesCase(unittest.TestCase):
         self.assertEqual(lines, ["30 600 1080 1920", "8 still-01-hook.png", "65 still-01-hook-1.png",
                                  "308 still-02-checks.png"])
 
-    # red: the explainer (lead 15) still moved, which would change the landscape stills
-    def test_lead_15_scene_still_unchanged(self):
+    # red: the scene still taken at from + FADE_FRAMES whatever the lead (frames 8 and 308 here),
+    # not at from + max(leadFrames, FADE_FRAMES): a lead longer than the fade puts the still at
+    # the lead (frames 15 and 315)
+    def test_a_lead_longer_than_the_fade_places_the_still_at_the_lead(self):
         lines = self.still_frames([self.scene("one", 0, 15, {"b": 100, "a": 40}),
                                    self.scene("two", 300, 15, {"c": 290})], 1280, 720)
         self.assertEqual(lines, ["30 600 1280 720", "15 still-01-one.png", "55 still-01-one-1.png",
@@ -306,13 +310,27 @@ class FilmTimelineFaultCase(unittest.TestCase):
                 self.assertTrue((review / "keep.png").exists())
 
 
+# The row of the third bullet of scene "checks" in the brainrot panel, in the 1080x1920 canvas.
+# The panel (1080x960, BRAINROT_BOX) sits at the top of the canvas (Short.tsx: top 0, left 0). The
+# Content of layout.tsx starts at contentRect's top = margin 48 + titleBand 76 + 30 = y 154
+# (box.ts), and the bullet column adds paddingTop 24 (BulletsAppear.tsx), so the first row starts
+# at y 178. A row is one line of bullet text, 44 px x lineHeight 1.3 = 57.2 px tall (box.ts:
+# bullet 44), and the rows are gap 36 apart, so row n starts at 178 + (n - 1) x 93.2: row 3 spans
+# y 364.4 to 421.6. The band is that row rounded outward, and x 48 to 1032 is the content box
+# (margin 48 on each side of 1080).
+THIRD_BULLET_Y0 = 364
+THIRD_BULLET_Y1 = 422
+CONTENT_X0 = 48
+CONTENT_X1 = 1032
+
+
 @unittest.skipUnless(E2E, E2E_REASON)
 class CheckRenderCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out, cls.result = render_fixture()
+        cls.out, cls.result = render_brainrot("generated")
         if cls.result.returncode != 0:
-            raise AssertionError("fixture render failed:\n" + cls.result.stdout + cls.result.stderr)
+            raise AssertionError("brainrot render failed:\n" + cls.result.stdout + cls.result.stderr)
         cls.timeline = json.loads((cls.out / "build" / "timeline.json").read_text(encoding="utf-8"))
 
     def setUp(self):
@@ -335,15 +353,15 @@ class CheckRenderCase(unittest.TestCase):
         self.assertEqual(len(run.stdout.splitlines()), 1, run.stdout)
         self.assertRegex(run.stdout, r"^container: FAIL duration \d+\.\d\d s, expected \d+\.\d\d s\n$")
 
-    # red: the frame size not compared with the timeline's width and height. The fixture render is
-    # 1280x720; the copy of its timeline names 1080x1920 and the shared files stay untouched.
+    # red: the frame size not compared with the timeline's width and height. The brainrot render is
+    # 1080x1920; the copy of its timeline names 1280x720 and the shared files stay untouched.
     def test_container_size_mismatch_fails(self):
-        timeline = dict(self.timeline, width=1080, height=1920)
+        timeline = dict(self.timeline, width=1280, height=720)
         path = self.tmp / "timeline.json"
         path.write_text(json.dumps(timeline), encoding="utf-8")
         run = self.check(path, self.tmp / "review")
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
-        self.assertEqual(run.stdout, "container: FAIL size 1280x720, expected 1080x1920\n")
+        self.assertEqual(run.stdout, "container: FAIL size 1080x1920, expected 1280x720\n")
 
     # red: lead tolerance 2 s
     def test_shifted_speech_is_sync_fail(self):
@@ -382,15 +400,19 @@ class CheckRenderCase(unittest.TestCase):
         self.assertEqual(names, self.expected_stills())
         self.assertIn("stills (%d): ok " % len(names), run.stdout)
 
-    # red: stills taken at the cue frame (before the motion)
+    # red: the stills taken at the cue frame (STILL_AFTER_CUE 0 in check_render.sh), before the
+    # motion: at cue 2 and at cue 3 the third bullet has not started, so its row is the same in
+    # both stills. Scene "checks" has four bullets and the build keeps cues 15 frames apart
+    # (MIN_CUE_GAP of build-timeline.mjs), so at cue 2 + 15 the third bullet has not started and
+    # at cue 3 + 15 it is in.
     def test_still_at_cue_plus_15_shows_motion(self):
-        n, scene = next((n, s) for n, s in enumerate(self.timeline["scenes"], 1)
-                        if s["component"] == "bullets-appear")
+        n, scene = next((n, s) for n, s in enumerate(self.timeline["scenes"], 1) if s["id"] == "checks")
+        self.assertEqual(scene["component"], "bullets-appear")
         review = self.out / "review"
-        start = review / ("still-%02d-%s.png" % (n, scene["id"]))
-        first_cue = review / ("still-%02d-%s-1.png" % (n, scene["id"]))
-        # The first bullet's row in the content box (layout.tsx: top 138, padding 24, 32 px text).
-        changed = differing_pixels(start, first_cue, 48, 700, 162, 204)
+        second_cue = review / ("still-%02d-%s-2.png" % (n, scene["id"]))
+        third_cue = review / ("still-%02d-%s-3.png" % (n, scene["id"]))
+        changed = differing_pixels(second_cue, third_cue, CONTENT_X0, CONTENT_X1,
+                                   THIRD_BULLET_Y0, THIRD_BULLET_Y1)
         self.assertGreater(changed, 500)
 
 

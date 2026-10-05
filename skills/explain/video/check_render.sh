@@ -36,8 +36,8 @@ set -eu
 
 STILL_AFTER_CUE=15
 # The frames FadeIn of src/sceneBody.tsx takes to bring a scene to full opacity: a scene still
-# is taken no earlier, so a short lead (brainrot, 6) does not catch the panel mid-fade. The
-# explainer lead (15) is longer, so its stills do not move.
+# is taken no earlier, so a short lead (6) does not catch the panel mid-fade. A lead longer than
+# the fade puts the scene still at the lead.
 FADE_FRAMES=8
 
 usage() {

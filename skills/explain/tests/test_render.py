@@ -11,9 +11,9 @@ runs. A fake npm that exits 1 sits first on PATH and the workspace is an empty t
 that gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
 brainrot route: the template, SKILL.md, the rung file, and the format that stage_script reads
 from a real script.json. E2EHelperCase checks the environment that the gated renders get from
-tests/video_e2e.py: the caller's workspace, none of the caller's background settings. The
-end-to-end class renders the three-scene fixture once (tests/video_e2e.py) and needs
-EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
+tests/video_e2e.py: the caller's workspace, none of the caller's background settings. The gated
+end-to-end renders (FilmRenderCase of test_render_film.py, BrainrotRenderCase of
+test_render_brainrot.py) need EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
 
 import json
 import os
@@ -30,8 +30,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from video_e2e import (E2E, E2E_REASON, EXPLAIN, RENDER_SH, TEMPLATE, render_env, render_fixture,
-                       workspace)
+from video_e2e import EXPLAIN, RENDER_SH, TEMPLATE, render_env, workspace
 
 BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 BUILD_TIMELINE = EXPLAIN / "video" / "build-timeline.mjs"
@@ -896,53 +895,6 @@ class E2EHelperCase(unittest.TestCase):
             env = render_env()
             self.assertEqual([name for name in caller if name in env], [])
             self.assertEqual(render_env(EXPLAIN_BRAINROT_SEED="7").get("EXPLAIN_BRAINROT_SEED"), "7")
-
-
-ORDER = [
-    r"script: ok \(3 scenes\)",
-    r"workspace: ok /.+",
-    r"narration \(say\): ok",
-    r"timeline \(3 scenes, \d+\.\d s\): ok",
-    r"render \(\d+\.\d s, \d+\.\d\d render-min/video-min\)( \(limit 2\.0\))?: ok",
-    r"container: ok \(\d+\.\d\d s\)",
-    r"sync: ok",
-    r"stills \(\d+\): ok /.+",
-    r"transcript: ok",
-]
-
-
-@unittest.skipUnless(E2E, E2E_REASON)
-class SayFixtureCase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.out, cls.result = render_fixture()
-
-    # red: the render stage line without its ratio
-    def test_say_fixture_prints_nine_ok_lines_and_ratio(self):
-        self.assertEqual(self.result.returncode, 0, self.result.stdout + self.result.stderr)
-        lines = stage_lines(self.result.stdout)
-        self.assertEqual(len(lines), 9, self.result.stdout)
-        for line, pattern in zip(lines, ORDER):
-            self.assertRegex(line, "^%s$" % pattern)
-        self.assertIn("render-min/video-min", lines[4])
-
-    # red: the helper drops EXPLAIN_VIDEO_WORKSPACE and the render goes to the default workspace.
-    # Not run red (that is a render in a workspace this branch must not use): E2EHelperCase is the
-    # red-first proof of the helper, this case binds the real render to it.
-    def test_render_used_the_callers_workspace(self):
-        self.assertEqual(stage_lines(self.result.stdout)[1:2], ["workspace: ok %s" % workspace()],
-                         self.result.stdout + self.result.stderr)
-
-    # red: the transcript stage without --narrator (the row keeps "pending")
-    def test_transcript_narrator_row_says_say(self):
-        page = (self.out / "index.html").read_text(encoding="utf-8")
-        self.assertIn("<dt>Narrator</dt><dd>say</dd>", page)
-
-    # red: the stills written somewhere other than review/
-    def test_outputs_present(self):
-        for name in ("video.mp4", "index.html", "narration.md", "build/timeline.json"):
-            self.assertTrue((self.out / name).is_file(), name)
-        self.assertTrue(list((self.out / "review").glob("still-01-*.png")))
 
 
 if __name__ == "__main__":

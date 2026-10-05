@@ -10,9 +10,9 @@ with its stdout and stderr in files. The two overlap in time, both print all the
 film the eleven of ORDER of test_render_film.py, brainrot its ten), <ws>/app is the same afterwards
 (node_modules aside: the film's scene goes only into its run directory), and neither leaves its
 run directory <ws>/runs/run.<pid>.<6 chars>. Two more renders show that no run directory is left
-after a fail (a brainrot render with an invalid seed) and after SIGTERM to the process group of an
-explainer render (the three-scene explainer fixture of video_e2e.py). <ws> is workspace() of
-video_e2e.py and every render gets render_env(), so the renders follow $EXPLAIN_VIDEO_WORKSPACE.
+after a fail (a brainrot render with an invalid seed) and after SIGTERM to the process group of a
+brainrot render (the template, an empty clip folder). <ws> is workspace() of video_e2e.py and every
+render gets render_env(), so the renders follow $EXPLAIN_VIDEO_WORKSPACE.
 Other sessions may render in the same workspace, so each check names the pids of its own renders.
 
 TreeDigestCase checks tree_digest on a temp tree and always runs; a later wave imports
@@ -36,8 +36,7 @@ from test_film_example import FILM_DIR, template_script
 from test_render import default_signals, kill_group, names, stage_lines
 from test_render_brainrot import BACKGROUND, BRAINROT_TEMPLATE, SEED, stage_patterns
 from test_render_film import ORDER as FILM_ORDER
-from video_e2e import (E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT, fixture_script,
-                       render_env, workspace)
+from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT, render_env, workspace
 
 WORKSPACE_SH = EXPLAIN / "scripts" / "video-workspace.sh"
 BAD_SEED_LINE = "background: FAIL EXPLAIN_BRAINROT_SEED must be an integer, got 'abc'"
@@ -274,9 +273,10 @@ class ParallelRenderCase(unittest.TestCase):
         self.assertEqual(run_dirs(render.pid), [])
 
     # red: no trap, a removal through the node_modules link, or a render.sh that exits before the
-    # Remotion CLI (which outlives TERM), so that the CLI makes the removed run directory again
+    # Remotion CLI (which outlives TERM), so that the CLI makes the removed run directory again.
+    # The render is the brainrot template: an empty clip folder gives the generated background.
     def test_no_run_directory_is_left_after_sigterm(self):
-        render = Render(self.addCleanup, fixture_script())
+        render = Render(self.addCleanup, brainrot_script())
         deadline = time.monotonic() + RENDER_TIMEOUT
 
         def timeline_lines():
