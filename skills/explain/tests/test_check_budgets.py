@@ -77,6 +77,26 @@ class CheckBudgetsCase(unittest.TestCase):
         self.assertEqual(over.returncode, 0, over.stderr)
         self.assertEqual(over.stdout, "FAIL total 91.0 s (max 90, brainrot)\n")
 
+    # red: the scene limit is a constant (60) instead of the timeline's, a scene at the limit
+    # fails (">="), or the FAIL line does not carry the format tag (", film" inside the parentheses)
+    def test_film_scene_30_ok_31_fails(self):
+        at_limit = self.check(self.write_timeline([900], 30, 150, fmt="film"))
+        self.assertEqual(at_limit.returncode, 0, at_limit.stderr)
+        self.assertEqual(at_limit.stdout, "ok 1 30.0 30.000\n")
+        over = self.check(self.write_timeline([930], 30, 150, fmt="film"))
+        self.assertEqual(over.returncode, 0, over.stderr)
+        self.assertEqual(over.stdout, "FAIL scene a is 31.0 s (max 30, film)\n")
+
+    # red: the total limit is a constant (90) or the scene limit instead of the timeline's, or
+    # the FAIL line does not carry the format tag
+    def test_film_total_150_ok_151_fails(self):
+        at_limit = self.check(self.write_timeline([900] * 5, 30, 150, fmt="film"))
+        self.assertEqual(at_limit.returncode, 0, at_limit.stderr)
+        self.assertEqual(at_limit.stdout, "ok 5 150.0 150.000\n")
+        over = self.check(self.write_timeline([900] * 5 + [30], 30, 150, fmt="film"))
+        self.assertEqual(over.returncode, 0, over.stderr)
+        self.assertEqual(over.stdout, "FAIL total 151.0 s (max 150, film)\n")
+
     # red: the explainer total text changes (render.sh prints it after "timeline: ")
     def test_explainer_total_text_unchanged(self):
         for fmt in (None, "explainer"):
