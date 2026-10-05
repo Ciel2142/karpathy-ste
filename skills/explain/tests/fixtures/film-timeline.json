@@ -1,0 +1,59 @@
+{
+  "format": "film",
+  "fps": 30,
+  "width": 1280,
+  "height": 720,
+  "totalFrames": 324,
+  "maxSceneSeconds": 30,
+  "maxTotalSeconds": 150,
+  "engine": "say",
+  "sources": {},
+  "checkFrames": [
+    { "frame": 43, "scene": "type", "still": "s1" },
+    { "frame": 118, "scene": "type", "still": "s2" },
+    { "frame": 152, "scene": "type", "still": "end" },
+    { "frame": 196, "scene": "checks", "still": "s1" },
+    { "frame": 271, "scene": "checks", "still": "s2" },
+    { "frame": 323, "scene": "checks", "still": "end" }
+  ],
+  "scenes": [
+    {
+      "id": "type",
+      "from": 0,
+      "durationInFrames": 153,
+      "leadFrames": 6,
+      "audioFrames": 135,
+      "audio": "audio/type.say.wav",
+      "sentences": [6, 96],
+      "words": [
+        { "text": "The", "from": 6, "to": 21 },
+        { "text": "router", "from": 21, "to": 36 },
+        { "text": "picks", "from": 36, "to": 51 },
+        { "text": "a", "from": 51, "to": 66 },
+        { "text": "handler.", "from": 66, "to": 81 },
+        { "text": "The", "from": 96, "to": 111 },
+        { "text": "handler", "from": 111, "to": 126 },
+        { "text": "replies.", "from": 126, "to": 141 }
+      ]
+    },
+    {
+      "id": "checks",
+      "from": 153,
+      "durationInFrames": 171,
+      "leadFrames": 6,
+      "audioFrames": 135,
+      "audio": "audio/checks.say.wav",
+      "sentences": [6, 96],
+      "words": [
+        { "text": "The", "from": 6, "to": 21 },
+        { "text": "`verify.sh`", "from": 21, "to": 36 },
+        { "text": "check", "from": 36, "to": 51 },
+        { "text": "is", "from": 51, "to": 66 },
+        { "text": "self-contained.", "from": 66, "to": 81 },
+        { "text": "Then", "from": 96, "to": 111 },
+        { "text": "it", "from": 111, "to": 126 },
+        { "text": "stops.", "from": 126, "to": 141 }
+      ]
+    }
+  ]
+}
