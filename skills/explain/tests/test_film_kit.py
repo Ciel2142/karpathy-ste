@@ -174,6 +174,18 @@ class TestMotion(unittest.TestCase):
 
 @unittest.skipIf(NODE is None, NO_NODE_REASON)
 class TestMarks(unittest.TestCase):
+    # A scene the fixture cannot be: its first sentence starts at 9, not at the lead (6), and its audio
+    # (60 frames) runs past the end of its last word (50). Marks that are one of those numbers by
+    # accident in the fixture (6 == 6, 141 == 141) differ here.
+    SLACK = {
+        "id": "slack", "from": 20, "durationInFrames": 80, "leadFrames": 6, "audioFrames": 60,
+        "sentences": [9, 40],
+        "words": [
+            {"text": "One", "from": 9, "to": 30},
+            {"text": "two", "from": 40, "to": 50},
+        ],
+    }
+
     def calls(self, expressions, scenes=None):
         """Evaluate each JS expression of `expressions` in order, with `at` the makeAt of `scenes`
         (default: the scenes of the film-timeline fixture). Each result is {"value": v}, or
@@ -205,11 +217,14 @@ class TestMarks(unittest.TestCase):
         return [result["error"] for result in got]
 
     def test_scene_start_is_the_first_sentence(self):
-        """Red: at(scene) is the scene's `from` (0 and 153) or the end of its lead, not the start of
-        its first sentence, the `from` of the scene is left out (checks gives 6), or at(scene) is
-        not the same mark as { sentence: 1 }."""
+        """Red: at(scene) is not the start of the scene's first sentence. On the fixture it is the
+        scene's `from` (0 and 153), or it leaves the `from` out (checks gives 6), or it is not the same
+        mark as { sentence: 1 }. On the slack scene, whose first sentence starts at 9 and whose lead is
+        6, it is the end of the lead (26 instead of 29) or the scene's `from` (20)."""
         got = self.values(['at("type")', 'at("type", { sentence: 1 })', 'at("checks")'])
         self.assertEqual(got, [6, 6, 159])
+        got = self.values(['at("slack")', 'at("slack", { sentence: 1 })'], [self.SLACK])
+        self.assertEqual(got, [29, 29])
 
     def test_sentence_mark(self):
         """Red: sentences count from 0 (sentence 2 reads the third), a sentence mark reads the frame
@@ -244,13 +259,16 @@ class TestMarks(unittest.TestCase):
 
     def test_word_mark_ignores_punctuation_and_backticks(self):
         """Red: only one side of the match is cleaned (the backticks of `verify.sh` stay on the
-        token, or the dot of "Verify.sh" stays on the word), the dot or the hyphen inside a token is
-        kept, or the cleaning removes only the trailing punctuation."""
+        token, or the dot of "Verify.sh" stays on the word), or the cleaning removes only the
+        trailing punctuation. The punctuation inside a token is removed too: a cleaning that keeps
+        the dot or the hyphen does not find "verifysh" or "selfcontained"."""
         got = self.values([
             'at("checks", { word: "Verify.sh" })',
             'at("checks", { word: "self-contained" })',
+            'at("checks", { word: "verifysh" })',
+            'at("checks", { word: "selfcontained" })',
         ])
-        self.assertEqual(got, [174, 219])
+        self.assertEqual(got, [174, 219, 174, 219])
 
     def test_word_mark_matches_the_whole_token(self):
         """Red: a word that is only the start of a token matches it (a prefix or substring test: "self"
@@ -277,11 +295,15 @@ class TestMarks(unittest.TestCase):
         self.assertEqual(got, ['MARK scene u: word "caf" is not in the narration'])
 
     def test_said_and_end(self):
-        """Red: said is the end of the last word or the end of the lead (6 and 159 are wrong), omits
-        the lead (from + audioFrames), or omits the `from` of the scene (checks gives 141); end is
-        said, or omits the `from` (checks gives 171), or ignores the pause (durationInFrames)."""
+        """Red: said is not the end of the audio, which is `from + leadFrames + audioFrames`. It omits
+        the lead (from + audioFrames), or omits the `from` of the scene (checks gives 141), or is the
+        end of the lead (6 and 159 are wrong), or, on the slack scene whose audio runs past its last
+        word, is the end of that word (70 instead of 86). end is not `from + durationInFrames`: it is
+        said (the pause is lost), or omits the `from` (checks gives 171)."""
         got = self.values(['at.said("type")', 'at.end("type")', 'at.said("checks")', 'at.end("checks")'])
         self.assertEqual(got, [141, 153, 294, 324])
+        got = self.values(['at.said("slack")', 'at.end("slack")'], [self.SLACK])
+        self.assertEqual(got, [86, 100])
 
     def test_mark_errors(self):
         """Red: a message differs from the one named here by a word or a number (the <n> is the value
