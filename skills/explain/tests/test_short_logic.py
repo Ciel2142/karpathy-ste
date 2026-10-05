@@ -215,6 +215,24 @@ class TestRunnerState(unittest.TestCase):
                 self.assertLess(o["z"], 1, "frame %d" % f)
         self.assertTrue(any(states[f]["obstacles"] for f in frames), "no obstacle ever shows")
 
+    def test_runner_obstacle_never_over_runner(self):
+        """Red: an obstacle near the runner's depth (RunnerLoop RUNNER_Z = 0.82) is drawn in the
+        runner's lane while the runner is on the ground, so the block looks run over (the
+        spawn lane is not re-picked away from the runner's lane two beats later)."""
+        frames = list(range(0, 1800))
+        for seed in (7, 1, 2, 3, 42, 123456):
+            states = self.states(seed, frames)
+            for f in frames:
+                s = states[f]
+                if s["hop"] != 0:
+                    continue
+                for o in s["obstacles"]:
+                    if 0.70 <= o["z"] <= 0.95:
+                        self.assertNotEqual(
+                            o["lane"], s["lane"],
+                            "seed %d frame %d: obstacle z=%.3f over the runner" % (seed, f, o["z"]),
+                        )
+
     def test_runner_obstacles_advance(self):
         """Red: an obstacle does not advance 1/60 per frame in its own lane, or it vanishes or
         jumps lane between frames while still on screen (the obstacle list is not a pure

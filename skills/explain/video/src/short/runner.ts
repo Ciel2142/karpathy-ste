@@ -6,7 +6,9 @@
 // BEAT frames long, and everything random is drawn from a mulberry32 stream keyed by the seed and
 // the beat index, never by the frame:
 //   - the runner's lane for a beat, so the lane changes only on a beat boundary;
-//   - whether the beat spawns an obstacle, and in which lane.
+//   - whether the beat spawns an obstacle, and in which lane. The lane is never the runner's lane
+//     of the beat in which the obstacle reaches the runner (2 beats after the spawn), so no
+//     obstacle is drawn over the runner.
 // An obstacle spawns at z = 0 on its beat's first frame and advances 1/60 per frame, so it is on
 // screen for 60 frames, which is 3 beats. The obstacles of frame f are therefore the spawns of
 // the 3 beats up to and including f's own beat. Beats before frame 0 take part too, so the road
@@ -25,6 +27,7 @@ export type RunnerState = {
 const BEAT = 20; // frames per beat
 const OBSTACLE_FRAMES = 60; // z advances 1/60 per frame, from 0 up to (not including) 1
 const BEATS_ALIVE = OBSTACLE_FRAMES / BEAT;
+const BEATS_TO_RUNNER = 2; // an obstacle reaches the runner's depth in the 3rd beat of its life
 const SPAWN_CHANCE = 0.6;
 const STRIPE_STEP = 24; // px per frame
 const STRIPE_PERIOD = 120; // px; the dash pattern repeats every 120 px
@@ -48,13 +51,29 @@ function mod(n: number, m: number): number {
   return ((n % m) + m) % m;
 }
 
+// The runner's lane for a beat.
+function laneOf(seed: number, beat: number): Lane {
+  const rand = mulberry32((Math.imul(seed, 0x9e3779b1) + Math.imul(beat, 0x85ebca6b)) >>> 0);
+  return toLane(rand());
+}
+
 // What a beat decides, from the seed and the beat index only.
 function beatPlan(seed: number, beat: number): { lane: Lane; obstacleLane: Lane | null } {
   const rand = mulberry32((Math.imul(seed, 0x9e3779b1) + Math.imul(beat, 0x85ebca6b)) >>> 0);
   const lane = toLane(rand());
   const spawns = rand() < SPAWN_CHANCE;
-  const obstacleLane = toLane(rand());
-  return { lane, obstacleLane: spawns ? obstacleLane : null };
+  let obstacleLane = toLane(rand());
+  if (!spawns) return { lane, obstacleLane: null };
+  // An obstacle that spawns in beat b is at the runner's depth (RUNNER_Z 0.82 in RunnerLoop, 49
+  // frames after the spawn) during beat b + BEATS_TO_RUNNER, so it must not be in the
+  // runner's lane of that beat. If it is, take one of the other two lanes, from the next draw of
+  // the same stream.
+  const runnerLane = laneOf(seed, beat + BEATS_TO_RUNNER);
+  if (obstacleLane === runnerLane) {
+    const others = ([0, 1, 2] as Lane[]).filter((l) => l !== runnerLane);
+    obstacleLane = others[rand() < 0.5 ? 0 : 1];
+  }
+  return { lane, obstacleLane };
 }
 
 export function runnerState(frame: number, seed: number): RunnerState {
