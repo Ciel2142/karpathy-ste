@@ -3,15 +3,17 @@ EXPLAIN_VIDEO_E2E=1.
 
 ParallelRenderCase brings the workspace up to date (scripts/video-workspace.sh --engine say),
 takes tree_digest of <ws>/app, then starts two renders of scripts/render.sh --engine say, one
-right after the other: the three-scene explainer fixture of video_e2e.py and the brainrot
-template (an empty clip folder, so the generated background, and SEED). Each runs in a session
-of its own, in a temp dir of its own with its stdout and stderr in files. The two overlap in
-time, both print all their ok lines, <ws>/app is the same afterwards (node_modules aside), and
-neither leaves its run directory <ws>/runs/run.<pid>.<6 chars>. Two more renders show that no
-run directory is left after a fail (a brainrot render with an invalid seed) and after SIGTERM to
-the process group of an explainer render. <ws> is workspace() of video_e2e.py and every render
-gets render_env(), so the renders follow $EXPLAIN_VIDEO_WORKSPACE. Other sessions may render in
-the same workspace, so each check names the pids of its own renders.
+right after the other: the film, the worked example (template_script() of test_film_example.py,
+with out/scene a copy of its scene FILM_DIR), and the brainrot template (an empty clip folder, so
+the generated background, and SEED). Each runs in a session of its own, in a temp dir of its own
+with its stdout and stderr in files. The two overlap in time, both print all their ok lines (the
+film the ten of ORDER of test_render_film.py, brainrot its ten), <ws>/app is the same afterwards
+(node_modules aside: the film's scene goes only into its run directory), and neither leaves its
+run directory <ws>/runs/run.<pid>.<6 chars>. Two more renders show that no run directory is left
+after a fail (a brainrot render with an invalid seed) and after SIGTERM to the process group of an
+explainer render (the three-scene explainer fixture of video_e2e.py). <ws> is workspace() of
+video_e2e.py and every render gets render_env(), so the renders follow $EXPLAIN_VIDEO_WORKSPACE.
+Other sessions may render in the same workspace, so each check names the pids of its own renders.
 
 TreeDigestCase checks tree_digest on a temp tree and always runs; a later wave imports
 tree_digest for its own "the shared app is unchanged" check. Each test names the mutation that
@@ -30,8 +32,10 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_render import ORDER, default_signals, kill_group, names, stage_lines
+from test_film_example import FILM_DIR, template_script
+from test_render import default_signals, kill_group, names, stage_lines
 from test_render_brainrot import BACKGROUND, BRAINROT_TEMPLATE, SEED, stage_patterns
+from test_render_film import ORDER as FILM_ORDER
 from video_e2e import (E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT, fixture_script,
                        render_env, workspace)
 
@@ -130,18 +134,21 @@ class Render:
     """A render.sh --engine say run of `script` (a dict), started at once: in a temp dir of its
     own (the output dir out/, stdout and stderr in files, an empty clip folder, so that a brainrot
     render picks the generated background), in a session of its own with HUP, INT and TERM at
-    their default action. Its environment is render_env(EXPLAIN_BRAINROT_BACKGROUNDS=<clips>,
-    **env). `add_cleanup` (addCleanup or addClassCleanup) gets the kill of the process group and
-    the removal of the temp dir. `start` and `end` are time.monotonic() values; poll() sets `end`.
-    The pid is that of render.sh itself, so its run directory is run.<pid>.<6 chars>."""
+    their default action. With `scene` (a directory), out/scene is a copy of it. Its environment
+    is render_env(EXPLAIN_BRAINROT_BACKGROUNDS=<clips>, **env). `add_cleanup` (addCleanup or
+    addClassCleanup) gets the kill of the process group and the removal of the temp dir. `start`
+    and `end` are time.monotonic() values; poll() sets `end`. The pid is that of render.sh itself,
+    so its run directory is run.<pid>.<6 chars>."""
 
-    def __init__(self, add_cleanup, script, **env):
+    def __init__(self, add_cleanup, script, scene=None, **env):
         self.tmp = Path(tempfile.mkdtemp(prefix="explain-parallel-"))
         add_cleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.out = self.tmp / "out"
         self.out.mkdir()
         (self.tmp / "clips").mkdir()
         (self.out / "script.json").write_text(json.dumps(script, indent=2), encoding="utf-8")
+        if scene is not None:
+            shutil.copytree(scene, self.out / "scene")
         run_env = render_env(EXPLAIN_BRAINROT_BACKGROUNDS=str(self.tmp / "clips"), **env)
         with open(self.tmp / "stdout", "w") as stdout, open(self.tmp / "stderr", "w") as stderr:
             self.proc = subprocess.Popen(
@@ -205,9 +212,9 @@ class ParallelRenderCase(unittest.TestCase):
                                     % (ready.returncode, ready.stdout, ready.stderr))
         cls.before = tree_digest(workspace() / "app")
         brainrot = brainrot_script()
-        cls.explainer = Render(cls.addClassCleanup, fixture_script())
+        cls.film = Render(cls.addClassCleanup, template_script(), scene=FILM_DIR)
         cls.brainrot = Render(cls.addClassCleanup, brainrot, EXPLAIN_BRAINROT_SEED=SEED)
-        wait_all((cls.explainer, cls.brainrot), RENDER_TIMEOUT)
+        wait_all((cls.film, cls.brainrot), RENDER_TIMEOUT)
         cls.after = tree_digest(workspace() / "app")
 
     def finish(self, render, timeout):
@@ -220,14 +227,14 @@ class ParallelRenderCase(unittest.TestCase):
 
     # red: the renders ran one after the other, so the class shows nothing
     def test_the_two_renders_ran_at_the_same_time(self):
-        starts = (self.explainer.start, self.brainrot.start)
-        ends = (self.explainer.end, self.brainrot.end)
+        starts = (self.film.start, self.brainrot.start)
+        ends = (self.film.end, self.brainrot.end)
         self.assertLess(max(starts), min(ends), "starts %s, ends %s" % (starts, ends))
 
     # red: a shared public/audio or a shared project, where one render takes the other's files
     def test_both_renders_print_all_their_ok_lines(self):
         brainrot = [pattern or BACKGROUND["generated"] for pattern in stage_patterns(4)]
-        for name, render, patterns in (("explainer", self.explainer, ORDER),
+        for name, render, patterns in (("film", self.film, FILM_ORDER),
                                        ("brainrot", self.brainrot, brainrot)):
             with self.subTest(render=name):
                 run = render.result()
@@ -237,17 +244,19 @@ class ParallelRenderCase(unittest.TestCase):
                 for line, pattern in zip(lines, patterns):
                     self.assertRegex(line, "^%s$" % pattern)
 
-    # red: a render writes audio or sources under <ws>/app
+    # red: a render writes audio or sources under <ws>/app, or the film's scene is copied there.
+    # Not run red (decision 12 of the wave plan): SceneRunCase of test_render_film.py is its red-first
+    # proof, in a temporary workspace
     def test_the_app_is_unchanged(self):
         # the digest is of the workspace that both renders used
-        for render in (self.explainer, self.brainrot):
+        for render in (self.film, self.brainrot):
             stdout = render.output()[0]
             self.assertIn("workspace: ok %s" % workspace(), stage_lines(stdout), stdout)
         self.assertEqual(self.after, self.before)
 
     # red: no removal on exit
     def test_no_run_directory_is_left_after_a_pass(self):
-        for name, render in (("explainer", self.explainer), ("brainrot", self.brainrot)):
+        for name, render in (("film", self.film), ("brainrot", self.brainrot)):
             with self.subTest(render=name):
                 self.assertEqual(render.proc.returncode, 0, "".join(render.output()))
                 self.assertEqual(run_dirs(render.pid), [])

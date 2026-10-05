@@ -16,14 +16,22 @@ script, against the same fakes with the real check_scene.py, FAKE_TSC and a buil
 render draws and where tsc runs, the three FAIL lines that stop a run before any synthesis, and a tsc that
 outlives TERM and HUP.
 
-FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders templates/film-script.json (template_script() of
-test_film_example.py, rooted at the repository) through scripts/render.sh --engine say once per
-process (render_film(): a temporary output directory removed at exit, the environment render_env()
-of video_e2e.py, so the render uses workspace()). It holds the nine stage lines, the stills at the
-check frames, the size, the transcript page, the speed of the narration, the place of each clip
-(the voice starts leadFrames after the scene start) and a picture that changes in every scene. The
-expected scene ids, sentences and stills come from the template, not from the render's timeline.
-Each test names the mutation that turns it red."""
+FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders the worked example through scripts/render.sh
+--engine say once per process (render_film() of film_output(): a temporary output directory removed
+at exit, with script.json the template templates/film-script.json, template_script() of
+test_film_example.py rooted at the repository, and scene/ a copy of the example scene FILM_DIR; the
+environment render_env() of video_e2e.py, so the render uses workspace()). It holds the ten stage
+lines (the scene stage counts SCENE_FILES), the stills at the check frames, the size, the transcript
+page, the speed of the narration, the place of each clip (the voice starts leadFrames after the
+scene start) and a picture that changes in every scene. The expected scene ids, sentences and stills
+come from the template, not from the render's timeline.
+
+ScenePlantCase (EXPLAIN_VIDEO_E2E=1 only) holds the four stage plants of spec 9.2: the output
+directory of FilmRenderCase with one edit (a cite snippet with one word changed, a mark on an
+unknown scene, a used import of another package, // @ts-nocheck on line 1), rendered the same way.
+Each stops with its line before any synthesis; FilmRenderCase, with the same output directory and no
+edit, is their control. The expected lines come from the template and the edited files, not from
+the render. Each test names the mutation that turns it red."""
 
 import atexit
 import importlib.util
@@ -43,7 +51,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from png_diff import differing_pixels
 from test_check_scene import CHECK_SCENE, SCENE_CLEAN, append, prepend
-from test_film_example import template_script
+from test_film_example import FILM_DIR, template_script
 from test_narrate import NARRATE_PY
 from test_render import (RUN_FAKES, STAGE_LINE, STAGES, RunHarness, names, render_functions,
                          stage_lines)
@@ -105,10 +113,16 @@ sys.exit(int(os.environ.get("FAKE_TSC_EXIT", "0")))
 
 TEMPLATE_SCENES = template_script()["scenes"]
 SCENES = len(TEMPLATE_SCENES)
-# The nine stage lines of a film run, in order: the explainer's nine names.
+# The files of the example scene that the scene stage copies and counts: the *.ts and *.tsx files of
+# FILM_DIR, without its script.gen.ts (and without a hidden file, which the stage's glob does not match).
+SCENE_FILES = len([path for path in FILM_DIR.iterdir()
+                   if path.suffix in (".ts", ".tsx") and path.is_file() and not path.name.startswith(".")
+                   and path.name != "script.gen.ts"])
+# The ten stage lines of a film run, in order: the explainer's nine names, and the scene stage third.
 ORDER = [
     r"script: ok \(%d scenes\)" % SCENES,
     r"workspace: ok /.+",
+    r"scene: ok \(%d files\)" % SCENE_FILES,
     r"narration \(say\): ok",
     r"timeline \(%d scenes, \d+\.\d s\): ok" % SCENES,
     r"render \(\d+\.\d s, \d+\.\d\d render-min/video-min\)( \(limit 2\.0\))?: ok",
@@ -122,17 +136,33 @@ CHANGED_PIXELS = 500   # an -end still and the one before it differ in more than
 _cache = {}
 
 
+def film_output(edit=None):
+    """A temporary output directory of the worked example, removed at exit: script.json is
+    template_script(), scene/ a copy of FILM_DIR (its script.gen.ts too, which the stage leaves
+    behind); then `edit(out)` runs on it. Returns the directory (a Path)."""
+    out = Path(tempfile.mkdtemp(prefix="explain-film-e2e-"))
+    atexit.register(shutil.rmtree, out, ignore_errors=True)
+    (out / "script.json").write_text(json.dumps(template_script(), indent=2), encoding="utf-8")
+    shutil.copytree(FILM_DIR, out / "scene")
+    if edit is not None:
+        edit(out)
+    return out
+
+
+def render_output(out):
+    """The CompletedProcess of render.sh <out> --engine say, in the environment render_env()."""
+    return subprocess.run(
+        ["/bin/bash", str(RENDER_SH), str(out), "--engine", "say"],
+        capture_output=True, text=True, env=render_env(), timeout=RENDER_TIMEOUT,
+    )
+
+
 def render_film():
-    """(output dir, CompletedProcess) of the one template render of this process."""
+    """(output dir, CompletedProcess) of the one template render of this process: film_output(),
+    with no edit."""
     if "result" not in _cache:
-        out = Path(tempfile.mkdtemp(prefix="explain-film-e2e-"))
-        atexit.register(shutil.rmtree, out, ignore_errors=True)
-        (out / "script.json").write_text(json.dumps(template_script(), indent=2), encoding="utf-8")
-        run = subprocess.run(
-            ["/bin/bash", str(RENDER_SH), str(out), "--engine", "say"],
-            capture_output=True, text=True, env=render_env(), timeout=RENDER_TIMEOUT,
-        )
-        _cache["result"] = (out, run)
+        out = film_output()
+        _cache["result"] = (out, render_output(out))
     return _cache["result"]
 
 
@@ -551,9 +581,10 @@ class FilmRenderCase(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         return out, run
 
-    # red: a film rendered as Explain (the render stage fails: render: FAIL remotion render exit 1),
+    # red: the scene stage counts the author's script.gen.ts (scene: ok (6 files)) or does not run (nine
+    # lines), a film rendered as Explain (the render stage fails: render: FAIL remotion render exit 1),
     # or another stage of the film path fails or prints another line
-    def test_film_prints_nine_ok_lines(self):
+    def test_film_prints_ten_ok_lines(self):
         _, run = self.rendered()
         self.assertNotIn("FAIL", run.stdout)
         lines = stage_lines(run.stdout)
@@ -643,6 +674,113 @@ class FilmRenderCase(unittest.TestCase):
             with self.subTest(still=after):
                 changed = differing_pixels(review / before, review / after, 0, 1280, 0, 720)
                 self.assertGreater(changed, CHANGED_PIXELS, "%s against %s" % (after, before))
+
+
+@unittest.skipUnless(E2E, E2E_REASON)
+class ScenePlantCase(unittest.TestCase):
+    """The stage plants of spec 9.2: film_output(edit), the output directory of FilmRenderCase with one
+    edit, rendered by render.sh --engine say. Each stops with its line before any synthesis: render.sh
+    exits 1, no stage line is the narration's, and out/ holds no audio/ and no video.mp4."""
+
+    def stops(self, edit):
+        """(out, run) of the render of film_output(edit), once render.sh is seen to exit 1."""
+        out = film_output(edit)
+        run = render_output(out)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        return out, run
+
+    def assertNoSynthesis(self, out, run):
+        """No stage line of `run` is the narration's, and `out` holds no audio/ and no video.mp4."""
+        self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("narration")], [],
+                         run.stdout)
+        self.assertFalse((out / "audio").exists())
+        self.assertFalse((out / "video.mp4").exists())
+
+    def line_of(self, path, text):
+        """The number (from 1) of the first line of the file `path` that holds `text`; the test fails
+        if no line does."""
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if text in line:
+                return number
+        self.fail("%s holds no %s" % (path, text))
+
+    def ok_before_the_scene(self):
+        """The stage lines of the template before the scene stage: the script and the workspace."""
+        return ["script: ok (%d scenes)" % SCENES, "workspace: ok %s" % workspace()]
+
+    def unknown_mark(self, out):
+        """The edit of the mark plant: the first at("subject") of scene/Film.tsx becomes
+        at("no-such-scene"); the test fails if the scene has no at("subject")."""
+        film = out / "scene" / "Film.tsx"
+        text = film.read_text(encoding="utf-8")
+        self.assertIn('at("subject")', text)
+        film.write_text(text.replace('at("subject")', 'at("no-such-scene")', 1), encoding="utf-8")
+
+    # red: the script stage does not run the cite check before the workspace (the run goes on to the scene
+    # stage and the synthesis)
+    def test_a_changed_cite_stops_at_the_script_stage(self):
+        cite = template_script()["scenes"][0]["cites"][0]
+
+        def change_a_word(out):
+            path = out / "script.json"
+            script = json.loads(path.read_text(encoding="utf-8"))
+            changed = script["scenes"][0]["cites"][0]
+            words = changed["snippet"].split(" ")
+            self.assertNotEqual(words[1], "zebra")
+            words[1] = "zebra"
+            changed["snippet"] = " ".join(words)
+            path.write_text(json.dumps(script, indent=2), encoding="utf-8")
+
+        out, run = self.stops(change_a_word)
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL citations: FAIL 1 failure(s)"], run.stdout)
+        self.assertIn("    cite 1 (%s:%s): snippet not found on that line" % (cite["path"], cite["line"]),
+                      run.stdout.splitlines())
+        self.assertNoSynthesis(out, run)
+
+    # red: the scene is checked and not copied (tsc reads the example in src/film/ and passes, and the run
+    # goes on to the synthesis), or the line keeps the src/film/ of the run directory
+    def test_a_mark_on_an_unknown_scene_stops_at_tsc(self):
+        out, run = self.stops(self.unknown_mark)
+        line = self.line_of(out / "scene" / "Film.tsx", 'at("no-such-scene")')
+        lines = stage_lines(run.stdout)
+        self.assertEqual(lines[:-1], self.ok_before_the_scene(), run.stdout)
+        self.assertRegex(lines[-1], r"""^scene: FAIL tsc: scene/Film\.tsx\(%d,\d+\): error TS2345: """
+                                    r""".*"no-such-scene".*'SceneId'\.$""" % line)
+        self.assertNoSynthesis(out, run)
+
+    # red: the stage does not run check_scene.py (tsc passes this scene, and the run goes on to the
+    # synthesis)
+    def test_a_used_import_of_another_package_stops_at_the_check(self):
+        anchor = 'import { useCurrentFrame } from "remotion";'
+
+        def import_paths(out):
+            film = out / "scene" / "Film.tsx"
+            text = film.read_text(encoding="utf-8")
+            self.assertIn("useCurrentFrame()", text)
+            lines = text.split("\n")
+            self.assertIn(anchor, lines)
+            lines.insert(lines.index(anchor) + 1, 'import { getLength } from "@remotion/paths";')
+            text = "\n".join(lines).replace(
+                "useCurrentFrame()", 'useCurrentFrame() + getLength("M 0 0 L 1 1") * 0', 1)
+            film.write_text(text, encoding="utf-8")
+
+        out, run = self.stops(import_paths)
+        line = self.line_of(out / "scene" / "Film.tsx", 'from "@remotion/paths"')
+        self.assertEqual(stage_lines(run.stdout), self.ok_before_the_scene() + [
+            'scene: FAIL Film.tsx:%d: import from "@remotion/paths"' % line], run.stdout)
+        self.assertNoSynthesis(out, run)
+
+    # red: the token list has no "@ts-nocheck" (tsc checks nothing, and the unknown mark reaches the
+    # synthesis and the render), or the stage does not run check_scene.py
+    def test_ts_nocheck_stops_at_the_check(self):
+        def nocheck(out):
+            self.unknown_mark(out)
+            prepend(out / "scene", "Film.tsx", "// @ts-nocheck")
+
+        out, run = self.stops(nocheck)
+        self.assertEqual(stage_lines(run.stdout), self.ok_before_the_scene() + [
+            'scene: FAIL Film.tsx:1: token "@ts-nocheck"'], run.stdout)
+        self.assertNoSynthesis(out, run)
 
 
 if __name__ == "__main__":
