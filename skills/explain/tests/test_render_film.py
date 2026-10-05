@@ -10,11 +10,18 @@ run directory with the example's src/film and a node_modules link, a fake tsc: F
 real check_scene.py and build-timeline.mjs: the copy over src/film, the names, the type check, the
 four FAIL lines and the lines of tsc, cut and renamed.
 
+GuardStageCase runs stage_guard alone in a temporary directory (an output directory with a timeline of three
+checkFrames and one narration clip, a run directory, a fake remotion: FAKE_PASS): the pass the stage makes
+(its arguments, its cwd), the format that has none, the stage line of a frame fault and of a pass that failed
+otherwise, and the timeline or clip that cannot be read or copied. A marker of the log fails the stage
+whatever the exit code of the pass.
+
 SceneRunCase runs a copy of render.sh as RunDirectoryCase does (RunHarness of test_render.py), on a film
 script, against the same fakes with the real check_scene.py, FAKE_TSC and a build-timeline.mjs that takes
 --types and writes two checkFrames: the eleven stage lines of a film and none of the scene and guard stages
 for another format, the scene that the guard pass and the render draw, where they and tsc run, the three
-FAIL lines that stop a run before any synthesis, and a tsc that outlives TERM and HUP.
+FAIL lines that stop a run before any synthesis, and a tsc and a guard pass that outlive TERM and
+HUP.
 
 FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders the worked example through scripts/render.sh
 --engine say once per process (render_film() of film_output(): a temporary output directory removed
@@ -448,6 +455,146 @@ class SceneStageCase(unittest.TestCase):
             self.assertEqual((done.returncode, done.stdout), (1, "scene: FAIL tsc: exit 3\n"), done.stderr)
 
 
+# The fake remotion of GuardStageCase: it appends one JSON line to $FAKE_DIR/pass.jsonl for each call (its
+# argv and its cwd by real path), prints the file $FAKE_PASS_LOG when set, and exits $FAKE_PASS_EXIT (default
+# 0).
+FAKE_PASS = """#!/usr/bin/env python3
+import json, os, sys
+call = {"argv": sys.argv[1:], "cwd": os.path.realpath(os.getcwd())}
+with open(os.path.join(os.environ["FAKE_DIR"], "pass.jsonl"), "a") as log:
+    log.write(json.dumps(call) + "\\n")
+if os.environ.get("FAKE_PASS_LOG"):
+    with open(os.environ["FAKE_PASS_LOG"], encoding="utf-8") as text:
+        sys.stdout.write(text.read())
+    sys.stdout.flush()
+sys.exit(int(os.environ.get("FAKE_PASS_EXIT", "0")))
+"""
+
+# The log of a pass that a frame fault ended: the CLI's own lines around the stage line, and below them a code
+# frame of the source, which holds a stage line of its own.
+FRAME_FAULT_LOG = (
+    "Rendered 1/3\n"
+    "An error occurred while rendering frame 47:\n"
+    ' Error  guard: FAIL frame 47 (scene b): OFFCANVAS "x"\n'
+    "at src/FilmStage.tsx:40\n"
+    '40 \u2502   cancelRender(new Error(guardLine(frame, "guard: FAIL frame 1 (scene z): y", faults)));\n')
+
+
+class GuardStageCase(unittest.TestCase):
+    """stage_guard alone (with copy_clips, which it calls), against FAKE_PASS. Every path lies in the test's
+    own temporary directory: out/ (build/timeline.json with the check frames 12 and 47 and 89, and the clip
+    audio/a.say.wav of its one scene), run/ (the run directory) and remotion (the fake)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="render-guard-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.out = self.tmp / "out"
+        (self.out / "build").mkdir(parents=True)
+        (self.out / "audio").mkdir()
+        (self.out / "audio" / "a.say.wav").write_bytes(b"clip")
+        self.timeline = self.out / "build" / "timeline.json"
+        self.timeline.write_text(json.dumps({
+            "scenes": [{"id": "a", "audio": "audio/a.say.wav"}],
+            "checkFrames": [{"frame": 12, "scene": "a", "still": "s1"},
+                            {"frame": 47, "scene": "b", "still": "s1"},
+                            {"frame": 89, "scene": "b", "still": "end"}]}), encoding="utf-8")
+        self.run_dir = self.tmp / "run"
+        self.run_dir.mkdir()
+        self.remotion = self.tmp / "remotion"
+        self.remotion.write_text(FAKE_PASS, encoding="utf-8")
+        self.remotion.chmod(0o755)
+
+    def guard(self, fmt="film", log=None, code=0):
+        """The CompletedProcess of stage_guard for format `fmt`, when the fake pass prints the text `log`
+        (None: nothing) and exits `code`."""
+        before = "export FAKE_DIR=%s FAKE_PASS_EXIT=%d\n" % (self.tmp, code)
+        if log is not None:
+            (self.tmp / "pass.log").write_text(log, encoding="utf-8")
+            before += "export FAKE_PASS_LOG=%s\n" % (self.tmp / "pass.log")
+        return run_functions(
+            self.tmp, ["fail", "copy_clips", "stage_guard"],
+            "fmt=%(fmt)s out=%(out)s run=%(run)s remotion=%(remotion)s\n%(before)sstage_guard\n"
+            % {"fmt": fmt, "out": self.out, "run": self.run_dir, "remotion": self.remotion, "before": before})
+
+    def passes(self):
+        """The calls of the fake pass, one dict for each line of pass.jsonl."""
+        log = self.tmp / "pass.jsonl"
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+    # red: a comma list of frames (an image sequence, which an output named guard.mp4 refuses), the cwd of
+    # the caller in place of the run directory, no --concurrency=1, or the clip not copied into the run
+    def test_the_pass_renders_the_check_frames_in_the_run_directory(self):
+        done = self.guard()
+        self.assertEqual((done.returncode, done.stdout), (0, "guard (3 frames): ok\n"), done.stderr)
+        self.assertEqual(self.passes(), [{
+            "argv": ["render", "Film", "%s/build/guard.mp4" % self.out, "--frames=12-12,47-47,89-89",
+                     "--concurrency=1", "--muted", "--props", "%s/build/timeline.json" % self.out],
+            "cwd": os.path.realpath(self.run_dir)}])
+        self.assertEqual((self.run_dir / "public" / "audio" / "a.say.wav").read_bytes(), b"clip")
+
+    # red: the pass runs for every format
+    def test_another_format_has_no_guard_stage(self):
+        for fmt in ("explainer", "brainrot"):
+            with self.subTest(fmt=fmt):
+                done = self.guard(fmt)
+                self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
+                self.assertEqual(self.passes(), [])
+
+    # red: the last marker line wins (the code frame's line z), " Error  " is kept before the marker, or
+    # log lines follow the stage line
+    def test_a_frame_fault_is_the_stage_line(self):
+        done = self.guard(log=FRAME_FAULT_LOG, code=1)
+        self.assertEqual((done.returncode, done.stdout),
+                         (1, 'guard: FAIL frame 47 (scene b): OFFCANVAS "x"\n'), done.stderr)
+
+    # red: the log is read only after a non-zero exit (the code of the first guard stage): a cancel that the
+    # CLI reads late or never gives exit 0, and the film passes
+    def test_a_marker_fails_even_after_exit_0(self):
+        done = self.guard(log=FRAME_FAULT_LOG, code=0)
+        self.assertEqual((done.returncode, done.stdout),
+                         (1, 'guard: FAIL frame 47 (scene b): OFFCANVAS "x"\n'), done.stderr)
+
+    # red: no tail of the log, its head in place of its tail, or no exit code
+    def test_any_other_failure_shows_the_log_tail(self):
+        log = "".join("line %d\n" % n for n in range(1, 51))
+        done = self.guard(log=log, code=3)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(
+            done.stdout.splitlines(),
+            ["guard: FAIL remotion render exit 3 (log %s/build/guard.log)" % self.out]
+            + ["  line %d" % n for n in range(11, 51)])
+        self.assertEqual((self.out / "build" / "guard.log").read_text(encoding="utf-8"), log)
+
+    # red: a pass with an empty --frames= (no check frames), or a traceback in place of the line
+    def test_a_timeline_that_cannot_be_read(self):
+        cases = (
+            ("no timeline.json", lambda: self.timeline.unlink()),
+            ("not JSON", lambda: self.timeline.write_text("{not json", encoding="utf-8")),
+            ("no checkFrames", lambda: self.timeline.write_text('{"scenes": []}', encoding="utf-8")),
+            ("empty checkFrames", lambda: self.timeline.write_text('{"checkFrames": []}', encoding="utf-8")),
+            ("a frame of -1", lambda: self.timeline.write_text(
+                '{"checkFrames": [{"frame": 12}, {"frame": -1}]}', encoding="utf-8")),
+        )
+        for name, edit in cases:
+            with self.subTest(case=name):
+                edit()
+                done = self.guard()
+                self.assertEqual((done.returncode, done.stdout),
+                                 (1, "guard: FAIL cannot read %s\n" % self.timeline), done.stderr)
+                self.assertEqual(self.passes(), [])
+
+    # red: the failure of the copy is ignored and the pass runs (and a stage line follows), or the line
+    # names no clip
+    def test_a_clip_that_cannot_be_copied(self):
+        (self.out / "audio" / "a.say.wav").unlink()
+        done = self.guard()
+        self.assertEqual((done.returncode, done.stdout),
+                         (1, "guard: FAIL cannot copy %s/audio/a.say.wav\n" % self.out), done.stderr)
+        self.assertEqual(self.passes(), [])
+
+
 # What build-timeline.mjs of SceneRunCase does first: --types <script> <out.ts> writes "// generated" to
 # <out.ts>. The text of RUN_FAKES follows, for the other calls (--check, the timeline).
 FAKE_TYPES = (
@@ -618,6 +765,29 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                 while not end.exists() and time.monotonic() < deadline:
                     time.sleep(0.05)
                 self.assertTrue(end.exists(), "the fake tsc did not end")
+                self.assertEqual(names(self.runs), [])
+                self.assertTrue((self.shared / "sentinel.txt").exists())
+
+    # red: the guard pass in a subshell without exec: render.sh exits at once and removes the run directory
+    # while the CLI, which outlives the signal, goes on in it, and its late write makes the directory again
+    def test_render_sh_waits_for_a_guard_pass_that_outlives_the_signal(self):
+        end = self.tmp / "remotion.end"
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig.name):
+                end.unlink(missing_ok=True)
+                proc = self.start("film", FAKE_REMOTION_SLEEP="30", FAKE_REMOTION_OUTLIVE="1")
+                self.wait_for_cli(proc)
+                os.killpg(proc.pid, sig)
+                run = self.finish(proc, timeout=10)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual([line for line in run.stdout.splitlines() if "FAIL" in line], [], run.stdout)
+                # a render.sh that did not wait has exited before the CLI: wait for the CLI's end
+                deadline = time.monotonic() + 10
+                while not end.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(end.exists(), "the fake CLI did not end")
+                [guard] = self.cli_calls()
+                self.assertIn("--frames=3-3,89-89", guard["argv"])
                 self.assertEqual(names(self.runs), [])
                 self.assertTrue((self.shared / "sentinel.txt").exists())
 

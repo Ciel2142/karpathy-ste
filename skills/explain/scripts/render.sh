@@ -10,9 +10,8 @@
 #                                      its start (pick_background.py reads it; default random)
 #
 # The format is script.json's "format" ("explainer" when absent, "film" or "brainrot"), read
-# once the script stage has passed. An explainer run has nine stages, a film run and a brainrot
-# run ten: the film has "scene", brainrot has "background". The "guard" stage of a film does not
-# exist yet.
+# once the script stage has passed. An explainer run has nine stages, a brainrot run ten and a film
+# run eleven: the film has "scene" and "guard", brainrot has "background".
 #
 #   exit 0  all stages of the format passed
 #   exit 1  a stage failed; the stages after it do not run; or HUP, INT or TERM stopped the run
@@ -21,7 +20,8 @@
 #           on stderr)
 #
 # stdout carries one line per stage, in this order, up to the first FAIL (the explainer and
-# the film print no "background" line; the explainer and brainrot print no "scene" line):
+# the film print no "background" line; the explainer and brainrot print no "scene" and no "guard"
+# line):
 #   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
 #   workspace: ok <ws>                      video-workspace.sh --engine <engine>, then the run
 #                                           directory (below)
@@ -37,6 +37,12 @@
 #                                           limits from it (explainer scene <= 60 s, total
 #                                           <= 150 s; film scene <= 30 s, total <= 150 s;
 #                                           brainrot 30 s and 90 s)
+#   guard (<n> frames): ok                  film only: composition Film rendered at the <n> checkFrames
+#                                           of the timeline alone, into build/guard.mp4, log
+#                                           build/guard.log; FilmStage measures the text at each of
+#                                           those frames (off the canvas, too small, over another text;
+#                                           spec 7.3) and fails the pass at the first fault. The stage
+#                                           runs before the render, so a fault costs no full render
 #   background: ok <name> @<start> s[ (loop)]   brainrot only: pick_background.py chooses the
 #   background: ok generated                    clip, or the generated runner, into the timeline
 #   render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok      log build/render.log
@@ -80,6 +86,23 @@
 #       output follow, indented; the rest goes with the run directory (tsc.log in it). "src/film/"
 #       is written "scene/" in them and in the stage line.
 #
+# The guard stage has four FAIL lines. Each stops the run with exit 1 before the render; the run
+# directory goes by the EXIT trap. A marker in the log of the pass fails the stage whatever the exit
+# code of the pass: a cancel that the CLI reads late, or never, cannot pass the guard.
+#   guard: FAIL frame <f> (scene <id>): <fault>[; <fault>...]
+#       FilmStage measured a fault at check frame <f> of scene <id>. The line is the first log line
+#       that holds "guard: FAIL frame ", from that text to the end of the line: the message that
+#       FilmStage gave to cancelRender, with no "Error" prefix and no code frame below it. Nothing
+#       follows; the log stays in <out>/build/guard.log.
+#   guard: FAIL remotion render exit <n> (log <out>/build/guard.log)
+#       The pass exited non-zero and its log holds no such line (the CLI failed on its own: no
+#       browser, a bundle error, a clip it could not fetch). The last 40 log lines follow, indented.
+#   guard: FAIL cannot read <out>/build/timeline.json
+#       The timeline is absent or not JSON, or holds no checkFrames, or a frame that is not an
+#       integer of 0 or more. No pass runs.
+#   guard: FAIL cannot copy <out>/<clip>
+#       A narration clip of the timeline could not be copied into the run directory. No pass runs.
+#
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
 # that fell back to say says so. The Narrator row reads "kokoro (af_heart)", "say" or
@@ -93,7 +116,9 @@
 # removed), node_modules as a link to the shared <ws>/app/node_modules, and public/ with the
 # narration clips in public/audio (brainrot: also the picker's bg-stage/ behind public/bg). A film
 # puts its scene only there: the scene stage replaces src/film of this copy, and nothing of the
-# scene reaches <ws>/app or the shared node_modules.
+# scene reaches <ws>/app or the shared node_modules. The clips go into public/audio from the
+# output directory before the guard pass and, again, before the render: with --muted the renderer
+# leaves the sound out of guard.mp4, but it still fetches the clip of every audio of a rendered frame.
 # The workspace stage makes it, before its ok line, after it has removed each run directory
 # of <ws>/runs (an entry named run.*; other entries stay) modified more than a day (1440 min)
 # ago: what a killed render left. <ws>/runs may be a symlink to a directory.
@@ -106,8 +131,9 @@
 # and the render goes on with a new one, so render.sh waits for the CLI to end before it exits
 # and removes the run directory. The Remotion CLI runs with cwd <ws>/runs/<run>: every path it
 # gets is absolute, and provenance.root must be an absolute existing directory. The tsc of the
-# scene stage runs there as well, with no argument, and render.sh waits for it to end in the same
-# way, so that a tsc which outlives the signal never writes into a removed run directory.
+# scene stage runs there as well, with no argument, and so does the Remotion CLI of the guard pass,
+# as the render's does: render.sh waits for each of them to end in the same way, so that a tsc or a
+# CLI which outlives the signal never writes into a removed run directory.
 
 set -eu
 
@@ -453,10 +479,12 @@ PY
     # which outlives both, goes on in it.
     (cd "$run" && exec "$remotion" render Film "$out/build/guard.mp4" "--frames=$ranges" \
         --concurrency=1 --muted --props "$timeline") > "$log" 2>&1 < /dev/null || rc=$?
+    # The first marker of the log fails the stage whatever the exit code: a cancel that the CLI reads late,
+    # or never, can still end the pass with exit 0.
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in *"guard: FAIL frame "*) fail "guard: FAIL frame ${line#*guard: FAIL frame }" ;; esac
+    done < "$log"
     if [ "$rc" -ne 0 ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            case "$line" in *"guard: FAIL frame "*) fail "guard: FAIL frame ${line#*guard: FAIL frame }" ;; esac
-        done < "$log"
         echo "guard: FAIL remotion render exit $rc (log $log)"
         tail -n 40 "$log" | sed 's/^/  /'
         exit 1
