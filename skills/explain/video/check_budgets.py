@@ -4,20 +4,21 @@
 Usage: check_budgets.py <timeline.json>
 
 The limits are the timeline's own: maxSceneSeconds is the longest scene and maxTotalSeconds the
-longest video, both in seconds (build-timeline.mjs writes them per format: explainer 60 and 150,
-film 30 and 150, brainrot 30 and 90). A scene is durationInFrames / fps seconds, the video
-totalFrames / fps; a length equal to its limit passes.
+longest video, both in seconds (build-timeline.mjs writes them per format: film 30 and 150,
+brainrot 30 and 90). A scene is durationInFrames / fps seconds, the video totalFrames / fps; a
+length equal to its limit passes.
 
 stdout, one line, exit 0:
   ok <n> <total %.1f> <total %.3f>                 <n> scenes, total seconds
   FAIL scene <id> is <s %.1f> s (max <%g><tag>)    the first scene over its limit
   FAIL total <s %.1f> s (max <%g><tag>)            every scene fits, the video does not
-<tag> names the format the way build-timeline.mjs (tagOf) does on its limit lines: ", <format>"
-for a timeline whose "format" is a string other than "explainer" (", film", ", brainrot"), and
-nothing for an explainer timeline or one without the key, so the explainer texts are unchanged.
+<tag> names the format the way build-timeline.mjs (tagOf) does on its limit lines: ", film" or
+", brainrot".
 Exit 2 (one line on stderr) for a usage error, a timeline that cannot be read, or one without a
-usable fps, totalFrames, scenes[].durationInFrames, maxSceneSeconds or maxTotalSeconds; there is
-no default limit. Stdlib only.
+usable format, fps, totalFrames, scenes[].durationInFrames, maxSceneSeconds or maxTotalSeconds;
+there is no default format and no default limit. A usable format is "film" or "brainrot"; any
+other value, or no "format" key, is "<path>: no usable format", checked before the numbers.
+Stdlib only.
 """
 
 import json
@@ -25,6 +26,7 @@ import math
 import sys
 
 USAGE = "usage: check_budgets.py <timeline.json>"
+FORMATS = ("film", "brainrot")  # the formats whose timelines build-timeline.mjs writes
 
 
 class Unreadable(Exception):
@@ -40,10 +42,10 @@ def number(container, key, where, positive=False):
     return float(value)
 
 
-def format_tag(timeline):
-    """", <format>" for a non-explainer timeline, "" otherwise (build-timeline.mjs tagOf)."""
-    fmt = timeline.get("format")
-    return ", %s" % fmt if isinstance(fmt, str) and fmt not in ("", "explainer") else ""
+def format_tag(timeline) -> str:
+    """", <format>" of a film or brainrot timeline (build-timeline.mjs tagOf); verdict has checked
+    the format."""
+    return ", %s" % timeline["format"]
 
 
 def verdict(path):
@@ -53,6 +55,9 @@ def verdict(path):
             timeline = json.load(handle)
     except (OSError, ValueError) as err:
         raise Unreadable("%s: %s" % (path, getattr(err, "strerror", None) or err))
+    fmt = timeline.get("format") if isinstance(timeline, dict) else None
+    if not (isinstance(fmt, str) and fmt in FORMATS):
+        raise Unreadable("%s: no usable format" % path)
     fps = number(timeline, "fps", path, positive=True)
     max_scene = number(timeline, "maxSceneSeconds", path)
     max_total = number(timeline, "maxTotalSeconds", path)

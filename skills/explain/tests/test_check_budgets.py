@@ -1,10 +1,10 @@
 """Tests for video/check_budgets.py: the length budgets render.sh checks on build/timeline.json.
 
 The limits come from the timeline (maxSceneSeconds, maxTotalSeconds), not from render.sh, so the
-explainer (60 s scene, 150 s total) and the brainrot short (30 s, 90 s) share one check. A limit
-failure of a brainrot timeline names the format (spec 3.4), as build-timeline.mjs does; the
-explainer texts are unchanged. The fixture timelines are written by the tests at 30 fps. Each
-test names the mutation that turns it red."""
+film (30 s scene, 150 s total) and the brainrot short (30 s, 90 s) share one check. A limit
+failure names the format (", film", ", brainrot"), as build-timeline.mjs does; a timeline of any
+other format, or without the key, is refused. The fixture timelines are written by the tests at
+30 fps. Each test names the mutation that turns it red."""
 
 import json
 import os
@@ -26,7 +26,7 @@ class CheckBudgetsCase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="check-budgets-test-"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
-    def write_timeline(self, frames, max_scene, max_total, total_frames=None, drop=(), fmt=None):
+    def write_timeline(self, frames, max_scene, max_total, total_frames=None, drop=(), fmt="film"):
         """A timeline whose scenes a, b, c... last `frames` frames each; totalFrames defaults to
         their sum. `fmt` is its "format" (no key when None)."""
         scenes = [{"id": "abc"[i] if i < 3 else "s%d" % i, "durationInFrames": n}
@@ -45,19 +45,7 @@ class CheckBudgetsCase(unittest.TestCase):
         return subprocess.run([sys.executable, "-B", str(CHECK_BUDGETS), str(path)],
                               capture_output=True, text=True, timeout=30)
 
-    # red: the scene test is ">=" or reads a fixed limit (a 60 s scene fails, or 60.1 s passes),
-    # or an explainer timeline (format "explainer", or no format key) gets a format tag
-    def test_explainer_scene_at_60_ok_and_over_fails(self):
-        for fmt in (None, "explainer"):
-            with self.subTest(format=fmt):
-                at_limit = self.check(self.write_timeline([1800], 60, 150, fmt=fmt))
-                self.assertEqual(at_limit.returncode, 0, at_limit.stderr)
-                self.assertEqual(at_limit.stdout, "ok 1 60.0 60.000\n")
-                over = self.check(self.write_timeline([1803], 60, 150, fmt=fmt))
-                self.assertEqual(over.returncode, 0, over.stderr)
-                self.assertEqual(over.stdout, "FAIL scene a is 60.1 s (max 60)\n")
-
-    # red: the limits are the explainer constants, not the timeline's, or the FAIL line does not
+    # red: the limits are a fixed constant, not the timeline's, or the FAIL line does not
     # name the format the way build-timeline.mjs does (", brainrot" inside the parentheses)
     def test_brainrot_scene_30_ok_31_fails(self):
         at_limit = self.check(self.write_timeline([900], 30, 90, fmt="brainrot"))
@@ -97,13 +85,19 @@ class CheckBudgetsCase(unittest.TestCase):
         self.assertEqual(over.returncode, 0, over.stderr)
         self.assertEqual(over.stdout, "FAIL total 151.0 s (max 150, film)\n")
 
-    # red: the explainer total text changes (render.sh prints it after "timeline: ")
-    def test_explainer_total_text_unchanged(self):
-        for fmt in (None, "explainer"):
-            with self.subTest(format=fmt):
-                run = self.check(self.write_timeline([1500, 1500, 1500, 30], 60, 150, fmt=fmt))
-                self.assertEqual(run.returncode, 0, run.stderr)
-                self.assertEqual(run.stdout, "FAIL total 151.0 s (max 150)\n")
+    # red: a timeline without the key, or of another format (the name of the removed row, an
+    # empty name, a number), is judged with untagged lines instead of exit 2, the stderr line is
+    # another one, or the format is checked after the numbers (a timeline that also lacks
+    # maxSceneSeconds names that key instead)
+    def test_a_timeline_of_another_format_exits_2(self):
+        for fmt in (None, "explainer", "", 7):
+            for drop in ((), ("maxSceneSeconds",)):
+                with self.subTest(format=fmt, drop=drop):
+                    path = self.write_timeline([900], 30, 150, drop=drop, fmt=fmt)
+                    run = self.check(path)
+                    self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+                    self.assertEqual(run.stdout, "")
+                    self.assertEqual(run.stderr, "check_budgets.py: %s: no usable format\n" % path)
 
     # red: a timeline that cannot be opened, or is not JSON, gives a traceback, another exit
     # code, stdout, or more than one stderr line (render.sh then shows "timeline: FAIL cannot

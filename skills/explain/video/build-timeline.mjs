@@ -12,15 +12,19 @@
 // Exit 2 on a usage error. FAIL lines go to stdout. Build mode does not re-run the
 // budgets: render.sh runs --check first.
 //
-// script.json may carry "format": "explainer" (the default when absent), "brainrot" or "film".
+// script.json may carry "format": "film" (the default when absent) or "brainrot". Any other value is refused
+// with the line
+//   FAIL script: format must be film or brainrot
+// --check prints it, then validates the rest of the script as a film. Build mode prints it alone, exits 1
+// and writes no file.
 // Every per-format limit lives in formats.json, next to this file.
 //
 // A film script has no components: its scenes carry id, narration, cites and an optional pause
 // (frames of silence after the audio, an integer from 12 to 90), and the script may carry a
 // top-level "sources" array. "sources" is an allowed top-level key of a film only; "pause" is a scene key
-// of a film only. --check applies the explainer's rules to a film (the scene count, the keys, the ids, the
-// narration and the cites), with the explainer's lines and the tag ", film" ending a line that names a
-// limit, for example
+// of a film only. --check applies to a film the rules that brainrot has too (the scene count, the keys, the
+// ids, the narration and the cites), with the same lines and the tag ", film" (", brainrot" for brainrot)
+// ending a line that names a limit, for example
 //   FAIL script: <n> scenes (needs 3 to 30, film)
 // and two lines new to film, prefix "FAIL scene <id>: ":
 //   a film scene has no component or props    one line, for either key or both
@@ -46,8 +50,8 @@
 //   to <to> is outside <path> (<n> lines)
 // The declared lines are split as a code scene's are (no "\r", no entry for a final newline), tabs kept.
 // One leading U+FEFF (a UTF-8 byte order mark, as Windows editors write one) is not part of line 1: it is
-// dropped from the file text before the split, since the kit draws one column per code point. A code scene's
-// source lines, read by the explainer's check, keep the file text as it is.
+// dropped from the file text before the split, since the kit draws one column per code point. The source
+// lines of a brainrot code scene keep the file text as it is.
 //
 // A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
 // scene (engine is the one actually used, so a Kokoro run that fell back to say reads
@@ -65,7 +69,6 @@
 //   <file> word <i> is "<text>", the narration has "<token>"
 //   <file> ends at <t> s, after the clip end <s> s
 //   cue "<cue>" does not start a sentence in <file>
-// An explainer build reads no words file.
 //
 // A film build reads that words file for every scene too (the same read, the same FAIL lines) and has no
 // cue and no captions. Each film scene is { id, from, durationInFrames, leadFrames, audioFrames, audio,
@@ -95,11 +98,13 @@
 //
 // --types takes exactly <script.json> and <out.ts>; with --check, with --root or with another number of
 // arguments it is a usage error. It reads the script only (no other file, no durations, no words), needs
-// "format": "film" and checks only that "scenes" is an array, that "sources", when present, is an array, and
-// that every scene and every source is an object whose id is a string matching [a-z0-9-] (the scene id
-// pattern), so an id can never close the string it is written into; every other rule is --check's.
+// a film script ("format": "film" or no "format" key) and checks only that "scenes" is an array, that
+// "sources", when present, is an array, and that every scene and every source is an object whose id is a
+// string matching [a-z0-9-] (the scene id pattern), so an id can never close the string it is written
+// into; every other rule is --check's.
 // FAIL lines (exit 1, no file written; a read error is one of readJson's two lines):
-//   FAIL script: --types needs a film script      not an object, or its own "format" is not "film"
+//   FAIL script: --types needs a film script      not an object, or a "format" key other than "film"
+//                                                 (brainrot, or a value that --check refuses)
 //   FAIL script: scenes must be an array
 //   FAIL script: sources must be an array         present and not an array
 //   FAIL scene #<n>: id must match [a-z0-9-]      <n> from 1, scenes first, then sources
@@ -125,20 +130,19 @@ const MIN_CUE_GAP = 15;
 const MIN_PAUSE = 12;
 const MAX_PAUSE = 90;
 const TAB_COLUMNS = 4;
+// The two formats. The list is fixed: another row of formats.json (a stale one) does not make a format.
+const FORMAT_NAMES = ["film", "brainrot"];
 // Limits per format. The brainrot and film values are the spec starting values; tune them in formats.json
 // only. The film row holds no component limit: a film has no components.
-// wordTimed: the build of a component format (explainer, brainrot) reads words files, takes cue frames
-// from them and writes captions when it is true. The film build always reads words files and writes neither
-// cues nor captions, so the flag of the film row has no effect there.
-// A file that is missing, unreadable, not JSON or without the three rows ends the run here: the FAIL line
-// and exit 1 (the same as finish, which is not defined yet at load time).
+// A file that is missing, unreadable, not JSON or without the film and the brainrot row ends the run here:
+// the FAIL line and exit 1 (the same as finish, which is not defined yet at load time).
 const loadFormats = () => {
   let cause;
   try {
     const rows = JSON.parse(fs.readFileSync(new URL("./formats.json", import.meta.url), "utf8"));
     const isRow = (row) => typeof row === "object" && row !== null && !Array.isArray(row);
-    if (isRow(rows?.explainer) && isRow(rows?.film) && isRow(rows?.brainrot)) return rows;
-    cause = "expected an object with an explainer, a film and a brainrot row";
+    if (FORMAT_NAMES.every((name) => isRow(rows?.[name]))) return rows;
+    cause = "expected an object with a film and a brainrot row";
   } catch (err) {
     cause = err.code ?? err.message;
   }
@@ -239,20 +243,17 @@ const cuesOf = (component, props) => {
 // Own keys only: a JSON key such as "constructor" or "__proto__" must not match an inherited name.
 const has = (object, key) => Object.hasOwn(object, key);
 
-// The script's format: "explainer" when the key is absent, else the raw value (possibly invalid).
-const formatOf = (script) => (has(script, "format") ? script.format : "explainer");
-const knownFormat = (format) => typeof format === "string" && has(FORMATS, format);
-// An invalid format validates against the explainer limits.
-const limitsFor = (format) => (knownFormat(format) ? FORMATS[format] : FORMATS.explainer);
-// Suffix of every FAIL line that names a limit: nothing for explainer, ", brainrot" for brainrot,
-// ", film" for film.
-const tagOf = (format) => (knownFormat(format) && format !== "explainer" ? `, ${format}` : "");
+// The script's format: "film" when the key is absent, else the raw value (possibly invalid).
+const formatOf = (script) => (has(script, "format") ? script.format : "film");
+// A name of FORMAT_NAMES, never a row of formats.json that is not in that list.
+const knownFormat = (format) => typeof format === "string" && FORMAT_NAMES.includes(format);
+// --check validates every format but brainrot as a film: a refused value gets the film rules and row.
+const filmRules = (format) => format !== "brainrot";
+// Suffix of every FAIL line that names a limit: ", brainrot" for brainrot, ", film" for any other value.
+const tagOf = (format) => (format === "brainrot" ? ", brainrot" : ", film");
 
-// Only the formats made of components have shapes; the film row holds no component limit.
-const COMPONENT_FORMATS = ["explainer", "brainrot"];
-const SHAPES_BY_FORMAT = Object.fromEntries(COMPONENT_FORMATS.map((name) => [name, shapesFor(FORMATS[name])]));
-// An invalid format validates against the explainer shapes.
-const shapesOf = (format) => SHAPES_BY_FORMAT[COMPONENT_FORMATS.includes(format) ? format : "explainer"];
+// Only brainrot is made of components; the film row holds no component limit.
+const SHAPES = shapesFor(FORMATS.brainrot);
 
 // Check a value against a spec; `fail(cause)` records one cause.
 const checkSpec = (value, spec, where, fail, tag = "") => {
@@ -573,10 +574,10 @@ const validDate = (s) => {
 
 const checkHeader = (script, report) => {
   const fail = (cause) => report("script", cause);
-  // `sources` belongs to a film only.
-  const allowed = ["format", "title", "subject", "provenance", "scenes", ...(formatOf(script) === "film" ? ["sources"] : [])];
+  // `sources` belongs to a film only (a refused format is validated as a film).
+  const allowed = ["format", "title", "subject", "provenance", "scenes", ...(filmRules(formatOf(script)) ? ["sources"] : [])];
   for (const key of Object.keys(script)) if (!allowed.includes(key)) fail(`unexpected key ${q(key)}`);
-  if (!knownFormat(formatOf(script))) fail("format must be explainer or brainrot");
+  if (!knownFormat(formatOf(script))) fail("format must be film or brainrot");
   checkSpec(script.title, str(Infinity), "title", fail);
   checkShape(script.subject, { text: str(Infinity), kind: str(Infinity) }, "subject", fail);
   if (isObject(script.subject) && typeof script.subject.kind === "string" && !KINDS.includes(script.subject.kind)) {
@@ -602,10 +603,9 @@ const validate = (script, root) => {
   if (!isObject(script)) return ["FAIL script: top level must be an object"];
   checkHeader(script, report);
   const format = formatOf(script);
-  const limits = limitsFor(format);
-  const shapes = shapesOf(format);
+  const isFilm = filmRules(format);
+  const limits = isFilm ? FORMATS.film : FORMATS.brainrot;
   const tag = tagOf(format);
-  const isFilm = format === "film";
   if (isFilm && has(script, "sources")) checkSources(script.sources, root, limits, tag, report);
   if (!Array.isArray(script.scenes)) {
     report("script", "scenes must be an array");
@@ -625,7 +625,7 @@ const validate = (script, root) => {
     }
     const where = sceneWhere(scene, i);
     if (isFilm) checkFilmScene(scene, where, kind, report, limits, tag);
-    else checkScene(scene, where, root, kind, report, limits, shapes, tag);
+    else checkScene(scene, where, root, kind, report, limits, SHAPES, tag);
   });
   return lines;
 };
@@ -714,16 +714,14 @@ const CAPTION_WORDS = 3;
 const CAPTION_BREAK = /[.,;:?!]$/;
 
 // `words`: the words of a words file (seconds from the clip start); frames are scene-relative.
-// `captionChars`: the cap of a chunk's text, its words joined by one space, without backticks;
-// null (the explainer row) is no cap.
+// `captionChars`: the cap of a chunk's text, its words joined by one space, without backticks.
 const captionChunks = (words, leadFrames, captionChars) => {
-  const cap = captionChars ?? Infinity;
   const frame = (seconds) => frameOf(leadFrames, seconds);
   const groups = [];
   let open = [];
   for (const word of words) {
     const text = word.text.replaceAll("`", "");
-    if (open.length > 0 && charLength([...open.map((w) => w.text), text].join(" ")) > cap) {
+    if (open.length > 0 && charLength([...open.map((w) => w.text), text].join(" ")) > captionChars) {
       groups.push(open);
       open = [];
     }
@@ -761,11 +759,11 @@ const clipSecondsOf = (clips, id, bad) => {
   return seconds;
 };
 
-// `limits`: the FORMATS row of the script's format; its wordTimed flag decides, for cue frames and
-// captions alike, whether a scene reads a words file. `wordsDir`: the directory of durations.json,
-// where those files live.
+// The scenes of a brainrot script. `limits`: the brainrot row. Every scene reads its words file from
+// `wordsDir`, the directory of durations.json: each cue frame is the start of the sentence that the cue
+// starts, and the captions are chunks of its words.
 const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) => {
-  const { leadFrames, tailFrames, wordTimed, captionChars } = limits;
+  const { leadFrames, tailFrames, captionChars } = limits;
   const clips = clipsOf(durations);
   let from = 0;
   const out = [];
@@ -787,19 +785,16 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
         return bad(`source.path ${props.source.path} cannot be read under the data root`);
       }
     }
-    const timing = wordTimed ? readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad) : undefined;
-    if (wordTimed && timing === undefined) return;
+    const timing = readWords(wordsDir, scene.id, engine, scene.narration, seconds, bad);
+    if (timing === undefined) return;
     const cueFrames = {};
     let previous = null;
     for (const cueText of cuesOf(scene.component, scene.props)) {
-      const hits = cueMatches(scene.narration, cueText);
-      if (hits.length === 0) {
+      if (cueMatches(scene.narration, cueText).length === 0) {
         bad(`cue ${q(cueText)} is not in the narration`);
         continue;
       }
-      const frame = timing
-        ? cueFrameFromWords(timing.words, timing.sentences, scene.narration, cueText, leadFrames, bad, timing.file)
-        : leadFrames + Math.round((hits[0] / scene.narration.length) * clipFrames);
+      const frame = cueFrameFromWords(timing.words, timing.sentences, scene.narration, cueText, leadFrames, bad, timing.file);
       if (frame === undefined) continue;
       // The 15-frame distance is checked here, not by --check: it needs the real clip length.
       if (previous !== null && frame - previous < MIN_CUE_GAP) {
@@ -819,7 +814,7 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
       audioFrames: clipFrames,
       audio: `audio/${scene.id}.${engine}.wav`,
       cueFrames,
-      ...(timing && { captions: captionChunks(timing.words, leadFrames, captionChars) }),
+      captions: captionChunks(timing.words, leadFrames, captionChars),
     });
     from += durationInFrames;
   });
@@ -874,10 +869,11 @@ const buildFilmScenes = (script, durations, engine, fail, limits, wordsDir) => {
 
 // The `sources` of a film timeline: { <id>: { path, from, lines } } keyed by id, with each tab of a
 // line replaced by TAB_COLUMNS spaces. The entries go through the check of --check (checkSources), so a
-// fault gives its FAIL line through `fail` and the entry is left out. `script` has the film format.
+// fault gives its FAIL line through `fail` and the entry is left out. `script` has the film format; JSON
+// that is not an object builds as a film too, and has no sources.
 const buildSources = (script, root, limits, tag, fail) => {
   const out = {};
-  if (!has(script, "sources")) return out;
+  if (!isObject(script) || !has(script, "sources")) return out;
   const report = (where, cause) => fail(`FAIL ${where}: ${cause}`);
   const declared = checkSources(script.sources, root, limits, tag, report);
   declared.forEach((lines, i) => {
@@ -992,8 +988,8 @@ const main = () => {
   const durations = readJson(durationsFile, "durations");
   const failures = [script.fail, durations.fail].filter(Boolean);
   if (failures.length > 0) finish(failures);
-  const format = isObject(script.value) ? formatOf(script.value) : "explainer";
-  if (!knownFormat(format)) finish(["FAIL script: format must be explainer or brainrot"]);
+  const format = isObject(script.value) ? formatOf(script.value) : "film";
+  if (!knownFormat(format)) finish(["FAIL script: format must be film or brainrot"]);
   const limits = FORMATS[format];
   const wordsDir = path.dirname(durationsFile);
   const addFailure = (line) => failures.push(line);

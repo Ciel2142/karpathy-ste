@@ -30,7 +30,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from video_e2e import EXPLAIN, RENDER_SH, TEMPLATE, render_env, workspace
+from video_e2e import EXPLAIN, RENDER_SH, render_env, workspace
 
 BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 BUILD_TIMELINE = EXPLAIN / "video" / "build-timeline.mjs"
@@ -129,6 +129,15 @@ class StageOneCase(unittest.TestCase):
         self.assertTrue(lines[0].startswith("script: FAIL prose: FAIL "), lines)
         self.assertIn("\n  prose: FAIL 1 error(s)\n", run.stdout)
         self.assertIn('contraction "doesn\'t"', run.stdout)
+
+    # red: --check takes the name of the removed row as a format again, so the script stage passes
+    # and the run goes on to the workspace stage, or the narration runs before the check
+    def test_an_explainer_script_stops_at_the_script_stage(self):
+        self.write_script(lambda script: script.update(format="explainer"))
+        run = self.render()
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL script: format must be film or brainrot"])
+        self.assertFalse((self.out / "audio").exists())
 
     # red: the brainrot template breaks a brainrot limit or a cue rule, so the script stage fails
     # before the workspace stage runs
@@ -860,12 +869,10 @@ class BrainrotRouteCase(unittest.TestCase):
         return lines[:-1], lines[-1]
 
     # red: stage_script leaves fmt at its default, so a brainrot script gets explainer speed and
-    # no background stage; or it reads "brainrot" for a script without a format key
+    # no background stage
     def test_stage_script_reads_the_format_from_the_script(self):
         lines, fmt = self.stage_script_format(BRAINROT_TEMPLATE)
         self.assertEqual((lines, fmt), (["script: ok (4 scenes)"], "fmt=brainrot"))
-        lines, fmt = self.stage_script_format(TEMPLATE)
-        self.assertEqual((lines, fmt), (["script: ok (5 scenes)"], "fmt=explainer"))
 
 
 class E2EHelperCase(unittest.TestCase):

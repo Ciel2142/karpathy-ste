@@ -41,8 +41,8 @@ You write only one file, `script.json`. The `render.sh` command makes all other 
 Never change a made file by hand.
 
 1. Copy `<skill-dir>/templates/brainrot-script.json` to `<output-dir>/script.json`.
-2. Keep `"format": "brainrot"` as a top-level key of `script.json`. Without the key, `render.sh`
-   makes a 16:9 video, not a short.
+2. Keep `"format": "brainrot"` as a top-level key of `script.json`. Without the key, the script is
+   a film, and the `script` stage refuses each scene that has a component.
 3. Replace every other value. The template is a short about `scripts/verify.sh`.
 4. Get the provenance with the recipe in `<skill-dir>/rungs/sheet.md` section 4.
 

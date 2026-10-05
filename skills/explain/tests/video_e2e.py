@@ -16,7 +16,6 @@ from pathlib import Path
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 RENDER_SH = EXPLAIN / "scripts" / "render.sh"
-TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 E2E = os.environ.get("EXPLAIN_VIDEO_E2E") == "1"
 E2E_REASON = "end-to-end render: set EXPLAIN_VIDEO_E2E=1"
 RENDER_TIMEOUT = 900

@@ -31,19 +31,37 @@ class BrainrotBuildCase(VideoCase):
         return script
 
 
+# The --check lines of the brainrot fixture validated as a film: one line for each of its three
+# component scenes.
+FILM_COMPONENT_LINES = [
+    "FAIL scene intro: a film scene has no component or props",
+    "FAIL scene flow: a film scene has no component or props",
+    "FAIL scene code: a film scene has no component or props",
+]
+FORMAT_LINE = "FAIL script: format must be film or brainrot"
+
+
 class TestBrainrotCheck(VideoCase):
     def test_unknown_format_fails(self):
-        """Red: the format value is not validated, so a typo passes as explainer."""
+        """Red: the format value is not validated, so a typo passes, or the rest of the script is
+        not validated as a film (no component lines)."""
         script = base_script()
         script["format"] = "vertical"
-        self.assertFails(self.check(script), "FAIL script: format must be explainer or brainrot")
+        self.assertFails(self.check(script), FORMAT_LINE, *FILM_COMPONENT_LINES)
 
-    def test_explicit_explainer_format_passes(self):
-        """Red: `format` is an unexpected key, or "explainer" is rejected."""
+    def test_explainer_format_is_refused(self):
+        """Red: the name of the removed row is still a known format (the script passes as before),
+        or the rest of the script is not validated as a film (no component lines)."""
         script = base_script()
         script["format"] = "explainer"
-        result = self.check(script)
-        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertFails(self.check(script), FORMAT_LINE, *FILM_COMPONENT_LINES)
+
+    def test_a_brainrot_script_without_the_key_is_a_film(self):
+        """Red: a script without the key is validated by another row than the film's (it passes as
+        before), or a component scene of a film is not refused."""
+        script = base_script()
+        del script["format"]
+        self.assertFails(self.check(script), *FILM_COMPONENT_LINES)
 
     def test_brainrot_fixture_passes(self):
         """Red: the brainrot row is stricter than the fixture, or the format key is rejected."""
@@ -58,7 +76,7 @@ class TestBrainrotCheck(VideoCase):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_brainrot_seven_scenes_fail(self):
-        """Red: the brainrot scene-count range still reads the explainer 3 to 8."""
+        """Red: the brainrot scene-count range reads another row."""
         script = brainrot_script()
         script["scenes"] = self.scenes_of(script, 7)
         self.assertFails(self.check(script), "FAIL script: 7 scenes (needs 3 to 6, brainrot)")
@@ -69,7 +87,7 @@ class TestBrainrotCheck(VideoCase):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_brainrot_code_41_columns_fail(self):
-        """Red: the code column check still reads the explainer 72."""
+        """Red: the code column check reads another row."""
         self.assertFails(
             self.check(self.script_with_code_file("x" * 41)),
             "FAIL scene code: line 3 is 41 columns (max 40, brainrot)",
@@ -91,33 +109,14 @@ class TestBrainrotCheck(VideoCase):
             self.check(script), "FAIL scene intro: narration is 46 words (max 45, brainrot)"
         )
 
-    def test_explainer_lines_carry_no_tag_when_format_is_explicit(self):
-        """Red: the tag is added for an explicit explainer format."""
-        script = base_script()
-        script["format"] = "explainer"
-        script["scenes"] = self.scenes_of(script, 9)
-        self.assertFails(self.check(script), "FAIL script: 9 scenes (needs 3 to 8)")
-
     def test_invalid_format_values_fail_with_the_format_line(self):
-        """Red: knownFormat accepts null, a number, an inherited name or a differently cased name."""
-        for value in (None, 5, "constructor", "__proto__", ["brainrot"], "Brainrot"):
+        """Red: knownFormat accepts null, a number, an inherited name, a differently cased name or
+        the name of the removed row, or the rest of such a script is not validated as a film."""
+        for value in (None, 5, "constructor", "__proto__", ["brainrot"], "Brainrot", "explainer"):
             with self.subTest(format=value):
                 script = base_script()
                 script["format"] = value
-                self.assertFails(
-                    self.check(script), "FAIL script: format must be explainer or brainrot"
-                )
-
-    def test_unknown_format_with_nine_scenes_keeps_the_untagged_explainer_count_line(self):
-        """Red: an invalid format picks up the brainrot limits or the brainrot tag."""
-        script = base_script()
-        script["format"] = "vertical"
-        script["scenes"] = self.scenes_of(script, 9)
-        self.assertFails(
-            self.check(script),
-            "FAIL script: format must be explainer or brainrot",
-            "FAIL script: 9 scenes (needs 3 to 8)",
-        )
+                self.assertFails(self.check(script), FORMAT_LINE, *FILM_COMPONENT_LINES)
 
     def test_brainrot_bullet_28_chars_passes(self):
         """Red: the brainrot bulletText limit below 28."""
@@ -127,7 +126,7 @@ class TestBrainrotCheck(VideoCase):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_brainrot_bullet_29_chars_fails(self):
-        """Red: the bullet shape still reads the explainer 36 (or drops the tag)."""
+        """Red: the bullet shape reads another row (or drops the tag)."""
         script = brainrot_script()
         self.scene(script, "intro")["props"]["bullets"][1]["text"] = "x" * 29
         self.assertFails(
@@ -143,7 +142,7 @@ class TestBrainrotCheck(VideoCase):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_brainrot_before_after_over_limits(self):
-        """Red: one of the three before-after limits (either side) still reads the explainer 36 or 10."""
+        """Red: one of the three before-after limits (either side) reads another row."""
         script = brainrot_script()
         before = {"heading": "h" * 31, "lines": ["short"] * 6}
         after = {"heading": "h" * 31, "lines": ["x" * 31, "short"]}
@@ -157,7 +156,7 @@ class TestBrainrotCheck(VideoCase):
         )
 
     def test_brainrot_diagram_label_sub_limits(self):
-        """Red: the diagram label or sub limit still reads the explainer 14 or 24."""
+        """Red: the diagram label or sub limit reads another row."""
         script = brainrot_script()
         node = self.scene(script, "flow")["props"]["nodes"][1]
         node["label"], node["sub"] = "l" * 12, "s" * 20
@@ -171,7 +170,7 @@ class TestBrainrotCheck(VideoCase):
         )
 
     def test_brainrot_title_limits(self):
-        """Red: the title or subtitle limit still reads the explainer 50 or 80."""
+        """Red: the title or subtitle limit reads another row."""
         script = brainrot_script()
         props = {"title": "t" * 30, "subtitle": "s" * 60, "cue": "The router"}
         self.set_intro(script, "title", props)
@@ -183,13 +182,6 @@ class TestBrainrotCheck(VideoCase):
             "FAIL scene intro: title is 31 chars (max 30, brainrot)",
             "FAIL scene intro: subtitle is 61 chars (max 60, brainrot)",
         )
-
-    def test_explainer_limits_unchanged_under_explicit_format(self):
-        """Red: the explainer shapes are built from the brainrot row or carry the tag."""
-        script = base_script()
-        script["format"] = "explainer"
-        self.scene(script, "intro")["props"]["bullets"][1]["text"] = "x" * 41
-        self.assertFails(self.check(script), "FAIL scene intro: bullets[1].text is 41 chars (max 36)")
 
     # -- helpers --
     def set_intro(self, script, component, props):
@@ -218,7 +210,7 @@ class TestBrainrotCheck(VideoCase):
 
 class TestBrainrotBuild(BrainrotBuildCase):
     def test_brainrot_top_level_values(self):
-        """Red: build mode keeps writing the explainer canvas or budgets for a brainrot script."""
+        """Red: build mode writes the canvas or budgets of another row for a brainrot script."""
         result, timeline = self.build_brainrot(self.two_scene_brainrot(), {"intro": 3.0, "flow": 4.5})
         self.assertEqual((result.returncode, result.stdout), (0, ""))
         self.assertEqual(
@@ -228,7 +220,7 @@ class TestBrainrotBuild(BrainrotBuildCase):
         self.assertEqual(timeline["fps"], 30)
 
     def test_brainrot_lead_and_tail(self):
-        """Red: lead 6 or tail 12 reads the explainer 15 or 36 (explainer would give 141 frames)."""
+        """Red: lead 6 or tail 12 is read from another row."""
         result, timeline = self.build_brainrot(self.two_scene_brainrot(), {"intro": 3.0, "flow": 4.5})
         self.assertEqual((result.returncode, result.stdout), (0, ""))
         first, second = timeline["scenes"]
@@ -240,14 +232,17 @@ class TestBrainrotBuild(BrainrotBuildCase):
         self.assertEqual(timeline["totalFrames"], 108 + 6 + 135 + 12)
 
     def test_build_mode_unknown_format_fails(self):
-        """Red: an unknown format builds as explainer instead of failing."""
-        script = self.two_scene_brainrot()
-        script["format"] = "vertical"
-        result, timeline = self.build(script, {"intro": 3.0, "flow": 4.5})
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout.splitlines(), ["FAIL script: format must be explainer or brainrot"])
-        self.assertIsNone(timeline)
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "out", "timeline.json")))
+        """Red: an unknown format, or the name of the removed row, builds instead of failing, or
+        the line is another one."""
+        for value in ("vertical", "explainer"):
+            with self.subTest(format=value):
+                script = self.two_scene_brainrot()
+                script["format"] = value
+                result, timeline = self.build_brainrot(script, {"intro": 3.0, "flow": 4.5})
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout.splitlines(), [FORMAT_LINE])
+                self.assertIsNone(timeline)
+                self.assertFalse(os.path.exists(os.path.join(self.dir, "out", "timeline.json")))
 
     def test_brainrot_cue_frame_is_sentence_start(self):
         """Red: cue frames stay the proportional estimate instead of the sentence start seconds."""

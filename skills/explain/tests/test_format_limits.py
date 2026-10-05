@@ -49,9 +49,9 @@ def load_formats():
 
 
 def fill(template, row):
-    """A template with the fields of a formats row filled in. A null field (the explainer has no
-    caption cap) is for a template that is a plain text, such as `—`; a null that a template names
-    would print as the text "None", so it raises."""
+    """A template with the fields of a formats row filled in. A null field is for a template that
+    is a plain text, such as `—`; a null that a template names would print as the text "None", so
+    it raises."""
     for _, field, _, _ in string.Formatter().parse(template):
         if field is not None and row[field] is None:
             raise ValueError("the template %r names %r, which is null in the row" % (template, field))
@@ -119,6 +119,12 @@ class TestRungMatchesFormats(unittest.TestCase):
         self.assertEqual(fill("—", {"captionChars": None}), "—")
 
 
+class TestFormatsRows(unittest.TestCase):
+    def test_formats_has_the_film_and_brainrot_rows_only(self):
+        """Red: formats.json keeps a row of a removed format, or loses the film or the brainrot row."""
+        self.assertEqual(sorted(load_formats()), ["brainrot", "film"])
+
+
 class TestBuildTimelineReadsFormats(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -182,9 +188,10 @@ class TestBuildTimelineReadsFormats(unittest.TestCase):
         self.assert_clean_fail(result, "")
 
     def test_formats_file_without_both_rows_fails_cleanly(self):
-        """Red: a valid JSON file that lacks the explainer or brainrot row crashes later, with a stack trace."""
+        """Red: a valid JSON file that lacks the film or the brainrot row (or whose row is not an
+        object) is accepted, and the check then reads an undefined row: exit 0, or a stack trace."""
         script = self.write_script(10)
-        for text in ("null", "[]", '{"explainer": {}}', '{"explainer": {}, "brainrot": 7}'):
+        for text in ("null", "[]", '{"film": {}}', '{"brainrot": {}}', '{"film": {}, "brainrot": 7}'):
             with self.subTest(text=text):
                 (self.dir / "formats.json").write_text(text, encoding="utf-8")
                 result = self.run_node("--check", script, "--root", str(self.dir))

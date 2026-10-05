@@ -1,27 +1,4 @@
 {
-  "explainer": {
-    "width": 1280,
-    "height": 720,
-    "minScenes": 3,
-    "maxScenes": 8,
-    "maxSceneSeconds": 60,
-    "maxTotalSeconds": 150,
-    "maxNarrationWords": 45,
-    "leadFrames": 15,
-    "tailFrames": 36,
-    "codeLines": 14,
-    "codeColumns": 72,
-    "bulletText": 36,
-    "beforeAfterLines": 10,
-    "beforeAfterLineChars": 36,
-    "beforeAfterHeading": 36,
-    "diagramLabel": 14,
-    "diagramSub": 24,
-    "titleTitle": 50,
-    "titleSubtitle": 80,
-    "captionChars": null,
-    "wordTimed": false
-  },
   "film": {
     "width": 1280,
     "height": 720,
@@ -32,8 +9,7 @@
     "maxNarrationWords": 45,
     "leadFrames": 6,
     "pauseFrames": 12,
-    "sourceLines": 20,
-    "wordTimed": true
+    "sourceLines": 20
   },
   "brainrot": {
     "width": 1080,
@@ -55,7 +31,6 @@
     "diagramSub": 20,
     "titleTitle": 30,
     "titleSubtitle": 60,
-    "captionChars": 20,
-    "wordTimed": true
+    "captionChars": 20
   }
 }

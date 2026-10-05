@@ -28,8 +28,8 @@ FILM_ROW = {
     "leadFrames": 6,
     "pauseFrames": 12,
     "sourceLines": 20,
-    "wordTimed": True,
 }
+FORMAT_LINE = "FAIL script: format must be film or brainrot"
 
 
 def film_script():
@@ -75,9 +75,8 @@ class TestFilmCheck(VideoCase):
         return self.check(script)
 
     def test_film_fixture_passes(self):
-        """Red: `film` is not a known format (the check reads "format must be explainer or
-        brainrot" and validates the fixture as an explainer), or the film check is stricter than
-        its own fixture."""
+        """Red: `film` is not a known format (the check prints the format line), or the film check is
+        stricter than its own fixture."""
         result = self.check(film_script())
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
@@ -87,8 +86,8 @@ class TestFilmCheck(VideoCase):
         self.assertEqual(rows["film"], FILM_ROW)
 
     def test_film_scene_count(self):
-        """Red: the film scene range reads the explainer 3 to 8 (30 scenes fail), or the line loses
-        the film tag, or the range is exclusive at an end."""
+        """Red: the film scene range reads another row (30 scenes fail), or the line loses the film
+        tag, or the range is exclusive at an end."""
         script = film_script()
         script["scenes"] = script["scenes"][:2]
         self.assertFails(self.check(script), "FAIL script: 2 scenes (needs 3 to 30, film)")
@@ -228,14 +227,20 @@ class TestFilmCheck(VideoCase):
         self.assertFails(self.check(script), 'FAIL script: duplicate scene id "type"')
 
     def test_slides_format_is_refused(self):
-        """Red: any string is accepted as a format (the format line is gone). The other lines are
-        the explainer's: the film keys are not explainer keys."""
+        """Red: any string is accepted as a format (the format line is gone), or the rest of the
+        script is not validated as a film (its `sources` key is unexpected, its scenes lack a
+        component)."""
         script = film_script()
         script["format"] = "slides"
-        result = self.check(script)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("FAIL script: format must be explainer or brainrot", result.stdout.splitlines())
-        self.assertIn('FAIL script: unexpected key "sources"', result.stdout.splitlines())
+        self.assertFails(self.check(script), FORMAT_LINE)
+
+    def test_an_invalid_format_is_validated_as_a_film(self):
+        """Red: the rest of a script with an invalid format is validated by another row than the
+        film's (another scene range, or no film tag), or the format line is gone."""
+        script = film_script()
+        script["format"] = "vertical"
+        script["scenes"] = self.scenes_of(script, 31)
+        self.assertFails(self.check(script), FORMAT_LINE, "FAIL script: 31 scenes (needs 3 to 30, film)")
 
     def test_brainrot_refuses_the_film_keys(self):
         """Red: `sources` is an allowed top-level key, or `pause` an allowed scene key, for every
@@ -247,28 +252,42 @@ class TestFilmCheck(VideoCase):
         self.scene(script, "intro")["pause"] = 12
         self.assertFails(self.check(script), 'FAIL scene intro: unexpected key "pause"')
 
-    def test_formats_file_without_the_film_row_fails_cleanly(self):
-        """Red: the loader still wants two rows (a formats.json without film is accepted and the
-        film check then reads an undefined row), or the cause text is not the three-row one."""
+    def check_with_formats(self, rows, script):
+        """--check of `script` by a copy of the tool that has `rows` as its own formats.json."""
         tool_dir = Path(self.dir) / "tool"  # a copy of the tool, with its own formats.json beside it
         tool_dir.mkdir()
         shutil.copy(TOOL, tool_dir / TOOL.name)
-        rows = json.loads(FORMATS.read_text(encoding="utf-8"))
-        del rows["film"]
         (tool_dir / "formats.json").write_text(json.dumps(rows), encoding="utf-8")
-        script = self.write_json("script.json", film_script())
-        result = subprocess.run(
-            ["node", str(tool_dir / TOOL.name), "--check", script, "--root", self.dir],
+        path = self.write_json("script.json", script)
+        return subprocess.run(
+            ["node", str(tool_dir / TOOL.name), "--check", path, "--root", self.dir],
             capture_output=True,
             text=True,
             cwd=self.dir,
         )
+
+    def test_formats_file_without_the_film_row_fails_cleanly(self):
+        """Red: the loader does not want the film row (a formats.json without film is accepted and
+        the film check then reads an undefined row), or the cause text is not the two-row one."""
+        rows = json.loads(FORMATS.read_text(encoding="utf-8"))
+        del rows["film"]
+        result = self.check_with_formats(rows, film_script())
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(
             result.stdout,
-            "FAIL script: cannot read formats.json: expected an object with an explainer, a film and a brainrot row\n",
+            "FAIL script: cannot read formats.json: expected an object with a film and a brainrot row\n",
         )
         self.assertEqual(result.stderr, "")
+
+    def test_an_explainer_row_does_not_make_a_format(self):
+        """Red: knownFormat reads the rows of formats.json (has(FORMATS, format)), so a stale row
+        of the removed format makes its name valid again. The copy of the tool has the two real
+        rows and a third, a copy of the brainrot row."""
+        rows = json.loads(FORMATS.read_text(encoding="utf-8"))
+        rows["explainer"] = copy.deepcopy(rows["brainrot"])
+        script = film_script()
+        script["format"] = "explainer"
+        self.assertFails(self.check_with_formats(rows, script), FORMAT_LINE)
 
 
 class TestFilmSources(VideoCase):
@@ -475,13 +494,11 @@ class TestFilmSources(VideoCase):
         )
 
     def test_sources_are_not_checked_for_another_format(self):
-        """Red: the source rules run for every format, so `sources: 5` of a brainrot or explainer
-        script adds "sources must be an array" to its unexpected-key line."""
-        for make in (brainrot_script, base_script):
-            with self.subTest(make=make.__name__):
-                script = make()
-                script["sources"] = 5
-                self.assertFails(self.check(script), 'FAIL script: unexpected key "sources"')
+        """Red: the source rules run for every format, so `sources: 5` of a brainrot script adds
+        "sources must be an array" to its unexpected-key line."""
+        script = brainrot_script()
+        script["sources"] = 5
+        self.assertFails(self.check(script), 'FAIL script: unexpected key "sources"')
 
 
 def js_round(value):
@@ -538,7 +555,7 @@ class TestFilmBuild(FilmBuildCase):
         return timeline
 
     def test_film_top_level_values(self):
-        """Red: build mode keeps the explainer or brainrot canvas or budgets for a film, totalFrames
+        """Red: build mode keeps the canvas or budgets of another row for a film, totalFrames
         is not the sum of the scenes, the engine is not written, `sources` or `checkFrames` is
         missing, or the timeline gains a key such as `background`."""
         timeline = self.built()
@@ -557,9 +574,35 @@ class TestFilmBuild(FilmBuildCase):
             ),
         )
 
+    def test_a_script_without_the_key_is_a_film(self):
+        """Red: a script without the key is validated or built by another row than the film's: the
+        check prints lines (its scenes lack a component, its `sources` is unexpected), or the build
+        fails, writes another format or no checkFrames."""
+        script = film_script()
+        del script["format"]
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        keyed = self.built()
+        timeline = self.built(script)
+        self.assertEqual(timeline["format"], "film")
+        self.assertEqual(timeline["checkFrames"], keyed["checkFrames"])
+        self.assertEqual(timeline, keyed)
+
+    def test_json_that_is_not_an_object_builds_as_a_film(self):
+        """Red: build mode reads JSON that is not an object as another format than the film (a
+        timeline without sources or checkFrames), or crashes on it (null has no own keys)."""
+        for value in (None, [], 3):
+            with self.subTest(value=value):
+                result, timeline = self.build(value, {})
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+                self.assertEqual(
+                    (timeline["format"], timeline["sources"], timeline["checkFrames"], timeline["scenes"]),
+                    ("film", {}, [], []),
+                )
+
     def test_film_scene_is_lead_audio_pause(self):
         """Red: the scene length drops the lead, the clip or the pause, the pause of `forms` (30) is
-        ignored for the row's 12, the tail of a component format (36) is added instead, the clip is
+        ignored for the row's 12, the tail of the brainrot row (12) is added instead, the clip is
         rounded instead of ceilinged, or `from` is not the sum of the scenes before."""
         scenes = self.built()["scenes"]
         self.assertEqual([s["durationInFrames"] for s in scenes], [153, 276, 168])
@@ -1036,24 +1079,27 @@ class TestFilmTypes(VideoCase):
                 self.assertFalse(os.path.exists(out))
 
     def test_types_refuses_a_script_that_is_not_a_film(self):
-        """Red: --types writes names for an explainer or brainrot script (or any script without its own
-        `format` "film"), crashes on JSON that is not an object (null, an array, a number), or
-        writes the file before it knows the script is a film."""
+        """Red: --types writes names for a brainrot script or for one whose format is another value
+        (the name of the removed row), crashes on JSON that is not an object (null, an array, a
+        number), or writes the file before it knows the script is a film."""
         film_line = "FAIL script: --types needs a film script"
-        brainrot = film_script()
-        brainrot["format"] = "brainrot"
-        no_format = film_script()
-        del no_format["format"]
-        for name, script in {
-            "explainer by default": base_script(),
-            "no format key": no_format,
-            "brainrot": brainrot,
-            "null": None,
-            "array": [],
-            "number": 3,
-        }.items():
+        scripts = {}
+        for value in ("brainrot", "explainer"):
+            scripts[value] = film_script()
+            scripts[value]["format"] = value
+        scripts.update({"null": None, "array": [], "number": 3})
+        for name, script in scripts.items():
             with self.subTest(name):
                 self.assertTypesFails(script, film_line)
+
+    def test_types_takes_a_script_without_the_key(self):
+        """Red: --types reads a script without the key as another format than the film (it refuses
+        it), or writes other names for it than for "format": "film"."""
+        script = film_script()
+        del script["format"]
+        result, text = self.types(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(text, types_text('"type" | "forms" | "ends"', '"app"'))
 
     def test_types_script_that_cannot_be_read(self):
         """Red: a missing script file, or one that is not JSON, prints a stack trace or another line
