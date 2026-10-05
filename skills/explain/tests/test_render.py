@@ -2,8 +2,10 @@
 
 StageFunctionCase runs stage_narration, stage_background and stage_transcript of render.sh against
 fake tools (the format -> --speed mapping, the picker's lines, exit codes and stderr, the
---background text of the transcript). The stage-1 tests need no
-workspace: they fail before any tool that needs one runs. A fake
+--background text of the transcript). RunDirectoryCase runs a copy of render.sh against a fake of
+every tool it calls, in a workspace whose path has a space: the run directory of each render (what
+it holds, that it goes after a pass, a FAIL and a signal, the sweep of old ones). The stage-1
+tests need no workspace: they fail before any tool that needs one runs. A fake
 npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant that
 gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
 brainrot route: the template, SKILL.md, the rung file, and the format that stage_script reads
@@ -15,10 +17,12 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -220,7 +224,8 @@ class StageFunctionCase(unittest.TestCase):
             "set -eu\n" + functions +
             'out=%(t)s/out video=%(t)s/video scripts=%(t)s/scripts script=%(t)s/out/script.json\n'
             'ws=%(t)s/ws app=%(t)s/ws/app remotion=%(t)s/ws/app/remote-cli engine=say fmt=%(fmt)s\n'
-            '%(setup)s\n%(stage)s\n' % {"t": self.tmp, "fmt": fmt, "stage": stage, "setup": setup})
+            'run=%(t)s/ws/runs/run.1.test\n%(setup)s\n%(stage)s\n'
+            % {"t": self.tmp, "fmt": fmt, "stage": stage, "setup": setup})
         run_env = {k: v for k, v in os.environ.items()
                    if k not in ("EXPLAIN_BRAINROT_BACKGROUNDS", "EXPLAIN_BRAINROT_SEED")}
         run_env.update(env or {})
@@ -274,14 +279,15 @@ class StageFunctionCase(unittest.TestCase):
         self.assertEqual(run.stdout,
                          "  background: SKIP a.mp4 (no duration)\nbackground: ok b.mp4 @1.5 s (loop)\n")
 
-    # red: the picker gets another argument order, a seed, or a folder other than <ws>/backgrounds
+    # red: the picker gets another argument order, a seed, the shared <ws>/app in place of the run
+    # directory, or a folder other than <ws>/backgrounds
     def test_picker_arguments_and_default_folder(self):
         self.fake_picker('print("background: ok generated")\n')
         run = self.run_stage("stage_background", "brainrot")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(run.stdout, "background: ok generated\n")
         self.assertEqual(self.call_lines(),
-                         ["%(t)s/out/build/timeline.json %(t)s/ws/app/remote-cli %(t)s/ws/app "
+                         ["%(t)s/out/build/timeline.json %(t)s/ws/app/remote-cli %(t)s/ws/runs/run.1.test "
                           "--dir %(t)s/ws/backgrounds" % {"t": self.tmp}])
 
     # red: EXPLAIN_BRAINROT_BACKGROUNDS ignored
@@ -400,6 +406,277 @@ class StageFunctionCase(unittest.TestCase):
                 self.assertEqual((run.returncode, run.stdout),
                                  (1, "transcript: FAIL cannot read %s\n" % timeline), run.stderr)
                 self.assertEqual(calls, [])
+
+
+# The fake Remotion CLI: it appends one JSON line for each call (its argv, its cwd by real path,
+# the paths under its cwd without following a link, the names in public/ and public/audio/, the
+# real path of node_modules, the names in <ws>/runs), then sleeps FAKE_REMOTION_SLEEP s and exits
+# FAKE_REMOTION_EXIT.
+FAKE_CLI = """#!/usr/bin/env python3
+import json, os, sys, time
+def names(path):
+    return sorted(os.listdir(path)) if os.path.isdir(path) else None
+call = {"argv": sys.argv[1:], "cwd": os.getcwd(),
+        "files": sorted(os.path.relpath(os.path.join(d, n)) for d, ds, fs in os.walk(".") for n in ds + fs),
+        "public": names("public"), "audio": names("public/audio"),
+        "node_modules": os.path.realpath("node_modules"),
+        "runs": names(os.path.join(os.environ["EXPLAIN_VIDEO_WORKSPACE"], "runs"))}
+with open(os.path.join(os.environ["FAKE_DIR"], "remotion.jsonl"), "a") as log:
+    log.write(json.dumps(call) + "\\n")
+time.sleep(float(os.environ.get("FAKE_REMOTION_SLEEP", "0")))
+sys.exit(int(os.environ.get("FAKE_REMOTION_EXIT", "0")))
+"""
+
+# The temp tree of RunDirectoryCase, by path under FAKE_DIR: a fake of every tool render.sh calls
+# (narrate.sh and the picker log a JSON list to calls.log), and a video/ with what a checkout may
+# hold besides the sources: its own node_modules and public, and __pycache__ at two depths.
+RUN_FAKES = {
+    "remotion": FAKE_CLI,
+    "skill/scripts/video-workspace.sh":
+        '#!/bin/bash\nnm="$EXPLAIN_VIDEO_WORKSPACE/app/node_modules"\nmkdir -p "$nm/.bin"\n'
+        'cp "$FAKE_DIR/remotion" "$nm/.bin/remotion"\necho shared > "$nm/sentinel.txt"\n'
+        'echo "workspace: ok $EXPLAIN_VIDEO_WORKSPACE"\n',
+    "skill/scripts/narrate.sh":
+        '#!/bin/bash\necho \'["narrate"]\' >> "$FAKE_DIR/calls.log"\n'
+        'echo \'{"engine": "say"}\' > "$2/durations.json"\necho wav > "$2/s1.say.wav"\n',
+    "skill/scripts/verify.sh": "#!/bin/bash\n",
+    "skill/video/build-timeline.mjs":
+        'import { writeFileSync } from "node:fs";\nconst a = process.argv.slice(2);\n'
+        'if (a[0] !== "--check") writeFileSync(a[3], JSON.stringify(\n'
+        '  {scenes: [{audio: "audio/s1.say.wav"}], background: {kind: "generated"}}));\n',
+    "skill/video/transcript.py": "",
+    "skill/video/check_budgets.py": 'print("ok 1 3.0 3.000")\n',
+    "skill/video/check_render.sh":
+        '#!/bin/bash\necho "container: ok (3.00 s)"\necho "sync: ok"\necho "stills (1): ok $3"\n',
+    "skill/video/pick_background.py":
+        "import json, os, sys\nwith open(os.environ['FAKE_DIR'] + '/calls.log', 'a') as log:\n"
+        "    log.write(json.dumps(['pick'] + sys.argv[1:]) + '\\n')\n"
+        "print(os.environ.get('FAKE_PICKER_LINE', 'background: ok generated'))\n"
+        "sys.exit(int(os.environ.get('FAKE_PICKER_EXIT', '0')))\n",
+    "skill/video/package.json": "{}\n",
+    "skill/video/src/marker.txt": "",
+    "skill/video/src/public/deep.txt": "",
+    "skill/video/src/node_modules/deep.txt": "",
+    "skill/video/node_modules/decoy.txt": "",
+    "skill/video/public/decoy.txt": "",
+    "skill/video/__pycache__/stale.pyc": "",
+    "skill/video/src/__pycache__/stale.pyc": "",
+}
+
+
+def names(path):
+    """The sorted names in the directory `path`, or None when it is not a directory."""
+    return sorted(os.listdir(path)) if os.path.isdir(path) else None
+
+
+def default_signals():
+    """preexec_fn: HUP, INT and TERM back to their default action. A test runner started in the
+    background hands SIGINT on as ignored, and bash cannot trap a signal that was ignored when it
+    started."""
+    for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, signal.SIG_DFL)
+
+
+def kill_group(proc):
+    """Cleanup: kill what is left of the process group of `proc` (a sleeping fake CLI), reap it."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    proc.wait()
+
+
+class RunDirectoryCase(unittest.TestCase):
+    """render.sh compiles in a run directory of its own: a copy of render.sh in a temp skill tree,
+    run against RUN_FAKES in the workspace <tmp>/w s (the space is deliberate). No workspace, no
+    render."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="render-run-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        for name, text in RUN_FAKES.items():
+            path = self.tmp / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            path.chmod(0o755)
+        self.render_sh = self.tmp / "skill" / "scripts" / "render.sh"
+        shutil.copy(RENDER_SH, self.render_sh)
+        self.ws = self.tmp / "w s"
+        self.runs = self.ws / "runs"
+        self.shared = self.ws / "app" / "node_modules"
+        self.out = self.tmp / "out"
+        self.out.mkdir()
+        self.cli_log = self.tmp / "remotion.jsonl"
+
+    def start(self, fmt="explainer", **env):
+        """A Popen of the copied render.sh on a one-scene script.json of format `fmt`, in a session
+        of its own, stdout and stderr in files; `env` holds the FAKE_* settings of this run. Its cwd
+        is the temp dir, so a mutant that copies into an empty run writes nothing into the repo."""
+        script = {"format": fmt, "provenance": {"root": str(self.tmp)}, "scenes": [{"id": "s1"}]}
+        (self.out / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        self.cli_log.unlink(missing_ok=True)
+        run_env = {k: v for k, v in os.environ.items() if not k.startswith(("EXPLAIN_", "FAKE_"))}
+        run_env.update(env, EXPLAIN_VIDEO_WORKSPACE=str(self.ws), FAKE_DIR=str(self.tmp))
+        with open(self.tmp / "stdout", "w") as stdout, open(self.tmp / "stderr", "w") as stderr:
+            proc = subprocess.Popen(
+                ["/bin/bash", str(self.render_sh), str(self.out), "--engine", "say"],
+                stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, env=run_env, cwd=self.tmp,
+                start_new_session=True, preexec_fn=default_signals)
+        self.addCleanup(kill_group, proc)
+        return proc
+
+    def output(self):
+        """(stdout, stderr) of the last start, as far as they are written."""
+        return tuple((self.tmp / name).read_text(encoding="utf-8") for name in ("stdout", "stderr"))
+
+    def finish(self, proc, timeout=60):
+        """The CompletedProcess of `proc` once it has exited; the test fails after `timeout` s."""
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.fail("render.sh still runs after %s s:\n%s" % (timeout, "".join(self.output())))
+        return subprocess.CompletedProcess(proc.args, proc.returncode, *self.output())
+
+    def wait_for_cli(self, proc):
+        """Return once the fake CLI has logged its call (it sleeps after that); the test fails if
+        render.sh exits first or no call comes in 20 s."""
+        deadline = time.monotonic() + 20
+        while not (self.cli_log.exists() and self.cli_log.read_text(encoding="utf-8").endswith("\n")):
+            if proc.poll() is not None or time.monotonic() > deadline:
+                self.fail("the Remotion CLI did not run:\n" + "".join(self.output()))
+            time.sleep(0.05)
+
+    def cli_calls(self):
+        if not self.cli_log.exists():
+            return []
+        return [json.loads(line) for line in self.cli_log.read_text(encoding="utf-8").splitlines()]
+
+    def tool_calls(self, tool):
+        """The argument lists that the fake `tool` (narrate, pick) was called with."""
+        log = self.tmp / "calls.log"
+        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        return [call[1:] for call in map(json.loads, lines) if call[0] == tool]
+
+    def run_pattern(self, runs, pid):
+        """The path of a run directory of render.sh `pid` in `runs`: run.<pid>.<6 characters>."""
+        return r"^%s/run\.%d\.[A-Za-z0-9]{6}$" % (re.escape(str(runs)), pid)
+
+    # red: the render keeps cwd <ws>/app
+    def test_render_runs_in_its_own_run_directory(self):
+        proc = self.start()
+        run = self.finish(proc)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        [call] = self.cli_calls()
+        self.assertRegex(call["cwd"], self.run_pattern(os.path.realpath(self.runs), proc.pid))
+        self.assertIn("package.json", call["files"])
+        self.assertIn("src/marker.txt", call["files"])
+        self.assertEqual(call["node_modules"], os.path.realpath(self.shared))
+        self.assertEqual(call["audio"], ["s1.say.wav"])
+        out = os.path.realpath(self.out)
+        self.assertEqual(call["argv"], ["render", "Explain", out + "/video.mp4",
+                                        "--props", out + "/build/timeline.json"])
+
+    # red: a plain recursive copy of video/ (its node_modules and public come along, and the link
+    # to the shared packages lands inside the copied node_modules)
+    def test_a_checkouts_node_modules_and_public_are_not_copied(self):
+        run = self.finish(self.start())
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        [call] = self.cli_calls()
+        self.assertEqual(call["public"], ["audio"])
+        self.assertEqual(call["node_modules"], os.path.realpath(self.shared))
+        self.assertFalse((self.shared / "decoy.txt").exists())
+        # only the top-level node_modules and public are left out; __pycache__ at any depth
+        self.assertIn("src/public/deep.txt", call["files"])
+        self.assertIn("src/node_modules/deep.txt", call["files"])
+        self.assertEqual([path for path in call["files"] if "__pycache__" in path], [])
+
+    # red: the audio still goes to <ws>/app/public/audio
+    def test_nothing_is_written_under_the_app(self):
+        run = self.finish(self.start())
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(names(self.ws / "app"), ["node_modules"])
+        self.assertEqual(names(self.shared), [".bin", "sentinel.txt"])
+
+    # red: no EXIT trap, or a removal that goes through the node_modules link
+    def test_run_directory_removed_after_a_pass(self):
+        run = self.finish(self.start())
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(names(self.runs), [])
+        self.assertTrue((self.shared / "sentinel.txt").exists())
+
+    # red: removal only at the end of the script
+    def test_run_directory_removed_after_a_fail(self):
+        cases = (
+            ("explainer", {"FAKE_REMOTION_EXIT": "3"},
+             "render: FAIL remotion render exit 3 (log %s/build/render.log)" % os.path.realpath(self.out)),
+            ("brainrot", {"FAKE_PICKER_LINE": "background: FAIL x", "FAKE_PICKER_EXIT": "1"},
+             "background: FAIL x"),
+        )
+        for fmt, env, last in cases:
+            with self.subTest(fmt=fmt):
+                proc = self.start(fmt, **env)
+                run = self.finish(proc)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(stage_lines(run.stdout)[-1], last, run.stdout)
+                self.assertEqual(names(self.runs), [])
+                self.assertTrue((self.shared / "sentinel.txt").exists())
+        # the picker was given the run directory of that render
+        [pick] = self.tool_calls("pick")
+        self.assertRegex(pick[2], self.run_pattern(self.runs, proc.pid))
+
+    # red: no EXIT trap (the directory stays), or no signal trap (the exit code is the signal's)
+    def test_run_directory_removed_after_a_signal(self):
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            with self.subTest(signal=sig.name):
+                proc = self.start(FAKE_REMOTION_SLEEP="30")
+                self.wait_for_cli(proc)
+                os.killpg(proc.pid, sig)
+                run = self.finish(proc, timeout=10)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(names(self.runs), [])
+                self.assertTrue((self.shared / "sentinel.txt").exists())
+
+    # red: the signal is ignored and the run goes on to "transcript: ok"
+    def test_signal_to_render_sh_alone_stops_the_run_when_the_tool_returns(self):
+        proc = self.start(FAKE_REMOTION_SLEEP="3")
+        self.wait_for_cli(proc)
+        os.kill(proc.pid, signal.SIGTERM)
+        run = self.finish(proc, timeout=20)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual([line for line in stage_lines(run.stdout)
+                          if line.startswith(("render", "container", "transcript"))], [])
+        self.assertEqual(names(self.runs), [])
+
+    # red: a sweep with no age test, or a removal that follows the link
+    def test_old_run_directories_are_swept(self):
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep", encoding="utf-8")
+        old, young = self.runs / "run.1.oldold", self.runs / "run.2.young"
+        old.mkdir(parents=True)
+        (old / "node_modules").symlink_to(outside)
+        young.mkdir()
+        now = time.time()
+        # after the link is made: making it changes the directory's modification time
+        os.utime(old, (now - 25 * 3600, now - 25 * 3600))
+        os.utime(young, (now - 23 * 3600, now - 23 * 3600))
+        run = self.finish(self.start())
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        [call] = self.cli_calls()
+        self.assertEqual(call["runs"], sorted(["run.2.young", os.path.basename(call["cwd"])]))
+        self.assertEqual(names(self.runs), ["run.2.young"])
+        self.assertTrue((outside / "keep.txt").exists())
+
+    # red: the failure is ignored and a render starts with an empty run
+    def test_unmakeable_run_directory_fails_the_workspace_stage(self):
+        self.ws.mkdir()
+        self.runs.write_text("a file, not a directory", encoding="utf-8")
+        run = self.finish(self.start())
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(stage_lines(run.stdout),
+                         ["script: ok (1 scenes)",
+                          "workspace: FAIL cannot make a run directory in %s/runs" % self.ws])
+        self.assertEqual(self.tool_calls("narrate"), [])
 
 
 class BrainrotRouteCase(unittest.TestCase):

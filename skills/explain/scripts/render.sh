@@ -13,14 +13,16 @@
 # the script stage has passed. An explainer run has nine stages and a brainrot run ten.
 #
 #   exit 0  all stages of the format passed
-#   exit 1  a stage failed; the stages after it do not run
+#   exit 1  a stage failed; the stages after it do not run; or HUP, INT or TERM stopped the run
+#           (no FAIL line)
 #   exit 2  usage, no <output-dir>/script.json, or script.json is not valid JSON (one line
 #           on stderr)
 #
 # stdout carries one line per stage, in this order, up to the first FAIL (the explainer
 # prints no "background" line):
 #   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
-#   workspace: ok <ws>                      video-workspace.sh --engine <engine>
+#   workspace: ok <ws>                      video-workspace.sh --engine <engine>, then the run
+#                                           directory (below)
 #   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh; <engine> as used; a
 #                                           brainrot script narrates at --speed 1.2
 #   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
@@ -47,9 +49,22 @@
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
 # that fell back to say says so. The Narrator row reads "kokoro (af_heart)", "say" or
 # "say (fallback: <cause>)". Once stage 1 passes, a video.mp4 and the stills of an earlier
-# run are removed, so a later FAIL never leaves them next to the new transcript. The
-# Remotion CLI runs with cwd <ws>/app: every path it gets is absolute, and provenance.root
-# must be an absolute existing directory.
+# run are removed, so a later FAIL never leaves them next to the new transcript.
+#
+# Each render compiles in a run directory of its own, <ws>/runs/run.<pid>.<6 chars>, so two
+# renders can run at the same time and render.sh writes nothing under <ws>/app. It holds a
+# copy of the skill's video/ (without a top-level node_modules or public of the checkout, and
+# without __pycache__), node_modules as a link to the shared <ws>/app/node_modules, and
+# public/ with the narration clips in public/audio (brainrot: also the picker's bg-stage/
+# behind public/bg). The workspace stage makes it, before its ok line, after it has removed
+# each entry of <ws>/runs modified more than a day (1440 min) ago: what a killed render left.
+# A failure gives "workspace: FAIL cannot make a run directory in <ws>/runs". An EXIT trap
+# removes it after a pass, a FAIL, or HUP, INT or TERM. render.sh does not signal its
+# children: a signal to render.sh alone takes effect when the running tool returns, or at
+# once while a stage reads a tool's lines as they come (workspace, narration, background),
+# and that tool is left running; a signal to the process group (Ctrl-C, timeout) stops the
+# tool as well. The Remotion CLI runs with cwd <ws>/runs/<run>: every path it gets is
+# absolute, and provenance.root must be an absolute existing directory.
 
 set -eu
 
@@ -113,6 +128,17 @@ fmt="explainer"   # the script's format: explainer, or brainrot
 used=""       # the engine that made the audio (durations.json)
 fallback=""   # the fallback cause, empty when none
 video_s=""    # video length in seconds (totalFrames / fps)
+run=""        # the run directory of this render; "" until make_run_dir has made it
+
+# The EXIT trap: remove the run directory after a pass, a FAIL or a signal. rm -rf on the
+# directory itself removes its node_modules link and never follows it; a trailing slash or a
+# glob after the name would delete the shared packages of every render. A directory that
+# cannot be removed is left to the sweep of a later run, and the exit code stays the render's.
+remove_run_dir() {
+    [ -z "$run" ] || rm -rf "$run" || true
+}
+trap remove_run_dir EXIT
+trap 'exit 1' HUP INT TERM
 
 fail() {
     echo "$1"
@@ -210,6 +236,32 @@ clear_stale() {
     [ ! -d "$out/review" ] || find "$out/review" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 }
 
+# Remove each entry of <ws>/runs modified more than a day (1440 min) ago: the run directory of
+# a render that was killed before its EXIT trap ran. find hands each path to rm -rf as it is,
+# with no trailing slash, so a node_modules link goes and the shared packages stay. A removal
+# that fails is ignored.
+sweep_old_runs() {
+    find "$ws/runs" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2> /dev/null || true
+}
+
+# Make the run directory of this render: the entries of video/ except a top-level node_modules
+# or public of the checkout (a directory, a file or a link) and __pycache__ at any depth, then
+# node_modules as a link to the shared packages and an empty public/.
+make_run_dir() {
+    local cause="workspace: FAIL cannot make a run directory in $ws/runs" entry
+    mkdir -p "$ws/runs" || fail "$cause"
+    sweep_old_runs
+    run=$(mktemp -d "$ws/runs/run.$$.XXXXXX") || fail "$cause"
+    for entry in "$video"/* "$video"/.[!.]* "$video"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue   # a pattern that matched nothing
+        case "${entry##*/}" in node_modules | public | __pycache__) continue ;; esac
+        cp -R "$entry" "$run" || fail "$cause"
+    done
+    find "$run" -name __pycache__ -prune -exec rm -rf {} + || fail "$cause"
+    ln -s "$app/node_modules" "$run/node_modules" || fail "$cause"
+    mkdir "$run/public" || fail "$cause"
+}
+
 stage_workspace() {
     stream "workspace: ok " "workspace: FAIL " "$scripts/video-workspace.sh" --engine "$engine"
     if [ "$stream_rc" != "0" ]; then
@@ -218,6 +270,7 @@ stage_workspace() {
             *) fail "workspace: FAIL video-workspace.sh exit ${stream_rc:-unknown}" ;;
         esac
     fi
+    make_run_dir
     echo "workspace: ok $ws"
 }
 
@@ -267,7 +320,7 @@ stage_timeline() {
 stage_background() {
     [ "$fmt" = "brainrot" ] || return 0
     stream "background: ok " "background: FAIL " python3 "$video/pick_background.py" \
-        "$out/build/timeline.json" "$remotion" "$app" \
+        "$out/build/timeline.json" "$remotion" "$run" \
         --dir "${EXPLAIN_BRAINROT_BACKGROUNDS:-$ws/backgrounds}"
     if [ "$stream_rc" != "0" ]; then
         case "$held" in
@@ -284,17 +337,16 @@ stage_background() {
 stage_render() {
     local log="$out/build/render.log" clip t0 t1 rc=0 verdict
     [ -x "$remotion" ] || fail "render: FAIL no Remotion CLI at $remotion"
-    rm -rf "$app/public/audio"
-    mkdir -p "$app/public/audio"
+    mkdir -p "$run/public/audio"
     while IFS= read -r clip; do
-        cp "$out/$clip" "$app/public/$clip" || fail "render: FAIL cannot copy $out/$clip"
+        cp "$out/$clip" "$run/public/$clip" || fail "render: FAIL cannot copy $out/$clip"
     done <<< "$(python3 -c '
 import json, sys
 for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
     print(s["audio"])
 ' "$out/build/timeline.json")"
     t0=$(now)
-    (cd "$app" && "$remotion" render Explain "$out/video.mp4" --props "$out/build/timeline.json") \
+    (cd "$run" && "$remotion" render Explain "$out/video.mp4" --props "$out/build/timeline.json") \
         > "$log" 2>&1 < /dev/null || rc=$?
     t1=$(now)
     if [ "$rc" -ne 0 ]; then
