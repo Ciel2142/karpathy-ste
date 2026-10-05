@@ -16,14 +16,19 @@ A line that one of them prints gives the call, "run_tool <stage> " or "copy_clip
 of its prefix, and its sample starts with "<stage>: FAIL ". REQUIRED is the lines that video.md must quote:
 the eleven ok lines, the fallback line and the FAIL lines of a film that an author meets.
 
-The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, lint) and the names
+The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, blocks, lint) and the names
 FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
 
 FilmRungCase ties the rest of video.md to its sources: the level-2 titles (FILM_TITLES), the one table
 headed "| Limit | film |" to the film row of video/formats.json and to MIN_TEXT of kit/palette.ts
 (FILM_CELLS, filled by fill of test_format_limits.py), the export lines of the ts blocks of section "Write
 the scene" to the exports of kit/index.ts, and section "Write the script" to templates/film-script.json.
-Each test names the mutation that turns it red."""
+Each test names the mutation that turns it red.
+
+BrainrotRungCase ties brainrot.md to video.md by title: each block of brainrot.md that names video.md (a
+pointer block) holds a title of one of the five shared sections (SHARED_TITLES) in double quotes, and no
+other title of video.md and no section number; each shared title is one heading of video.md, and its
+section holds no film value; brainrot.md holds its own rules, among them the components table."""
 
 import ast
 import json
@@ -360,6 +365,33 @@ def section(text, title):
     return "\n".join(lines[start + 1:end])
 
 
+def blocks(text: str) -> list[str]:
+    """The text split at blank lines outside fenced blocks, each block its lines joined by "\n". A heading
+    line outside a fenced block is a block of its own: it ends the block before it and starts a new one."""
+    found, current, fenced = [], [], False
+
+    def close():
+        if current:
+            found.append("\n".join(current))
+            current.clear()
+
+    for line in text.split("\n"):
+        if FENCE.match(line):
+            fenced = not fenced
+            current.append(line)
+        elif fenced:
+            current.append(line)
+        elif line.strip() == "":
+            close()
+        elif HEADING.fullmatch(line):
+            close()
+            found.append(line)
+        else:
+            current.append(line)
+    close()
+    return found
+
+
 def lint(path):
     """The STE lint of `path`, run from the repository root."""
     return subprocess.run([sys.executable, STE_LINT, str(path)], cwd=REPO, capture_output=True, text=True,
@@ -590,6 +622,70 @@ class FilmRungCase(unittest.TestCase):
                  "cue rule")
         self.assertEqual([word for word in words if word in text], [])
         self.assertFalse("explainer" in text.lower(), "video.md holds the word explainer")
+
+
+# The level-2 titles that brainrot.md holds besides its own pointers, and the components that it explains.
+BRAINROT_TITLES = ("Write the script", "Components", "The cue rule", "Read the stills", "Output directory",
+                   "Constants")
+BRAINROT_COMPONENTS = ("title", "bullets-appear", "diagram-with-highlight-walk", "code-with-line-highlights",
+                       "before-after")
+# What no shared section of video.md may hold: a value of the film, or the word for it.
+FILM_VALUES = ("film", "Film", "1280", "720", "scene/", "eleven", "speed")
+SECTION_NUMBER = re.compile(r"\b[Ss]ection \d")
+
+
+class BrainrotRungCase(unittest.TestCase):
+    def setUp(self):
+        self.text = read(BRAINROT_MD)
+        # A pointer block is a block that holds video.md and is not a heading.
+        self.pointers = [block for block in blocks(self.text) if "video.md" in block and not HEADING.fullmatch(block)]
+
+    def quoted_titles(self, block):
+        """The titles of the headings of video.md that `block` holds in double quotes (a line break inside a
+        title reads as one space)."""
+        flat = " ".join(block.split())
+        return [title for _, title in headings(read(VIDEO_MD)) if '"%s"' % title in flat]
+
+    # red: a pointer by number or by a title of video.md that is not one of the five, a pointer block with no
+    # shared title in double quotes (a bare "see video.md"), or a shared section that brainrot.md never names
+    def test_brainrot_points_at_the_five_shared_titles(self):
+        self.assertTrue(self.pointers, "brainrot.md names video.md in no block")
+        held = set()
+        for block in self.pointers:
+            with self.subTest(block=block[:60]):
+                quoted = self.quoted_titles(block)
+                self.assertTrue(set(quoted) & set(SHARED_TITLES), "no shared title in double quotes")
+                self.assertEqual([title for title in quoted if title not in SHARED_TITLES], [])
+            held.update(self.quoted_titles(block))
+        self.assertEqual([title for title in SHARED_TITLES if title not in held], [])
+
+    # red: "as in section 3 of `video.md`"
+    def test_brainrot_names_no_section_of_video_md_by_number(self):
+        for block in self.pointers:
+            with self.subTest(block=block[:60]):
+                self.assertIsNone(SECTION_NUMBER.search(" ".join(block.split())))
+
+    # red: a title of video.md changed and brainrot.md left pointing at it
+    def test_each_shared_title_is_one_heading_of_video_md(self):
+        titles = [title for _, title in headings(read(VIDEO_MD))]
+        self.assertEqual([title for title in SHARED_TITLES if titles.count(title) != 1], [])
+
+    # red: the speed 1.0 or the canvas in "Pinned versions and environment", or a film limit in another shared
+    # section
+    def test_the_shared_sections_hold_no_film_value(self):
+        for title in SHARED_TITLES:
+            body = section(read(VIDEO_MD), title)
+            with self.subTest(title=title):
+                self.assertEqual([value for value in FILM_VALUES if value in body], [])
+
+    # red: the components table left with neither rung, a rule left out of brainrot.md, or the word explainer
+    # left in it
+    def test_brainrot_holds_its_own_rules(self):
+        level_two = [title for level, title in headings(self.text) if level == 2]
+        self.assertEqual([title for title in BRAINROT_TITLES if title not in level_two], [])
+        components = section(self.text, "Components")
+        self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
+        self.assertFalse("explainer" in self.text.lower(), "brainrot.md holds the word explainer")
 
 
 if __name__ == "__main__":

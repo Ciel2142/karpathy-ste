@@ -1,6 +1,6 @@
-"""Drift guard for the per-format limits: video/formats.json is the one source, and the limits table
-and the code sentence of rungs/brainrot.md (skill text that the model reads at run time) must say
-the same. Each test names the mutation that turns it red."""
+"""Drift guard for the brainrot limits: the brainrot row of video/formats.json is the one source, and the
+limits table of rungs/brainrot.md (one column, headed brainrot) and its code and caption sentences (skill
+text that the model reads at run time) must say the same. Each test names the mutation that turns it red."""
 
 import json
 import os
@@ -21,27 +21,26 @@ EXPLAIN = Path(__file__).resolve().parent.parent
 FORMATS = EXPLAIN / "video" / "formats.json"
 TOOL = EXPLAIN / "video" / "build-timeline.mjs"
 RUNG = EXPLAIN / "rungs" / "brainrot.md"
-TABLE_HEADER = "| Limit | explainer | brainrot |"
+TABLE_HEADER = "| Limit | brainrot |"
 
-# One row per table row: (label as the rung writes it, explainer template, brainrot template).
+# One row per table row: (label as the rung writes it, brainrot template).
 # `fill` is the one place that turns a template and a formats row into a cell.
 CELL_TEMPLATES = [
-    ("canvas", "{width}×{height}", "{width}×{height}"),
-    ("scenes", "{minScenes}–{maxScenes}", "{minScenes}–{maxScenes}"),
-    ("max scene length", "{maxSceneSeconds} s", "{maxSceneSeconds} s"),
-    ("max total length", "{maxTotalSeconds} s", "{maxTotalSeconds} s"),
-    ("narration words per scene", "{maxNarrationWords}", "{maxNarrationWords}"),
-    ("lead / tail frames", "{leadFrames} / {tailFrames}", "{leadFrames} / {tailFrames}"),
-    ("code range", "{codeLines} lines × {codeColumns} columns", "{codeLines} lines × {codeColumns} columns"),
-    ("`bullets-appear` text", "{bulletText} chars", "{bulletText} chars"),
+    ("canvas", "{width}×{height}"),
+    ("scenes", "{minScenes}–{maxScenes}"),
+    ("max scene length", "{maxSceneSeconds} s"),
+    ("max total length", "{maxTotalSeconds} s"),
+    ("narration words per scene", "{maxNarrationWords}"),
+    ("lead / tail frames", "{leadFrames} / {tailFrames}"),
+    ("code range", "{codeLines} lines × {codeColumns} columns"),
+    ("`bullets-appear` text", "{bulletText} chars"),
     (
         "`before-after`",
-        "side by side; 0–{beforeAfterLines} lines × {beforeAfterLineChars} chars; heading {beforeAfterHeading}",
         "stacked; 0–{beforeAfterLines} lines × {beforeAfterLineChars} chars; heading {beforeAfterHeading}",
     ),
-    ("diagram `label` / `sub`", "{diagramLabel} / {diagramSub}", "{diagramLabel} / {diagramSub}"),
-    ("`title` title / subtitle", "{titleTitle} / {titleSubtitle}", "{titleTitle} / {titleSubtitle}"),
-    ("caption chunk", "—", "1–3 words, {captionChars} chars"),
+    ("diagram `label` / `sub`", "{diagramLabel} / {diagramSub}"),
+    ("`title` title / subtitle", "{titleTitle} / {titleSubtitle}"),
+    ("caption chunk", "1–3 words, {captionChars} chars"),
 ]
 
 
@@ -60,11 +59,8 @@ def fill(template, row):
 
 
 def expected_cells(formats):
-    """Row label -> (explainer cell, brainrot cell), each formatted from its formats.json row."""
-    return {
-        label: (fill(explainer, formats["explainer"]), fill(brainrot, formats["brainrot"]))
-        for label, explainer, brainrot in CELL_TEMPLATES
-    }
+    """Row label -> brainrot cell, each formatted from its formats.json row."""
+    return {label: fill(brainrot, formats["brainrot"]) for label, brainrot in CELL_TEMPLATES}
 
 
 def rung_text():
@@ -72,8 +68,8 @@ def rung_text():
 
 
 def rung_limits_table():
-    """Row label -> (explainer cell, brainrot cell) of the one table in the rung whose header row
-    is `| Limit | explainer | brainrot |`. Cells are the text between the pipes, stripped."""
+    """Row label -> brainrot cell of the one table in the rung whose header row is `| Limit | brainrot |`.
+    Cells are the text between the pipes, stripped."""
     lines = rung_text().split("\n")
     starts = [i for i, line in enumerate(lines) if line.strip() == TABLE_HEADER]
     if len(starts) != 1:
@@ -82,8 +78,8 @@ def rung_limits_table():
     for line in lines[starts[0] + 2 :]:  # skip the header and the separator row
         if not line.startswith("|"):
             break
-        label, explainer, brainrot = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        rows[label] = (explainer, brainrot)
+        label, brainrot = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        rows[label] = brainrot
     return rows
 
 
