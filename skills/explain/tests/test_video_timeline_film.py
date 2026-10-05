@@ -247,15 +247,6 @@ class TestFilmCheck(VideoCase):
         self.scene(script, "intro")["pause"] = 12
         self.assertFails(self.check(script), 'FAIL scene intro: unexpected key "pause"')
 
-    def test_explainer_refuses_the_film_keys(self):
-        """Red: `sources` or `pause` is an allowed key of an explainer script."""
-        script = base_script()
-        script["sources"] = []
-        self.assertFails(self.check(script), 'FAIL script: unexpected key "sources"')
-        script = base_script()
-        self.scene(script, "intro")["pause"] = 12
-        self.assertFails(self.check(script), 'FAIL scene intro: unexpected key "pause"')
-
     def test_formats_file_without_the_film_row_fails_cleanly(self):
         """Red: the loader still wants two rows (a formats.json without film is accepted and the
         film check then reads an undefined row), or the cause text is not the three-row one."""

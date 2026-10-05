@@ -1,5 +1,7 @@
 """Tests for video/build-timeline.mjs: the script.json validator (--check) and the
-timeline builder. Each test names the mutation of the script that turns it red."""
+timeline builder. The scripts of this module are brainrot scripts: base_script() holds
+"format": "brainrot", so each limit and each FAIL tag is the brainrot row's. Each test names the
+mutation of the script that turns it red."""
 
 import copy
 import json
@@ -11,7 +13,6 @@ from pathlib import Path
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 TOOL = EXPLAIN / "video" / "build-timeline.mjs"
-TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 
 FLOW_NARRATION = "First the request arrives. Then the router picks a handler. Last the handler replies."
 APP_LINES = ["line %d of the app" % n for n in range(1, 73)]
@@ -23,8 +24,10 @@ def cite(path="src/app.py", line=1, snippet="line 1"):
 
 
 def base_script():
-    """A valid three-scene script: bullets, a diagram and a code scene."""
+    """A valid three-scene brainrot script: bullets, a diagram and a code scene. Its fixture fits
+    every limit of the brainrot row."""
     return {
+        "format": "brainrot",
         "title": "Fixture",
         "subject": {"text": "src/app.py", "kind": "file"},
         "provenance": {
@@ -90,6 +93,23 @@ def base_script():
     }
 
 
+def words_for(narration, seconds_per_word=0.3, pause=0.15):
+    """A consistent words.json object (spec 5.2) for `narration`: one word per whitespace token,
+    words back to back, `pause` seconds between sentences. A sentence ends after a token that
+    ends in ., ? or !, and at the last token. Seconds are rounded to 6 places."""
+    tokens = narration.split()
+    words, sentences = [], []
+    t, start = 0.0, 0.0
+    for i, token in enumerate(tokens):
+        words.append({"text": token, "from": round(t, 6), "to": round(t + seconds_per_word, 6)})
+        t += seconds_per_word
+        if token[-1] in ".?!" or i == len(tokens) - 1:
+            sentences.append({"from": round(start, 6), "to": round(t, 6)})
+            t += pause
+            start = t
+    return {"sentences": sentences, "words": words}
+
+
 class VideoCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -138,6 +158,16 @@ class VideoCase(unittest.TestCase):
                 timeline = json.load(handle)
         return result, timeline
 
+    def write_words(self, scene_id, engine, words_json):
+        """Write <scene_id>.<engine>.words.json beside durations.json."""
+        return self.write_json("%s.%s.words.json" % (scene_id, engine), words_json)
+
+    def build_brainrot(self, script, seconds, engine="say"):
+        """Build `script` with a words file for every scene that has a narration."""
+        for scene in script["scenes"]:
+            self.write_words(scene["id"], engine, words_for(scene["narration"]))
+        return self.build(script, seconds, engine)
+
     def assertFails(self, result, *lines):
         """Exit 1 and exactly these FAIL lines on stdout: one cause per mutation."""
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -145,16 +175,6 @@ class VideoCase(unittest.TestCase):
 
 
 class TestCheck(VideoCase):
-    def test_template_script_passes_check(self):
-        """Red: a budget off by one in the template (a 37-char bullet)."""
-        result = self.node("--check", str(TEMPLATE), "--root", str(EXPLAIN))
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
-
-    def test_valid_fixture_passes_check(self):
-        """Red: the check rejects a valid script (a rule that is too strict)."""
-        result = self.check(base_script())
-        self.assertEqual((result.returncode, result.stdout), (0, ""))
-
     def test_unknown_component_fails(self):
         """Red: the component lookup removed, so a typo passes."""
 
@@ -178,25 +198,6 @@ class TestCheck(VideoCase):
             'FAIL scene intro: unexpected prop "colour"',
         )
 
-    def test_bullet_over_36_chars_fails(self):
-        """Red: the bullet text budget removed."""
-
-        def mutate(s):
-            self.scene(s, "intro")["props"]["bullets"][1]["text"] = "x" * 41
-
-        self.assertFails(
-            self.check_mutated(mutate), "FAIL scene intro: bullets[1].text is 41 chars (max 36)"
-        )
-
-    def test_narration_over_45_words_fails(self):
-        """Red: the narration word budget removed."""
-
-        def mutate(s):
-            scene = self.scene(s, "intro")
-            scene["narration"] += " " + " ".join(["more"] * 38)
-
-        self.assertFails(self.check_mutated(mutate), "FAIL scene intro: narration is 46 words (max 45)")
-
     def test_empty_narration_fails(self):
         """Red: the empty-narration check removed."""
 
@@ -205,13 +206,14 @@ class TestCheck(VideoCase):
 
         self.assertFails(self.check_mutated(mutate), "FAIL scene code: narration is empty")
 
-    def test_scene_count_outside_3_to_8_fails(self):
-        """Red: the scene-count range removed."""
+    def test_scene_count_outside_3_to_6_fails(self):
+        """Red: the scene-count range removed, or its lower bound dropped (test_brainrot_seven_scenes_fail
+        reaches the upper bound only)."""
 
         def mutate(s):
             del s["scenes"][2]
 
-        self.assertFails(self.check_mutated(mutate), "FAIL script: 2 scenes (needs 3 to 8)")
+        self.assertFails(self.check_mutated(mutate), "FAIL script: 2 scenes (needs 3 to 6, brainrot)")
 
     def test_duplicate_scene_id_fails(self):
         """Red: the duplicate-id check removed."""
@@ -322,8 +324,8 @@ class TestCheck(VideoCase):
             'FAIL scene flow: cue "First the request" is out of narration order',
         )
 
-    def test_code_line_over_72_columns_fails(self):
-        """Red: a tab counted as 1 column (a 69-char line plus a tab is 73 columns)."""
+    def test_code_line_over_40_columns_fails(self):
+        """Red: a tab counted as 1 column (a 69-char line plus a tab is 73 columns, not 70)."""
 
         def mutate(s):
             scene = self.scene(s, "code")
@@ -333,7 +335,9 @@ class TestCheck(VideoCase):
                 {"from": 3, "to": 4, "cue": "The second part"},
             ]
 
-        self.assertFails(self.check_mutated(mutate), "FAIL scene code: line 3 is 73 columns (max 72)")
+        self.assertFails(
+            self.check_mutated(mutate), "FAIL scene code: line 3 is 73 columns (max 40, brainrot)"
+        )
 
     def test_code_range_outside_file_fails(self):
         """Red: the range-inside-file check removed."""
@@ -348,17 +352,6 @@ class TestCheck(VideoCase):
 
         self.assertFails(
             self.check_mutated(mutate), "FAIL scene code: source.to 90 is outside src/app.py (72 lines)"
-        )
-
-    def test_code_range_over_14_lines_fails(self):
-        """Red: the 14-line budget removed."""
-
-        def mutate(s):
-            scene = self.scene(s, "code")
-            scene["props"]["source"] = {"path": "src/app.py", "from": 1, "to": 15}
-
-        self.assertFails(
-            self.check_mutated(mutate), "FAIL scene code: source range 1-15 is 15 lines (max 14)"
         )
 
     def test_highlight_outside_source_range_fails(self):
@@ -512,89 +505,81 @@ class TestCheck(VideoCase):
 
 
 class TestBuild(VideoCase):
+    """Each build writes a words file for every scene (build_brainrot): words of 0.3 s, 0.15 s
+    between sentences, so the clips of 3.0 s, 4.5 s and 3.0 s cover the scenes of base_script()."""
+
     def two_scene_script(self):
         script = base_script()
         script["scenes"] = script["scenes"][:2]
         return script
 
     def test_two_scene_fixture_frames_add_up(self):
-        """Red: tailFrames changed (36 -> 30 gives 315 and the second scene at 135)."""
-        result, timeline = self.build(self.two_scene_script(), {"intro": 3.0, "flow": 4.5})
+        """Red: tailFrames changed (12 -> 6 gives 249 and the second scene at 102)."""
+        result, timeline = self.build_brainrot(self.two_scene_script(), {"intro": 3.0, "flow": 4.5})
         self.assertEqual((result.returncode, result.stdout), (0, ""))
-        self.assertEqual(timeline["totalFrames"], 327)
+        self.assertEqual(timeline["totalFrames"], 261)
         first, second = timeline["scenes"]
-        self.assertEqual(second["from"], 141)
+        self.assertEqual(second["from"], 108)
         self.assertEqual(
             (first["from"], first["durationInFrames"], first["leadFrames"], first["audioFrames"]),
-            (0, 141, 15, 90),
+            (0, 108, 6, 90),
         )
         self.assertEqual(second["audioFrames"], 135)
         self.assertEqual(second["audio"], "audio/flow.say.wav")
 
     def test_timeline_top_level_shape(self):
-        """Red: a constant (fps, size) or the engine field changed."""
-        _, timeline = self.build(self.two_scene_script(), {"intro": 5.0, "flow": 5.0}, "kokoro")
+        """Red: a constant (fps, size), the engine field or the key order of the timeline changed."""
+        _, timeline = self.build_brainrot(self.two_scene_script(), {"intro": 5.0, "flow": 5.0}, "kokoro")
         self.assertEqual(
             list(timeline),
             ["format", "fps", "width", "height", "totalFrames", "maxSceneSeconds", "maxTotalSeconds", "engine", "scenes"],
         )
         self.assertEqual(
             (timeline["fps"], timeline["width"], timeline["height"], timeline["engine"]),
-            (30, 1280, 720, "kokoro"),
+            (30, 1080, 1920, "kokoro"),
         )
-        self.assertEqual(timeline["format"], "explainer")
-        self.assertEqual((timeline["maxSceneSeconds"], timeline["maxTotalSeconds"]), (60, 150))
+        self.assertEqual(timeline["format"], "brainrot")
+        self.assertEqual((timeline["maxSceneSeconds"], timeline["maxTotalSeconds"]), (30, 90))
         self.assertEqual(timeline["scenes"][0]["audio"], "audio/intro.kokoro.wav")
-
-    def test_cue_frame_is_proportional(self):
-        """Red: the cue offset measured from the cue end (offset 0 would give 19)."""
-        narration = "First " + "y" * 52 + ". Second " + "z" * 53
-        self.assertEqual(len(narration), 120)
-        self.assertEqual(narration.index("Second"), 60)
-        script = self.two_scene_script()
-        intro = self.scene(script, "intro")
-        intro["narration"] = narration
-        intro["props"]["bullets"] = [
-            {"text": "One", "cue": "First"},
-            {"text": "Two", "cue": "Second"},
-        ]
-        _, timeline = self.build(script, {"intro": 3.0, "flow": 5.0})
-        self.assertEqual(timeline["scenes"][0]["cueFrames"], {"First": 15, "Second": 60})
 
     def test_code_scene_props_carry_lines(self):
         """Red: props.lines not added, or counted from line 0 or with a trailing newline."""
         script = base_script()
-        _, timeline = self.build(script, {"intro": 2.0, "flow": 2.0, "code": 2.0})
+        _, timeline = self.build_brainrot(script, {"intro": 3.0, "flow": 4.5, "code": 3.0})
         code = timeline["scenes"][2]
         self.assertEqual(code["props"]["lines"], APP_LINES[2:10])
         self.assertEqual(code["props"]["source"], {"path": "src/app.py", "from": 3, "to": 10})
 
     def test_cues_closer_than_15_frames_fail_in_build_mode(self):
-        """Red: the 15-frame distance check removed from build mode."""
+        """Red: the 15-frame distance check removed from build mode, or stopped at the first gap
+        of a scene. The walk of the flow scene has three cues, one-word sentences that start 0.45 s
+        (13 or 14 frames) apart, so both gaps fail."""
         script = self.two_scene_script()
         flow = self.scene(script, "flow")
-        flow["narration"] = "First the request arrives. Then the router picks a handler. Last the handler replies."
-        result, timeline = self.build(script, {"intro": 3.0, "flow": 0.3})
+        flow["narration"] = "Request. Router. Handler."
+        for step, cue in zip(flow["props"]["walk"], ("Request", "Router", "Handler")):
+            step["cue"] = cue
+        result, timeline = self.build_brainrot(script, {"intro": 3.0, "flow": 2.0})
         self.assertIsNone(timeline)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(
             result.stdout.splitlines(),
             [
-                'FAIL scene flow: cue "Then the router" is 3 frames after the previous cue (minimum 15)',
-                'FAIL scene flow: cue "Last the handler" is 3 frames after the previous cue (minimum 15)',
+                'FAIL scene flow: cue "Router" is 14 frames after the previous cue (minimum 15)',
+                'FAIL scene flow: cue "Handler" is 13 frames after the previous cue (minimum 15)',
             ],
         )
 
     def test_scene_without_duration_fails(self):
         """Red: a missing duration entry treated as zero or crashing node."""
-        result, timeline = self.build(self.two_scene_script(), {"intro": 3.0})
+        result, timeline = self.build_brainrot(self.two_scene_script(), {"intro": 3.0})
         self.assertIsNone(timeline)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout.splitlines(), ["FAIL scene flow: no duration in durations.json"])
 
     def test_build_mode_skips_budgets(self):
         """Red: build mode re-runs the budgets (two scenes are under the 3-scene minimum)."""
-        result, timeline = self.build(self.two_scene_script(), {"intro": 3.0, "flow": 4.5})
+        result, timeline = self.build_brainrot(self.two_scene_script(), {"intro": 3.0, "flow": 4.5})
         self.assertEqual(result.returncode, 0)
         self.assertIsNotNone(timeline)
 

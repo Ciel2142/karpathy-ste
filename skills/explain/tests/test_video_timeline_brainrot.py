@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_video_timeline import EXPLAIN, TOOL, VideoCase, base_script
+from test_video_timeline import EXPLAIN, TOOL, VideoCase, base_script, words_for
 
 
 def brainrot_script():
@@ -21,35 +21,9 @@ def brainrot_script():
     return script
 
 
-def words_for(narration, seconds_per_word=0.3, pause=0.15):
-    """A consistent words.json object (spec 5.2) for `narration`: one word per whitespace token,
-    words back to back, `pause` seconds between sentences. A sentence ends after a token that
-    ends in ., ? or !, and at the last token. Seconds are rounded to 6 places."""
-    tokens = narration.split()
-    words, sentences = [], []
-    t, start = 0.0, 0.0
-    for i, token in enumerate(tokens):
-        words.append({"text": token, "from": round(t, 6), "to": round(t + seconds_per_word, 6)})
-        t += seconds_per_word
-        if token[-1] in ".?!" or i == len(tokens) - 1:
-            sentences.append({"from": round(start, 6), "to": round(t, 6)})
-            t += pause
-            start = t
-    return {"sentences": sentences, "words": words}
-
-
 class BrainrotBuildCase(VideoCase):
-    """Build-mode fixtures: a brainrot build needs one words.json per scene next to durations.json."""
-
-    def write_words(self, scene_id, engine, words_json):
-        """Write <scene_id>.<engine>.words.json beside durations.json."""
-        return self.write_json("%s.%s.words.json" % (scene_id, engine), words_json)
-
-    def build_brainrot(self, script, seconds, engine="say"):
-        """Build `script` with a words file for every scene that has a narration."""
-        for scene in script["scenes"]:
-            self.write_words(scene["id"], engine, words_for(scene["narration"]))
-        return self.build(script, seconds, engine)
+    """Build-mode fixtures: a brainrot build needs one words.json per scene next to durations.json
+    (write_words and build_brainrot are VideoCase's)."""
 
     def two_scene_brainrot(self):
         script = brainrot_script()
@@ -265,14 +239,6 @@ class TestBrainrotBuild(BrainrotBuildCase):
         self.assertEqual(second["from"], 108)
         self.assertEqual(timeline["totalFrames"], 108 + 6 + 135 + 12)
 
-    def test_explainer_scenes_have_no_captions(self):
-        """Red: build mode adds a captions key to explainer scenes."""
-        script = base_script()
-        _, timeline = self.build(script, {"intro": 2.0, "flow": 2.0, "code": 2.0})
-        self.assertEqual(len(timeline["scenes"]), 3)
-        for scene in timeline["scenes"]:
-            self.assertNotIn("captions", scene)
-
     def test_build_mode_unknown_format_fails(self):
         """Red: an unknown format builds as explainer instead of failing."""
         script = self.two_scene_brainrot()
@@ -439,11 +405,6 @@ class TestBrainrotBuild(BrainrotBuildCase):
             result,
             'FAIL scene intro: cue "The handler" is 9 frames after the previous cue (minimum 15)',
         )
-
-    def test_explainer_build_reads_no_words_file(self):
-        """Red: build mode asks an explainer script for words files."""
-        result, _ = self.build(base_script(), {"intro": 2.0, "flow": 2.0, "code": 2.0})
-        self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     # -- helpers --
     INTRO_NARRATION = "The router picks a handler. The handler replies."

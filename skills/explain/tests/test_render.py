@@ -68,7 +68,7 @@ class StageOneCase(unittest.TestCase):
         self.env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
                         EXPLAIN_VIDEO_WORKSPACE=str(self.tmp / "ws"))
 
-    def write_script(self, edit=None, root=None, template=TEMPLATE):
+    def write_script(self, edit=None, root=None, template=BRAINROT_TEMPLATE):
         script = json.loads(template.read_text(encoding="utf-8"))
         script["provenance"]["root"] = str(EXPLAIN) if root is None else root
         if edit:
@@ -107,22 +107,21 @@ class StageOneCase(unittest.TestCase):
     # red: narration before validation
     def test_bad_cue_fails_at_script_stage(self):
         def edit(script):
-            script["scenes"][1]["props"]["bullets"][1]["cue"] = "loads the page"
+            # In the narration of scene checks, but not at a sentence start.
+            script["scenes"][1]["props"]["bullets"][0]["cue"] = "looks for remote links"
         self.write_script(edit)
         run = self.render()
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         lines = stage_lines(run.stdout)
         self.assertEqual(len(lines), 1, run.stdout)
         self.assertTrue(lines[0].startswith("script: FAIL "), lines)
-        self.assertIn('cue "loads the page" is not at a sentence start', lines[0])
+        self.assertIn('cue "looks for remote links" is not at a sentence start', lines[0])
         self.assertFalse((self.out / "audio" / "durations.json").exists())
 
     # red: verify.sh not run at the script stage
     def test_prose_error_fails_at_script_stage(self):
         def edit(script):
-            script["scenes"][0]["narration"] = (
-                "This video explains the check script. The script doesn't skip a check. "
-                "It runs them before handoff.")
+            script["scenes"][0]["narration"] += " It doesn't skip a check."
         self.write_script(edit)
         run = self.render()
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
@@ -163,7 +162,7 @@ class StageOneCase(unittest.TestCase):
         self.place_stale()
         run = self.render()
         lines = stage_lines(run.stdout)
-        self.assertEqual(lines[0], "script: ok (5 scenes)", run.stdout)
+        self.assertEqual(lines[0], "script: ok (4 scenes)", run.stdout)
         self.assertTrue(lines[1].startswith("workspace: FAIL "), run.stdout)
         self.assertFalse((self.out / "video.mp4").exists())
         self.assertEqual(list((self.out / "review").iterdir()), [])
