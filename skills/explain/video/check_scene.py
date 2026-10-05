@@ -26,10 +26,13 @@ holds the quoted source. From remotion a file may bring in useCurrentFrame, inte
 interpolateColors, by import or by re-export. The clause of a `from "remotion"` is the text between the
 nearest `import` or `export` that is the first word of a line (on the line of the `from` or above) and the
 `from`.
-A clause that is one braced list, with no brace inside it, gives each item's own name (before an `as`,
-without a leading `type`); a clause of any other shape (a default import, `* as R`, `export *`, a list
-with a brace in a comment, or the tail of a line that holds two imports) is one cause that quotes it, its
-white space collapsed and cut to 40 characters.
+A clause that is one braced list, with no brace inside it and no comment mark (`/*`, `*/` or `//`), gives
+each item's own name (before an `as`, without a leading `type`); a clause of any other shape (a default
+import, `* as R`, `export *`, a list that holds a comment mark, or the tail of a line that holds two
+imports) is one cause that quotes it, its white space collapsed and cut to 40 characters. A comment inside
+the clause is refused, not read around: a block comment can hold a line that starts with `import {` or
+`export {`, which would move the start of the clause past a refused name. The author moves the comment out
+of the clause; a comment above the `import` word, outside the clause, passes.
 
 Tokens, matched with their case, one cause for each line that holds one:
   plain:   require(  import(  fetch(  foreignObject  dangerouslySetInnerHTML  clipPath  href  http://
@@ -66,6 +69,11 @@ TOKENS = [(t, re.compile(re.escape(t))) for t in PLAIN_TOKENS] + [
 SOURCE = re.compile(r"""\b(from|import)\s*["']([^"']*)["']""")
 FIRST_WORD = re.compile(r"[^\S\n]*(import|export)\b")   # at the start of a line: `import` or `export` first
 BRACED = re.compile(r"(?:type\s*)?\{([^{}]*)\}")   # one list: a brace inside makes any other shape
+# A comment mark in a clause makes it another shape, so it is quoted and refused, never read around: a block
+# comment may hold a line that starts with `import {` or `export {`, which moves the start of the clause past
+# a refused name; that comment opens after the name and closes before the real `}`, so its `*/` is always in
+# the clause. A `//` in the clause is refused the same way: there is no comment parser, one rule for both.
+COMMENT_MARK = re.compile(r"/\*|\*/|//")
 QUOTED_LENGTH = 40
 
 
@@ -101,8 +109,9 @@ def clause_before(text, starts, at):
 
 def refused_names(clause):
     """The names that `clause` brings in from remotion and that a scene may not: each name of one braced
-    list (the item's own name) that is not allowed, or, for a clause of any other shape, the clause."""
-    braced = BRACED.fullmatch(clause.strip())
+    list (the item's own name) that is not allowed, or, for a clause of any other shape, the clause. A clause
+    that holds `/*`, `*/` or `//` is of another shape, whatever else it holds."""
+    braced = None if COMMENT_MARK.search(clause) else BRACED.fullmatch(clause.strip())
     if braced is None:
         return [" ".join(clause.split())[:QUOTED_LENGTH]]
     names = []

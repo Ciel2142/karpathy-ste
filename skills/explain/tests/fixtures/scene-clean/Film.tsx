@@ -3,8 +3,7 @@
 import { useCurrentFrame as now, interpolate } from "remotion";
 import type { ReactElement } from "react";
 import {
-  C,
-  Draw,
+  C, Draw,
 } from "../kit";
 import type { Props } from "./script.gen";
 import { Part } from "./Part";

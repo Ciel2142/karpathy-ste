@@ -5,6 +5,7 @@ with one edit and asserted by its line, and the clean scene. A failing case asse
 empty stderr and the exact list of stdout lines, unless it says otherwise. <n> in a comment is the number
 of the planted line, which each test computes. Each test names the mutation that turns it red."""
 
+import re
 import shutil
 import subprocess
 import sys
@@ -196,21 +197,30 @@ class ImportRuleCase(SceneCase):
         self.assertFails(check_scene(copy), ['Part.tsx:%d: "Sequence" from remotion' % first])
 
     # red: the clause is the text after the nearest `import` or `export` word, wherever it stands (the
-    # first sub-test then gives exit 0: the `export {` of the comment hides Sequence)
+    # first sub-test then gives exit 0: the `export {` of the comment hides Sequence), or a clause with a
+    # comment mark (`/*`, `*/`, `//`) is read around instead of quoted and refused (each of the last three
+    # sub-tests then gives exit 0: the block comment holds a line that starts with `export {` or
+    # `import {`, the clause starts after it, and the name before the comment is never read)
     def test_a_comment_inside_the_clause_never_hides_a_name(self):
-        """Two copies, each with two lines appended to Film.tsx: a list that starts with Sequence and holds
-        the words `export {` in a line comment, and one that holds them in a block comment."""
+        """Five copies, each with two lines appended to one file: a list that starts with Sequence and holds
+        the words `export {` in a line comment; one that holds them in a block comment that closes before
+        the name `useCurrentFrame`; and three lists whose block comment opens after a refused name, holds a
+        line that starts with `import {` or `export {`, and closes after an allowed name, in Film.tsx, in
+        Part.tsx, and as a re-export in Part.tsx."""
         planted = [
-            'import { Sequence, // export {\n  useCurrentFrame } from "remotion";',
-            'import { Sequence, /*\nexport { */ useCurrentFrame } from "remotion";',
+            ("Film.tsx", 'import { Sequence, // export {\n  useCurrentFrame } from "remotion";'),
+            ("Film.tsx", 'import { Sequence, /*\nexport { */ useCurrentFrame } from "remotion";'),
+            ("Film.tsx", 'import { Sequence, /*\nexport { spring */ } from "remotion";'),
+            ("Part.tsx", 'import { Sequence /*\nimport { useCurrentFrame, Easing */ } from "remotion";'),
+            ("Part.tsx", 'export { Sequence, AbsoluteFill /*\nexport { interpolate */ } from "remotion";'),
         ]
-        for text in planted:
-            with self.subTest(text=text):
+        for name, text in planted:
+            with self.subTest(name=name, text=text):
                 copy = scene_copy(self)
-                append(copy, "Film.tsx", text)
+                append(copy, name, text)
                 done = check_scene(copy)
                 self.assertEqual((done.returncode, done.stderr), (1, ""))
-                self.assertRegex(done.stdout, r'(?m)^FAIL Film\.tsx:\d+: ".*" from remotion$')
+                self.assertRegex(done.stdout, r'(?m)^FAIL %s:\d+: ".*" from remotion$' % re.escape(name))
 
     # red: the clause is one braced list even when it holds another import (the second import of a line is
     # then read as the names of the first, `spring`, and Sequence passes with exit 0)
