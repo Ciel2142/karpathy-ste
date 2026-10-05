@@ -5,7 +5,9 @@ skipped only when `node` is missing. The components are bundled with the workspa
 rendered to static SVG markup (<ws>/app/node_modules/.bin/esbuild, ws = $EXPLAIN_VIDEO_WORKSPACE or
 ~/karpathy/video-workspace) from a temporary copy of the app that links node_modules to the
 workspace's, so nothing is written there; those cases are skipped, naming video-workspace.sh, when
-esbuild or tsc is missing. Each test names the mutation that turns it red."""
+esbuild or tsc is missing. The import surface of a scene (index.ts) is type-checked by the workspace's tsc in
+the same kind of copy, with a scene and a forged source from tests/fixtures/. Each test names the mutation
+that turns it red."""
 
 import json
 import os
@@ -20,7 +22,8 @@ from unittest import mock
 
 KIT = Path(__file__).resolve().parent.parent / "video" / "src" / "kit"
 VIDEO = KIT.parent.parent
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "film-timeline.json"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURE = FIXTURES / "film-timeline.json"
 
 NODE = shutil.which("node")
 NO_NODE_REASON = "node is not on PATH"
@@ -1103,6 +1106,73 @@ class TestCodeCard(RendersKit):
             " lineY: [lineY(card, src, 47), lineY(card, src, 54)] }));\n"
         )
         self.assertEqual(got, {"colX": [188, 308], "lineY": [86, 310]})
+
+
+# What a scene may import from "../kit": the value names that `import * as kit` shows at run time.
+SURFACE_VALUES = ["C", "MONO", "SANS", "STAGE", "MIN_TEXT", "p", "lin", "lerp", "mix", "mixColor",
+                  "Mono", "Sans", "Draw", "Mark", "colX", "lineY", "CodeCard"]
+
+
+@needs_kit_tools
+class TestKitCompiles(unittest.TestCase):
+    """The import surface of a scene (kit/index.ts), type-checked by the app's own tsc inside a copy of
+    the app, and bundled to list the values it exports."""
+
+    @staticmethod
+    def tsc(fixture, name):
+        """Copy the fixture `fixture` to src/kitcheck/`name` of a fresh kit_app(), run its tsc there, remove
+        the copy and return (exit code, what tsc printed). tsc prints its diagnostics on stdout."""
+        app = kit_app()
+        try:
+            target = app / "src" / "kitcheck" / name
+            target.parent.mkdir()
+            shutil.copyfile(FIXTURES / fixture, target)
+            done = subprocess.run(["node_modules/.bin/tsc"], cwd=app, capture_output=True, text=True, timeout=120)
+            return done.returncode, done.stdout + done.stderr
+        finally:
+            shutil.rmtree(app)
+
+    def test_the_app_and_a_scene_compile(self):
+        """Red: the app or the scene does not type-check against index.ts (tsc exits non-zero and prints
+        the diagnostics): index.ts drops or renames a name the scene imports (TS2305 for the type Where,
+        TS2724 for the value lineY), exports a name that the scene uses with another type (a FilmProps
+        whose `at` is not an At<S>, or whose `sources` is not a Record<R, Source>), or the scene stops
+        using one of the names it imports (TS6133 for a value, TS6196 for a type: noUnusedLocals), so it
+        no longer proves that the name is exported."""
+        self.assertEqual(self.tsc("film-kit-scene.tsx", "Scene.tsx"), (0, ""))
+
+    def test_forged_source_unknown_scene_and_maker_do_not_compile(self):
+        """Red: tsc accepts one of the three faults or finds others. Source loses its brand (a literal
+        with `path`, `from` and `lines` is a Source: no TS2741 on FORGED), FilmProps types `at` as
+        At<string> (any scene id passes: no TS2345 on UNKNOWN), index.ts exports sourceFromDisk (no TS2305
+        on MAKER), or index.ts is missing (TS2307 on every line that imports it)."""
+        lines = (FIXTURES / "film-kit-forged.ts").read_text(encoding="utf-8").splitlines()
+        marked = {
+            marker: [n for n, line in enumerate(lines, 1) if line.rstrip().endswith("// " + marker)]
+            for marker in ("FORGED", "UNKNOWN", "MAKER")
+        }
+        self.assertTrue(all(len(found) == 1 for found in marked.values()), marked)
+        expected = sorted([
+            ("TS2741", "src/kitcheck/forged.ts", marked["FORGED"][0]),
+            ("TS2345", "src/kitcheck/forged.ts", marked["UNKNOWN"][0]),
+            ("TS2305", "src/kitcheck/forged.ts", marked["MAKER"][0]),
+        ])
+
+        code, output = self.tsc("film-kit-forged.ts", "forged.ts")
+
+        errors = [line for line in output.splitlines() if "error TS" in line]
+        parsed = [re.match(r"(.+)\((\d+),\d+\): error (TS\d+): ", line) for line in errors]
+        self.assertNotIn(None, parsed, errors)
+        found = sorted((m.group(3), m.group(1), int(m.group(2))) for m in parsed)
+        self.assertEqual(found, expected, output)
+        self.assertEqual(code, 2, output)
+
+    def test_index_exports_exactly_the_scene_values(self):
+        """Red: index.ts exports a value that is not on the import surface (`export * from "./mono"` adds
+        ADVANCE, ROW and the other helpers of the grid; a re-export of makeAt, MonoRun or sourceFromDisk
+        adds one more name), or drops or renames one of the seventeen (lineY)."""
+        got = render_kit('import * as kit from "../kit";\nconsole.log(JSON.stringify(Object.keys(kit).sort()));\n')
+        self.assertEqual(got, sorted(SURFACE_VALUES))
 
 
 @needs_kit_tools
