@@ -11,7 +11,7 @@ import type { Source } from "./source";
 export const ADVANCE = 0.6;
 
 // The width of `text` set in monospace at `size`: its code points, each one advance wide.
-export const monoWidth = (text: string, size: number): number => [...text].length * (ADVANCE * size);
+export const monoWidth = (text: string, size: number): number => Array.from(text).length * (ADVANCE * size);
 
 // A code card: its top-left corner, its outer width, and the font size of its code.
 export type Card = { x: number; y: number; width: number; size: number };

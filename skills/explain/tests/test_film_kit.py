@@ -61,15 +61,21 @@ B = "#fc6255"
 
 
 class EvaluatesJs(unittest.TestCase):
-    """Base of the classes that check a kit module by evaluating JS expressions in one Node run.
-    `PRELUDE` is the module source that puts the names the expressions use in scope."""
+    """Base of the classes that check a kit module by evaluating JS expressions in one Node run. The
+    module source that puts the names the expressions use in scope is `PRELUDE`, or what `prelude`
+    returns for the extra arguments that `calls`, `values` and `errors` pass on to it."""
 
     PRELUDE = ""
 
-    def calls(self, expressions):
-        """Evaluate each JS expression of `expressions` in order, after PRELUDE. Each result is
-        {"value": v} (an `undefined` is reported as null), or {"error": message, "name": name} when the
-        call threw: a thrown error is read by its message and its class name."""
+    def prelude(self, *args):
+        """The module source that runs before the expressions. A class whose names do not depend on
+        the call sets PRELUDE; one that does (TestMarks: the scenes) overrides this."""
+        return self.PRELUDE
+
+    def calls(self, expressions, *args):
+        """Evaluate each JS expression of `expressions` in order, after `self.prelude(*args)`. Each
+        result is {"value": v} (an `undefined` is reported as null), or {"error": message, "name": name}
+        when the call threw: a thrown error is read by its message and its class name."""
         return run_node(
             "%s"
             "const out = [%s].map((call) => {"
@@ -77,19 +83,19 @@ class EvaluatesJs(unittest.TestCase):
             "  catch (e) { return { error: e.message, name: e.name }; }"
             "});"
             "console.log(JSON.stringify(out));"
-            % (self.PRELUDE, ", ".join("() => %s" % e for e in expressions))
+            % (self.prelude(*args), ", ".join("() => %s" % e for e in expressions))
         )
 
-    def values(self, expressions):
+    def values(self, expressions, *args):
         """The value of each expression; fails when one of them threw."""
-        got = self.calls(expressions)
+        got = self.calls(expressions, *args)
         for expression, result in zip(expressions, got):
             self.assertIn("value", result, "%s threw: %s" % (expression, result.get("error")))
         return [result["value"] for result in got]
 
-    def errors(self, expressions):
+    def errors(self, expressions, *args):
         """The message each expression threw; fails when one of them returned a value."""
-        got = self.calls(expressions)
+        got = self.calls(expressions, *args)
         for expression, result in zip(expressions, got):
             self.assertIn("error", result, "%s returned %s" % (expression, result.get("value")))
         return [result["error"] for result in got]
@@ -220,7 +226,7 @@ class TestMotion(unittest.TestCase):
 
 
 @unittest.skipIf(NODE is None, NO_NODE_REASON)
-class TestMarks(unittest.TestCase):
+class TestMarks(EvaluatesJs):
     # A scene the fixture cannot be: its first sentence starts at 9, not at the lead (6), and its audio
     # (60 frames) runs past the end of its last word (50). Marks that are one of those numbers by
     # accident in the fixture (6 == 6, 141 == 141) differ here.
@@ -233,35 +239,14 @@ class TestMarks(unittest.TestCase):
         ],
     }
 
-    def calls(self, expressions, scenes=None):
-        """Evaluate each JS expression of `expressions` in order, with `at` the makeAt of `scenes`
-        (default: the scenes of the film-timeline fixture). Each result is {"value": v}, or
-        {"error": message} when the call threw: a thrown error is read by its message."""
+    def prelude(self, scenes=None):
+        """The module source with `at` the makeAt of `scenes` (default: the scenes of the film-timeline
+        fixture); `scenes` is the optional second argument of `calls`, `values` and `errors`."""
         if scenes is None:
             scenes = json.loads(FIXTURE.read_text())["scenes"]
-        return run_node(
-            'import { makeAt } from "%s";'
-            "const at = makeAt(%s);"
-            "const out = [%s].map((call) => {"
-            "  try { return { value: call() }; } catch (e) { return { error: e.message }; }"
-            "});"
-            "console.log(JSON.stringify(out));"
-            % (kit_url("marks.ts"), json.dumps(scenes), ", ".join("() => %s" % e for e in expressions))
+        return 'import { makeAt } from "%s";const at = makeAt(%s);' % (
+            kit_url("marks.ts"), json.dumps(scenes),
         )
-
-    def values(self, expressions, scenes=None):
-        """The value of each expression; fails when one of them threw."""
-        got = self.calls(expressions, scenes)
-        for expression, result in zip(expressions, got):
-            self.assertIn("value", result, "%s threw: %s" % (expression, result.get("error")))
-        return [result["value"] for result in got]
-
-    def errors(self, expressions, scenes=None):
-        """The message each expression threw; fails when one of them returned a value."""
-        got = self.calls(expressions, scenes)
-        for expression, result in zip(expressions, got):
-            self.assertIn("error", result, "%s returned %s" % (expression, result.get("value")))
-        return [result["error"] for result in got]
 
     def test_scene_start_is_the_first_sentence(self):
         """Red: at(scene) is not the start of the scene's first sentence. On the fixture it is the
@@ -476,7 +461,7 @@ class TestMono(EvaluatesJs):
 
     def test_fit_columns(self):
         """Red: the right edge keeps no padding (the card gives 42), the count rounds or takes the
-        ceiling instead of the floor (width 590 is 40.5 columns and must give 40; the ceiling gives 41
+        ceiling instead of the floor (width 590 is 40.5 columns and must give 40; the ceiling gives 42
         for the card), a narrow card goes below 0 (width 80 gives -2), or a whole column is lost to
         rounding error: size 18 and width 140 hold exactly 4 columns, and 4 is not what the plain
         division gives."""
