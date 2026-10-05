@@ -7,12 +7,12 @@ transcript passes the cite check and the prose lint of verify.sh, and its cites 
 three files that no wave of the feature edits. The second class narrates the script with the say engine
 and builds the real timeline: the film is 30 to 50 s long and the marks of the kit (video/src/kit/marks.ts)
 read that timeline. The third class holds the picture: the app with FilmStage and the example compiles
-(the workspace's tsc, skipped naming video-workspace.sh when it is missing), and the files of
-video/src/film keep the directory, import and token rules of a scene (spec 5.1 and 7.2). No video is
-rendered here. Each test names the mutation that turns it red."""
+(the workspace's tsc, skipped naming video-workspace.sh when it is missing), and video/check_scene.py,
+the tool that checks a scene directory, passes the files of video/src/film (the directory, import and
+token rules of a scene, spec 5.1 and 7.2). No video is rendered here. Each test names the mutation that
+turns it red."""
 
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +22,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_check_scene import check_scene
 from test_film_kit import kit_app, kit_url, needs_kit_tools, run_node
 from test_narrate import NARRATE_PY
 from test_video_timeline import EXPLAIN, TOOL
@@ -245,64 +246,6 @@ class ExampleTimelineCase(unittest.TestCase):
         self.assertEqual([(call, frame) for (call, _), frame in zip(cases, got)], cases)
 
 
-# The rules of a scene file (spec 5.1 and 7.2), as lists: the sources a file of video/src/film may import
-# besides ./<Name> for a file <Name>.ts or <Name>.tsx of the directory, the names it may import or
-# re-export from remotion, the tokens it may not hold anywhere, and the tokens it may not hold before a
-# character that is not a letter or a digit (`<mask` refuses <mask> but not <maskUnits).
-SCENE_SOURCES = {"react", "remotion", "../kit", "./script.gen"}
-REMOTION_NAMES = {"useCurrentFrame", "interpolate", "Easing", "spring", "interpolateColors"}
-REFUSED = ["require(", "import(", "fetch(", "foreignObject", "dangerouslySetInnerHTML", "clipPath", "href",
-           "http://", "https://", "@ts-nocheck", "@ts-ignore", "@ts-expect-error", "as unknown", "<any>"]
-REFUSED_WORDS = ["<mask", "<use", "<image", "as any", ": any"]
-
-# `from "<source>"` of an import or a re-export, and the bare `import "<source>"`.
-SOURCE = re.compile(r"""\b(?:from|import)\s*["']([^"']*)["']""")
-# What an import from remotion brings in, or a re-export from it passes on: `{ a, b as c, type d }`, a
-# default or a namespace of an import, `*` or `* as e` of an export.
-REMOTION_IMPORT = re.compile(r"""\b(?:import|export)\s+(?:type\s+)?([^;]*?)\s*\bfrom\s*["']remotion["']""", re.S)
-
-
-def remotion_names(text):
-    """The names that `text` imports or re-exports from remotion: each name of a braced list (its own name,
-    before an `as`), and the whole clause of a default or a namespace import or of `export *` (which no
-    allowed name equals)."""
-    names = []
-    for clause in REMOTION_IMPORT.findall(text):
-        braced = re.fullmatch(r"\{(.*)\}", clause.strip(), re.S)
-        if braced is None:
-            names.append(clause.strip())
-            continue
-        for item in braced.group(1).split(","):
-            words = item.split()
-            if words and words[0] == "type":
-                words = words[1:]
-            if words:
-                names.append(words[0])
-    return names
-
-
-def scene_faults(directory):
-    """The broken scene rules of the files of `directory`, as sorted strings: an entry that is not a file
-    named *.ts or *.tsx (hidden entries apart), an import of a source the list does not allow, a name
-    imported or re-exported from remotion that the list does not allow (`export *` among them), and a
-    refused token."""
-    entries = sorted(p for p in Path(directory).iterdir() if not p.name.startswith("."))
-    own = {p.stem for p in entries if p.is_file() and p.suffix in (".ts", ".tsx")}
-    allowed = SCENE_SOURCES | {"./" + name for name in own}
-    faults = []
-    for path in entries:
-        if not (path.is_file() and path.suffix in (".ts", ".tsx")):
-            faults.append("%s: not a .ts or .tsx file" % path.name)
-            continue
-        text = path.read_text(encoding="utf-8")
-        faults += ["%s: source %s" % (path.name, s) for s in SOURCE.findall(text) if s not in allowed]
-        faults += ["%s: remotion %s" % (path.name, n) for n in remotion_names(text) if n not in REMOTION_NAMES]
-        faults += ["%s: token %s" % (path.name, t) for t in REFUSED if t in text]
-        faults += ["%s: token %s" % (path.name, t) for t in REFUSED_WORDS
-                   if re.search(re.escape(t) + r"(?![A-Za-z0-9])", text)]
-    return sorted(faults)
-
-
 class ExampleSceneCase(unittest.TestCase):
     """The picture of the example: FilmStage, composition Film and src/film/Film.tsx."""
 
@@ -326,11 +269,10 @@ class ExampleSceneCase(unittest.TestCase):
         pipeline's; a file of another directory), imports Sequence (or any name but the five) from remotion,
         re-exports one (`export { Sequence } from "remotion"`) or all of remotion (`export * from
         "remotion"`), holds a refused token (`: any`, `as unknown`, an href), or the directory holds another
-        kind of file or a directory; or Film.tsx is missing or does not export the function Film."""
-        film = FILM_DIR / "Film.tsx"
-        self.assertTrue(film.is_file())
-        self.assertIn("export function Film(", film.read_text(encoding="utf-8"))
-        self.assertEqual(scene_faults(FILM_DIR), [])
+        kind of file or a directory; or Film.tsx is missing or does not export the function Film. The
+        rules are those of check_scene.py: this runs the tool on the directory (exit 0, no output)."""
+        done = check_scene(FILM_DIR)
+        self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
 
 
 if __name__ == "__main__":
