@@ -90,16 +90,19 @@
 # directory goes by the EXIT trap. A marker in the log of the pass fails the stage whatever the exit
 # code of the pass: a cancel that the CLI reads late, or never, cannot pass the guard.
 #   guard: FAIL frame <f> (scene <id>): <fault>[; <fault>...]
-#       FilmStage measured a fault at check frame <f> of scene <id>. The line is the first log line
-#       that holds "guard: FAIL frame ", from that text to the end of the line: the message that
-#       FilmStage gave to cancelRender, with no "Error" prefix and no code frame below it. Nothing
-#       follows; the log stays in <out>/build/guard.log.
+#       FilmStage measured a fault at check frame <f> of scene <id>. The line comes from the first log
+#       line that holds "guard: FAIL frame " or "MARK scene " (whichever comes first); when that line
+#       holds "guard: FAIL frame ", it is the text from that marker to the end of the line: the
+#       message that FilmStage gave to cancelRender, with no "Error" prefix and no code frame below
+#       it. Nothing follows; the log stays in <out>/build/guard.log.
 #   guard: FAIL mark: scene <id>: <cause>
 #       The scene code threw a mark error of spec 6 (kit/marks.ts: a word that the narration does not
-#       say, a sentence past the last one, a scene that does not exist) at a check frame. The line is
-#       the first log line that holds either marker (this one or "guard: FAIL frame "): "guard: FAIL
-#       mark: " and then the text after "MARK " of the message, as marks.ts wrote it, with no "Error"
-#       prefix and no code frame below it. Nothing follows; the log stays in <out>/build/guard.log.
+#       say, a sentence past the last one, a scene that does not exist) at a check frame. The line comes
+#       from the first log line that holds "guard: FAIL frame " or "MARK scene " (whichever comes
+#       first); when that line holds "MARK scene ", it is "guard: FAIL mark: scene " and then the text
+#       after "MARK scene " of the message, as marks.ts wrote it, with no "Error" prefix and no code
+#       frame below it ("guard: FAIL mark: " is only the prefix that the stage prints: the stage does
+#       not look for it in the log). Nothing follows; the log stays in <out>/build/guard.log.
 #       A mark error in code that no check frame reaches is not caught by the guard: it ends the
 #       render stage with "render: FAIL remotion render exit 1", its MARK line in
 #       <out>/build/render.log.
@@ -126,8 +129,9 @@
 # narration clips in public/audio (brainrot: also the picker's bg-stage/ behind public/bg). A film
 # puts its scene only there: the scene stage replaces src/film of this copy, and nothing of the
 # scene reaches <ws>/app or the shared node_modules. The clips go into public/audio from the
-# output directory before the guard pass and, again, before the render: with --muted the renderer
-# leaves the sound out of guard.mp4, but it still fetches the clip of every audio of a rendered frame.
+# output directory before the render and, for a film only (the guard pass is film only), before the
+# guard pass as well: with --muted the renderer leaves the sound out of guard.mp4, but it still
+# fetches the clip of every audio of a rendered frame.
 # The workspace stage makes it, before its ok line, after it has removed each run directory
 # of <ws>/runs (an entry named run.*; other entries stay) modified more than a day (1440 min)
 # ago: what a killed render left. <ws>/runs may be a symlink to a directory.
