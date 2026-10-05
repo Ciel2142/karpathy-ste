@@ -5,7 +5,7 @@ coverage: waived
 # Base (spec §6.5, amendment A1 of 2026-10-06): one feature branch `feat/explain-lesson`, cut
 # from `main` (brainrot merged). lesson-page touches no film file and starts now. clip-format,
 # lesson-rung and lesson-live-run target the film and wait for `feat/explain-film` to merge
-# (epic kp-5s0, wave explainer-removal); the branch then merges `main`.
+# (epic kp-5s0, wave explainer-removal, its last); the branch then merges `main`.
 waves:
   - id: clip-format
     slice: domain
@@ -17,7 +17,7 @@ waves:
     done_when: >-
       The explain unit suites pass with the spec §7.1 cases: `test_video_timeline_clip.py`
       (clip timeline with `maxTotalSeconds: 60` and `minText: 19`, the three-name format
-      message), the `clip` 61 s case in `test_check_budgets.py`, the source-cite cases, the
+      message), the `clip` 61 s case in `test_check_budgets.py`, the source-cite cases, the cut-mark and `sourceLines: 12` cases in `test_film_kit.py`, the
       `minText` guard cases in `test_film_guard.py`, the film-path cases for `render.sh`
       and `transcript.py`; the worked example, every fixture and the film E2E pass the
       source-cite check (fixed where they showed lines they did not cite).
@@ -27,16 +27,17 @@ waves:
       - skills/explain/video/formats.json
       - skills/explain/video/build-timeline.mjs
       - skills/explain/video/src/FilmStage.tsx (minText from the timeline)
-      - skills/explain/video/src/kit.ts (MIN_TEXT removed)
+      - skills/explain/video/narrate.py, skills/explain/video/check_budgets.py (clip in their format lists)
+      - skills/explain/video/src/kit/mono.ts (the cut mark)
       - skills/explain/video/src/types.ts
       - skills/explain/video/src/film/ (source-cite fix only, if needed)
-      - skills/explain/scripts/render.sh, skills/explain/video/check_render.sh, skills/explain/video/transcript.py (clip takes the film path)
+      - skills/explain/scripts/render.sh, skills/explain/video/check_render.sh, skills/explain/video/transcript.py, skills/explain/video/src/Root.tsx (clip takes the film path)
       - skills/explain/rungs/video.md (the floor as a number per format)
       - skills/explain/tests/test_video_timeline_clip.py
       - skills/explain/tests/test_video_timeline_film.py, test_video_timeline_brainrot.py (message asserts only)
       - skills/explain/tests/test_check_budgets.py (clip case)
-      - skills/explain/tests/test_film_guard.py (minText cases)
-      - skills/explain/tests/test_render.py, test_transcript.py (clip film-path cases)
+      - skills/explain/tests/test_film_guard.py (minText cases), test_film_kit.py (cut mark), test_format_limits.py (three rows)
+      - skills/explain/tests/test_render.py, test_transcript.py, test_narrate_sentences.py (clip film-path cases, message asserts)
       - skills/explain/tests/fixtures/ and video E2E scripts (source-cite fixes only)
     risk: low
     plan: null

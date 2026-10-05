@@ -17,7 +17,7 @@ The grounding of the explain skill does not change: every section and every scen
 the page passes `verify.sh`, each clip passes `render.sh`, and all prose follows the STE profile.
 What the lesson adds beyond the two rungs is accuracy work: two review gates run by fresh
 subagents, one on meaning before rendering, one on the picture after; and one mechanical check
-that the film pipeline lacks, that a code card shows only lines that a cite names. A clip that
+that the film pipeline lacks, that a code card shows only a range that holds a cited line. A clip that
 cannot be made accurate is dropped; a page claim that cannot be supported is removed.
 
 A1. A clip is a film (`2026-10-05-explain-film-design.md`): its words are data in `script.json`,
@@ -146,14 +146,16 @@ lines, the stills). It states:
 A section gets a clip when narration plus motion explains it better than a static view. This is
 not limited to flows: a structure that builds up step by step, a before and after, a camera move
 along code, a comparison whose terms change over time. The author writes one line of reason per
-clip in `review/plan.md`; the page reviewer of gate 1 judges the choice, and the stills of gate
-2 judge whether the picture earned it.
+clip in `review/plan.md`; the page reviewer of gate 1 judges the choice, and gate 2 check 6
+judges from the stills whether each scene's picture moved as its narration says.
 
 A1. The usual range is 2 to 3 clips of 20 to 40 s per lesson; the hard cap is 60 s per clip,
 and there is no cap on the count. The film live runs (2026-10-05) measured about 7 lines of
 scene code and 15 to 25 seconds of author time for each second of film, over 3 to 6 render runs;
-a 30 s clip is therefore about 200 lines of scene code and 10 minutes, before the gates. The
-lesson live run (7.5) measures the clip numbers and folds them back here and into `lesson.md`.
+a 30 s clip is therefore about 200 lines of scene code and 10 minutes with the author's own
+stills reads, and about twice that with two review rounds (in the film runs, half the time and 3
+of the 3 to 6 runs were review-driven). The lesson live run (7.5) measures the clip numbers and
+folds them back here and into `lesson.md`.
 
 Zero-clip rule: if the plan marks no section for a clip, the lesson rung prints the rung line,
 says that no section earns a clip, offers `--as page`, and stops before step 3. It builds
@@ -179,7 +181,7 @@ from the lint's prose (the lint drops an element with that attribute and its sub
 sentence before it is prose and follows the STE profile.
 
 Poster rule (A1): `clips/<id>/poster.png` is a copy of one review still of the same clip,
-`clips/<id>/review/still-NN-<id>-end.png` (the last frame of a scene; a film's picture builds up,
+`clips/<id>/review/still-NN-<scene>-end.png` (`<scene>` is the scene id; the last frame of a scene; a film's picture builds up,
 so the end of a scene is its fullest state). The default is the `-end` still of the last scene,
 the finished picture. The author copies it in step 8 (section 5.5), after the clip's last
 render, so the poster never shows a frame of an earlier render. `poster.png` exists so that the
@@ -245,11 +247,13 @@ the only subagents.
    ids are fixed here and name the clips; if a later step renames, splits or merges a section,
    the author renames or removes `clips/<id>/` before step 6, and the `media` check catches the
    rest in step 8. Write `clips/<id>/script.json` for each clip from the film template
-   (`templates/video-script.json`): `"format": "clip"`; `title` = the section's `<h2>` question;
+   (`templates/film-script.json` today; `video-script.json` after kp-5s0.3 renames it):
+   `"format": "clip"`; `title` = the section's `<h2>` question;
    `subject` = the lesson's subject and kind; `provenance` as the video rung requires;
-   `not_covered` = `none`; `sources` for the lines the code card shows. Start `clips/<id>/scene/`
-   from a copy of `<skill-dir>/video/src/film/` (the worked example) and write the picture as
-   `video.md` section 4 says, with the clip's 19 px floor (A1).
+   `not_covered` = `none`; `sources` for the lines the code card shows (at most 12 lines each,
+   6.1). Start `clips/<id>/scene/` from a copy of `<skill-dir>/video/src/film/` (the worked
+   example) and write the picture as `video.md` section 4 says, with the clip's floors: 19 px for
+   any text, 22 px for text in `C.muted` (the film's 16 px dim-caption rule at 75 %) (A1).
 4. Mechanical checks, before any review. On the page: `cite_check.py index.html` and
    `ste_lint.py --html index.html`. On each clip, the three tools of `render.sh` stage 1, as it
    runs them: `build-timeline.mjs --check clips/<id>/script.json --root <root>`,
@@ -288,8 +292,9 @@ The script reviewer checks:
 1. the narration makes no claim that the cited lines, read from `{root}`, do not support;
 2. clip and section agree: nothing in the narration contradicts the section text; the clip may
    say less, never something different;
-A1: whether the picture earns its clip is judged from the stills at gate 2, not from the scene
-code here. Mechanical facts (cites resolve, scene count, words per scene, source ranges) are not
+A1: whether the picture earns its clip is judged from the stills at gate 2 (check 6), not from
+the scene code here. At dispatch the author copies each `clips/<id>/script.json` to
+`review/gate1-<id>.script.json`; the render reviewer diffs against that copy (5.4). Mechanical facts (cites resolve, scene count, words per scene, source ranges) are not
 on the lists: step 4 settled them.
 
 Report, written by the reviewer to `{report}` (`review/gate1-<page|id>-round-<k>.md`):
@@ -331,47 +336,61 @@ After round 2 (or after round 1 when everything is `ok`):
 ### 5.4 Render, Gate 2, drop rule
 
 5. Render each clip: `render.sh clips/<id>`, in the background with a log file. A1: the first
-   render runs alone until its `workspace: ok` line (a first install must not run twice); the
-   other clips then render at the same time, each in its own run directory (film spec D8 and
-   section 7.6). Each run must end with its eleven `ok` lines (`rungs/video.md` section 5).
+   render runs alone until its `narration (<engine>): ok` line (a first install must not run
+   twice, and the first Kokoro narration resolves its Python packages); the other clips then
+   render at the same time, each in its own run directory (film spec D8 and section 7.6). Each run must end with its eleven `ok` lines (`rungs/video.md` section 5).
    - A `FAIL` whose cause is in `script.json` or `scene/` (`script`, `scene`, `timeline`,
      `guard`, `sync`, `stills`, `transcript`) is fixed there and re-rendered. The author may fix
      and re-render twice; a third such `FAIL` on the same clip drops it with reason
-     `render: FAIL <cause>`. (A1: the film live runs needed 3 to 6 runs for a long film; a
-     clip is short, and the gates come after.)
+     `render: FAIL <cause>`. Only `FAIL` runs count; a re-render after the author's own stills
+     read does not. (A1: the film live runs needed 3 to 6 runs for a long film; a clip is short,
+     and the gates come after.)
+   - `render: FAIL remotion render exit <n>` with a `MARK scene` line in `build/render.log` is a
+     bad mark in the scene code: an author fault, as above. A `container` `FAIL` (wrong size or
+     fps in the mp4) is an environment fault.
    - A `workspace` or `narration` `FAIL`, or a `render` or `guard` `FAIL` that names the renderer
-     (`remotion render exit <n>`) and not the script or the scene, is an environment fault: print
-     the stage line, tell the user, stop the lesson. Nothing is dropped for it.
+     and shows no `MARK` line, is an environment fault: print the stage line, tell the user, stop
+     the lesson. Nothing is dropped for it.
 6. Gate 2, in parallel, fresh subagents, prompt `<skill-dir>/lesson/review-render.md`. A1: a
-   reviewer reads at most four stills (a subagent that reads more stalls; measured 2026-10-05).
-   The stills of a clip that a reviewer gets are its `-end` stills, `still-NN-<id>-end.png`, one
-   per scene: the author reads every still as `video.md` section 6 requires, and the reviewer
-   reads the end state of each scene. A clip with more than four scenes gets more than one
-   reviewer, each with four consecutive scenes and the whole script; their reports are
-   `review/gate2-<id>-<part>-round-<k>.md`, `<part>` from 1. Inputs, as absolute paths:
-   `clips/<id>/script.json`, the stills of its part, `clips/<id>/index.html` (the transcript),
-   `index.html` with the section id, `{root}`, and the gate-1 reports of this clip. The author
-   states at the top of the dispatch what changed in the script since gate 1, or `nothing`.
+   reviewer reads at most five stills (a subagent that reads many images stalls; measured
+   2026-10-05). The author reads every still first, as `video.md` section 6 requires. Then the
+   stills of a clip are split by scene: a reviewer gets one or more whole scenes, every still of
+   those scenes (`still-NN-<scene>-s<k>.png` for each sentence and `still-NN-<scene>-end.png`), plus
+   the `-end` still of the scene before its first one, five stills at most; a scene with more
+   than four sentences gets a reviewer of its own. On-stage text that appears and goes inside a
+   scene is in no script and no source, so the sentence stills are the only place a reviewer
+   sees it. Reports are `review/gate2-<id>-<part>-round-<k>.md`, `<part>` from 1; one `open`
+   finding in any part counts for the clip. Inputs, as absolute paths: `clips/<id>/script.json`,
+   `review/gate1-<id>.script.json` (the copy from gate 1; the reviewer diffs the two), the stills
+   of its part, `clips/<id>/index.html` (the transcript), `index.html` with the section id,
+   `{root}`, and the gate-1 reports of this clip.
 
    Framing: "Hunt. Assume one still gives a false picture of what its scene narrates, and find
    it. `verdict: ok` with zero findings is expected for a correct clip."
 
    Checks, what only the picture can tell (A1: the first three are the film's stills review,
    `video.md` section 6; the guard already measured off-canvas, small and overlapping text):
-   1. each `-end` still agrees with the narration of its scene, and nothing in the frame suggests
-      a thing the narration does not say; text on the stage, a quoted line among it, gives a true
-      picture of the subject;
+   1. each still agrees with what its scene narrates up to that sentence, and nothing in the
+      frame suggests a thing the narration does not say; every text on the stage that is not a
+      source line gives a true picture of the subject; a lit source line (a band or a tint) is a
+      line that a cite of the scene names, read from `{root}`;
    2. an `-end` still that equals the `-end` still of the scene before it: the scene changed
       nothing;
    3. a picture that is a list of sentences;
    4. the poster still (4.2) is informative on its own;
-   5. if the script changed since gate 1, the changed narration or cites still pass the script
-      reviewer's two checks (5.2); an unchanged script skips this.
+   5. if the two scripts differ, the changed narration or cites still pass the script reviewer's
+      two checks (5.2); identical scripts skip this;
+   6. motion is earned: from the `-end` still before the scene to the scene's own stills, the
+      picture changed in a way that the scene's narration explains; a scene whose picture a
+      still could carry alone is a finding.
 
    Same report shape, written to `{report}`, same `## Author` block. A `fix` means: edit
    `script.json` or `scene/`, re-render that clip, re-review with the round-1 report attached and
-   the resolved/open ruling first. At most two rounds.
-7. **Drop rule, gate 2.** A clip under an `open` finding after round 2 is dropped.
+   the resolved/open ruling first. At most two hunting rounds. A finding first made in round 2
+   that the author fixes gets one verification read: a fresh reviewer with the round-2 report and
+   the re-rendered stills of that scene rules it `resolved` or `open`, and hunts for nothing new.
+7. **Drop rule, gate 2.** A clip under an `open` finding after the last read, or with a round-2
+   finding that the author disputes, is dropped.
 
 Dropping a clip: remove its `figure.clip` from the page; add `<id> — <reason>` to the
 `Dropped clips` provenance row; keep `clips/<id>/` on disk, nothing links it. The provenance
@@ -400,15 +419,20 @@ one key:
 
 | Place | Change |
 |---|---|
-| `formats.json` | a `clip` row: the `film` row with `maxTotalSeconds: 60` and `minText: 19`; the `film` row gets `minText: 14`, its value today |
-| `build-timeline.mjs` | `clip` is a known format and is validated as a film; the message becomes `format must be film, brainrot or clip`; the timeline carries `minText` |
-| `FilmStage.tsx` | the guard reads `minText` from the timeline props instead of the kit's `MIN_TEXT`; `kit.ts` drops `MIN_TEXT`, and `video.md` states the 14 px floor as a number |
-| `render.sh`, `transcript.py`, `check_render.sh`, `types.ts` | `clip` takes the film path everywhere the code asks for the format: the `scene` and `guard` stages run, the composition is `Film`, the transcript has the film rows. The plan finds each `= "film"` test and makes it hold for `clip` |
+| `formats.json` | a `clip` row: the `film` row with `maxTotalSeconds: 60`, `sourceLines: 12` and `minText: 19`; the `film` row gets `minText: 14`, its value today |
+| `kit/mono.ts` `CodeCard` | a line that is cut to the card width ends in a visible `…` (the kit cuts with no mark today); films gain it too |
+| `build-timeline.mjs` | `clip` joins `FORMAT_NAMES`; `--check` and build mode (`isFilm`, the `sources` and `checkFrames` of a film) treat it as a film; the message becomes `format must be film, brainrot or clip`; the timeline carries `minText` |
+| `narrate.py`, `check_budgets.py` | each has its own format list and refuses an unknown one (`format must be film or brainrot`; `no usable format`, exit 2): `clip` joins both, with the same message text as above in `narrate.py` |
+| `FilmStage.tsx` | the guard reads `minText` from the timeline props (`faultsOf` already takes a number). The kit keeps `export const MIN_TEXT = 14` (`kit/palette.ts`, the film's value and the authors' constant; `test_rung_drift.py` and `test_film_kit.py` pin it); `lesson.md` tells a clip author the 19 px number |
+| `render.sh`, `transcript.py`, `check_render.sh`, `types.ts`, `Root.tsx` | `clip` takes the film path everywhere the code asks for the format: the `scene` and `guard` stages run, the composition is `Film`, the transcript is the film page (scene sections headed by id, no Format row). The plan finds each `= "film"` test and makes it hold for `clip`; after kp-5s0 ("every script that is not brainrot is a film") most of them are gone |
+| `test_format_limits.py` | the row set becomes `["brainrot", "clip", "film"]` |
 
 Limits of `clip`: 1280×720, 3 to 30 scenes, 30 s per scene, 60 s total, 45 narration words,
-lead 6, pause 12, 20 source lines, text floor 19 px. The total budget is checked by
-`check_budgets.py` from the `maxTotalSeconds` of the timeline, with the existing text:
-`timeline: FAIL total 61.0 s (max 60)`. A guard fault names the floor it measured against:
+lead 6, pause 12, 12 source lines (a 20-line card at 19 px is 640 of 720 px; 12 lines are 397),
+text floor 19 px, and a rule in `lesson.md`: dim text (`C.muted`) 22 px or more. The total budget is checked by
+`check_budgets.py` from the `maxTotalSeconds` of the timeline, with the existing text and its
+format tag: `timeline: FAIL total 61.0 s (max 60, clip)`. A guard fault names the floor it
+measured against:
 `SMALLTEXT 16.0 px "..."` on a clip is a fault; on a film it is not.
 
 ### 6.2 Source-cite check (`build-timeline.mjs --check`, every format with `sources`) (A1)
@@ -425,7 +449,12 @@ are on the stage. So the check is mechanical, in `--check`:
 
 This tightens the film contract too. The plan runs the worked example, the fixtures and the
 film E2E against it and fixes any that fail; an example that shows lines it does not cite was
-wrong. This and `minText` are the two changes this design makes to film-owned code.
+wrong. One cited line licenses a range of 12; which line a band lights is in scene code, so
+gate 2 check 1 reads the lit line against the cites. The cases of `test_video_timeline_film.py`
+that build a film with a `sources` entry and no cite on its path (`changed(...)` on `src/three.py`
+and `src/crlf.py`) get a matching cite; `templates/film-script.json` passes as it is. The
+source-cite check, `minText` and the cut mark are the three changes this design makes to
+film-owned code; the `clip` rows are additions.
 
 ### 6.3 `verify.sh`
 
@@ -465,11 +494,12 @@ lesson: five; video: three".
 
 ### 6.5 Sequencing (A1)
 
-Wave `lesson-page` touches no file that the film touches; it starts now, on `feat/explain-lesson`
-cut from `main` (brainrot merged 2026-10-06). The other three waves target the film and wait for
-`feat/explain-film` to merge to `main` (its waves `explainer-default` and `explainer-removal`,
-epic kp-5s0, are the last two); the lesson branch then merges `main` and the `clip-format` wave
-is planned against the merged code.
+Wave `lesson-page` touches no film-pipeline file (`SKILL.md` and `README.md`, which both
+features edit, belong to wave `lesson-rung` and merge by hand); it starts now, on
+`feat/explain-lesson` cut from `main` (brainrot merged 2026-10-06). The other three waves target
+the film and wait for `feat/explain-film` to merge to `main` (its last wave is
+`explainer-removal`, epic kp-5s0 with four tasks; `explainer-default`, kp-s2m, is closed); the
+lesson branch then merges `main` and the `clip-format` wave is planned against the merged code.
 
 Constraint that this design places on the removal wave (kp-5s0), carried to that issue as a
 note: where the code asks for the format, film-only behavior (the `scene` and `guard` stages, the
@@ -483,14 +513,18 @@ then takes the film path with the row of 6.1 and nothing else.
 
 - `format: "clip"`: a three-scene film script passes `--check` and builds a timeline with
   `maxTotalSeconds: 60` and `minText: 19`; a `film` timeline carries `minText: 14`.
-- `format: "other"` fails with `format must be film, brainrot or clip`.
-- `test_check_budgets.py`: a `clip` timeline of 61 s fails with `FAIL total 61.0 s (max 60)`;
-  60 s passes.
+- `format: "other"` fails with `format must be film, brainrot or clip` in `--check` and in
+  `narrate.py`; the four tests that pin the old string (`test_video_timeline_film.py`,
+  `test_video_timeline_brainrot.py`, `test_render.py`, `test_narrate_sentences.py`) move with it.
+- `test_check_budgets.py`: a `clip` timeline of 61 s fails with `FAIL total 61.0 s (max 60, clip)`;
+  60 s passes; `test_format_limits.py` lists three rows.
 - Source-cite check (6.2): a `sources` entry with no cite on its path inside its range fails
   with the 6.2 text; the same entry with such a cite passes; a cite on another file does not
   count. Run against the worked example, every fixture and the film E2E script.
 - `test_film_guard.py`: with `minText: 19` in the props, a 16 px text is `SMALLTEXT 16.0 px`;
   with `minText: 14` it passes (the existing guard cases keep their values).
+- `test_film_kit.py`: a source line longer than the card's columns renders with `…` as its last
+  character; a line that fits has none; `sourceLines: 12` refuses a 13-line clip source.
 - `clip` takes the film path: a `clip` script through the `script` stage of `render.sh` prints
   `script: ok (<n> scenes)`, and `transcript.py` gives it the film rows.
 
@@ -580,5 +614,9 @@ and render runs per clip, as the film live run measured them).
 - **D12. The text floor is a format value (A1).** `minText` in the row, read by the guard, so a
   clip shown at 75 % keeps the page's 14 px floor. Rejected: a 1280 px breakout in the page (the
   page becomes a video page; 500 px readers lose the column).
-- **D13. Four stills per reviewer, `-end` stills only (A1).** A reviewer that reads many images
-  stalls; the end state of each scene is the picture the reader keeps; the author reads the rest.
+- **D13. Whole scenes per reviewer, five stills at most (A1).** A reviewer that reads many
+  images stalls, so the stills of a clip are split by scene, with the previous scene's end still
+  for the motion and the no-change checks. Rejected: `-end` stills only (text that appears and
+  goes inside a scene is in no file a reviewer could read); a mechanical rule that every on-stage
+  string comes from the script (labels are often computed, and the film's own grain is a picture
+  written in code).
