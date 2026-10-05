@@ -240,28 +240,59 @@ waves:
       - the judge reports no open fault of spec §8.4 on the final stills
       - the user watches both films and states acceptance
 
-  - id: explainer-removal
+  # The first plan session of the removal (ralph, 2026-10-05) refused one wave: seven units
+  # that each need their own review, and nine test files missing from `owns`. The wave is
+  # split in two at the point where the unit suite and the gated suite are both green. The
+  # scope and the done-when of spec §10 are unchanged.
+  - id: explainer-default
     slice: cohesive
     goal: >-
-      Spec §10: a script without a format is a film, `explainer` is refused, everything that
-      only the explainer used is gone, the tests that brainrot needs are ported to the
-      brainrot format, and the film template is `templates/video-script.json`.
+      Spec §10, the default: a script without a format is a film for narration, the validator
+      and `render.sh`; `explainer` is refused; the unit cases and the gated harness that used
+      the explainer run on the brainrot format or on the film.
     done_when: >-
-      The four conditions of spec §10 hold: both greps print nothing, `narrate.py` has one
-      narration mode, the unit suites pass, and the film and brainrot end-to-end tests pass
-      (eleven and ten lines). kp-5a2 is closed as superseded.
+      `narrate.py` has one narration mode; `formats.json` has no `explainer` row and
+      `build-timeline.mjs`, `check_budgets.py` and `render.sh` refuse the name; no test renders
+      or validates an explainer script; the unit suites pass, and the film and brainrot
+      end-to-end tests pass (eleven and ten lines). kp-5a2 is closed as superseded.
     status: pending
     depends_on: [film-live-run]
     owns:
-      - skills/explain/video/build-timeline.mjs, narrate.py, check_budgets.py, transcript.py, check_render.sh
+      - skills/explain/video/narrate.py, build-timeline.mjs, check_budgets.py, check_render.sh
       - skills/explain/video/formats.json (explainer row)
       - skills/explain/scripts/render.sh
-      - skills/explain/video/src/Explain.tsx, Root.tsx, types.ts, box.ts, sceneBox.tsx
-      - skills/explain/templates/video-script.json, film-script.json, video.html
-      - skills/explain/tests/test_video_timeline.py, test_narrate.py, test_render.py, test_check_render.py, test_transcript.py, test_scene_geometry.py, video_e2e.py (ports and cuts)
-      - skills/explain/tests/test_landscape_regression.py, capture_landscape_baseline.sh (deleted)
-      - skills/explain/rungs/video.md, rungs/brainrot.md, README.md (the template name, the default format)
+      - skills/explain/tests/test_narrate.py, test_narrate_sentences.py (ports and cuts)
+      - skills/explain/tests/test_video_timeline.py, test_video_timeline_brainrot.py, test_video_timeline_film.py, test_check_budgets.py, test_format_limits.py (ports and cuts)
+      - skills/explain/tests/test_render.py, test_render_film.py, test_render_parallel.py, test_check_render.py, video_e2e.py (ports and cuts)
+      - skills/explain/rungs/brainrot.md (the sentence about a script without the key)
     risk: high   # a format is refused and the default changes; 69 unit cases move
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film tests.test_render_brainrot
+
+  - id: explainer-removal
+    slice: cohesive
+    goal: >-
+      Spec §10, the rest: the transcript reads a script without a format as a film, everything
+      that only the explainer used is gone from the Remotion project, and the film template is
+      `templates/video-script.json`.
+    done_when: >-
+      The four conditions of spec §10 hold: both greps print nothing, `narrate.py` has one
+      narration mode, the unit suites pass, and the film and brainrot end-to-end tests pass
+      (eleven and ten lines).
+    status: pending
+    depends_on: [explainer-default]
+    owns:
+      - skills/explain/video/transcript.py, skills/explain/tests/test_transcript.py (ports and cuts)
+      - skills/explain/video/src/Explain.tsx, Root.tsx, types.ts, box.ts, sceneBox.tsx
+      - skills/explain/tests/test_scene_geometry.py
+      - skills/explain/tests/test_landscape_regression.py, capture_landscape_baseline.sh (deleted)
+      - skills/explain/templates/video-script.json, film-script.json, video.html
+      - skills/explain/tests/test_film_example.py, test_rung_drift.py, tests/fixtures/brainrot-limits-script.json (the template name, the cite line)
+      - skills/explain/rungs/video.md, rungs/brainrot.md, README.md (the template name, the default format)
+      - each other file that the first grep below still names
+    risk: high   # files that brainrot shares are cut; the template is renamed
     plan: null
     acceptance:
       - git grep -n -i explainer -- skills/ README.md   (prints nothing)
