@@ -440,8 +440,11 @@ class TestMarks(EvaluatesJs):
         """Red: a message differs from the one named here by a word or a number (the <n> is the value
         as written, so -1 and 1.5 are shown as they are), a check is missing (at.said or at.end of a
         missing scene fails with a TypeError, a sentence of 0, 1.5 or -1 or an nth of 0 reads
-        undefined, "--" falls through to "is not in the narration"), or the scene is looked up in a
-        plain object (the id "constructor" finds an inherited member)."""
+        undefined, "--" falls through to "is not in the narration"), the scene is looked up in a
+        plain object (the id "constructor" finds an inherited member), or a `where` with a sentence and
+        also a word or an nth is not refused, or only one of the two is (without the check, or with
+        only the word or only the nth refused, `"sentence" in where` returns the sentence mark, 6,
+        although tsc accepts the object)."""
         cases = [
             ('at("nope")', "MARK scene nope: no such scene"),
             ('at.said("nope")', "MARK scene nope: no such scene"),
@@ -455,6 +458,8 @@ class TestMarks(EvaluatesJs):
             ('at("type", { word: "handler", nth: 3 })', 'MARK scene type: nth 3 is past the last "handler" (2)'),
             ('at("type", { word: "--" })', 'MARK scene type: word "--" has no letter or digit'),
             ('at("type", { word: "zebra" })', 'MARK scene type: word "zebra" is not in the narration'),
+            ('at("type", { sentence: 1, word: "handler" })', "MARK scene type: a mark is a sentence or a word, not both"),
+            ('at("type", { sentence: 1, nth: 2 })', "MARK scene type: a mark is a sentence or a word, not both"),
         ]
         got = self.errors([expression for expression, _ in cases])
         self.assertEqual(got, [message for _, message in cases])
@@ -814,7 +819,9 @@ class TestKitDraws(RendersKit):
         scale is not 1, the stroke width is not 3, the cross is one path or a path holds a second
         subpath (a second `M` restarts the dash), the mark is not drawn about 16 px wide and centred
         on the origin (a path that starts at the origin, or is twice as large), a mark at t 0 draws
-        a path or no longer returns its group, or t and opacity are not passed on to the stroke."""
+        a path or no longer returns its group, t is not passed on to the stroke, the opacity is not on
+        the group (it is put on each stroke, or dropped) or its default is not 1, or a stroke carries an
+        opacity of its own (the group and each stroke both have it: the mark is faded twice)."""
         got = self.render(
             check='<Mark kind="check" x={10} y={20} t={1} scale={2} />',
             cross='<Mark kind="cross" x={10} y={20} t={1} scale={2} />',
@@ -843,15 +850,21 @@ class TestKitDraws(RendersKit):
         self.assertEqual(got["plain"][0].get("transform"), "translate(10 20) scale(1)")
         (unseen,) = got["unseen"]
         self.assertEqual((unseen.tag, len(unseen)), ("g", 0))
-        (half_path,) = got["half"][0]
-        expected = {"stroke-dashoffset": "0.5", "opacity": "0.4"}
-        self.assertEqual(attrs(half_path, expected), expected)
+        (half,) = got["half"]
+        self.assertEqual(half.get("opacity"), "0.4")
+        (half_path,) = half
+        self.assertEqual(half_path.get("stroke-dashoffset"), "0.5")
+        self.assertEqual(got["plain"][0].get("opacity"), "1")
+        for name in ("check", "cross", "plain", "half"):
+            for path in got[name][0]:
+                self.assertIn(path.get("opacity"), (None, "1"), "%s: a stroke carries no partial opacity" % name)
 
     def test_cross_draws_one_diagonal_after_the_other(self):
         """Red: the cross is one path of two subpaths (the browser restarts the dash at the second
         one, so both diagonals grow at once and the X is whole at t 0.5), the first diagonal is not
-        whole at t 0.5, the second starts before 0.5 or is not whole at t 1, or the opacity reaches
-        only one of the two strokes."""
+        whole at t 0.5, the second starts before 0.5 or is not whole at t 1, or the opacity is set on
+        each stroke instead of on the group (the two strokes then stack to 1 - (1 - 0.4)^2 = 0.64 where
+        they cross, so the middle of a faded cross is darker than its arms), or on only one of them."""
         got = self.render(**{
             "0.25": '<Mark kind="cross" x={0} y={0} t={0.25} />',
             "0.5": '<Mark kind="cross" x={0} y={0} t={0.5} />',
@@ -860,7 +873,11 @@ class TestKitDraws(RendersKit):
         })
         offsets = {name: [path.get("stroke-dashoffset") for path in group[0]] for name, group in got.items()}
         self.assertEqual(offsets, {"0.25": ["0.5"], "0.5": ["0"], "0.75": ["0", "0.5"], "1": ["0", "0"]})
-        self.assertEqual([path.get("opacity") for path in got["1"][0]], ["0.4", "0.4"])
+        (faded,) = got["1"]
+        self.assertEqual(faded.get("opacity"), "0.4")
+        self.assertEqual(len(faded), 2)
+        for path in faded:
+            self.assertIn(path.get("opacity"), (None, "1"))
 
 
 @needs_kit_tools
@@ -1135,27 +1152,31 @@ class TestKitCompiles(unittest.TestCase):
     def test_the_app_and_a_scene_compile(self):
         """Red: the app or the scene does not type-check against index.ts (tsc exits non-zero and prints
         the diagnostics): index.ts drops or renames a name the scene imports (TS2305 for the type Where,
-        TS2724 for the value lineY), exports a name that the scene uses with another type (a FilmProps
-        whose `at` is not an At<S>, or whose `sources` is not a Record<R, Source>), or the scene stops
-        using one of the names it imports (TS6133 for a value, TS6196 for a type: noUnusedLocals), so it
-        no longer proves that the name is exported."""
+        TS2724 for the value lineY), exports a FilmProps that the scene cannot use as written (`at: number`
+        is not an At<S>, `sources: Record<R, number>` holds no Source: TS2322 on the lines of the scene
+        that assign them), or the scene stops using one of the names it imports (TS6133 for a value,
+        TS6196 for a type: noUnusedLocals), so it no longer proves that the name is exported. A FilmProps
+        with `at: At<string>` or `sources: Record<string, Source>` still compiles the scene: only the
+        forged-source test is red for those."""
         self.assertEqual(self.tsc("film-kit-scene.tsx", "Scene.tsx"), (0, ""))
 
-    def test_forged_source_unknown_scene_and_maker_do_not_compile(self):
-        """Red: tsc accepts one of the three faults or finds others. Source loses its brand (a literal
+    def test_forged_source_unknown_scene_maker_and_undeclared_source_do_not_compile(self):
+        """Red: tsc accepts one of the four faults or finds others. Source loses its brand (a literal
         with `path`, `from` and `lines` is a Source: no TS2741 on FORGED), FilmProps types `at` as
         At<string> (any scene id passes: no TS2345 on UNKNOWN), index.ts exports sourceFromDisk (no TS2305
-        on MAKER), or index.ts is missing (TS2307 on every line that imports it)."""
+        on MAKER), FilmProps types `sources` as Record<string, Source> (any source id passes: no TS2339 on
+        UNDECLARED), or index.ts is missing (TS2307 on every line that imports it)."""
         lines = (FIXTURES / "film-kit-forged.ts").read_text(encoding="utf-8").splitlines()
         marked = {
             marker: [n for n, line in enumerate(lines, 1) if line.rstrip().endswith("// " + marker)]
-            for marker in ("FORGED", "UNKNOWN", "MAKER")
+            for marker in ("FORGED", "UNKNOWN", "MAKER", "UNDECLARED")
         }
         self.assertTrue(all(len(found) == 1 for found in marked.values()), marked)
         expected = sorted([
             ("TS2741", "src/kitcheck/forged.ts", marked["FORGED"][0]),
             ("TS2345", "src/kitcheck/forged.ts", marked["UNKNOWN"][0]),
             ("TS2305", "src/kitcheck/forged.ts", marked["MAKER"][0]),
+            ("TS2339", "src/kitcheck/forged.ts", marked["UNDECLARED"][0]),
         ])
 
         code, output = self.tsc("film-kit-forged.ts", "forged.ts")

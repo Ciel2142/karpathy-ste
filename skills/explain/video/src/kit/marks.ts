@@ -6,7 +6,9 @@
 // tests import it without a bundler.
 
 // Where in a scene a mark falls: the start of its Nth sentence (from 1), or the start of a word of
-// its narration. A word is found by its text; `nth` picks which time the scene says it (from 1).
+// its narration. A word is found by its text; `nth` picks which time the scene says it (from 1). A mark
+// is a sentence or a word, never both: `at` throws for an object with `sentence` and also `word` or
+// `nth`, which the type itself does not refuse.
 export type Where = { sentence: number } | { word: string; nth?: number };
 
 // `at(scene)` is the start of the scene's first sentence, `at(scene, where)` a place inside it,
@@ -71,10 +73,17 @@ export const makeAt = <S extends string>(scenes: readonly MarkScene[]): At<S> =>
 
   const at = (id: S, where: Where = { sentence: 1 }): number => {
     const scene = find(id);
-    const relative =
-      "sentence" in where
-        ? sentenceFrame(scene, where.sentence)
-        : wordFrame(scene, where.word, where.nth ?? 1);
+    let relative: number;
+    if ("sentence" in where) {
+      // tsc accepts a Where with both a sentence and a word (an excess-property check on a union only
+      // refuses keys that no member has), so this is where that mistake is refused.
+      if ("word" in where || "nth" in where) {
+        throw markError(id, "a mark is a sentence or a word, not both");
+      }
+      relative = sentenceFrame(scene, where.sentence);
+    } else {
+      relative = wordFrame(scene, where.word, where.nth ?? 1);
+    }
     return scene.from + relative;
   };
   at.said = (id: S): number => {

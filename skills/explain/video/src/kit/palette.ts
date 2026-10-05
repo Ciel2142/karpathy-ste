@@ -1,6 +1,7 @@
-// The colours, fonts and stage of a film scene. A film is a bespoke SVG drawn on the same dark
-// ground as the rest of the video rung, so every scene takes its values from here instead of
-// writing literals: the picture then matches the explainer scenes and the other films.
+// The colours, fonts and stage of a film scene. A film is a bespoke SVG on a dark ground, and the film
+// palette is its own: it is not the light palette of theme.ts, which stays the palette of the
+// explainer, brainrot and the HTML templates. Every scene takes its values from here instead of
+// writing literals, so the films match each other.
 //
 // This file is plain TypeScript with no imports, so Node can run it directly: the Python tests
 // import it without a bundler.

@@ -50,10 +50,12 @@ export function Mark(props: {
 }): ReactElement {
   const { kind, x, y, t, scale = 1, opacity = 1 } = props;
   const { strokes, color } = MARKS[kind];
+  // The opacity belongs to the group, not to the strokes: two strokes that each had it would stack where
+  // they cross (a cross at 0.8 would be 0.96 in its middle). The group fades the drawn mark as one.
   return (
-    <g transform={`translate(${x} ${y}) scale(${scale})`}>
+    <g transform={`translate(${x} ${y}) scale(${scale})`} opacity={opacity}>
       {strokes.map((d, i) => (
-        <Draw key={i} d={d} t={t * strokes.length - i} stroke={color} width={3} opacity={opacity} />
+        <Draw key={i} d={d} t={t * strokes.length - i} stroke={color} width={3} />
       ))}
     </g>
   );
