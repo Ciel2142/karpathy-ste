@@ -10,8 +10,9 @@
 #                                      its start (pick_background.py reads it; default random)
 #
 # The format is script.json's "format" ("explainer" when absent, "film" or "brainrot"), read
-# once the script stage has passed. An explainer run has nine stages and a brainrot run ten. A
-# film run has the nine stages of the explainer, until the scene and guard stages exist.
+# once the script stage has passed. An explainer run has nine stages, a film run and a brainrot
+# run ten: the film has "scene", brainrot has "background". The "guard" stage of a film does not
+# exist yet.
 #
 #   exit 0  all stages of the format passed
 #   exit 1  a stage failed; the stages after it do not run; or HUP, INT or TERM stopped the run
@@ -20,10 +21,16 @@
 #           on stderr)
 #
 # stdout carries one line per stage, in this order, up to the first FAIL (the explainer and
-# the film print no "background" line):
+# the film print no "background" line; the explainer and brainrot print no "scene" line):
 #   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
 #   workspace: ok <ws>                      video-workspace.sh --engine <engine>, then the run
 #                                           directory (below)
+#   scene: ok (<n> files)                   film only: check_scene.py checks <output-dir>/scene; its
+#                                           <n> *.ts and *.tsx files (not script.gen.ts) replace
+#                                           src/film of the run directory; build-timeline.mjs --types
+#                                           writes script.gen.ts there; tsc, with the run directory
+#                                           as its project, type-checks the lot. The stage comes
+#                                           before the narration, so a fault costs no synthesis
 #   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh; <engine> as used; a
 #                                           brainrot script narrates at --speed 1.2
 #   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
@@ -51,6 +58,25 @@
 # one (a usage error) gives "background: FAIL pick_background.py exit <n>" below that indented
 # output.
 #
+# The scene stage has five FAIL lines. Each stops the run with exit 1 before the narration; the run
+# directory goes by the EXIT trap:
+#   scene: FAIL no scene directory: <path>
+#       <output-dir>/scene is absent (<path> by real path); the tool's line follows, indented.
+#   scene: FAIL <first cause of check_scene.py>
+#       The scene is refused: no Film.tsx, an entry that is not a .ts or .tsx file, or an import or
+#       a token that the rules refuse (<file>:<line>: <cause>). Every cause follows, indented, the
+#       first among them. Nothing was copied. (A tool that fails with no FAIL line of its own gives
+#       its first non-empty line as the cause.)
+#   scene: FAIL cannot copy the scene to <run>/src/film
+#       The removal of src/film, its making or a cp failed. Nothing follows.
+#   scene: FAIL types: <cause>
+#       build-timeline.mjs --types failed; its output follows, indented.
+#   scene: FAIL tsc: <first error line>
+#       tsc exited non-zero. The first error line is the first line of its output with "error TS",
+#       else its first line that is not empty, else "exit <n>". The first 20 lines of its output
+#       follow, indented ($run/tsc.log holds all of them); "src/film/" is written "scene/" in them
+#       and in the stage line.
+#
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
 # that fell back to say says so. The Narrator row reads "kokoro (af_heart)", "say" or
@@ -62,7 +88,9 @@
 # copy of the skill's video/ (without a top-level node_modules or public of the checkout, and
 # without __pycache__; owner-writable, so that a read-only skill tree gives a copy that can be
 # removed), node_modules as a link to the shared <ws>/app/node_modules, and public/ with the
-# narration clips in public/audio (brainrot: also the picker's bg-stage/ behind public/bg).
+# narration clips in public/audio (brainrot: also the picker's bg-stage/ behind public/bg). A film
+# puts its scene only there: the scene stage replaces src/film of this copy, and nothing of the
+# scene reaches <ws>/app or the shared node_modules.
 # The workspace stage makes it, before its ok line, after it has removed each run directory
 # of <ws>/runs (an entry named run.*; other entries stay) modified more than a day (1440 min)
 # ago: what a killed render left. <ws>/runs may be a symlink to a directory.
@@ -74,7 +102,9 @@
 # tool as well. The Remotion CLI is the exception: TERM and HUP only make it kill its browser,
 # and the render goes on with a new one, so render.sh waits for the CLI to end before it exits
 # and removes the run directory. The Remotion CLI runs with cwd <ws>/runs/<run>: every path it
-# gets is absolute, and provenance.root must be an absolute existing directory.
+# gets is absolute, and provenance.root must be an absolute existing directory. The tsc of the
+# scene stage runs there as well, with no argument, and render.sh waits for it to end in the same
+# way, so that a tsc which outlives the signal never writes into a removed run directory.
 
 set -eu
 
@@ -458,6 +488,7 @@ stage_transcript() {
 stage_script
 clear_stale
 stage_workspace
+stage_scene
 stage_narration
 stage_timeline
 stage_background

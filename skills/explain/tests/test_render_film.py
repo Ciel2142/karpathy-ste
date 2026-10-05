@@ -10,6 +10,12 @@ run directory with the example's src/film and a node_modules link, a fake tsc: F
 real check_scene.py and build-timeline.mjs: the copy over src/film, the names, the type check, the
 four FAIL lines and the lines of tsc, cut and renamed.
 
+SceneRunCase runs a copy of render.sh as RunDirectoryCase does (RunHarness of test_render.py), on a film
+script, against the same fakes with the real check_scene.py, FAKE_TSC and a build-timeline.mjs that takes
+--types: the ten stage lines of a film and none of the scene stage for another format, the scene that the
+render draws and where tsc runs, the three FAIL lines that stop a run before any synthesis, and a tsc that
+outlives TERM and HUP.
+
 FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders templates/film-script.json (template_script() of
 test_film_example.py, rooted at the repository) through scripts/render.sh --engine say once per
 process (render_film(): a temporary output directory removed at exit, the environment render_env()
@@ -26,18 +32,20 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from png_diff import differing_pixels
-from test_check_scene import SCENE_CLEAN, append, prepend
+from test_check_scene import CHECK_SCENE, SCENE_CLEAN, append, prepend
 from test_film_example import template_script
 from test_narrate import NARRATE_PY
-from test_render import render_functions, stage_lines
+from test_render import RUN_FAKES, STAGE_LINE, RunHarness, names, render_functions, stage_lines
 from test_render_brainrot import video_size
 from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT, render_env, workspace
 
@@ -379,6 +387,149 @@ class SceneStageCase(unittest.TestCase):
         with self.subTest(output=None):
             done = self.tsc_fails(None, 3)
             self.assertEqual((done.returncode, done.stdout), (1, "scene: FAIL tsc: exit 3\n"), done.stderr)
+
+
+# What build-timeline.mjs of SceneRunCase does first: --types <script> <out.ts> writes "// generated" to
+# <out.ts>. The text of RUN_FAKES follows, for the other calls (--check, the timeline).
+FAKE_TYPES = (
+    'import { writeFileSync as writeTypes } from "node:fs";\n'
+    'if (process.argv[2] === "--types") {\n'
+    '  writeTypes(process.argv[4], "// generated\\n");\n'
+    '  process.exit(0);\n'
+    '}\n')
+
+# The temp tree of SceneRunCase, by path under FAKE_DIR: RUN_FAKES, and on top of it the fake tsc, the
+# workspace fake that also puts it beside the fake CLI in the shared packages (its commands follow its ok
+# line, which render.sh holds back), the real check_scene.py, the build-timeline.mjs above, and a file of
+# the example in src/film of the skill.
+SCENE_RUN_FAKES = {
+    **RUN_FAKES,
+    "tsc": FAKE_TSC,
+    "skill/scripts/video-workspace.sh":
+        RUN_FAKES["skill/scripts/video-workspace.sh"] + 'cp "$FAKE_DIR/tsc" "$nm/.bin/tsc"\n',
+    "skill/video/check_scene.py": CHECK_SCENE.read_text(encoding="utf-8"),
+    "skill/video/build-timeline.mjs": FAKE_TYPES + RUN_FAKES["skill/video/build-timeline.mjs"],
+    "skill/video/src/film/Example.tsx": "// the example\n",
+}
+
+
+class SceneRunCase(RunHarness, unittest.TestCase):
+    """A film run of the copy of render.sh against SCENE_RUN_FAKES, in the workspace <tmp>/w s. out/scene
+    is a copy of SCENE_CLEAN. No workspace, no render, no install."""
+
+    fakes = SCENE_RUN_FAKES
+
+    def setUp(self):
+        super().setUp()
+        self.tsc_log = self.tmp / "tsc.jsonl"
+        self.plant_scene()
+
+    def plant_scene(self):
+        """out/scene as a fresh copy of SCENE_CLEAN, whatever it was."""
+        shutil.rmtree(self.out / "scene", ignore_errors=True)
+        shutil.copytree(SCENE_CLEAN, self.out / "scene")
+
+    def start(self, fmt="explainer", **env):
+        """RunHarness.start, once the log and the end mark of the fake tsc of an earlier start are gone."""
+        for name in ("tsc.jsonl", "tsc.end"):
+            (self.tmp / name).unlink(missing_ok=True)
+        return super().start(fmt, **env)
+
+    def tsc_calls(self):
+        """The calls of the fake tsc, one dict for each line of tsc.jsonl."""
+        if not self.tsc_log.exists():
+            return []
+        return [json.loads(line) for line in self.tsc_log.read_text(encoding="utf-8").splitlines()]
+
+    def wait_for_tsc(self, proc):
+        """Return once the fake tsc has logged its call (it sleeps after that); the test fails if
+        render.sh exits first or no call comes in 20 s."""
+        deadline = time.monotonic() + 20
+        while not (self.tsc_log.exists() and self.tsc_log.read_text(encoding="utf-8").endswith("\n")):
+            if proc.poll() is not None or time.monotonic() > deadline:
+                self.fail("tsc did not run:\n" + "".join(self.output()))
+            time.sleep(0.05)
+
+    # red: the stage is not called (nine lines), or it is called after the narration (the third line is
+    # not the scene), or for every format (an explainer or a brainrot run prints a scene line and runs tsc)
+    def test_a_film_run_prints_ten_stage_lines(self):
+        run = self.finish(self.start("film"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        lines = stage_lines(run.stdout)
+        self.assertEqual([STAGE_LINE.match(line).group(1) for line in lines],
+                         ["script", "workspace", "scene", "narration", "timeline", "render", "container",
+                          "sync", "stills", "transcript"], run.stdout)
+        self.assertEqual(lines[2], "scene: ok (2 files)")
+        for fmt in ("explainer", "brainrot"):
+            with self.subTest(fmt=fmt):
+                run = self.finish(self.start(fmt))
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("scene")], [],
+                                 run.stdout)
+                self.assertFalse(self.tsc_log.exists())
+
+    # red: the scene is copied under <ws>/app (decision 12), tsc runs in the app, or the removal of
+    # src/film reaches the shared packages
+    def test_the_render_draws_the_copied_scene(self):
+        proc = self.start("film")
+        run = self.finish(proc)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        [call] = self.cli_calls()
+        self.assertEqual([path for path in call["files"] if path.startswith("src/film/")],
+                         ["src/film/Film.tsx", "src/film/Part.tsx", "src/film/script.gen.ts"])
+        self.assertRegex(call["cwd"], self.run_pattern(os.path.realpath(self.runs), proc.pid))
+        [typed] = self.tsc_calls()
+        self.assertEqual(typed["cwd"], call["cwd"])
+        self.assertEqual(names(self.ws / "app"), ["node_modules"])
+        self.assertEqual(names(self.shared), [".bin", "sentinel.txt"])
+        self.assertEqual(names(self.runs), [])
+
+    # red: the stage comes after the narration (the synthesis has run), or the run directory stays after
+    # a FAIL
+    def test_a_scene_fail_stops_before_any_synthesis(self):
+        out = os.path.realpath(self.out)
+        tsc_output = self.tmp / "tsc.out"
+        tsc_output.write_text("src/film/Film.tsx(1,1): error TS1005: x\n", encoding="utf-8")
+        cases = (
+            ("a refused token", lambda scene: prepend(scene, "Film.tsx", "// @ts-nocheck"), {},
+             'scene: FAIL Film.tsx:1: token "@ts-nocheck"'),
+            ("no scene directory", shutil.rmtree, {}, "scene: FAIL no scene directory: %s/scene" % out),
+            ("a tsc error", lambda scene: None,
+             {"FAKE_TSC_EXIT": "2", "FAKE_TSC_OUTPUT": str(tsc_output)},
+             "scene: FAIL tsc: scene/Film.tsx(1,1): error TS1005: x"),
+        )
+        for name, edit, env, last in cases:
+            with self.subTest(case=name):
+                self.plant_scene()
+                edit(self.out / "scene")
+                run = self.finish(self.start("film", **env))
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(stage_lines(run.stdout),
+                                 ["script: ok (1 scenes)", "workspace: ok %s" % self.ws, last], run.stdout)
+                self.assertEqual(self.tool_calls("narrate"), [])
+                self.assertFalse((self.out / "audio").exists())
+                self.assertEqual(self.cli_calls(), [])
+                self.assertEqual(names(self.runs), [])
+
+    # red: tsc in a subshell without exec: render.sh exits at once and removes the run directory while
+    # tsc, which outlives the signal, goes on in it, and the late write of tsc makes the directory again
+    def test_render_sh_waits_for_a_tsc_that_outlives_the_signal(self):
+        end = self.tmp / "tsc.end"
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig.name):
+                proc = self.start("film", FAKE_TSC_SLEEP="30", FAKE_TSC_OUTLIVE="1")
+                self.wait_for_tsc(proc)
+                os.killpg(proc.pid, sig)
+                run = self.finish(proc, timeout=10)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual([line for line in run.stdout.splitlines() if "FAIL" in line], [], run.stdout)
+                # a render.sh that did not wait has exited before tsc: wait for the end of tsc
+                deadline = time.monotonic() + 10
+                while not end.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(end.exists(), "the fake tsc did not end")
+                self.assertEqual(names(self.runs), [])
+                self.assertTrue((self.shared / "sentinel.txt").exists())
 
 
 @unittest.skipUnless(E2E, E2E_REASON)

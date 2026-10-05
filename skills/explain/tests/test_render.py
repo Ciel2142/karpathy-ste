@@ -1,13 +1,14 @@
-"""Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script).
+"""Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script or a film).
 
 StageFunctionCase runs stage_narration, stage_background and stage_transcript of render.sh against
 fake tools (the format -> --speed mapping, the picker's lines, exit codes and stderr, the
---background text of the transcript). RunDirectoryCase runs a copy of render.sh against a fake of
-every tool it calls, in a workspace whose path has a space: the run directory of each render (what
-it holds, that it goes after a pass, a FAIL and a signal, the sweep of old ones). The stage-1
-tests need no workspace: they fail before any tool that needs one runs. A fake
-npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant that
-gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
+--background text of the transcript). RunHarness is the temp skill tree and the helpers of a run of a
+copy of render.sh against a fake of every tool it calls, in a workspace whose path has a space.
+RunDirectoryCase uses it for the run directory of each render (what it holds, that it goes after a
+pass, a FAIL and a signal, the sweep of old ones); SceneRunCase of test_render_film.py uses it for the
+scene stage of a film. The stage-1 tests need no workspace: they fail before any tool that needs one
+runs. A fake npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant
+that gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
 brainrot route: the template, SKILL.md, the rung file, and the format that stage_script reads
 from a real script.json. E2EHelperCase checks the environment that the gated renders get from
 tests/video_e2e.py: the caller's workspace, none of the caller's background settings. The
@@ -38,8 +39,8 @@ STE_LINT = EXPLAIN.parent / "ste" / "scripts" / "ste_lint.py"
 SKILL_MD = EXPLAIN / "SKILL.md"
 BRAINROT_RUNG = EXPLAIN / "rungs" / "brainrot.md"
 
-# "background" is the tenth, brainrot-only stage; the explainer run must print no such line.
-STAGES = ("script", "workspace", "narration", "timeline", "background", "render",
+# "background" is brainrot only and "scene" is film only: the explainer run must print neither line.
+STAGES = ("script", "workspace", "scene", "narration", "timeline", "background", "render",
           "container", "sync", "stills", "transcript")
 STAGE_LINE = re.compile(r"^(%s)\b" % "|".join(STAGES))
 
@@ -504,15 +505,18 @@ def kill_group(proc):
     proc.wait()
 
 
-class RunDirectoryCase(unittest.TestCase):
-    """render.sh compiles in a run directory of its own: a copy of render.sh in a temp skill tree,
-    run against RUN_FAKES in the workspace <tmp>/w s (the space is deliberate). No workspace, no
-    render."""
+class RunHarness:
+    """Not a TestCase: the temp skill tree of a run of render.sh and the helpers that drive it. A copy
+    of render.sh sits in <tmp>/skill, and runs against the fakes of `fakes` (RUN_FAKES, unless a case
+    sets its own) in the workspace <tmp>/w s (the space is deliberate). RunDirectoryCase, and
+    SceneRunCase of test_render_film.py, list it before TestCase. No workspace, no render."""
+
+    fakes = RUN_FAKES
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="render-run-test-"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        for name, text in RUN_FAKES.items():
+        for name, text in self.fakes.items():
             path = self.tmp / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
@@ -584,6 +588,11 @@ class RunDirectoryCase(unittest.TestCase):
         none after a signal, which ends render.sh with exit 1 and no FAIL line."""
         return [line for line in stdout.splitlines()
                 if (STAGE_LINE.match(line) and line.startswith("render")) or "FAIL" in line]
+
+
+class RunDirectoryCase(RunHarness, unittest.TestCase):
+    """render.sh compiles in a run directory of its own: what it holds, that it goes after a pass, a
+    FAIL and a signal, the sweep of old ones. It runs against RUN_FAKES."""
 
     # red: the render keeps cwd <ws>/app
     def test_render_runs_in_its_own_run_directory(self):
