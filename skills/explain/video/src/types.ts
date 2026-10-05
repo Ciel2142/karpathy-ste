@@ -84,3 +84,38 @@ export type Timeline = {
   background?: Background; // brainrot only, added by pick_background.py
   scenes: TimelineScene[];
 };
+
+// A film scene: no component and no cues. `sentences` (the start of each sentence) and `words` are
+// frames relative to the scene start; the kit's makeAt turns them into marks.
+export type FilmScene = {
+  id: string;
+  from: number;
+  durationInFrames: number; // leadFrames + audioFrames + pause
+  leadFrames: number;
+  audioFrames: number;
+  audio: string;
+  sentences: number[];
+  words: { text: string; from: number; to: number }[];
+};
+
+// A frame that the stills stage cuts (and the guard will measure): the middle of each sentence
+// ("s<k>") and the last frame ("end") of each scene.
+export type CheckFrame = { frame: number; scene: string; still: string };
+
+// The declared lines of one source of the script, read from disk at build time (tabs as 4 spaces).
+export type FilmSource = { path: string; from: number; lines: string[] };
+
+// build/timeline.json of a film: the composition Film renders it.
+export type FilmTimeline = {
+  format: "film";
+  engine: string;
+  fps: number;
+  width: number;
+  height: number;
+  totalFrames: number;
+  maxSceneSeconds: number;
+  maxTotalSeconds: number;
+  sources: Record<string, FilmSource>;
+  checkFrames: CheckFrame[];
+  scenes: FilmScene[];
+};

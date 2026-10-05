@@ -1,14 +1,19 @@
-"""The words of the worked example film, which keep the example true (spec 5.3). The skill ships one
-film, "how /explain checks an artifact before handoff": templates/film-script.json holds its narration
-and cites, and video/src/film/script.gen.ts the scene and source names that build-timeline.mjs --types
-writes from it. The first class holds the script to the rules that need no audio: it passes the script
-check, its generated names are the checked-in file, its transcript passes the cite check and the prose
-lint of verify.sh, and its cites and sources name only the three files that no wave of the feature
-edits. The second class narrates the script with the say engine and builds the real timeline: the film
-is 30 to 50 s long and the marks of the kit (video/src/kit/marks.ts) read that timeline. No video is
+"""The words and the picture of the worked example film, which keep the example true (spec 5.3). The
+skill ships one film, "how /explain checks an artifact before handoff": templates/film-script.json holds
+its narration and cites, video/src/film/script.gen.ts the scene and source names that build-timeline.mjs
+--types writes from it, and video/src/film/Film.tsx the picture. The first class holds the script to the
+rules that need no audio: it passes the script check, its generated names are the checked-in file, its
+transcript passes the cite check and the prose lint of verify.sh, and its cites and sources name only the
+three files that no wave of the feature edits. The second class narrates the script with the say engine
+and builds the real timeline: the film is 30 to 50 s long and the marks of the kit (video/src/kit/marks.ts)
+read that timeline. The third class holds the picture: the app with FilmStage and the example compiles
+(the workspace's tsc, skipped naming video-workspace.sh when it is missing), and the files of
+video/src/film keep the directory, import and token rules of a scene (spec 5.1 and 7.2). No video is
 rendered here. Each test names the mutation that turns it red."""
 
 import json
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,7 +22,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_film_kit import kit_url, run_node
+from test_film_kit import kit_app, kit_url, needs_kit_tools, run_node
 from test_narrate import NARRATE_PY
 from test_video_timeline import EXPLAIN, TOOL
 
@@ -238,6 +243,90 @@ class ExampleTimelineCase(unittest.TestCase):
         got = kit_marks(timeline["scenes"], [call for call, _ in cases])
         self.assertEqual(len(got), len(cases))
         self.assertEqual([(call, frame) for (call, _), frame in zip(cases, got)], cases)
+
+
+# The rules of a scene file (spec 5.1 and 7.2), as lists: the sources a file of video/src/film may import
+# besides ./<Name> for a file <Name>.ts or <Name>.tsx of the directory, the names it may import from
+# remotion, the tokens it may not hold anywhere, and the tokens it may not hold before a character that
+# is not a letter or a digit (`<mask` refuses <mask> but not <maskUnits).
+SCENE_SOURCES = {"react", "remotion", "../kit", "./script.gen"}
+REMOTION_NAMES = {"useCurrentFrame", "interpolate", "Easing", "spring", "interpolateColors"}
+REFUSED = ["require(", "import(", "fetch(", "foreignObject", "dangerouslySetInnerHTML", "clipPath", "href",
+           "http://", "https://", "@ts-nocheck", "@ts-ignore", "@ts-expect-error", "as unknown", "<any>"]
+REFUSED_WORDS = ["<mask", "<use", "<image", "as any", ": any"]
+
+# `from "<source>"` of an import or a re-export, and the bare `import "<source>"`.
+SOURCE = re.compile(r"""\b(?:from|import)\s*["']([^"']*)["']""")
+# What an import from remotion brings in: `{ a, b as c, type d }`, a default or a namespace.
+REMOTION_IMPORT = re.compile(r"""\bimport\s+(?:type\s+)?([^;]*?)\s*\bfrom\s*["']remotion["']""", re.S)
+
+
+def remotion_names(text):
+    """The names that `text` imports from remotion: each name of a braced list (its own name, before an
+    `as`), and the whole clause of a default or a namespace import (which no allowed name equals)."""
+    names = []
+    for clause in REMOTION_IMPORT.findall(text):
+        braced = re.fullmatch(r"\{(.*)\}", clause.strip(), re.S)
+        if braced is None:
+            names.append(clause.strip())
+            continue
+        for item in braced.group(1).split(","):
+            words = item.split()
+            if words and words[0] == "type":
+                words = words[1:]
+            if words:
+                names.append(words[0])
+    return names
+
+
+def scene_faults(directory):
+    """The broken scene rules of the files of `directory`, as sorted strings: an entry that is not a file
+    named *.ts or *.tsx (hidden entries apart), an import of a source the list does not allow, a name
+    imported from remotion that the list does not allow, and a refused token."""
+    entries = sorted(p for p in Path(directory).iterdir() if not p.name.startswith("."))
+    own = {p.stem for p in entries if p.is_file() and p.suffix in (".ts", ".tsx")}
+    allowed = SCENE_SOURCES | {"./" + name for name in own}
+    faults = []
+    for path in entries:
+        if not (path.is_file() and path.suffix in (".ts", ".tsx")):
+            faults.append("%s: not a .ts or .tsx file" % path.name)
+            continue
+        text = path.read_text(encoding="utf-8")
+        faults += ["%s: source %s" % (path.name, s) for s in SOURCE.findall(text) if s not in allowed]
+        faults += ["%s: remotion %s" % (path.name, n) for n in remotion_names(text) if n not in REMOTION_NAMES]
+        faults += ["%s: token %s" % (path.name, t) for t in REFUSED if t in text]
+        faults += ["%s: token %s" % (path.name, t) for t in REFUSED_WORDS
+                   if re.search(re.escape(t) + r"(?![A-Za-z0-9])", text)]
+    return sorted(faults)
+
+
+class ExampleSceneCase(unittest.TestCase):
+    """The picture of the example: FilmStage, composition Film and src/film/Film.tsx."""
+
+    @needs_kit_tools
+    def test_the_app_compiles_with_the_example(self):
+        """Red: a type error in the stage or the picture (FilmStage hands Film a prop it does not take), an
+        unused local (noUnusedLocals: TS6133), or a mark on a scene id that the script does not have (TS2345,
+        at("intro") against the SceneId union of script.gen.ts); or FilmStage.tsx or Film.tsx is missing, so
+        tsc checks an app without them."""
+        self.assertTrue((EXPLAIN / "video" / "src" / "FilmStage.tsx").is_file())
+        self.assertTrue((FILM_DIR / "Film.tsx").is_file())
+        app = kit_app()
+        try:
+            done = subprocess.run(["node_modules/.bin/tsc"], cwd=app, capture_output=True, text=True, timeout=180)
+        finally:
+            shutil.rmtree(app)
+        self.assertEqual((done.returncode, done.stdout + done.stderr), (0, ""))
+
+    def test_the_example_follows_the_scene_rules(self):
+        """Red: a file of video/src/film imports what a scene may not (../kit/marks, whose makeAt is the
+        pipeline's; a file of another directory), imports Sequence (or any name but the five) from remotion,
+        holds a refused token (`: any`, `as unknown`, an href), or the directory holds another kind of file
+        or a directory; or Film.tsx is missing or does not export the function Film."""
+        film = FILM_DIR / "Film.tsx"
+        self.assertTrue(film.is_file())
+        self.assertIn("export function Film(", film.read_text(encoding="utf-8"))
+        self.assertEqual(scene_faults(FILM_DIR), [])
 
 
 if __name__ == "__main__":

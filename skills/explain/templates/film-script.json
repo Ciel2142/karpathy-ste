@@ -23,7 +23,7 @@
     },
     {
       "id": "forms",
-      "narration": "The artifact is a sheet, a page or a video. This example uses a page.",
+      "narration": "The artifact is a sheet, a page or a video. We follow a page through the checks.",
       "cites": [
         { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "all checks of the rung passed (sheet, page: four; video: three)" }
       ]
@@ -37,7 +37,7 @@
     },
     {
       "id": "gates",
-      "narration": "It prints one line for each check, in order. The checks run as self-contained, render, citations and prose.",
+      "narration": "It prints one line for each check, in order. First comes self-contained, then render, citations and prose.",
       "cites": [
         { "path": "skills/explain/scripts/verify.sh", "line": 11, "snippet": "stdout carries one line per check, in this order" }
       ]
