@@ -10,8 +10,21 @@
 // Exit 2 on a usage error. FAIL lines go to stdout. Build mode does not re-run the
 // budgets: render.sh runs --check first.
 //
-// script.json may carry "format": "explainer" (the default when absent) or "brainrot".
+// script.json may carry "format": "explainer" (the default when absent), "brainrot" or "film".
 // Every per-format limit lives in formats.json, next to this file.
+//
+// A film script has no components: its scenes carry id, narration, cites and an optional pause
+// (frames of silence after the audio, an integer from 12 to 90), and the script may carry a
+// top-level "sources" array. --check adds these FAIL lines for a film (prefix "FAIL scene <id>: ";
+// the count, key, id, narration and cites lines are the explainer's, with the tag ", film" on a
+// line that names a limit):
+//   FAIL script: <n> scenes (needs 3 to 30, film)
+//   a film scene has no component or props    one line, for either key or both
+//   pause <v> must be an integer from 12 to 90    <v> as JSON text; 12.0 parses as the integer 12
+// "sources" is an allowed top-level key of a film only; "pause" is a scene key of a film only.
+// The lines of a film come in this order: the header, the scene count, then for each scene the
+// duplicate id line and the scene's own lines (must be an object; missing id, narration; the
+// component line; unexpected keys; the id rules; the narration rules; the cites rules; the pause line).
 //
 // A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
 // scene (engine is the one actually used, so a Kokoro run that fell back to say reads
@@ -35,18 +48,22 @@ import path from "node:path";
 
 const FPS = 30;
 const MIN_CUE_GAP = 15;
+// The range of a film scene's own pause, in frames.
+const MIN_PAUSE = 12;
+const MAX_PAUSE = 90;
 const TAB_COLUMNS = 4;
-// Limits per format. The brainrot values are the spec starting values; tune them in formats.json only.
+// Limits per format. The brainrot and film values are the spec starting values; tune them in formats.json
+// only. The film row holds no component limit: a film has no components.
 // wordTimed: build mode reads words files, takes cue frames from them and writes captions.
-// A file that is missing, unreadable, not JSON or without both rows ends the run here: the FAIL line
+// A file that is missing, unreadable, not JSON or without the three rows ends the run here: the FAIL line
 // and exit 1 (the same as finish, which is not defined yet at load time).
 const loadFormats = () => {
   let cause;
   try {
     const rows = JSON.parse(fs.readFileSync(new URL("./formats.json", import.meta.url), "utf8"));
     const isRow = (row) => typeof row === "object" && row !== null && !Array.isArray(row);
-    if (isRow(rows?.explainer) && isRow(rows?.brainrot)) return rows;
-    cause = "expected an object with an explainer row and a brainrot row";
+    if (isRow(rows?.explainer) && isRow(rows?.film) && isRow(rows?.brainrot)) return rows;
+    cause = "expected an object with an explainer, a film and a brainrot row";
   } catch (err) {
     cause = err.code ?? err.message;
   }
@@ -151,12 +168,15 @@ const formatOf = (script) => (has(script, "format") ? script.format : "explainer
 const knownFormat = (format) => typeof format === "string" && has(FORMATS, format);
 // An invalid format validates against the explainer limits.
 const limitsFor = (format) => (knownFormat(format) ? FORMATS[format] : FORMATS.explainer);
-// Suffix of every FAIL line that names a limit: nothing for explainer, ", brainrot" for brainrot.
+// Suffix of every FAIL line that names a limit: nothing for explainer, ", brainrot" for brainrot,
+// ", film" for film.
 const tagOf = (format) => (knownFormat(format) && format !== "explainer" ? `, ${format}` : "");
 
-const SHAPES_BY_FORMAT = Object.fromEntries(Object.entries(FORMATS).map(([name, limits]) => [name, shapesFor(limits)]));
+// Only the formats made of components have shapes; the film row holds no component limit.
+const COMPONENT_FORMATS = ["explainer", "brainrot"];
+const SHAPES_BY_FORMAT = Object.fromEntries(COMPONENT_FORMATS.map((name) => [name, shapesFor(FORMATS[name])]));
 // An invalid format validates against the explainer shapes.
-const shapesOf = (format) => SHAPES_BY_FORMAT[knownFormat(format) ? format : "explainer"];
+const shapesOf = (format) => SHAPES_BY_FORMAT[COMPONENT_FORMATS.includes(format) ? format : "explainer"];
 
 // Check a value against a spec; `fail(cause)` records one cause.
 const checkSpec = (value, spec, where, fail, tag = "") => {
@@ -320,6 +340,18 @@ const checkCites = (cites, subjectKind, fail) => {
   });
 };
 
+const checkSceneId = (id, fail) => {
+  if (typeof id !== "string" || id === "") fail("id must be a non-empty string");
+  else if (!SCENE_ID.test(id)) fail(`id ${q(id)} must match [a-z0-9-]`);
+};
+
+const checkNarration = (narration, fail, limits, tag) => {
+  if (typeof narration !== "string" || narration.trim() === "") fail("narration is empty");
+  else if (wordCount(narration) > limits.maxNarrationWords) {
+    fail(`narration is ${wordCount(narration)} words (max ${limits.maxNarrationWords}${tag})`);
+  }
+};
+
 const SCENE_KEYS = ["id", "component", "props", "narration", "cites"];
 
 const checkScene = (scene, where, root, subjectKind, report, limits, shapes, tag) => {
@@ -327,17 +359,8 @@ const checkScene = (scene, where, root, subjectKind, report, limits, shapes, tag
   if (!isObject(scene)) return fail("must be an object");
   for (const key of SCENE_KEYS) if (!(key in scene) && key !== "cites") fail(`missing ${q(key)}`);
   for (const key of Object.keys(scene)) if (!SCENE_KEYS.includes(key)) fail(`unexpected key ${q(key)}`);
-  if ("id" in scene) {
-    if (typeof scene.id !== "string" || scene.id === "") fail("id must be a non-empty string");
-    else if (!SCENE_ID.test(scene.id)) fail(`id ${q(scene.id)} must match [a-z0-9-]`);
-  }
-
-  if ("narration" in scene) {
-    if (typeof scene.narration !== "string" || scene.narration.trim() === "") fail("narration is empty");
-    else if (wordCount(scene.narration) > limits.maxNarrationWords) {
-      fail(`narration is ${wordCount(scene.narration)} words (max ${limits.maxNarrationWords}${tag})`);
-    }
-  }
+  if ("id" in scene) checkSceneId(scene.id, fail);
+  if ("narration" in scene) checkNarration(scene.narration, fail, limits, tag);
   checkCites(scene.cites ?? [], subjectKind, fail);
 
   if ("component" in scene) {
@@ -355,6 +378,33 @@ const checkScene = (scene, where, root, subjectKind, report, limits, shapes, tag
   }
 };
 
+// The cause of a film scene's pause when it is not an integer from MIN_PAUSE to MAX_PAUSE, or "" when it
+// holds. JSON.parse reads the text 12.0 as the integer 12, so 12.0 holds. Build mode reports the same cause.
+const pauseCause = (value) =>
+  isInt(value) && value >= MIN_PAUSE && value <= MAX_PAUSE
+    ? ""
+    : `pause ${q(value)} must be an integer from ${MIN_PAUSE} to ${MAX_PAUSE}`;
+
+const FILM_SCENE_KEYS = ["id", "narration", "cites", "pause", "component", "props"];
+
+// A film scene: id, narration, cites and an optional pause. Own keys only (`has`): an inherited name
+// is never a present key. `component` and `props` are not scene keys of a film: one line for either
+// key or both, and no unexpected-key line for them.
+const checkFilmScene = (scene, where, subjectKind, report, limits, tag) => {
+  const fail = (cause) => report(where, cause);
+  if (!isObject(scene)) return fail("must be an object");
+  for (const key of ["id", "narration"]) if (!has(scene, key)) fail(`missing ${q(key)}`);
+  if (has(scene, "component") || has(scene, "props")) fail("a film scene has no component or props");
+  for (const key of Object.keys(scene)) if (!FILM_SCENE_KEYS.includes(key)) fail(`unexpected key ${q(key)}`);
+  if (has(scene, "id")) checkSceneId(scene.id, fail);
+  if (has(scene, "narration")) checkNarration(scene.narration, fail, limits, tag);
+  checkCites(scene.cites ?? [], subjectKind, fail);
+  if (has(scene, "pause")) {
+    const cause = pauseCause(scene.pause);
+    if (cause !== "") fail(cause);
+  }
+};
+
 const sceneWhere = (scene, index) =>
   typeof scene?.id === "string" && SCENE_ID.test(scene.id) ? `scene ${scene.id}` : `scene #${index + 1}`;
 
@@ -366,9 +416,9 @@ const validDate = (s) => {
 
 const checkHeader = (script, report) => {
   const fail = (cause) => report("script", cause);
-  for (const key of Object.keys(script)) {
-    if (!["format", "title", "subject", "provenance", "scenes"].includes(key)) fail(`unexpected key ${q(key)}`);
-  }
+  // `sources` belongs to a film only.
+  const allowed = ["format", "title", "subject", "provenance", "scenes", ...(formatOf(script) === "film" ? ["sources"] : [])];
+  for (const key of Object.keys(script)) if (!allowed.includes(key)) fail(`unexpected key ${q(key)}`);
   if (!knownFormat(formatOf(script))) fail("format must be explainer or brainrot");
   checkSpec(script.title, str(Infinity), "title", fail);
   checkShape(script.subject, { text: str(Infinity), kind: str(Infinity) }, "subject", fail);
@@ -398,6 +448,7 @@ const validate = (script, root) => {
   const limits = limitsFor(format);
   const shapes = shapesOf(format);
   const tag = tagOf(format);
+  const isFilm = format === "film";
   if (!Array.isArray(script.scenes)) {
     report("script", "scenes must be an array");
     return lines;
@@ -414,7 +465,9 @@ const validate = (script, root) => {
       if (seen.has(id)) report("script", `duplicate scene id ${q(id)}`);
       seen.add(id);
     }
-    checkScene(scene, sceneWhere(scene, i), root, kind, report, limits, shapes, tag);
+    const where = sceneWhere(scene, i);
+    if (isFilm) checkFilmScene(scene, where, kind, report, limits, tag);
+    else checkScene(scene, where, root, kind, report, limits, shapes, tag);
   });
   return lines;
 };

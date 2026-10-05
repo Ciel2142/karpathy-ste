@@ -22,6 +22,19 @@
     "captionChars": null,
     "wordTimed": false
   },
+  "film": {
+    "width": 1280,
+    "height": 720,
+    "minScenes": 3,
+    "maxScenes": 30,
+    "maxSceneSeconds": 30,
+    "maxTotalSeconds": 150,
+    "maxNarrationWords": 45,
+    "leadFrames": 6,
+    "pauseFrames": 12,
+    "sourceLines": 20,
+    "wordTimed": true
+  },
   "brainrot": {
     "width": 1080,
     "height": 1920,
