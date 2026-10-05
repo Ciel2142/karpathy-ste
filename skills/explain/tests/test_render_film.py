@@ -43,7 +43,8 @@ the render.
 GuardPlantCase (EXPLAIN_VIDEO_E2E=1 only) proves the browser rules of the guard (spec 7.3, 9.2) on the
 same output directory with one edit: the planted film (a scene file added by add_to_film), rendered three
 times, stops at its first check frame with the same four faults each time; a label off the canvas at the last
-frame alone (a file added the same way) stops at the last check frame; the mark plant (the word of the first
+frame alone (a file added the same way) stops at the last check frame; a label whose <tspan> is smaller than
+the label (a file added the same way) stops with the size of the <tspan>; the mark plant (the word of the first
 at("subject", { word: "subject" }) of Film.tsx written as "zebra": no file added) stops with the guard's
 mark line. FilmRenderCase is their control. Each test names the mutation that turns it red."""
 
@@ -1057,14 +1058,31 @@ export function Late(props: { last: number }): ReactElement | null {
 }
 """
 
+# A label of 20 px with a <tspan> of 10 px inside it, drawn at every frame as the kit's Sans draws a label
+# (the same colour and font; only the size of the tspan differs), at a spot that no text of the example
+# covers at the first check frame.
+TINY = """import type { ReactElement } from "react";
+import { C, SANS } from "../kit";
+
+export function Tiny(): ReactElement {
+  return (
+    <text x={40} y={700} fontSize={20} fontFamily={SANS} fill={C.text}>
+      big <tspan fontSize={10}>tiny</tspan>
+    </text>
+  );
+}
+"""
+
 
 @unittest.skipUnless(E2E, E2E_REASON)
 class GuardPlantCase(unittest.TestCase):
     """The browser rules of the guard (spec 7.3), proven on planted films: film_output(edit), the output
-    directory of FilmRenderCase with one scene file added to it by add_to_film, rendered by render.sh
-    --engine say. Each stops at the guard: render.sh exits 1 after the timeline, with no render line and no
-    video.mp4. FilmRenderCase, with the same output directory and no edit, is their control. The expected
-    lines come from the plants and the run's own checkFrames."""
+    directory of FilmRenderCase with one edit, rendered by render.sh --engine say. Three plants add a scene
+    file to it by add_to_film (the planted film, a label off the canvas at the last frame alone, a label with
+    a small <tspan>); the mark plant adds none and only changes the word of a mark in Film.tsx. Each stops
+    at the guard: render.sh exits 1 after the timeline, with no render line and no video.mp4.
+    FilmRenderCase, with the same output directory and no edit, is their control. The expected lines come
+    from the plants and the run's own checkFrames."""
 
     def stops_at_the_guard(self, edit, added=1):
         """(out, last stage line, checkFrames of out/build/timeline.json) of the render of
@@ -1121,6 +1139,14 @@ class GuardPlantCase(unittest.TestCase):
 
         _, last, _ = self.stops_at_the_guard(unsaid_word, added=0)
         self.assertEqual(last, 'guard: FAIL mark: scene subject: word "zebra" is not in the narration')
+
+    def test_a_small_tspan_is_smalltext(self):
+        """Red: the size of the <text> is read and not that of its smaller <tspan> (the label is 20 px: no
+        SMALLTEXT, and the run goes on to the render)."""
+        _, last, check_frames = self.stops_at_the_guard(
+            lambda out: add_to_film(self, out, "Tiny", TINY, "<Tiny />"))
+        self.assertEqual(last, 'guard: FAIL frame %d (scene subject): SMALLTEXT 10.0 px "big tiny"'
+                         % check_frames[0]["frame"])
 
 
 if __name__ == "__main__":
