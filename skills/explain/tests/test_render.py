@@ -1,4 +1,4 @@
-"""Tests for scripts/render.sh: the nine-stage video pipeline (ten stages for a brainrot script, eleven for a film).
+"""Tests for scripts/render.sh: the video pipeline (a film run has eleven stages, a brainrot run ten).
 
 StageFunctionCase runs stage_narration, stage_background and stage_transcript of render.sh against
 fake tools (the format -> --speed mapping, the picker's lines, exit codes and stderr, the
@@ -39,7 +39,7 @@ SKILL_MD = EXPLAIN / "SKILL.md"
 BRAINROT_RUNG = EXPLAIN / "rungs" / "brainrot.md"
 
 # STAGES: the ten stages of a brainrot run, in order. test_render_brainrot compares a run with it, so it
-# holds no stage that a brainrot run does not print; an explainer run has no "background".
+# holds no stage that a brainrot run does not print; a film run has no "background".
 # FILM_STAGES: the stages that only a film run has, not part of STAGES: the scene, after the workspace, and
 # the guard, after the timeline. stage_lines finds the lines of both.
 STAGES = ("script", "workspace", "narration", "timeline", "background", "render", "container", "sync",
@@ -130,8 +130,9 @@ class StageOneCase(unittest.TestCase):
         self.assertIn("\n  prose: FAIL 1 error(s)\n", run.stdout)
         self.assertIn('contraction "doesn\'t"', run.stdout)
 
-    # red: --check takes the name of the removed row as a format again, so the script stage passes
-    # and the run goes on to the workspace stage, or the narration runs before the check
+    # red: --check takes the name of the removed row as a format again. It then checks the template as a
+    # film, so the stage still fails, but with "script: FAIL scene hook: a film scene has no component or
+    # props", not with the refusal of the name; or the narration runs before the check
     def test_an_explainer_script_stops_at_the_script_stage(self):
         self.write_script(lambda script: script.update(format="explainer"))
         run = self.render()
@@ -268,20 +269,20 @@ class StageFunctionCase(unittest.TestCase):
                          ["%s/out/script.json %s/out/audio --engine say --speed 1.2" % (self.tmp, self.tmp)])
         self.assertEqual(run.stdout, "narration (say): ok\n")
 
-    # red: the explainer command line gains --speed (its audio cache would miss)
-    def test_explainer_narration_has_no_speed(self):
+    # red: the film command line gains --speed (its audio cache would miss): every format gets it
+    def test_film_narration_has_no_speed(self):
         self.fake(self.tmp / "scripts" / "narrate.sh",
                   'printf "%s\\n" "$*" >> ' + str(self.calls) + '\n'
                   'echo \'{"engine": "say"}\' > "$2/durations.json"\n')
-        run = self.run_stage("stage_narration", "explainer")
+        run = self.run_stage("stage_narration", "film")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(self.call_lines(),
                          ["%s/out/script.json %s/out/audio --engine say" % (self.tmp, self.tmp)])
 
-    # red: the explainer runs the picker or prints a background line
-    def test_explainer_runs_no_background_stage(self):
+    # red: the film runs the picker or prints a background line: every format gets the stage
+    def test_film_runs_no_background_stage(self):
         self.fake_picker('print("background: ok generated")\n')
-        run = self.run_stage("stage_background", "explainer")
+        run = self.run_stage("stage_background", "film")
         self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "", ""))
         self.assertFalse(self.calls.exists())
 
@@ -401,13 +402,13 @@ class StageFunctionCase(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(calls, [self.transcript_args("--background", "generated")])
 
-    # red: the explainer gains --background (its page would get a Background row), or reads the
+    # red: the film gains --background (its page would get a Background row), or reads the
     # timeline's background
-    def test_explainer_transcript_has_no_background_flag(self):
+    def test_film_transcript_has_no_background_flag(self):
         for background in (None, {"kind": "generated"}):
             with self.subTest(background=background):
                 self.calls.unlink(missing_ok=True)
-                run, calls = self.run_transcript("explainer", background)
+                run, calls = self.run_transcript("film", background)
                 self.assertEqual((run.returncode, run.stdout), (0, "transcript: ok\n"), run.stderr)
                 self.assertEqual(calls, [self.transcript_args()])
 
@@ -541,7 +542,7 @@ class RunHarness:
         self.out.mkdir()
         self.cli_log = self.tmp / "remotion.jsonl"
 
-    def start(self, fmt="explainer", **env):
+    def start(self, fmt="brainrot", **env):
         """A Popen of the copied render.sh on a one-scene script.json of format `fmt`, in a session
         of its own, stdout and stderr in files; `env` holds the FAKE_* settings of this run. Its cwd
         is the temp dir, so a mutant that copies into an empty run writes nothing into the repo."""
@@ -651,22 +652,23 @@ class RunDirectoryCase(RunHarness, unittest.TestCase):
     # red: removal only at the end of the script
     def test_run_directory_removed_after_a_fail(self):
         cases = (
-            ("explainer", {"FAKE_REMOTION_EXIT": "3"},
+            ("brainrot", {"FAKE_REMOTION_EXIT": "3"},
              "render: FAIL remotion render exit 3 (log %s/build/render.log)" % os.path.realpath(self.out)),
             ("brainrot", {"FAKE_PICKER_LINE": "background: FAIL x", "FAKE_PICKER_EXIT": "1"},
              "background: FAIL x"),
         )
         for fmt, env, last in cases:
-            with self.subTest(fmt=fmt):
+            with self.subTest(env=env):
+                (self.tmp / "calls.log").unlink(missing_ok=True)
                 proc = self.start(fmt, **env)
                 run = self.finish(proc)
                 self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
                 self.assertEqual(stage_lines(run.stdout)[-1], last, run.stdout)
                 self.assertEqual(names(self.runs), [])
                 self.assertTrue((self.shared / "sentinel.txt").exists())
-        # the picker was given the run directory of that render
-        [pick] = self.tool_calls("pick")
-        self.assertRegex(pick[2], self.run_pattern(self.runs, proc.pid))
+                # the picker was given the run directory of that render
+                [pick] = self.tool_calls("pick")
+                self.assertRegex(pick[2], self.run_pattern(self.runs, proc.pid))
 
     # red: no EXIT trap (the directory stays), or no signal trap (the exit code is the signal's),
     # or a signal trap that does not exit (trap ':', so the run prints "render: FAIL remotion
@@ -849,30 +851,50 @@ class BrainrotRouteCase(unittest.TestCase):
         self.assertEqual((run.returncode, run.stdout.strip()), (0, "0 errors, 0 warnings"),
                          run.stdout + run.stderr)
 
-    def stage_script_format(self, template):
-        """Run the real stage_script of render.sh on a copy of `template` (absolute root) with
-        the real tools and no workspace; returns (the stdout lines, the `fmt=<value>` line)."""
+    def stage_script_format(self, script, fake_page=False):
+        """Run the real stage_script of render.sh on `script` (a dict, with its provenance.root set),
+        with fmt unset before it, so that only stage_script can set it; returns the CompletedProcess.
+        The tools are the real ones, unless `fake_page`: then video/ is a temp directory with a link to
+        the real build-timeline.mjs (Node follows the link, so it reads the real formats.json) and an
+        empty transcript.py, and scripts/ is a temp directory whose verify.sh exits 0. transcript.py
+        reads a script with no format as another format until the next wave (decision 2); the fakes
+        leave the format read of stage_script alone."""
         tmp = Path(tempfile.mkdtemp(prefix="render-format-test-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         out = tmp / "out"
         out.mkdir()
-        script = json.loads(template.read_text(encoding="utf-8"))
-        script["provenance"]["root"] = str(EXPLAIN)
         (out / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        video, scripts = EXPLAIN / "video", EXPLAIN / "scripts"
+        if fake_page:
+            video, scripts = tmp / "video", tmp / "scripts"
+            video.mkdir()
+            scripts.mkdir()
+            (video / "build-timeline.mjs").symlink_to(BUILD_TIMELINE)
+            (video / "transcript.py").write_text("", encoding="utf-8")
+            (scripts / "verify.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            (scripts / "verify.sh").chmod(0o755)
         text = (
             "set -eu\n" + render_functions(["fail", "first_cause", "run_tool", "stage_script"]) +
-            'out=%(out)s script=%(out)s/script.json video=%(ex)s/video scripts=%(ex)s/scripts\n'
-            'root="" fmt=explainer\nstage_script\necho "fmt=$fmt"\n' % {"out": out, "ex": EXPLAIN})
-        run = subprocess.run(["/bin/bash", "-c", text], capture_output=True, text=True, timeout=120)
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        lines = run.stdout.splitlines()
-        return lines[:-1], lines[-1]
+            'out=%(out)s script=%(out)s/script.json video=%(video)s scripts=%(scripts)s\n'
+            'root="" fmt=unset\nstage_script\necho "fmt=$fmt"\n'
+            % {"out": out, "video": video, "scripts": scripts})
+        return subprocess.run(["/bin/bash", "-c", text], capture_output=True, text=True, timeout=120)
 
-    # red: stage_script leaves fmt at its default, so a brainrot script gets explainer speed and
-    # no background stage
+    # red: stage_script leaves fmt at its start value, so a brainrot script gets the film's speed and
+    # no background stage; or its format read has another default than film for a script with no
+    # format key
     def test_stage_script_reads_the_format_from_the_script(self):
-        lines, fmt = self.stage_script_format(BRAINROT_TEMPLATE)
-        self.assertEqual((lines, fmt), (["script: ok (4 scenes)"], "fmt=brainrot"))
+        brainrot = json.loads(BRAINROT_TEMPLATE.read_text(encoding="utf-8"))
+        brainrot["provenance"]["root"] = str(EXPLAIN)
+        run = self.stage_script_format(brainrot)
+        self.assertEqual((run.returncode, run.stdout.splitlines()),
+                         (0, ["script: ok (4 scenes)", "fmt=brainrot"]), run.stdout + run.stderr)
+        film = json.loads((EXPLAIN / "templates" / "film-script.json").read_text(encoding="utf-8"))
+        film["provenance"]["root"] = str(EXPLAIN.parent.parent)
+        del film["format"]
+        run = self.stage_script_format(film, fake_page=True)
+        self.assertEqual((run.returncode, run.stdout.splitlines()),
+                         (0, ["script: ok (8 scenes)", "fmt=film"]), run.stdout + run.stderr)
 
 
 class E2EHelperCase(unittest.TestCase):

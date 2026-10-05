@@ -9,9 +9,10 @@
 #   env EXPLAIN_BRAINROT_SEED          brainrot only: an integer that fixes the clip choice and
 #                                      its start (pick_background.py reads it; default random)
 #
-# The format is script.json's "format" ("explainer" when absent, "film" or "brainrot"), read
-# once the script stage has passed. An explainer run has nine stages, a brainrot run ten and a film
-# run eleven: the film has "scene" and "guard", brainrot has "background".
+# The format is script.json's "format": "film" when the key is absent, or "brainrot". Any other
+# value stops the script stage with "script: FAIL script: format must be film or brainrot", so
+# the format is read once the check of that stage has passed. A film run has eleven stages, a
+# brainrot run ten: the film has "scene" and "guard", brainrot has "background".
 #
 #   exit 0  all stages of the format passed
 #   exit 1  a stage failed; the stages after it do not run; or HUP, INT or TERM stopped the run
@@ -19,9 +20,8 @@
 #   exit 2  usage, no <output-dir>/script.json, or script.json is not valid JSON (one line
 #           on stderr)
 #
-# stdout carries one line per stage, in this order, up to the first FAIL (the explainer and
-# the film print no "background" line; the explainer and brainrot print no "scene" and no "guard"
-# line):
+# stdout carries one line per stage, in this order, up to the first FAIL (the film prints no
+# "background" line; brainrot prints no "scene" and no "guard" line):
 #   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
 #   workspace: ok <ws>                      video-workspace.sh --engine <engine>, then the run
 #                                           directory (below)
@@ -34,8 +34,7 @@
 #   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh; <engine> as used; a
 #                                           brainrot script narrates at --speed 1.2
 #   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
-#                                           limits from it (explainer scene <= 60 s, total
-#                                           <= 150 s; film scene <= 30 s, total <= 150 s;
+#                                           limits from it (film scene <= 30 s, total <= 150 s;
 #                                           brainrot 30 s and 90 s)
 #   guard (<n> frames): ok                  film only: composition Film rendered at the <n> checkFrames
 #                                           of the timeline alone, into build/guard.mp4, log
@@ -51,8 +50,8 @@
 #   stills (<n>): ok <review-dir>           /
 #   transcript: ok                          transcript.py --narrator (a brainrot run also
 #                                           --background, read from the timeline), then verify.sh
-# The render stage renders composition Film for a film and composition Explain for an
-# explainer or a brainrot script. The stills of a film are cut at the checkFrames of its timeline:
+# The render stage renders composition Film for a film and composition Explain for a brainrot
+# script. The stills of a film are cut at the checkFrames of its timeline:
 # still-NN-<scene-id>-s<k>.png at the middle of sentence k of a scene and
 # still-NN-<scene-id>-end.png at its last frame.
 # A failing stage prints "<stage>: FAIL <cause>" and, below it, the tool's output indented
@@ -152,7 +151,7 @@ set -eu
 
 MARK="__render_sh_exit__="
 RATIO_LIMIT=2.0
-BRAINROT_SPEED=1.2   # narrate.sh --speed of a brainrot script; the explainer keeps its default
+BRAINROT_SPEED=1.2   # narrate.sh --speed of a brainrot script; a film keeps the default speed of narrate.sh
 
 usage() {
     echo "usage: render.sh <output-dir> [--engine kokoro|say]" >&2
@@ -207,7 +206,7 @@ remotion="$app/node_modules/.bin/remotion"
 tsc="$app/node_modules/.bin/tsc"
 
 root=""       # provenance.root
-fmt="explainer"   # the script's format: explainer, film, or brainrot
+fmt="film"    # the script's format: film or brainrot
 used=""       # the engine that made the audio (durations.json)
 fallback=""   # the fallback cause, empty when none
 video_s=""    # video length in seconds (totalFrames / fps)
@@ -303,10 +302,10 @@ PY
     case "$root" in /*) ;; *) fail "script: FAIL provenance.root must be an absolute path" ;; esac
     [ -d "$root" ] || fail "script: FAIL provenance.root must be an existing directory: $root"
     run_tool script node "$video/build-timeline.mjs" --check "$script" --root "$root"
-    # --check has accepted the format, so it is explainer, film or brainrot.
+    # --check has accepted the format, so it is film or brainrot.
     fmt=$(python3 -c '
 import json, sys
-print(json.load(open(sys.argv[1], encoding="utf-8")).get("format", "explainer"))
+print(json.load(open(sys.argv[1], encoding="utf-8")).get("format", "film"))
 ' "$script") || fail "script: FAIL cannot read $script"
     run_tool script python3 "$video/transcript.py" "$script" "$out"
     run_tool script "$scripts/verify.sh" "$out/index.html"

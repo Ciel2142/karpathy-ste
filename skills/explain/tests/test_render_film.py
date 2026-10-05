@@ -136,8 +136,8 @@ SCENE_FILES = len([path for path in FILM_DIR.iterdir()
 # The check frames of the template, which the guard measures: for each scene, the middle of each of its
 # sentences and its last frame.
 CHECK_FRAMES = sum(len(split_sentences(scene["narration"])) + 1 for scene in TEMPLATE_SCENES)
-# The eleven stage lines of a film run, in order: the explainer's nine names, the scene stage third and the
-# guard sixth, after the timeline.
+# The eleven stage lines of a film run, in order: the nine names that every format has, the scene stage
+# third and the guard sixth, after the timeline.
 ORDER = [
     r"script: ok \(%d scenes\)" % SCENES,
     r"workspace: ok /.+",
@@ -243,7 +243,7 @@ class FilmFunctionCase(unittest.TestCase):
         return remotion
 
     # red: the composition is the literal Explain (the film case), or Film for every format
-    # (the explainer and brainrot cases)
+    # (the brainrot case)
     def test_a_film_renders_composition_film(self):
         (self.out / "audio").mkdir()
         (self.out / "audio" / "s1.say.wav").write_bytes(b"clip")
@@ -251,8 +251,7 @@ class FilmFunctionCase(unittest.TestCase):
             json.dumps({"scenes": [{"audio": "audio/s1.say.wav"}]}), encoding="utf-8")
         calls = self.tmp / "calls.json"
         remotion = self.fake_remotion(calls)
-        for fmt, composition in (("film", "Film"), ("explainer", "Explain"),
-                                 ("brainrot", "Explain")):
+        for fmt, composition in (("film", "Film"), ("brainrot", "Explain")):
             with self.subTest(fmt=fmt):
                 calls.unlink(missing_ok=True)
                 run = run_functions(
@@ -371,16 +370,13 @@ class SceneStageCase(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.film.iterdir()),
                          ["Film.tsx", "Part.tsx", "script.gen.ts"])
 
-    # red: the stage runs for every format (an explainer run stops with "no scene directory", and so
-    # does a brainrot run)
+    # red: the stage runs for every format (a brainrot run stops with "no scene directory")
     def test_another_format_has_no_scene_stage(self):
         shutil.rmtree(self.out / "scene")
-        for fmt in ("explainer", "brainrot"):
-            with self.subTest(fmt=fmt):
-                done = self.stage(fmt)
-                self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
-                self.assertTrue(self.example_stays())
-                self.assertEqual(self.tsc_calls(), [])
+        done = self.stage("brainrot")
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+        self.assertTrue(self.example_stays())
+        self.assertEqual(self.tsc_calls(), [])
 
     # red: src/film is emptied before the check has passed
     def test_no_scene_directory(self):
@@ -547,11 +543,9 @@ class GuardStageCase(unittest.TestCase):
 
     # red: the pass runs for every format
     def test_another_format_has_no_guard_stage(self):
-        for fmt in ("explainer", "brainrot"):
-            with self.subTest(fmt=fmt):
-                done = self.guard(fmt)
-                self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
-                self.assertEqual(self.passes(), [])
+        done = self.guard("brainrot")
+        self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
+        self.assertEqual(self.passes(), [])
 
     # red: the last marker line wins (the code frame's line z), " Error  " is kept before the marker, or
     # log lines follow the stage line
@@ -660,7 +654,7 @@ class SceneRunCase(RunHarness, unittest.TestCase):
         shutil.rmtree(self.out / "scene", ignore_errors=True)
         shutil.copytree(SCENE_CLEAN, self.out / "scene")
 
-    def start(self, fmt="explainer", **env):
+    def start(self, fmt="brainrot", **env):
         """RunHarness.start, once the log and the end mark of the fake tsc of an earlier start are gone."""
         for name in ("tsc.jsonl", "tsc.end"):
             (self.tmp / name).unlink(missing_ok=True)
@@ -682,9 +676,9 @@ class SceneRunCase(RunHarness, unittest.TestCase):
             time.sleep(0.05)
 
     # red: the scene stage is not called (ten lines), or it is called after the narration (the third line
-    # is not the scene), or for every format (an explainer or a brainrot run prints a scene line and runs
-    # tsc); the guard stage is not called (ten lines, no guard), or for every format (an explainer or a
-    # brainrot run prints a guard line and calls the CLI twice)
+    # is not the scene), or for every format (a brainrot run prints a scene line and runs tsc); the guard
+    # stage is not called (ten lines, no guard), or for every format (a brainrot run prints a guard line
+    # and calls the CLI twice)
     def test_a_film_run_prints_eleven_stage_lines(self):
         run = self.finish(self.start("film"))
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
@@ -694,16 +688,14 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                           "container", "sync", "stills", "transcript"], run.stdout)
         self.assertEqual(lines[2], "scene: ok (2 files)")
         self.assertEqual(lines[5], "guard (2 frames): ok")
-        for fmt in ("explainer", "brainrot"):
-            with self.subTest(fmt=fmt):
-                run = self.finish(self.start(fmt))
-                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("scene")], [],
-                                 run.stdout)
-                self.assertFalse(self.tsc_log.exists())
-                self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("guard")], [],
-                                 run.stdout)
-                self.assertEqual(len(self.cli_calls()), 1, run.stdout)
+        run = self.finish(self.start("brainrot"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("scene")], [],
+                         run.stdout)
+        self.assertFalse(self.tsc_log.exists())
+        self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("guard")], [],
+                         run.stdout)
+        self.assertEqual(len(self.cli_calls()), 1, run.stdout)
 
     # red: STAGES holds the name of a stage that only a film run has (scene, and guard). The gated
     # BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES; here it is
@@ -839,7 +831,7 @@ class FilmRenderCase(unittest.TestCase):
         self.assertEqual(stage_lines(run.stdout)[1:2], ["workspace: ok %s" % workspace()],
                          run.stdout + run.stderr)
 
-    # red: stills by scene and cue (the explainer's names), a missing end still of the last scene,
+    # red: stills by scene and cue (the names of a brainrot run), a missing end still of the last scene,
     # or a sentence lost (the expected names come from the template, not from the render's own
     # timeline.json)
     def test_stills_are_the_check_frames(self):
