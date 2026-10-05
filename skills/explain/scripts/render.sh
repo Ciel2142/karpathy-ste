@@ -132,6 +132,7 @@ video="${scripts%/*}/video"
 ws="${EXPLAIN_VIDEO_WORKSPACE:-$HOME/karpathy/video-workspace}"
 app="$ws/app"
 remotion="$app/node_modules/.bin/remotion"
+tsc="$app/node_modules/.bin/tsc"
 
 root=""       # provenance.root
 fmt="explainer"   # the script's format: explainer, film, or brainrot
@@ -289,6 +290,48 @@ stage_workspace() {
     fi
     make_run_dir
     echo "workspace: ok $ws"
+}
+
+# Film only. The scene of <out>/scene goes into the run directory in four steps: check_scene.py
+# checks it by its text; src/film of the run directory is replaced by the scene's *.ts and *.tsx
+# files (a hidden file and the author's script.gen.ts stay behind); build-timeline.mjs --types
+# writes script.gen.ts there, the scene and source names of the script; tsc, with the run
+# directory as its project, type-checks the lot. The stage runs before the narration, so that a
+# fault in the picture costs no synthesis. The one recursive command on a path of $run is the
+# removal of src/film: the node_modules link lies outside it, and a trailing slash or a glob
+# after the name would reach the shared packages.
+stage_scene() {
+    local file cause="" first="" types line count=0 rc=0
+    [ "$fmt" = "film" ] || return 0
+    run_tool scene python3 "$video/check_scene.py" "$out/scene"
+    rm -rf "$run/src/film" && mkdir -p "$run/src/film" \
+        || fail "scene: FAIL cannot copy the scene to $run/src/film"
+    for file in "$out/scene"/*.ts "$out/scene"/*.tsx; do
+        [ -f "$file" ] || continue   # a pattern that matched nothing
+        [ "${file##*/}" != "script.gen.ts" ] || continue
+        cp "$file" "$run/src/film/${file##*/}" \
+            || fail "scene: FAIL cannot copy the scene to $run/src/film"
+        count=$((count + 1))
+    done
+    types=$(node "$video/build-timeline.mjs" --types "$script" "$run/src/film/script.gen.ts" 2>&1) || {
+        echo "scene: FAIL types: $(first_cause "$types")"
+        printf '%s\n' "$types" | sed 's/^/  /'
+        exit 1
+    }
+    # exec, as for the Remotion CLI in stage_render: render.sh waits for tsc itself. A subshell
+    # would end at once on TERM or HUP, and the EXIT trap would remove the run directory while tsc
+    # went on in it.
+    (cd "$run" && exec "$tsc") > "$run/tsc.log" 2>&1 < /dev/null || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in *"error TS"*) cause="$line"; break ;; esac
+            [ -n "$first" ] || first="$line"
+        done < "$run/tsc.log"
+        echo "scene: FAIL tsc: $(printf '%s\n' "${cause:-${first:-exit $rc}}" | sed 's|src/film/|scene/|g')"
+        head -n 20 "$run/tsc.log" | sed -e 's|src/film/|scene/|g' -e 's/^/  /'
+        exit 1
+    fi
+    echo "scene: ok ($count files)"
 }
 
 stage_narration() {

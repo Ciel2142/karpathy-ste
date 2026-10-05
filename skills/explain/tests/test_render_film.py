@@ -5,6 +5,11 @@ FilmFunctionCase runs single functions of the script (stage_render, clear_stale)
 directory, through render_functions of test_render.py, with a fake remotion CLI and no workspace:
 the composition each format renders, and the files a new run removes.
 
+SceneStageCase runs stage_scene alone in a temporary directory (an output directory with a scene, a
+run directory with the example's src/film and a node_modules link, a fake tsc: FAKE_TSC), with the
+real check_scene.py and build-timeline.mjs: the copy over src/film, the names, the type check, the
+four FAIL lines and the lines of tsc, cut and renamed.
+
 FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders templates/film-script.json (template_script() of
 test_film_example.py, rooted at the repository) through scripts/render.sh --engine say once per
 process (render_film(): a temporary output directory removed at exit, the environment render_env()
@@ -18,6 +23,7 @@ import atexit
 import importlib.util
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -28,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from png_diff import differing_pixels
+from test_check_scene import SCENE_CLEAN, append, prepend
 from test_film_example import template_script
 from test_narrate import NARRATE_PY
 from test_render import render_functions, stage_lines
@@ -50,6 +57,42 @@ split_sentences = load("narrate_for_film", NARRATE_PY).split_sentences
 voiced_windows = load("verify_sync_for_film", VERIFY_SYNC).voiced_windows
 WINDOW = 0.02   # seconds per window of voiced_windows (verify_sync.py WINDOW)
 LEAD_TOLERANCE = 0.06   # seconds: three windows
+
+# The fake tsc: it appends one JSON line to $FAKE_DIR/tsc.jsonl for each call (its argv, its cwd by real
+# path, and the text of each file of src/film under its cwd, by name: None for a directory), prints the
+# file FAKE_TSC_OUTPUT when set, sleeps FAKE_TSC_SLEEP s and exits FAKE_TSC_EXIT (default 0). With
+# FAKE_TSC_OUTLIVE set it outlives TERM and HUP as FAKE_CLI of test_render.py does: the signal ends the
+# sleep, and 1 s later it makes .tsc-late/ in its cwd (made again if it is gone) and marks its end in
+# tsc.end.
+FAKE_TSC = """#!/usr/bin/env python3
+import json, os, signal, sys, time
+class Outlived(Exception):
+    pass
+def outlive(signum, frame):
+    raise Outlived
+if os.environ.get("FAKE_TSC_OUTLIVE"):
+    signal.signal(signal.SIGTERM, outlive)
+    signal.signal(signal.SIGHUP, outlive)
+film = {}
+if os.path.isdir("src/film"):
+    for name in sorted(os.listdir("src/film")):
+        path = os.path.join("src/film", name)
+        film[name] = open(path, encoding="utf-8").read() if os.path.isfile(path) else None
+call = {"argv": sys.argv[1:], "cwd": os.path.realpath(os.getcwd()), "film": film}
+with open(os.path.join(os.environ["FAKE_DIR"], "tsc.jsonl"), "a") as log:
+    log.write(json.dumps(call) + "\\n")
+if os.environ.get("FAKE_TSC_OUTPUT"):
+    with open(os.environ["FAKE_TSC_OUTPUT"], encoding="utf-8") as text:
+        sys.stdout.write(text.read())
+    sys.stdout.flush()
+try:
+    time.sleep(float(os.environ.get("FAKE_TSC_SLEEP", "0")))
+except Outlived:
+    time.sleep(1)
+    os.makedirs(os.path.join(call["cwd"], ".tsc-late"), exist_ok=True)
+    open(os.path.join(os.environ["FAKE_DIR"], "tsc.end"), "w").close()
+sys.exit(int(os.environ.get("FAKE_TSC_EXIT", "0")))
+"""
 
 TEMPLATE_SCENES = template_script()["scenes"]
 SCENES = len(TEMPLATE_SCENES)
@@ -164,6 +207,178 @@ class FilmFunctionCase(unittest.TestCase):
         self.assertTrue((self.out / "review").is_dir())
         self.assertEqual(list((self.out / "review").iterdir()), [])
         self.assertTrue((self.out / "build" / "timeline.json").exists())
+
+
+class SceneStageCase(unittest.TestCase):
+    """stage_scene alone, against the real video/ of the skill (check_scene.py, build-timeline.mjs) and
+    FAKE_TSC. Every path lies in the test's own temporary directory: out/ (script.json and the scene), run/
+    (the example's src/film, as the run directory holds it from the skill, and node_modules, a link to the
+    node_modules of ws/app, where the fake tsc is)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="render-scene-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.out = self.tmp / "out"
+        self.out.mkdir()
+        (self.out / "script.json").write_text(json.dumps(template_script()), encoding="utf-8")
+        scene = self.out / "scene"
+        shutil.copytree(SCENE_CLEAN, scene)
+        (scene / ".DS_Store").write_bytes(b"\0Bud1")
+        (scene / "script.gen.ts").write_text("// the author's copy\n", encoding="utf-8")
+        self.run_dir = self.tmp / "run"
+        self.film = self.run_dir / "src" / "film"
+        self.film.mkdir(parents=True)
+        (self.film / "Example.tsx").write_text("// the example\n", encoding="utf-8")
+        (self.film / "script.gen.ts").write_text("// the example's names\n", encoding="utf-8")
+        modules = self.tmp / "ws" / "app" / "node_modules"
+        (modules / ".bin").mkdir(parents=True)
+        self.tsc = modules / ".bin" / "tsc"
+        self.tsc.write_text(FAKE_TSC, encoding="utf-8")
+        self.tsc.chmod(0o755)
+        (self.run_dir / "node_modules").symlink_to(modules)
+
+    def stage(self, fmt="film", before=""):
+        """The CompletedProcess of stage_scene for format `fmt`, run after the shell text `before`."""
+        return run_functions(
+            self.tmp, ["fail", "first_cause", "run_tool", "stage_scene"],
+            "fmt=%(fmt)s out=%(out)s run=%(run)s script=%(out)s/script.json video=%(video)s tsc=%(tsc)s\n"
+            "export FAKE_DIR=%(tmp)s\n%(before)s\nstage_scene\n"
+            % {"fmt": fmt, "out": self.out, "run": self.run_dir, "video": EXPLAIN / "video",
+               "tsc": self.tsc, "tmp": self.tmp, "before": before})
+
+    def tsc_calls(self):
+        """The calls of the fake tsc, one dict for each line of tsc.jsonl."""
+        log = self.tmp / "tsc.jsonl"
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+    def example_stays(self):
+        """The example is still in src/film of the run directory."""
+        return (self.film / "Example.tsx").is_file()
+
+    def tsc_fails(self, output, code):
+        """The CompletedProcess of stage_scene when the fake tsc prints `output` (None: nothing) and
+        exits `code`."""
+        before = "export FAKE_TSC_EXIT=%d" % code
+        if output is not None:
+            (self.tmp / "tsc.out").write_text(output, encoding="utf-8")
+            before += " FAKE_TSC_OUTPUT=%s/tsc.out" % self.tmp
+        return self.stage(before=before)
+
+    # red: no removal of src/film before the copy (Example.tsx stays), a hidden file or the author's
+    # script.gen.ts copied or counted, the names written before the copy (the author's copy wins) or
+    # after tsc (tsc sees no script.gen.ts), tsc with another cwd or with an argument
+    def test_a_clean_scene_is_copied_and_typed(self):
+        done = self.stage()
+        self.assertEqual((done.returncode, done.stdout), (0, "scene: ok (2 files)\n"), done.stderr)
+        self.assertEqual(sorted(path.name for path in self.film.iterdir()),
+                         ["Film.tsx", "Part.tsx", "script.gen.ts"])
+        scene = self.out / "scene"
+        for name in ("Film.tsx", "Part.tsx"):
+            self.assertEqual((self.film / name).read_bytes(), (scene / name).read_bytes(), name)
+        ids = " | ".join('"%s"' % s["id"] for s in template_script()["scenes"])
+        generated = (self.film / "script.gen.ts").read_text(encoding="utf-8")
+        self.assertEqual(generated.splitlines()[2:3], ["export type SceneId = %s;" % ids])
+        self.assertEqual(self.tsc_calls(), [{
+            "argv": [], "cwd": os.path.realpath(self.run_dir),
+            "film": {"Film.tsx": (scene / "Film.tsx").read_text(encoding="utf-8"),
+                     "Part.tsx": (scene / "Part.tsx").read_text(encoding="utf-8"),
+                     "script.gen.ts": generated}}])
+
+    # red: a pattern that no file matches (*.ts, for a scene with no script.gen.ts of the author's and no
+    # other .ts file) is copied as it is: "scene: FAIL cannot copy the scene to <run>/src/film"
+    def test_a_scene_with_no_ts_file(self):
+        (self.out / "scene" / "script.gen.ts").unlink()
+        done = self.stage()
+        self.assertEqual((done.returncode, done.stdout), (0, "scene: ok (2 files)\n"), done.stderr)
+        self.assertEqual(sorted(path.name for path in self.film.iterdir()),
+                         ["Film.tsx", "Part.tsx", "script.gen.ts"])
+
+    # red: the stage runs for every format (an explainer run stops with "no scene directory", and so
+    # does a brainrot run)
+    def test_another_format_has_no_scene_stage(self):
+        shutil.rmtree(self.out / "scene")
+        for fmt in ("explainer", "brainrot"):
+            with self.subTest(fmt=fmt):
+                done = self.stage(fmt)
+                self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+                self.assertTrue(self.example_stays())
+                self.assertEqual(self.tsc_calls(), [])
+
+    # red: src/film is emptied before the check has passed
+    def test_no_scene_directory(self):
+        shutil.rmtree(self.out / "scene")
+        done = self.stage()
+        gone = "no scene directory: %s/scene" % self.out
+        self.assertEqual((done.returncode, done.stdout.splitlines()),
+                         (1, ["scene: FAIL " + gone, "  FAIL " + gone]), done.stderr)
+        self.assertTrue(self.example_stays())
+        self.assertEqual(self.tsc_calls(), [])
+
+    # red: the stage goes on after a failed check (the copy and tsc run), or its line is another cause
+    # than the first
+    def test_the_first_cause_is_the_stage_line(self):
+        prepend(self.out / "scene", "Film.tsx", "// @ts-nocheck")
+        line = append(self.out / "scene", "Film.tsx", "// href")
+        done = self.stage()
+        self.assertEqual((done.returncode, done.stdout.splitlines()), (1, [
+            'scene: FAIL Film.tsx:1: token "@ts-nocheck"',
+            '  FAIL Film.tsx:1: token "@ts-nocheck"',
+            '  FAIL Film.tsx:%d: token "href"' % line]), done.stderr)
+        self.assertEqual(self.tsc_calls(), [])
+
+    # red: the status of the removal, of the mkdir or of cp is not read (the stage goes on to the names
+    # and to tsc)
+    def test_a_copy_that_fails(self):
+        for command in ("cp", "rm", "mkdir"):
+            with self.subTest(command=command):
+                (self.tmp / "tsc.jsonl").unlink(missing_ok=True)
+                done = self.stage(before="%s() { return 1; }" % command)
+                self.assertEqual(
+                    (done.returncode, done.stdout),
+                    (1, "scene: FAIL cannot copy the scene to %s/src/film\n" % self.run_dir), done.stderr)
+                self.assertEqual(self.tsc_calls(), [])
+
+    # red: the status of the tool is not read (tsc runs), or the stage line has no "types:"
+    def test_types_that_fail(self):
+        script = template_script()
+        script["format"] = "brainrot"
+        (self.out / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        done = self.stage()
+        self.assertEqual((done.returncode, done.stdout.splitlines()), (1, [
+            "scene: FAIL types: script: --types needs a film script",
+            "  FAIL script: --types needs a film script"]), done.stderr)
+        self.assertEqual(self.tsc_calls(), [])
+
+    # red: the first error line is the first line of the output (Version 5.9.3), more or fewer than
+    # 20 lines follow, "src/film/" stays in the stage line or in the lines below it, the log goes to the
+    # output directory
+    def test_tsc_errors_are_cut_and_renamed(self):
+        error = ("src/film/Film.tsx(60,39): error TS2345: Argument of type '\"no-such-scene\"' is not "
+                 "assignable to parameter of type 'SceneId'.")
+        lines = ["Version 5.9.3", error] + [
+            "src/film/Part.tsx(%d,1): error TS6133: 'x%d' is declared but its value is never read." % (k, k)
+            for k in range(1, 24)]
+        self.assertEqual(len(lines), 25)
+        done = self.tsc_fails("".join(line + "\n" for line in lines), 2)
+        shown = [line.replace("src/film/", "scene/") for line in lines]
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(done.stdout.splitlines(),
+                         ["scene: FAIL tsc: " + shown[1]] + ["  " + line for line in shown[:20]])
+        self.assertEqual(sorted(path.name for path in self.out.iterdir()), ["scene", "script.json"])
+
+    # red: a stage line with no cause (an empty "tsc: ", or the first line missed when the output has no
+    # final line break)
+    def test_tsc_without_an_error_line(self):
+        for text in ("tsc: boom\n", "tsc: boom"):
+            with self.subTest(output=text):
+                done = self.tsc_fails(text, 1)
+                self.assertEqual((done.returncode, done.stdout.splitlines()),
+                                 (1, ["scene: FAIL tsc: tsc: boom", "  tsc: boom"]), done.stderr)
+        with self.subTest(output=None):
+            done = self.tsc_fails(None, 3)
+            self.assertEqual((done.returncode, done.stdout), (1, "scene: FAIL tsc: exit 3\n"), done.stderr)
 
 
 @unittest.skipUnless(E2E, E2E_REASON)
