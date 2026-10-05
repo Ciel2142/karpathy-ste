@@ -22,19 +22,25 @@ read as UTF-8 with each undecodable byte replaced, so no byte stops the check.
 
 Imports: each `from "<source>"` and each `import "<source>"`, with either quote, names react, remotion,
 ../kit, ./script.gen, or ./<Name> for a scene file <Name>.ts or <Name>.tsx; the cause is on the line that
-holds the quoted source. From remotion a file may bring in useCurrentFrame, interpolate, Easing, spring and
-interpolateColors, by import or by re-export. The clause of a `from "remotion"` is the text between the
-nearest `import` or `export` that is the first word of a line (on the line of the `from` or above) and the
-`from`.
-A clause that is one braced list, with no brace inside it and no comment mark (`/*`, `*/` or `//`), gives
-each item's own name (before an `as`, without a leading `type`); a clause of any other shape (a default
-import, `* as R`, `export *`, a list that holds a comment mark, or the tail of a line that holds two
-imports) is one cause that quotes it, its white space collapsed and cut to 40 characters. A comment inside
-the clause is refused, not read around: a block comment can hold a line that starts with `import {` or
-`export {`, which would move the start of the clause past a refused name. The author moves the comment out
-of the clause; a comment above the `import` word, outside the clause, passes.
+holds the quoted source. A source runs to the next quote, over line breaks too: after a string that ends
+with the word `import` or `from`, the text up to the next quote is a source. From remotion a file may bring
+in useCurrentFrame, interpolate, Easing, spring and interpolateColors, by import or by re-export. The clause
+of a `from "remotion"` is the text between the nearest `import` or `export` that is the first word of a line
+(on the line of the `from` or above) and the `from`.
+A clause that is one braced list, with no brace inside it, no comment mark (`/*`, `*/` or `//`), and each
+item of the shape `[type ]name[ as alias]` (name and alias identifiers; an empty last item, after a
+trailing comma or in `{}`, aside), gives each item's own name; a clause of any other shape (a default
+import, `* as R`, `export *`, a list that holds a comment mark or an item of another shape such as a quoted
+alias, or the tail of a line that holds two imports) is one cause that quotes it. A comment or a quoted
+alias inside the clause is refused, not read around: a block comment, or a string that a backslash carries
+over a line break, can hold a line that starts with `import {` or `export {`, which would move the start of
+the clause past a refused name. The author moves the comment out of the clause; a comment above the
+`import` word, outside the clause, passes.
+A cause quotes a source or a clause on one line: its white space (line breaks among it) collapsed to single
+spaces, cut to 40 characters, stripped.
 
-Tokens, matched with their case, one cause for each line that holds one:
+Tokens, one cause for each line that holds one, each matched with its case except @ts-nocheck, which is
+matched in any case (TypeScript reads that pragma in any case) and named as written here in its cause:
   plain:   require(  import(  fetch(  foreignObject  dangerouslySetInnerHTML  clipPath  href  http://
            https://  @ts-nocheck  @ts-ignore  @ts-expect-error  as unknown  <any>
   by word: <mask  <use  <image  as any  : any
@@ -62,7 +68,10 @@ PLAIN_TOKENS = (
     "http://", "https://", "@ts-nocheck", "@ts-ignore", "@ts-expect-error", "as unknown", "<any>",
 )
 WORD_TOKENS = ("<mask", "<use", "<image", "as any", ": any")
-TOKENS = [(t, re.compile(re.escape(t))) for t in PLAIN_TOKENS] + [
+# TypeScript reads the pragma @ts-nocheck in any case (it lowercases the name), so this one token is matched
+# in any case; TypeScript reads @ts-ignore and @ts-expect-error only as written, so they keep their case.
+ANY_CASE = ("@ts-nocheck",)
+TOKENS = [(t, re.compile(re.escape(t), re.IGNORECASE if t in ANY_CASE else 0)) for t in PLAIN_TOKENS] + [
     (t, re.compile(re.escape(t) + r"(?![A-Za-z0-9])")) for t in WORD_TOKENS
 ]
 
@@ -74,6 +83,11 @@ BRACED = re.compile(r"(?:type\s*)?\{([^{}]*)\}")   # one list: a brace inside ma
 # a refused name; that comment opens after the name and closes before the real `}`, so its `*/` is always in
 # the clause. A `//` in the clause is refused the same way: there is no comment parser, one rule for both.
 COMMENT_MARK = re.compile(r"/\*|\*/|//")
+# One item of a list, `[type ]<name>[ as <alias>]` with free white space between the words; group 1 is the
+# name. An item of any other shape (a quoted alias above all, which a line continuation can carry onto a line
+# that starts with `export {`) makes the clause another shape: deny by default, as for a comment mark.
+IDENTIFIER = r"[A-Za-z_$][A-Za-z0-9_$]*"
+ITEM = re.compile(r"\s*(?:type\s+)?(%s)(?:\s+as\s+%s)?\s*" % (IDENTIFIER, IDENTIFIER))
 QUOTED_LENGTH = 40
 
 
@@ -107,21 +121,33 @@ def clause_before(text, starts, at):
     return text[starts[own]:at]
 
 
-def refused_names(clause):
-    """The names that `clause` brings in from remotion and that a scene may not: each name of one braced
-    list (the item's own name) that is not allowed, or, for a clause of any other shape, the clause. A clause
-    that holds `/*`, `*/` or `//` is of another shape, whatever else it holds."""
+def quoted(text):
+    """`text` (a source or a clause) as a cause quotes it, on one line: its white space (line breaks among
+    it) collapsed to single spaces, cut to QUOTED_LENGTH characters, stripped."""
+    return " ".join(text.split())[:QUOTED_LENGTH].strip()
+
+
+def list_names(clause):
+    """The own name of each item of `clause` when it is one braced list with no comment mark (`/*`, `*/` or
+    `//`) whose every item is `[type ]name[ as alias]`, an empty last item (after a trailing comma, or the
+    whole of `{}`) aside; for a clause of any other shape, None."""
     braced = None if COMMENT_MARK.search(clause) else BRACED.fullmatch(clause.strip())
     if braced is None:
-        return [" ".join(clause.split())[:QUOTED_LENGTH]]
-    names = []
-    for item in braced.group(1).split(","):
-        words = item.split()
-        if len(words) > 1 and words[0] == "type":
-            words = words[1:]
-        if words and words[0] not in REMOTION_NAMES:
-            names.append(words[0])
-    return names
+        return None
+    items = braced.group(1).split(",")
+    if not items[-1].strip():
+        items = items[:-1]
+    found = [ITEM.fullmatch(item) for item in items]
+    return [item.group(1) for item in found] if all(found) else None
+
+
+def refused_names(clause):
+    """The names that `clause` brings in from remotion and that a scene may not: each name of its list that
+    is not allowed, or, for a clause of any other shape, the clause, quoted."""
+    names = list_names(clause)
+    if names is None:
+        return [quoted(clause)]
+    return [name for name in names if name not in REMOTION_NAMES]
 
 
 def import_causes(text, starts, allowed):
@@ -135,7 +161,7 @@ def import_causes(text, starts, allowed):
                 clause = clause_before(text, starts, match.start())
                 causes = ['"%s" from remotion' % name for name in refused_names(clause)]
         else:
-            causes = ['import from "%s"' % source]
+            causes = ['import from "%s"' % quoted(source)]
         if causes:
             line = bisect_right(starts, match.start(2))
             found.setdefault(line, []).extend(causes)

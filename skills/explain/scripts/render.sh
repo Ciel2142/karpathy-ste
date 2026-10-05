@@ -61,21 +61,24 @@
 # The scene stage has five FAIL lines. Each stops the run with exit 1 before the narration; the run
 # directory goes by the EXIT trap:
 #   scene: FAIL no scene directory: <path>
-#       <output-dir>/scene is absent (<path> by real path); the tool's line follows, indented.
+#       <output-dir>/scene is not a directory: absent, or there but not a directory (a link is
+#       followed). <path> is that path, <output-dir> by its real path; the tool's line follows,
+#       indented.
 #   scene: FAIL <first cause of check_scene.py>
-#       The scene is refused: no Film.tsx, an entry that is not a .ts or .tsx file, or an import or
-#       a token that the rules refuse (<file>:<line>: <cause>). Every cause follows, indented, the
-#       first among them. Nothing was copied. (A tool that fails with no FAIL line of its own gives
-#       its first non-empty line as the cause.)
+#       The scene is refused: no Film.tsx, <name> is a directory, <name> is not a .ts or .tsx file,
+#       Film.tsx has no "export function Film(", or an import or a token that the rules refuse
+#       (<file>:<line>: <cause>). Every cause follows, indented, the first among them. Nothing was
+#       copied. (A tool that fails with no FAIL line of its own gives as the cause its first line
+#       that holds ": FAIL", else its first non-empty line, else "no output".)
 #   scene: FAIL cannot copy the scene to <run>/src/film
 #       The removal of src/film, its making or a cp failed. Nothing follows.
 #   scene: FAIL types: <cause>
 #       build-timeline.mjs --types failed; its output follows, indented.
 #   scene: FAIL tsc: <first error line>
 #       tsc exited non-zero. The first error line is the first line of its output with "error TS",
-#       else its first line that is not empty, else "exit <n>". The first 20 lines of its output
-#       follow, indented ($run/tsc.log holds all of them); "src/film/" is written "scene/" in them
-#       and in the stage line.
+#       else its first line that is not empty, else "exit <n>". Only the first 20 lines of its
+#       output follow, indented; the rest goes with the run directory (tsc.log in it). "src/film/"
+#       is written "scene/" in them and in the stage line.
 #
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
 # the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run

@@ -92,6 +92,15 @@ class CleanSceneCase(SceneCase):
         """The fixture itself: Film.tsx and Part.tsx, an import of ./script.gen with no such file."""
         self.assertVerdict(check_scene(SCENE_CLEAN), 0, [])
 
+    # red: a name of the five is missing from the tool's list (Easing, spring or interpolateColors; the
+    # fixture brings in the other two), so the re-export fails by its line
+    def test_every_allowed_name_of_remotion_passes(self):
+        """The clean copy with a re-export of Easing, spring and interpolateColors from remotion appended to
+        Part.tsx."""
+        copy = scene_copy(self)
+        append(copy, "Part.tsx", 'export { Easing, spring, interpolateColors } from "remotion";')
+        self.assertVerdict(check_scene(copy), 0, [])
+
     # red: a hidden entry is a fault (.DS_Store, a hidden directory), or script.gen.ts is read (its
     # @ts-nocheck and its import of fs would be faults)
     def test_hidden_entries_and_script_gen_are_ignored(self):
@@ -197,22 +206,29 @@ class ImportRuleCase(SceneCase):
         self.assertFails(check_scene(copy), ['Part.tsx:%d: "Sequence" from remotion' % first])
 
     # red: the clause is the text after the nearest `import` or `export` word, wherever it stands (the
-    # first sub-test then gives exit 0: the `export {` of the comment hides Sequence), or a clause with a
-    # comment mark (`/*`, `*/`, `//`) is read around instead of quoted and refused (each of the last three
+    # first sub-test then gives exit 0: the `export {` of the comment hides Sequence), a clause with a
+    # comment mark (`/*`, `*/`, `//`) is read around instead of quoted and refused (each of the next three
     # sub-tests then gives exit 0: the block comment holds a line that starts with `export {` or
-    # `import {`, the clause starts after it, and the name before the comment is never read)
+    # `import {`, the clause starts after it, and the name before the comment is never read), or a list
+    # is read by the first word of each item when an item is not `[type ]name[ as alias]` (the last
+    # sub-test then gives exit 0: a quoted alias with a line continuation holds a line that starts with
+    # `export {`, the clause starts after it, and its last item is `interpolate "`)
     def test_a_comment_inside_the_clause_never_hides_a_name(self):
-        """Five copies, each with two lines appended to one file: a list that starts with Sequence and holds
+        """Six copies, each with two lines appended to one file: a list that starts with Sequence and holds
         the words `export {` in a line comment; one that holds them in a block comment that closes before
-        the name `useCurrentFrame`; and three lists whose block comment opens after a refused name, holds a
+        the name `useCurrentFrame`; three lists whose block comment opens after a refused name, holds a
         line that starts with `import {` or `export {`, and closes after an allowed name, in Film.tsx, in
-        Part.tsx, and as a re-export in Part.tsx."""
+        Part.tsx, and as a re-export in Part.tsx; and a re-export in Part.tsx of Sequence and of
+        interpolate as a quoted alias that a backslash carries to the next line, which starts with
+        `export {`."""
         planted = [
             ("Film.tsx", 'import { Sequence, // export {\n  useCurrentFrame } from "remotion";'),
             ("Film.tsx", 'import { Sequence, /*\nexport { */ useCurrentFrame } from "remotion";'),
             ("Film.tsx", 'import { Sequence, /*\nexport { spring */ } from "remotion";'),
             ("Part.tsx", 'import { Sequence /*\nimport { useCurrentFrame, Easing */ } from "remotion";'),
             ("Part.tsx", 'export { Sequence, AbsoluteFill /*\nexport { interpolate */ } from "remotion";'),
+            ("Part.tsx", 'export { Sequence, interpolate as "a\\\n'
+                         'export { useCurrentFrame, interpolate " } from "remotion";'),
         ]
         for name, text in planted:
             with self.subTest(name=name, text=text):
@@ -221,6 +237,28 @@ class ImportRuleCase(SceneCase):
                 done = check_scene(copy)
                 self.assertEqual((done.returncode, done.stderr), (1, ""))
                 self.assertRegex(done.stdout, r'(?m)^FAIL %s:\d+: ".*" from remotion$' % re.escape(name))
+
+    # red: a quoted source is printed raw (the source after the string "import" runs to the next quote,
+    # over four lines, so its cause takes five lines; the source of 62 characters is printed whole), or the
+    # cut source is not stripped (the first cause then ends in a space before its closing quote)
+    def test_a_quoted_source_is_one_line_of_at_most_40_characters(self):
+        """Two copies, each with text appended to Part.tsx: the string "import", three lines of constants
+        and a line with the string "film"; then one import of x from "./" and 60 letters."""
+        keyword = ('export const KEYWORD = "import";\nexport const WIDE = 640;\nexport const TALL = 360;\n'
+                   'export const RATE = 30;\nexport const NAME = "film";')
+        long_source = "./" + "abcdefghij" * 6
+        # The source of `keyword` runs from the quote that closes "import" to the quote that opens "film".
+        # Collapsed, its 40th character is a space, which the strip removes.
+        planted = [
+            (keyword, keyword.split('"')[2]),
+            ('import x from "%s";' % long_source, long_source),
+        ]
+        for text, source in planted:
+            with self.subTest(text=text):
+                copy = scene_copy(self)
+                first = append(copy, "Part.tsx", text)
+                cut = " ".join(source.split())[:40].strip()
+                self.assertFails(check_scene(copy), ['Part.tsx:%d: import from "%s"' % (first, cut)])
 
     # red: the clause is one braced list even when it holds another import (the second import of a line is
     # then read as the names of the first, `spring`, and Sequence passes with exit 0)
@@ -266,12 +304,24 @@ class TokenRuleCase(SceneCase):
                     line = append(copy, "Film.tsx", "// " + token + follower)
                     self.assertFails(check_scene(copy), ['Film.tsx:%d: token "%s"' % (line, token)])
 
-    # red: the match ignores case (HREF, Fetch(, <Mask> and AS ANY are faults)
-    def test_tokens_are_matched_with_their_case(self):
-        """The clean copy with a line of each of four tokens in other case appended to Film.tsx."""
-        copy = scene_copy(self)
-        append(copy, "Film.tsx", "// HREF\n// Fetch(\n// <Mask>\n// AS ANY")
-        self.assertVerdict(check_scene(copy), 0, [])
+    # red: the match ignores case for every token (HREF, Fetch(, <Mask>, AS ANY, @TS-IGNORE and
+    # @TS-EXPECT-ERROR are faults), @ts-nocheck is matched with its case (// @TS-NOCHECK and
+    # // @Ts-NoCheck pass with exit 0; TypeScript reads that pragma in any case), or its cause names the
+    # token in the case of the file
+    def test_tokens_keep_their_case_but_ts_nocheck_counts_in_any_case(self):
+        """The clean copy with a line of each of six tokens in other case appended to Film.tsx, which
+        passes; then two copies, each with one line appended to Film.tsx: `// @TS-NOCHECK`, then
+        `// @Ts-NoCheck`, which fail by the line as the token "@ts-nocheck"."""
+        with self.subTest(text="other tokens in other case"):
+            copy = scene_copy(self)
+            others = ("HREF", "Fetch(", "<Mask>", "AS ANY", "@TS-IGNORE", "@TS-EXPECT-ERROR")
+            append(copy, "Film.tsx", "\n".join("// " + other for other in others))
+            self.assertVerdict(check_scene(copy), 0, [])
+        for pragma in ("@TS-NOCHECK", "@Ts-NoCheck"):
+            with self.subTest(text=pragma):
+                copy = scene_copy(self)
+                line = append(copy, "Film.tsx", "// " + pragma)
+                self.assertFails(check_scene(copy), ['Film.tsx:%d: token "@ts-nocheck"' % line])
 
     # red: a token gives one cause for the file (not for each line), or one for each place on a line
     def test_a_token_counts_once_for_each_line(self):
