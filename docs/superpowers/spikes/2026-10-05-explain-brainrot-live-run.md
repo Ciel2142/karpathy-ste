@@ -354,3 +354,41 @@ One line for each row: old → new or kept; the evidence (still, fill, fault or 
 - diagram edge label 10: kept between rows; on an edge in a row the brainrot validator allows no label (ruling R9; no `edgeLabel` key, no layout change). Stress: `still-03-diagram.png`, fill 2.8, fault: the labels on the four edges in a row are behind the nodes. Measured in `confirm-1` (`still-03-diagram-a.png`, `still-04-diagram-b.png`, edges in a row, 48 px gap): labels of 6 (`Mixers`), 5 (`Mixes`, `Warms`) and 4 (`Maps`, `Warm`) characters are cut; of the 3-character labels `Mix` and `Wax` are whole (`Wax` fills the 48 px gap) and `Mow` is cut at both ends. The largest clean length is under 4, so the rule is: an edge between two cells of the same row carries no label (`FAIL scene <id>: edges[<i>] <from>-<to> has a label on a same-row edge (<cell>-<cell>, brainrot)`). Labels between rows keep 10: `Warm Mixes`, `Map Weight` and `Wide Mixes` are whole in `confirm-1`, and `Warm Mixes` and `Map Weight` in `confirm-4`, `still-03-diagram.png`.
 
 `confirm-4` also passes the margin and seam checks: in its 18 stills there is no ink in x 0 to 23 or x 1057 to 1079 above y 912, and no ink in the seam band x 0 to 1079, y 912 to 927. The stress fixture had to change one more thing: its `folder` scene cited line 108 of `rungs/brainrot.md`, which moved when the rung grew. It now cites `tests/fixtures/limits-source.txt` line 14, which changes only with the code limits.
+
+## Defect answers
+
+One line for each defect of the list above. The runner fix is commit d06c25a (`fix: explain: runner loop keeps obstacles out of the runner's lane`); the skill text is commit eb4f475 (`docs: explain: brainrot rung answers the live-run defects`).
+
+1. Fixed by part A (commit e99ac5e): `rungs/brainrot.md` has the row "diagram edge `label` | 10 | 10; no label on an edge in a row" and the bullet "Diagram edges", and the `script` stage fails a label on an edge in a row. Nothing was missing.
+2. Fixed in `templates/brainrot-script.json` (eb4f475): `provenance.source` is now `skills/explain`, the repo root in the same relative form as `provenance.root`; the key table of `rungs/video.md` already says the template value is relative. `templates/video-script.json` has the same kind of value (`scripts/verify.sh and scripts/cite_check.py`); it belongs to the explainer and is not changed here.
+3. Fixed in `rungs/video.md` section 3, step 2 (eb4f475): "When the first cue starts the narration, the start still shows that item as it comes in. That is not a fault. The cue still shows it in full." This is true for both formats.
+4. Fixed in code, `skills/explain/video/src/short/runner.ts` (d06c25a): an obstacle that spawns in beat b reaches the runner's depth (RunnerLoop `RUNNER_Z` 0.82, 49 frames after the spawn) in beat b+2, so `beatPlan` now takes another lane for it if it equals the runner's lane of beat b+2 (one more draw of the same seeded stream; `runnerState` stays a pure function of frame and seed). Test `test_runner_obstacle_never_over_runner` in `tests/test_short_logic.py` (seeds 7, 1, 2, 3, 42 and 123456, frames 0 to 1799, obstacle z from 0.70 to 0.95, hop 0): it failed before the fix (`seed 7 frame 342: obstacle z=0.700 over the runner`) and passes after. No existing test pinned the old lanes. `rungs/brainrot.md` section 4 now describes the loop (eb4f475): a cyan block runs on a three-lane road, red blocks come toward it, it changes lane to pass them, and no red block covers it.
+5. Fixed in `rungs/brainrot.md` section 3, Length (eb4f475): "approximately 3.3 words each second" and "Six scenes of 45 words come near 85 s".
+6. Fixed in `rungs/brainrot.md` as skill text only (eb4f475): the `narration` row of section 5 and step 3 of section 6 now point to the first lines of `audio/<id>.<engine>.txt`, which show `engine=kokoro`, `voice=af_heart` and `speed=1.2` (checked in the live output). The stage line and the transcript do not change.
+7. Fixed in `rungs/video.md` section 2, Rules for each scene (eb4f475): "To show text that breaks STE, put it in double quotes in a prop, or in backticks in the narration. The lint does not check quoted text or code." This is true for both formats.
+8. Fixed by part A (commit e99ac5e): the table has the row "scene heading | — | 29 chars", and the bullet "Scene heading" says it shows on one line. Nothing was missing.
+9. Fixed in `rungs/brainrot.md` section 3, Captions (eb4f475): "A caption keeps the punctuation of the narration."
+10. Fixed in `rungs/brainrot.md` section 2 (eb4f475): a new last row "`rungs/sheet.md` section 4 (not a section of `video.md`) | The provenance recipe. Section 2 of `video.md` sends you to it."
+
+No defect was rejected. `rungs/brainrot.md` and `rungs/video.md` lint `0 errors, 0 warnings`.
+
+### Re-render
+
+The live run did not pass the new limits as it stood (the expected case did not hold). The first `render.sh` run stopped with `script: FAIL scene flow: edges[0] text-tokenize has a label on a same-row edge (a1-b1, brainrot)`: the edge `text` to `tokenize` had the label `str`. I removed that one edge label from `script.json` (a prop; no narration changed, so no WAV file was made again). The other labels (`sorted`, `severity`) are on edges between rows.
+
+Then `EXPLAIN_BRAINROT_BACKGROUNDS=<empty temp dir> skills/explain/scripts/render.sh <out>` in place, with Kokoro and no `--engine` flag, printed ten `ok` lines and exit 0:
+
+```
+script: ok (5 scenes)
+workspace: ok /Users/valukin/karpathy/video-workspace
+narration (kokoro): ok     (all five scenes reused)
+timeline (5 scenes, 51.7 s): ok
+background: ok generated
+render (17.8 s, 0.34 render-min/video-min): ok
+container: ok (51.67 s)
+sync: ok
+stills (19): ok /Users/valukin/karpathy/out/2026-10-05-020741-brainrot-ste-lint/review
+transcript: ok
+```
+
+Stills read: `still-04-finding-1.png` (the cyan block is in the centre lane; the only near red block is in the right lane, not over the runner; this still showed the collision in run 2), `still-02-flow-1.png` (the diagram is whole; the edge `text` to `tokenize` has no label, the others show `sorted` and `severity` in full; the runner is on the left lane, one small red block far away) and `still-03-rules-2.png` (two bullets; the runner in the centre lane, red blocks in the left and right lanes, and one in the centre lane at a lower depth than the runner's, which the rule allows because the runner changes lane before it arrives). The scenes are the same as in run 2 apart from the removed label; the red blocks differ where the lane of an obstacle was re-picked.
