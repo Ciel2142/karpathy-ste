@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Choose the background of a brainrot short and write it into build/timeline.json (spec 4.4).
 
-Usage: pick_background.py <timeline.json> <remotion-cli> <app-dir> --dir <clips> [--seed <int>]
+Usage: pick_background.py <timeline.json> <remotion-cli> <run-dir> --dir <clips> [--seed <int>]
 
 <clips> is the background folder, <remotion-cli> the workspace's node_modules/.bin/remotion and
-<app-dir> the workspace app (<ws>/app). Only *.mp4, *.mov and *.webm files count, matched
-case-insensitively; hidden files and directories are ignored.
+<run-dir> the run directory of this render (<ws>/runs/run.<pid>.<id>), the Remotion project that
+render.sh compiles. Only *.mp4, *.mov and *.webm files count, matched case-insensitively; hidden
+files and directories are ignored.
 
 Order. The clips are `sorted(names)` shuffled by random.Random(seed); the seed is --seed, else
-$EXPLAIN_BRAINROT_SEED, else random. For each clip, `<remotion-cli> ffprobe` (cwd <app-dir>,
+$EXPLAIN_BRAINROT_SEED, else random. For each clip, `<remotion-cli> ffprobe` (cwd <run-dir>,
 stdin /dev/null, 60 s) reads the streams and the duration; a probe that times out is killed with its
 whole process group, since the CLI spawns the real ffprobe. A clip that cannot be probed, has no
 video stream or no positive duration is skipped; the first good clip wins. A missing or empty
@@ -19,14 +20,13 @@ random start in [0, clip - video] and plays once; a shorter clip starts at 0 and
 
 Staging. Remotion's static server answers 404 for a file that is itself a symlink, and the
 bundler copies regular files from public/ into every bundle but re-links symlinks. So the picker
-empties the stage <ws>/bg-stage/ on every run (<ws> is the parent of <app-dir>; made if missing),
-stages the clip there as the regular file clip<.ext lowercased> (a hard link to the clip's
-realpath, else a copy), and (re)makes <app-dir>/public/bg as the relative symlink
-../../bg-stage, replacing whatever is at that path. A path through that directory symlink is
-served. The stage lies beside the app, not in it, because the sync of any checkout's
-video-workspace.sh (rsync --delete into <app-dir>, public/ excluded) would delete a stage inside
-the app and leave the link dangling, and a dangling link in public/ fails every render. A
-generated run leaves the stage empty and the link in place.
+empties the stage <run-dir>/bg-stage/ on every run (made if missing), stages the clip there as the
+regular file clip<.ext lowercased> (a hard link to the clip's realpath, else a copy), and (re)makes
+<run-dir>/public/bg as the relative symlink ../bg-stage, replacing whatever is at that path. A path
+through that directory symlink is served. The stage is a real directory behind a directory link
+because a file that is itself a link is not served. It lies in the run directory, which no other
+render uses, so two renders at the same time never share a stage; the link is relative, so it holds
+wherever the run directory is. A generated run leaves the stage empty and the link in place.
 
 The timeline is rewritten in place (indent 2) with a `background` key:
   {"kind": "clip", "file": <name>, "src": "bg/clip<.ext>", "start": <s>, "seconds": <s>,
@@ -36,12 +36,12 @@ The timeline is rewritten in place (indent 2) with a `background` key:
 stdout, in order: one `background: SKIP <file> (<cause>)` per skipped clip (unindented), then
   background: ok <name> @<start %.1f> s[ (loop)]   or   background: ok generated
 or `background: FAIL <cause>` (`EXPLAIN_BRAINROT_SEED must be an integer, got '<value>'`, cannot
-read or write the timeline, cannot stage the clip, or `--dir <dir> is inside the background stage
-or the app's public folder`). The seed and the --dir checks run before anything is touched.
+read or write the timeline, cannot stage the clip, or `--dir <dir> is inside the workspace's runs
+folder`). The seed and the --dir checks run before anything is touched.
 Exit 0 ok, 1 FAIL, 2 usage (the usage line and an error line on stderr). Stdlib only.
 
---dir must not be, or lie under, <ws>/bg-stage or <app-dir>/public: the picker empties the stage
-and replaces public/bg on every run (and render.sh empties public/audio), so such a folder would
+--dir must not be, or lie under, <ws>/runs, the parent directory of <run-dir>: render.sh removes run
+directories there, the day-old ones of other runs as well as its own, so a clip folder in it would
 lose its clips. That is a misconfiguration, not a missing folder, and the picker refuses it
 (FAIL, exit 1) before it touches anything.
 """
@@ -57,12 +57,12 @@ import signal
 import subprocess
 import sys
 
-USAGE = "pick_background.py <timeline.json> <remotion-cli> <app-dir> --dir <clips> [--seed <int>]"
+USAGE = "pick_background.py <timeline.json> <remotion-cli> <run-dir> --dir <clips> [--seed <int>]"
 EXTENSIONS = (".mp4", ".mov", ".webm")
 PROBE_TIMEOUT = 60       # seconds
 SHORT_TOLERANCE = 0.001  # a clip this much shorter than the video still counts as equal
-STAGE = "bg-stage"                             # <ws>/bg-stage, beside <app>
-LINK_TARGET = os.path.join("..", "..", STAGE)  # what <app>/public/bg points at
+STAGE = "bg-stage"                       # <run>/bg-stage
+LINK_TARGET = os.path.join("..", STAGE)  # what <run>/public/bg points at
 SEED_ENV = "EXPLAIN_BRAINROT_SEED"
 
 
@@ -117,21 +117,21 @@ def same_file(a, b):
         return False
 
 
-def stage_dir(app):
-    """<ws>/bg-stage: beside the real <app>, which is where ../../bg-stage from <app>/public/bg
-    resolves to."""
-    return os.path.join(os.path.dirname(os.path.realpath(app)), STAGE)
+def stage_dir(run):
+    """<run>/bg-stage in the real <run>, which is where ../bg-stage from <run>/public/bg resolves
+    to."""
+    return os.path.join(os.path.realpath(run), STAGE)
 
 
-def inside_app(folder, app):
-    """True when `folder` is, or lies under, <ws>/bg-stage or <app>/public. The folder is compared
-    by realpath, so a symlink or a dotted path into them counts; every ancestor is also compared
-    with os.path.samefile, which catches a different letter case on a case-insensitive volume."""
-    stage, public = stage_dir(app), os.path.join(os.path.realpath(app), "public")
-    roots = {stage, os.path.realpath(stage), public, os.path.realpath(public)}
+def inside_runs(folder, run):
+    """True when `folder` is, or lies under, the parent directory of the real <run> (<ws>/runs). The
+    folder is compared by realpath, so a symlink or a dotted path into it counts; every ancestor is
+    also compared with os.path.samefile, which catches a different letter case on a
+    case-insensitive volume."""
+    root = os.path.dirname(os.path.realpath(run))
     path = os.path.realpath(folder)
     while True:
-        if any(path == root or same_file(path, root) for root in roots):
+        if path == root or same_file(path, root):
             return True
         parent = os.path.dirname(path)
         if parent == path:
@@ -147,11 +147,11 @@ def clear_path(path):
         os.unlink(path)
 
 
-def prepare_stage(app):
-    """Empty <ws>/bg-stage (made if missing) and make <app>/public/bg the relative link
-    ../../bg-stage to it, replacing a directory, a file or another link at that path."""
-    stage = stage_dir(app)
-    link = os.path.join(app, "public", "bg")
+def prepare_stage(run):
+    """Empty <run>/bg-stage (made if missing) and make <run>/public/bg the relative link
+    ../bg-stage to it, replacing a directory, a file or another link at that path."""
+    stage = stage_dir(run)
+    link = os.path.join(run, "public", "bg")
     try:
         clear_path(stage)
         os.makedirs(stage)
@@ -163,11 +163,11 @@ def prepare_stage(app):
     return stage
 
 
-def stage_clip(clip, app):
-    """Put `clip` into <ws>/bg-stage as the regular file clip<.ext lowercased>: a hard link to its
+def stage_clip(clip, run):
+    """Put `clip` into <run>/bg-stage as the regular file clip<.ext lowercased>: a hard link to its
     realpath, or a copy when the link fails (another volume, permissions). Returns the staged path;
     raises OSError when both fail."""
-    dest = os.path.join(stage_dir(app), "clip" + os.path.splitext(clip)[1].lower())
+    dest = os.path.join(stage_dir(run), "clip" + os.path.splitext(clip)[1].lower())
     source = os.path.realpath(clip)
     try:
         os.link(source, dest)
@@ -198,7 +198,7 @@ def list_clips(folder):
     return sorted(names), None
 
 
-def probe(remotion, clip, app):
+def probe(remotion, clip, run):
     """(seconds, None) for a clip with a video stream and a positive duration, else (None, cause)."""
     command = [remotion, "ffprobe", "-v", "error", "-show_entries",
                "stream=codec_type:format=duration", "-of", "json", clip]
@@ -206,7 +206,7 @@ def probe(remotion, clip, app):
         # Its own session, so a timeout can kill the group: `remotion ffprobe` spawns the real
         # ffprobe, and killing only the direct child would leave that grandchild running.
         with subprocess.Popen(
-            command, cwd=app, start_new_session=True, stdin=subprocess.DEVNULL,
+            command, cwd=run, start_new_session=True, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             encoding="utf-8", errors="replace",
         ) as proc:
@@ -239,13 +239,13 @@ def probe(remotion, clip, app):
     return seconds, None
 
 
-def first_good_clip(names, folder, remotion, app, rng):
+def first_good_clip(names, folder, remotion, run, rng):
     """(name, seconds) of the first probeable clip in seeded order, printing a SKIP line for each
     clip passed over; (None, None) when no clip is good."""
     order = list(names)
     rng.shuffle(order)
     for name in order:
-        seconds, cause = probe(remotion, os.path.abspath(os.path.join(folder, name)), app)
+        seconds, cause = probe(remotion, os.path.abspath(os.path.join(folder, name)), run)
         if cause is None:
             return name, seconds
         say("background: SKIP %s (%s)" % (name, cause))
@@ -265,7 +265,7 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(prog="pick_background.py", usage=USAGE)
     parser.add_argument("timeline")
     parser.add_argument("remotion")
-    parser.add_argument("app")
+    parser.add_argument("run")
     parser.add_argument("--dir", required=True, dest="folder")
     parser.add_argument("--seed", type=int)
     return parser.parse_args(argv)
@@ -284,12 +284,12 @@ def choose(args, rng, video_seconds):
     names, note = list_clips(args.folder)
     if note:
         say(note)
-    name, seconds = first_good_clip(names, args.folder, args.remotion, args.app, rng)
+    name, seconds = first_good_clip(names, args.folder, args.remotion, args.run, rng)
     if name is None:
         return {"kind": "generated"}, "background: ok generated"
     start, loop = place(seconds, video_seconds, rng)
     try:
-        stage_clip(os.path.join(args.folder, name), args.app)
+        stage_clip(os.path.join(args.folder, name), args.run)
     except OSError as err:
         raise Fail("cannot stage %s: %s" % (name, reason(err))) from err
     ext = os.path.splitext(name)[1].lower()
@@ -305,11 +305,10 @@ def main(argv):
             seed = resolve_seed(args.seed)
         except ValueError as err:
             raise Fail("%s must be an integer, got %r" % (SEED_ENV, os.environ[SEED_ENV])) from err
-        if inside_app(args.folder, args.app):
-            raise Fail("--dir %s is inside the background stage or the app's public folder"
-                       % args.folder)
+        if inside_runs(args.folder, args.run):
+            raise Fail("--dir %s is inside the workspace's runs folder" % args.folder)
         timeline, fps, frames = read_timeline(args.timeline)
-        prepare_stage(args.app)
+        prepare_stage(args.run)
         background, line = choose(args, random.Random(seed), frames / fps)
         timeline["background"] = background
         write_timeline(args.timeline, timeline)
