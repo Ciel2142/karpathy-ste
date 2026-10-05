@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_video_timeline import EXPLAIN, FLOW_NARRATION, TOOL, VideoCase, base_script, cite
+from test_video_timeline import APP_LINES, EXPLAIN, FLOW_NARRATION, TOOL, VideoCase, base_script, cite
 from test_video_timeline_brainrot import BrainrotBuildCase, brainrot_script, words_for
 
 FORMATS = EXPLAIN / "video" / "formats.json"
@@ -525,6 +525,19 @@ class FilmBuildCase(VideoCase):
         clips = self.write_film_words(script, engine)
         return self.build(script, clips if seconds is None else seconds, engine)
 
+    def build_film_without_root(self, script):
+        """Build `script` as build_film does but pass no --root. Returns (result, timeline)."""
+        clips = self.write_film_words(script)
+        script_path = self.write_json("script.json", script)
+        durations = self.write_json("durations.json", {"engine": "say", "fallback": None, "scenes": clips})
+        out = os.path.join(self.dir, "out", "timeline.json")
+        result = self.node(script_path, durations, "say", out)
+        timeline = None
+        if os.path.exists(out):
+            with open(out, encoding="utf-8") as handle:
+                timeline = json.load(handle)
+        return result, timeline
+
 
 class TestFilmBuild(FilmBuildCase):
     def built(self, script=None, **kwargs):
@@ -706,6 +719,215 @@ class TestFilmBuild(FilmBuildCase):
         self.assertIsNone(timeline)
         scene = self.built(script)["scenes"][0]
         self.assertEqual((scene["id"], scene["audio"]), ("constructor", "audio/constructor.say.wav"))
+
+
+    def sourced(self, name, text, **changes):
+        """A film script whose one source `app` reads lines 1 to 3 of src/<name>, a file written now
+        with `text`; `changes` set other keys of that source."""
+        self.write("src/" + name, text)
+        script = film_script()
+        script["sources"] = [dict({"id": "app", "path": "src/" + name, "from": 1, "to": 3}, **changes)]
+        return script
+
+    def test_film_sources_lines(self):
+        """Red: `sources` stays {} or null, a source holds the lines from the wrong offset (the slice
+        starts at `from` instead of `from - 1`, or ends before `to`), `from` is written 0-based, `to`
+        or the id is written into the entry, or the entry loses its path."""
+        self.assertEqual(
+            self.built()["sources"],
+            {"app": {"path": "src/app.py", "from": 3, "lines": APP_LINES[2:10]}},
+        )
+
+    def test_film_sources_follow_the_script(self):
+        """Red: the sources are written in another order than the script's (here reversed), or only the
+        first of two is kept."""
+        script = film_script()
+        script["sources"].append({"id": "head", "path": "src/app.py", "from": 1, "to": 2})
+        sources = self.built(script)["sources"]
+        self.assertEqual(list(sources), ["app", "head"])
+        self.assertEqual(sources["head"], {"path": "src/app.py", "from": 1, "lines": APP_LINES[0:2]})
+        self.assertEqual(sources["app"]["lines"], APP_LINES[2:10])
+
+    def test_film_sources_expand_tabs(self):
+        """Red: a tab stays in a line, becomes one space or eight, or only the first tab of a line is
+        replaced (the second case has three tabs in one line)."""
+        script = film_script()
+        script["sources"] = [{"id": "app", "path": "src/wide.py", "from": 3, "to": 3}]
+        self.assertEqual(self.built(script)["sources"]["app"]["lines"], ["x" * 69 + " " * 4])
+        script = self.sourced("tabs.py", "\tif x:\n\t\treturn\ta\nend\n")
+        self.assertEqual(
+            self.built(script)["sources"]["app"]["lines"],
+            [" " * 4 + "if x:", " " * 8 + "return" + " " * 4 + "a", "end"],
+        )
+
+    def test_film_sources_strip_crlf(self):
+        """Red: a line keeps its carriage return, or a CRLF file reads as twice the lines (it is split at
+        the `\\r` as well as at the `\\n`)."""
+        script = self.sourced("crlf.py", "one\r\ntwo\r\nthree\r\n")
+        lines = self.built(script)["sources"]["app"]["lines"]
+        self.assertEqual(lines, ["one", "two", "three"])
+        self.assertFalse(any("\r" in line for line in lines))
+
+    def test_film_sources_last_line_without_a_final_newline(self):
+        """Red: a file with no newline after its last line loses that line (the splitter drops the last
+        entry whether or not it is empty), or that line keeps a carriage return."""
+        script = self.sourced("bare.py", "one\ntwo\nthree")
+        self.assertEqual(self.built(script)["sources"]["app"]["lines"], ["one", "two", "three"])
+        script = self.sourced("bare-crlf.py", "one\r\ntwo\r\nthree")
+        self.assertEqual(self.built(script)["sources"]["app"]["lines"], ["one", "two", "three"])
+
+    def test_film_without_sources(self):
+        """Red: `sources` is written as null (or left out) when the script has none, whether the key is
+        absent or the array is empty."""
+        script = film_script()
+        del script["sources"]
+        self.assertEqual(self.built(script)["sources"], {})
+        script["sources"] = []
+        self.assertEqual(self.built(script)["sources"], {})
+
+    def test_film_without_sources_builds_without_root(self):
+        """Red: a film with no `sources` (absent or []) asks for --root, or reads under an undefined
+        root and fails."""
+        absent = film_script()
+        del absent["sources"]
+        empty = film_script()
+        empty["sources"] = []
+        for name, script in (("absent", absent), ("empty", empty)):
+            with self.subTest(sources=name):
+                result, timeline = self.build_film_without_root(script)
+                self.assertEqual((result.returncode, result.stdout), (0, ""))
+                self.assertEqual(timeline["sources"], {})
+
+    def test_film_source_id_constructor(self):
+        """Red: the sources are kept in an object that is tested with `in` (or a plain lookup) before an
+        entry is written, so a source called `constructor`, which Object.prototype already has, is
+        skipped."""
+        script = film_script()
+        script["sources"][0]["id"] = "constructor"
+        sources = self.built(script)["sources"]
+        self.assertIn("constructor", sources)
+        self.assertEqual(
+            sources, {"constructor": {"path": "src/app.py", "from": 3, "lines": APP_LINES[2:10]}}
+        )
+
+    def test_film_source_faults_in_build_mode(self):
+        """Red: a source fault does not stop the build (a missing file builds, or the fault is dropped), or
+        a build with no --root reads under an undefined root (the line would say "cannot be read under
+        the data root")."""
+        script = film_script()
+        script["sources"][0]["path"] = "src/none.py"
+        result, timeline = self.build_film(script)
+        self.assertFails(result, "FAIL source app: path src/none.py cannot be read under the data root")
+        self.assertIsNone(timeline)
+        script = film_script()
+        result, timeline = self.build_film_without_root(script)
+        self.assertFails(result, "FAIL source app: cannot read source lines (needs --root)")
+        self.assertIsNone(timeline)
+
+    def test_film_source_shape_faults_in_build_mode(self):
+        """Red: build mode skips the shape rules of the source check, so a `sources` that is not an array,
+        an entry that is not an object, a missing key, a bad id, a duplicate id or a path outside the
+        root crashes the build with a stack trace or builds."""
+        twin = film_script()["sources"][0]
+        cases = (
+            (5, ["FAIL script: sources must be an array"]),
+            (None, ["FAIL script: sources must be an array"]),
+            ([7], ["FAIL source #1: must be an object"]),
+            ([{k: v for k, v in twin.items() if k != "to"}], ['FAIL source app: missing "to"']),
+            ([dict(twin, id="App")], ['FAIL source #1: id "App" must match [a-z0-9-]']),
+            ([twin, dict(twin)], ["FAIL source app: duplicate id"]),
+            (
+                [dict(twin, path="../x.py")],
+                ['FAIL source app: path "../x.py" must be a relative path inside the data root'],
+            ),
+        )
+        for sources, lines in cases:
+            with self.subTest(sources=sources):
+                script = film_script()
+                script["sources"] = sources
+                result, timeline = self.build_film(script)
+                self.assertFails(result, *lines)
+                self.assertEqual(result.stderr, "")
+                self.assertIsNone(timeline)
+
+    def test_film_source_and_scene_faults_are_all_reported(self):
+        """Red: a source fault ends the build before the scenes are checked (or the scene fault ends it
+        before the sources), so one of the two lines is missing; or the lines come in another order
+        than the check's, sources first."""
+        script = film_script()
+        script["sources"][0]["path"] = "src/none.py"
+        result, timeline = self.build_film(script, seconds={"forms": 8.0, "ends": 5.0})
+        self.assertFails(
+            result,
+            "FAIL source app: path src/none.py cannot be read under the data root",
+            "FAIL scene type: no duration in durations.json",
+        )
+        self.assertIsNone(timeline)
+
+    def test_check_frames(self):
+        """Red: a frame is taken at the sentence start or end instead of the middle, the middle is
+        rounded up or taken of seconds instead of frames, the lead is left out of it, the scene's `from`
+        is left out (every scene counts from 0), or the `end` frame is `from + durationInFrames`."""
+        frames = self.built()["checkFrames"]
+        self.assertEqual(
+            [(c["frame"], c["scene"], c["still"]) for c in frames],
+            [
+                (43, "type", "s1"), (118, "type", "s2"), (152, "type", "end"),
+                (189, "forms", "s1"), (279, "forms", "s2"), (369, "forms", "s3"), (428, "forms", "end"),
+                (472, "ends", "s1"), (555, "ends", "s2"), (596, "ends", "end"),
+            ],
+        )
+
+    def test_check_frames_invariants(self):
+        """Red: the frames do not increase (a scene counts from 0), the last frame is not the last of the
+        film (`totalFrames`, or one before the end of the last scene), a scene lacks its `end` entry or
+        one of its sentences, or an entry carries a key beyond frame, scene and still."""
+        script = film_script()
+        timeline = self.built(script)
+        frames = timeline["checkFrames"]
+        numbers = [c["frame"] for c in frames]
+        self.assertEqual(numbers, sorted(set(numbers)))
+        self.assertEqual(numbers[-1], timeline["totalFrames"] - 1)
+        for scene in script["scenes"]:
+            sentences = words_for(scene["narration"], 0.5, 0.5)["sentences"]
+            stills = [c["still"] for c in frames if c["scene"] == scene["id"]]
+            self.assertEqual(len(stills), len(sentences) + 1, scene["id"])
+            self.assertEqual(stills, ["s%d" % k for k in range(1, len(sentences) + 1)] + ["end"])
+        for entry in frames:
+            self.assertEqual(sorted(entry), ["frame", "scene", "still"])
+
+    def test_check_frames_of_a_one_sentence_scene(self):
+        """Red: a scene of one sentence gets no `s1` entry or no `end` entry. The narration with an end
+        mark and the one without (its words file still ends its last sentence) give the same stills."""
+        for narration in ("Only one sentence here.", "No end mark here"):
+            with self.subTest(narration=narration):
+                script = film_script()
+                script["scenes"][0]["narration"] = narration
+                frames = self.built(script)["checkFrames"]
+                self.assertEqual([c["still"] for c in frames if c["scene"] == "type"], ["s1", "end"])
+
+    def test_check_frames_use_the_rounded_frames(self):
+        """Red: the middle of a sentence is taken of its seconds (the lead added to the rounded middle
+        second: 8 for the first sentence, 25 for the second), or the start or the end is floored or
+        ceilinged before the middle is taken, or the middle is rounded or ceilinged. The sentences
+        run 0.01 to 0.11 s (scene frames 6 and 9, middle 7) and 0.35 to 0.95 s (0.35 s is exactly
+        10.5 frames, so frames 17 and 35, middle 26); each of those variants gives another number
+        for one of them."""
+        script = film_script()
+        script["scenes"][0]["narration"] = "Aa bb. Cc dd."
+        clips = self.write_film_words(script)
+        times = [(0.01, 0.06), (0.06, 0.11), (0.35, 0.65), (0.65, 0.95)]
+        words = [
+            {"text": text, "from": start, "to": end}
+            for text, (start, end) in zip(script["scenes"][0]["narration"].split(), times)
+        ]
+        sentences = [{"from": 0.01, "to": 0.11}, {"from": 0.35, "to": 0.95}]
+        self.write_words("type", "say", {"sentences": sentences, "words": words})
+        clips["type"] = 1.0
+        result, timeline = self.build(script, clips)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        first = [(c["frame"], c["still"]) for c in timeline["checkFrames"] if c["scene"] == "type"]
+        self.assertEqual(first, [(7, "s1"), (26, "s2"), (47, "end")])
 
 
 if __name__ == "__main__":

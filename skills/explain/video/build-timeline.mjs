@@ -71,6 +71,18 @@
 //   no duration in durations.json            or: duration <v> must be a positive number of seconds
 //   pause <v> must be an integer from 12 to 90    <v> as JSON text, the same cause as --check
 //   the words file lines above (cannot read ... ends at <t> s), or: <file> has no sentences
+//
+// A film timeline also carries
+//   "sources": { "<id>": { "path", "from", "lines": [..] } }    the declared lines of each source, in script
+//       order, each tab replaced by 4 spaces; {} when the film has none (absent and [] mean the same)
+//   "checkFrames": [{ "frame", "scene", "still" }]    film frames for the guard's stills, in script order:
+//       for each scene one entry per sentence at from + floor((start + end) / 2), start and end being the
+//       scene-relative frames of the sentence's from and to (as for the words), still "s<k>" from k = 1;
+//       then one at from + durationInFrames - 1, still "end"
+// Build mode runs the check of --check on every source (the shape rules, then the read, the outside-root
+// guard included): its FAIL lines, which come before the scene lines, stop the build like a scene fault.
+// A film with sources and no --root fails with "FAIL source <id>: cannot read source lines (needs --root)"
+// for each source whose shape holds; a film with no sources builds without --root.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -472,7 +484,8 @@ const SOURCE_PATH = str(Infinity);
 // is one `report("source <id>", cause)`, in this order: must be an object; missing keys; unexpected keys;
 // the id rules; the path rules; from; to; duplicate id; then the causes of readSource. `ids` holds the ids
 // of the entries before this one and takes this one's. Returns the declared lines when no rule broke,
-// else undefined. Build mode runs the same check on every entry.
+// else undefined. Build mode runs the same check on every entry; its `root` is undefined when the run
+// has no --root, and an entry whose shape holds then reports that it cannot read (--check always has one).
 const checkSource = (entry, index, ids, root, limits, tag, report) => {
   let broken = false;
   const fail = (cause) => {
@@ -493,17 +506,26 @@ const checkSource = (entry, index, ids, root, limits, tag, report) => {
     ids.add(entry.id);
   }
   if (broken) return undefined;
+  if (root === undefined) {
+    fail("cannot read source lines (needs --root)");
+    return undefined;
+  }
   const read = readSource(entry, root, limits, tag);
   if (read.causes === undefined) return read.lines;
   for (const cause of read.causes) fail(cause);
   return undefined;
 };
 
-// The `sources` of a film (spec 4.2): absent and [] mean the same.
+// The `sources` of a film (spec 4.2): absent and [] mean the same. Returns the declared lines of each
+// entry (undefined for an entry that broke a rule), in the order of the entries; [] when `sources` is
+// not an array.
 const checkSources = (sources, root, limits, tag, report) => {
-  if (!Array.isArray(sources)) return report("script", "sources must be an array");
+  if (!Array.isArray(sources)) {
+    report("script", "sources must be an array");
+    return [];
+  }
   const ids = new Set();
-  sources.forEach((entry, i) => checkSource(entry, i, ids, root, limits, tag, report));
+  return sources.map((entry, i) => checkSource(entry, i, ids, root, limits, tag, report));
 };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -768,12 +790,16 @@ const buildScenes = (script, durations, engine, root, fail, limits, wordsDir) =>
 };
 
 // The scenes of a film: lead + audio + pause frames each, and the sentence and word frames of the words
-// file. `limits`: the film row. A scene that fails reports one cause through `fail` and is left out.
+// file; and its check frames, in script order: for each scene one per sentence, at the middle of the
+// sentence (the lower whole frame between its start and end frames), still "s<k>" from k = 1, then
+// the scene's last frame, still "end". `limits`: the film row. A scene that fails reports one cause
+// through `fail` and is left out.
 const buildFilmScenes = (script, durations, engine, fail, limits, wordsDir) => {
   const { leadFrames, pauseFrames } = limits;
   const clips = clipsOf(durations);
   let from = 0;
   const out = [];
+  const checkFrames = [];
   list(script?.scenes).forEach((scene, i) => {
     const bad = (cause) => fail(`FAIL ${sceneWhere(scene, i)}: ${cause}`);
     if (!isObject(scene) || typeof scene.id !== "string" || typeof scene.narration !== "string") {
@@ -789,6 +815,7 @@ const buildFilmScenes = (script, durations, engine, fail, limits, wordsDir) => {
     if (timing.sentences.length === 0) return bad(`${timing.file} has no sentences`);
     const audioFrames = Math.ceil(seconds * FPS);
     const durationInFrames = leadFrames + audioFrames + pause;
+    const spans = timing.sentences.map((s) => ({ start: frameOf(leadFrames, s.from), end: frameOf(leadFrames, s.to) }));
     out.push({
       id: scene.id,
       from,
@@ -796,10 +823,30 @@ const buildFilmScenes = (script, durations, engine, fail, limits, wordsDir) => {
       leadFrames,
       audioFrames,
       audio: `audio/${scene.id}.${engine}.wav`,
-      sentences: timing.sentences.map((s) => frameOf(leadFrames, s.from)),
+      sentences: spans.map((span) => span.start),
       words: timing.words.map((w) => ({ text: w.text, from: frameOf(leadFrames, w.from), to: frameOf(leadFrames, w.to) })),
     });
+    spans.forEach((span, k) => {
+      checkFrames.push({ frame: from + Math.floor((span.start + span.end) / 2), scene: scene.id, still: `s${k + 1}` });
+    });
+    checkFrames.push({ frame: from + durationInFrames - 1, scene: scene.id, still: "end" });
     from += durationInFrames;
+  });
+  return { scenes: out, checkFrames };
+};
+
+// The `sources` of a film timeline: { <id>: { path, from, lines } } in script order, with each tab of a
+// line replaced by TAB_COLUMNS spaces. The entries go through the check of --check (checkSources), so a
+// fault gives its FAIL line through `fail` and the entry is left out. `script` has the film format.
+const buildSources = (script, root, limits, tag, fail) => {
+  const out = {};
+  if (!has(script, "sources")) return out;
+  const report = (where, cause) => fail(`FAIL ${where}: ${cause}`);
+  const declared = checkSources(script.sources, root, limits, tag, report);
+  declared.forEach((lines, i) => {
+    if (lines === undefined) return;
+    const { id, path: file, from } = script.sources[i];
+    out[id] = { path: file, from, lines: lines.map((line) => line.replaceAll("\t", " ".repeat(TAB_COLUMNS))) };
   });
   return out;
 };
@@ -852,15 +899,17 @@ const main = () => {
   const wordsDir = path.dirname(durationsFile);
   const addFailure = (line) => failures.push(line);
   const isFilm = format === "film";
+  // A film's source faults come before its scene faults, as in --check.
+  const sources = isFilm ? buildSources(script.value, root, limits, tagOf(format), addFailure) : undefined;
+  const film = isFilm ? buildFilmScenes(script.value, durations.value, engine, addFailure, limits, wordsDir) : undefined;
   const scenes = isFilm
-    ? buildFilmScenes(script.value, durations.value, engine, addFailure, limits, wordsDir)
+    ? film.scenes
     : buildScenes(script.value, durations.value, engine, root, addFailure, limits, wordsDir);
   if (failures.length > 0) finish(failures);
   const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
   const { width, height, maxSceneSeconds, maxTotalSeconds } = limits;
   const head = { format, fps: FPS, width, height, totalFrames, maxSceneSeconds, maxTotalSeconds, engine };
-  // A film also has the keys `sources` and `checkFrames`; they stay empty until the film build fills them.
-  const timeline = isFilm ? { ...head, sources: {}, checkFrames: [], scenes } : { ...head, scenes };
+  const timeline = isFilm ? { ...head, sources, checkFrames: film.checkFrames, scenes } : { ...head, scenes };
   try {
     fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
     fs.writeFileSync(outFile, JSON.stringify(timeline, null, 2) + "\n");
