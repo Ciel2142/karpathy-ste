@@ -45,7 +45,8 @@ from png_diff import differing_pixels
 from test_check_scene import CHECK_SCENE, SCENE_CLEAN, append, prepend
 from test_film_example import template_script
 from test_narrate import NARRATE_PY
-from test_render import RUN_FAKES, STAGE_LINE, RunHarness, names, render_functions, stage_lines
+from test_render import (RUN_FAKES, STAGE_LINE, STAGES, RunHarness, names, render_functions,
+                         stage_lines)
 from test_render_brainrot import video_size
 from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT, render_env, workspace
 
@@ -467,6 +468,15 @@ class SceneRunCase(RunHarness, unittest.TestCase):
                 self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("scene")], [],
                                  run.stdout)
                 self.assertFalse(self.tsc_log.exists())
+
+    # red: STAGES holds the name of a stage that only a film run has (scene, and the guard of the next
+    # wave). The gated BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES;
+    # here it is made on every run, through the fakes
+    def test_a_brainrot_run_prints_exactly_the_stages_of_STAGES(self):
+        run = self.finish(self.start("brainrot"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual([line.split(":")[0].split(" ")[0] for line in stage_lines(run.stdout)],
+                         list(STAGES), run.stdout)
 
     # red: the scene is copied under <ws>/app (decision 12), tsc runs in the app, or the removal of
     # src/film reaches the shared packages

@@ -39,10 +39,13 @@ STE_LINT = EXPLAIN.parent / "ste" / "scripts" / "ste_lint.py"
 SKILL_MD = EXPLAIN / "SKILL.md"
 BRAINROT_RUNG = EXPLAIN / "rungs" / "brainrot.md"
 
-# "background" is brainrot only and "scene" is film only: the explainer run must print neither line.
-STAGES = ("script", "workspace", "scene", "narration", "timeline", "background", "render",
-          "container", "sync", "stills", "transcript")
-STAGE_LINE = re.compile(r"^(%s)\b" % "|".join(STAGES))
+# STAGES: the ten stages of a brainrot run, in order. test_render_brainrot compares a run with it, so it
+# holds no stage that a brainrot run does not print; an explainer run has no "background".
+# FILM_STAGES: the stages that only a film run has, not part of STAGES. stage_lines finds the lines of both.
+STAGES = ("script", "workspace", "narration", "timeline", "background", "render", "container", "sync",
+          "stills", "transcript")
+FILM_STAGES = ("scene",)
+STAGE_LINE = re.compile(r"^(%s)\b" % "|".join(STAGES + FILM_STAGES))
 
 
 def stage_lines(stdout):
