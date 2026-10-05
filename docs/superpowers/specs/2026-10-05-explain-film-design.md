@@ -321,7 +321,9 @@ of an earlier run, as the base does for the first two.
 - `check_budgets.py` and `verify_sync.py` read their numbers from the timeline and keep their
   rules. The 12-frame minimum pause leaves 0.4 s after the speech, against the 0.3 s that
   `verify_sync.py` asks for; the tail margin of a Kokoro clip was never measured (kp-c04), so
-  the first film render checks it.
+  the first film render checks it. Measured in wave film-render: `sync: ok` on the default
+  pause, and the smallest gap between the end of the speech and the end of a scene was 0.70 s.
+  The two live runs (34 scenes with Kokoro) also passed `sync` on the default pause.
 - Limit messages name the format (`, film`, `, brainrot`). The untagged case belongs to the
   explainer and goes with it: `format_tag` and `tagOf` then tag every format.
 
@@ -376,9 +378,14 @@ the scene. The author reads exactly the frames that the guard measured.
 The stage renders the composition `Film` itself, only at those frames:
 
 ```
-remotion render Film <out>/build/guard.mp4 --frames=<f1,f2,...> --concurrency=1 --muted
+remotion render Film <out>/build/guard.mp4 --frames=<f1-f1,f2-f2,...> --concurrency=1 --muted
                 --props <out>/build/timeline.json
 ```
+
+Each frame is a range of one frame. With the pinned Remotion 4.0.532, a list of bare frames
+(`--frames=3,7,12`) makes an image sequence, and the render to an mp4 fails (found in wave
+film-guard). The render also needs the narration clips: Remotion reads the audio of each frame
+with `--muted` too, so the stage copies the clips first.
 
 `FilmStage` measures in a layout effect whenever the current frame is in `checkFrames`, so the
 measured tree is the tree that ships. With one tab and the frames in order, the first frame
