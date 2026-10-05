@@ -280,7 +280,12 @@ class Generated(PickerCase):
 
         self.addCleanup(reap)
         with mock.patch.object(picker, "PROBE_TIMEOUT", 0.3):
+            started = time.monotonic()
             code, lines = self.run_main(remotion=stub)
+            elapsed = time.monotonic() - started
+        # The picker reaps the child after the kill. If the grandchild (30 s) survives and still
+        # holds the pipes, that reap waits for it: a killed direct child alone gives a late return.
+        self.assertLess(elapsed, 5, "the picker waited %.1f s: the grandchild kept the pipes open" % elapsed)
         self.assertEqual(code, 0)
         self.assertEqual(lines, ["background: SKIP x.mp4 (ffprobe timed out)", GENERATED])
         self.assertTrue(pid_file.exists(), "the stub never started its grandchild before the timeout")

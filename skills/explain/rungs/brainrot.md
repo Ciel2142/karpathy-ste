@@ -85,7 +85,7 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
 - Cues: the cue rule of `video.md` applies. In a brainrot short, the cue frame is the exact
   start of its sentence, not an estimate.
 - Captions: a caption shows 1 to 3 words of the narration at a time. A caption holds at most 20
-  characters, so that it fits on one line. A code name that is longer than 20 characters shows
+  characters, so that it fits on one line. A code name that is longer than this limit shows
   alone, in smaller type. The word that the voice speaks is yellow. Backticks do not show in a
   caption. A caption keeps the punctuation of the narration.
 - Code: the range has at most 14 lines, and each line has at most 40 columns. A tab counts as 4

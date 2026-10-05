@@ -360,7 +360,7 @@ One line for each row: old → new or kept; the evidence (still, fill, fault or 
 One line for each defect of the list above. The runner fix is commit d06c25a (`fix: explain: runner loop keeps obstacles out of the runner's lane`); the skill text is commit eb4f475 (`docs: explain: brainrot rung answers the live-run defects`).
 
 1. Fixed by part A (commit e99ac5e): `rungs/brainrot.md` has the row "diagram edge `label` | 10 | 10; no label on an edge in a row" and the bullet "Diagram edges", and the `script` stage fails a label on an edge in a row. Nothing was missing.
-2. Fixed in `templates/brainrot-script.json` (eb4f475): `provenance.source` is now `skills/explain`, the repo root in the same relative form as `provenance.root`; the key table of `rungs/video.md` already says the template value is relative. `templates/video-script.json` has the same kind of value (`scripts/verify.sh and scripts/cite_check.py`); it belongs to the explainer and is not changed here.
+2. Fixed in `templates/brainrot-script.json` (eb4f475): `provenance.source` is now `skills/explain`, the repo root in the same relative form as `provenance.root`; the key table of `rungs/video.md` says that the template value of `provenance.root` (not of `provenance.source`) is relative, so `provenance.source` now takes the same relative form as that value. `templates/video-script.json` has the same kind of value (`scripts/verify.sh and scripts/cite_check.py`); it belongs to the explainer and is not changed here.
 3. Fixed in `rungs/video.md` section 3, step 2 (eb4f475): "When the first cue starts the narration, the start still shows that item as it comes in. That is not a fault. The cue still shows it in full." This is true for both formats.
 4. Fixed in code, `skills/explain/video/src/short/runner.ts` (d06c25a): an obstacle that spawns in beat b reaches the runner's depth (RunnerLoop `RUNNER_Z` 0.82, 49 frames after the spawn) in beat b+2, so `beatPlan` now takes another lane for it if it equals the runner's lane of beat b+2 (one more draw of the same seeded stream; `runnerState` stays a pure function of frame and seed). Test `test_runner_obstacle_never_over_runner` in `tests/test_short_logic.py` (seeds 7, 1, 2, 3, 42 and 123456, frames 0 to 1799, obstacle z from 0.70 to 0.95, hop 0): it failed before the fix (`seed 7 frame 342: obstacle z=0.700 over the runner`) and passes after. No existing test pinned the old lanes. `rungs/brainrot.md` section 4 now describes the loop (eb4f475): a cyan block runs on a three-lane road, red blocks come toward it, it changes lane to pass them, and no red block covers it.
 5. Fixed in `rungs/brainrot.md` section 3, Length (eb4f475): "approximately 3.3 words each second" and "Six scenes of 45 words come near 85 s".
@@ -376,12 +376,17 @@ No defect was rejected. `rungs/brainrot.md` and `rungs/video.md` lint `0 errors,
 
 The live run did not pass the new limits as it stood (the expected case did not hold). The first `render.sh` run stopped with `script: FAIL scene flow: edges[0] text-tokenize has a label on a same-row edge (a1-b1, brainrot)`: the edge `text` to `tokenize` had the label `str`. I removed that one edge label from `script.json` (a prop; no narration changed, so no WAV file was made again). The other labels (`sorted`, `severity`) are on edges between rows.
 
-Then `EXPLAIN_BRAINROT_BACKGROUNDS=<empty temp dir> skills/explain/scripts/render.sh <out>` in place, with Kokoro and no `--engine` flag, printed ten `ok` lines and exit 0:
+Then `EXPLAIN_BRAINROT_BACKGROUNDS=<empty temp dir> skills/explain/scripts/render.sh <out>` in place, with Kokoro and no `--engine` flag, printed ten `ok` lines (the block is the stdout of that run, from the log of the run; all five narration scenes were reused, none was made again) and exit 0:
 
 ```
 script: ok (5 scenes)
 workspace: ok /Users/valukin/karpathy/video-workspace
-narration (kokoro): ok     (all five scenes reused)
+  narration: hook kokoro 3.646 s (reused)
+  narration: flow kokoro 12.924 s (reused)
+  narration: rules kokoro 11.665 s (reused)
+  narration: finding kokoro 10.435 s (reused)
+  narration: result kokoro 9.922 s (reused)
+narration (kokoro): ok
 timeline (5 scenes, 51.7 s): ok
 background: ok generated
 render (17.8 s, 0.34 render-min/video-min): ok

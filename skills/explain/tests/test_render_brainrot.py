@@ -1,5 +1,5 @@
-"""End-to-end brainrot renders (EXPLAIN_VIDEO_E2E=1 only): templates/brainrot-script.json through
-scripts/render.sh --engine say, twice, in the default workspace ~/karpathy/video-workspace (never
+"""End-to-end brainrot renders (the render cases run with EXPLAIN_VIDEO_E2E=1 only; LimitsScriptCase
+runs without it): templates/brainrot-script.json through scripts/render.sh --engine say, twice, in the default workspace ~/karpathy/video-workspace (never
 deleted here).
 
 The generated run has EXPLAIN_BRAINROT_BACKGROUNDS pointing at an empty temp dir, so the picker
