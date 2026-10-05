@@ -34,6 +34,11 @@ def faults(*texts):
     return "faults([%s])" % ", ".join(texts)
 
 
+def faults_at(min_text, *texts):
+    """The JS expression for the faults of `texts` on the 1280 x 720 canvas at the given minText."""
+    return "faultsOf([%s], CANVAS, %s)" % (", ".join(texts), min_text)
+
+
 # A box that fits in the canvas, 100 x 30 at (100, 100).
 INSIDE = box(100, 100, 200, 130)
 
@@ -71,6 +76,16 @@ class GuardLogicCase(EvaluatesJs):
         ])
         self.assertEqual(got, [['SMALLTEXT 13.9 px "a"'], [], ['SMALLTEXT 10.0 px "a"']])
 
+    def test_smalltext_follows_the_min_text_it_is_given(self):
+        """Red: the threshold is the 14 of the palette written in the rule and not the minText argument (at
+        minText 12, a text of 13 px is a fault), or the argument is read as another one (a text of 11.5 px
+        at minText 12 is no fault)."""
+        got = self.values([
+            faults_at(12, measured('"a"', INSIDE, px=13)),
+            faults_at(12, measured('"a"', INSIDE, px=11.5)),
+        ])
+        self.assertEqual(got, [[], ['SMALLTEXT 11.5 px "a"']])
+
     def test_overlap_is_more_than_two_px_on_both_axes(self):
         """Red: one axis is enough (`||` for `&&`: 2 px on x with 10 on y, or 10 on x with 2 on y, is a
         fault), or 2 px is enough on an axis (`>=` for `>`)."""
@@ -81,6 +96,21 @@ class GuardLogicCase(EvaluatesJs):
             faults(a, measured('"b"', box(190, 128, 290, 158))),  # 10 px on x, 2 on y
         ])
         self.assertEqual(got, [['OVERLAP "a" | "b"'], [], []])
+
+    def test_overlap_does_not_depend_on_which_box_is_left_or_above(self):
+        """Red: the overlap on an axis is read as if the later box were never left of, or above, the earlier
+        one (`b.left` for `Math.max(a.left, b.left)`, or `a.right` for `Math.min(a.right, b.right)`: a box
+        50 px left of the earlier one is a fault; the same for `b.top` or `a.bottom` and a box above it), or
+        such a box that does overlap is not a fault."""
+        a_x = measured('"a"', box(300, 100, 400, 130))  # x 300..400, y 100..130: room to its left
+        a_y = measured('"a"', box(100, 300, 200, 330))  # x 100..200, y 300..330: room above it
+        got = self.values([
+            faults(a_x, measured('"b"', box(203, 127, 303, 157))),  # left of a: 3 px on x (300..303), 3 on y
+            faults(a_x, measured('"b"', box(150, 100, 250, 130))),  # left of a, 50 px apart on x, level on y
+            faults(a_y, measured('"b"', box(197, 273, 297, 303))),  # above a: 3 px on y (300..303), 3 on x
+            faults(a_y, measured('"b"', box(100, 220, 200, 250))),  # above a, 50 px apart on y, level on x
+        ])
+        self.assertEqual(got, [['OVERLAP "a" | "b"'], [], ['OVERLAP "a" | "b"'], []])
 
     def test_faint_and_blank_texts_are_not_measured(self):
         """Red: there is no opacity floor (the faint text off the canvas is a fault), or the floor is
@@ -135,16 +165,19 @@ class GuardLogicCase(EvaluatesJs):
     def test_guard_line(self):
         """Red: six faults are shown, not five, or the suffix is left out, or it counts wrongly (not the
         number of faults after the fifth), or the faults are joined by another separator than "; ", or
-        a line with five faults gets a suffix (`>=` for `>`), or the frame and the scene are swapped."""
+        a line with five faults gets a suffix (`>=` for `>`), or the count is a hard-coded 1 (seven faults
+        give "+1 more"), or the frame and the scene are swapped."""
         got = self.values([
             'guardLine(47, "b", ["X"])',
             'guardLine(47, "b", ["f1", "f2", "f3", "f4", "f5"])',
             'guardLine(47, "b", ["f1", "f2", "f3", "f4", "f5", "f6"])',
+            'guardLine(47, "b", ["f1", "f2", "f3", "f4", "f5", "f6", "f7"])',
         ])
         self.assertEqual(got, [
             "guard: FAIL frame 47 (scene b): X",
             "guard: FAIL frame 47 (scene b): f1; f2; f3; f4; f5",
             "guard: FAIL frame 47 (scene b): f1; f2; f3; f4; f5 (+1 more)",
+            "guard: FAIL frame 47 (scene b): f1; f2; f3; f4; f5 (+2 more)",
         ])
 
 
