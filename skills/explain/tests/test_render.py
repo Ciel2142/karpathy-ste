@@ -414,11 +414,21 @@ class StageFunctionCase(unittest.TestCase):
 # The fake Remotion CLI: it appends one JSON line for each call (its argv, its cwd by real path,
 # the paths under its cwd without following a link, the names in public/ and public/audio/, the
 # real path of node_modules, the names in <ws>/runs), then sleeps FAKE_REMOTION_SLEEP s and exits
-# FAKE_REMOTION_EXIT.
+# FAKE_REMOTION_EXIT. With FAKE_REMOTION_OUTLIVE set it outlives TERM and HUP, as the Remotion CLI
+# does (its handler only kills its browser, and the render goes on with a new one): the signal ends
+# the sleep, and 1 s later it writes .remotion/ into its cwd (made again if it is gone), as the CLI
+# does when it fetches a browser, then marks its end in remotion.end.
 FAKE_CLI = """#!/usr/bin/env python3
-import json, os, sys, time
+import json, os, signal, sys, time
 def names(path):
     return sorted(os.listdir(path)) if os.path.isdir(path) else None
+class Outlived(Exception):
+    pass
+def outlive(signum, frame):
+    raise Outlived
+if os.environ.get("FAKE_REMOTION_OUTLIVE"):
+    signal.signal(signal.SIGTERM, outlive)
+    signal.signal(signal.SIGHUP, outlive)
 call = {"argv": sys.argv[1:], "cwd": os.getcwd(),
         "files": sorted(os.path.relpath(os.path.join(d, n)) for d, ds, fs in os.walk(".") for n in ds + fs),
         "public": names("public"), "audio": names("public/audio"),
@@ -426,7 +436,12 @@ call = {"argv": sys.argv[1:], "cwd": os.getcwd(),
         "runs": names(os.path.join(os.environ["EXPLAIN_VIDEO_WORKSPACE"], "runs"))}
 with open(os.path.join(os.environ["FAKE_DIR"], "remotion.jsonl"), "a") as log:
     log.write(json.dumps(call) + "\\n")
-time.sleep(float(os.environ.get("FAKE_REMOTION_SLEEP", "0")))
+try:
+    time.sleep(float(os.environ.get("FAKE_REMOTION_SLEEP", "0")))
+except Outlived:
+    time.sleep(1)
+    os.makedirs(os.path.join(call["cwd"], ".remotion"), exist_ok=True)
+    open(os.path.join(os.environ["FAKE_DIR"], "remotion.end"), "w").close()
 sys.exit(int(os.environ.get("FAKE_REMOTION_EXIT", "0")))
 """
 
@@ -636,6 +651,26 @@ class RunDirectoryCase(unittest.TestCase):
                 os.killpg(proc.pid, sig)
                 run = self.finish(proc, timeout=10)
                 self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(names(self.runs), [])
+                self.assertTrue((self.shared / "sentinel.txt").exists())
+
+    # red: the CLI runs in a subshell that the signal ends at once, so render.sh exits and removes
+    # the run directory while the CLI still runs, and the CLI's late write makes it again
+    def test_render_sh_waits_for_a_cli_that_outlives_the_signal(self):
+        end = self.tmp / "remotion.end"
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig.name):
+                end.unlink(missing_ok=True)
+                proc = self.start(FAKE_REMOTION_SLEEP="30", FAKE_REMOTION_OUTLIVE="1")
+                self.wait_for_cli(proc)
+                os.killpg(proc.pid, sig)
+                run = self.finish(proc, timeout=10)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                # a render.sh that did not wait has exited before the CLI: wait for the CLI's end
+                deadline = time.monotonic() + 10
+                while not end.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(end.exists(), "the fake CLI did not end")
                 self.assertEqual(names(self.runs), [])
                 self.assertTrue((self.shared / "sentinel.txt").exists())
 

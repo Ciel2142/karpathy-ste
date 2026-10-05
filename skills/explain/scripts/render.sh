@@ -63,8 +63,10 @@
 # children: a signal to render.sh alone takes effect when the running tool returns, or at
 # once while a stage reads a tool's lines as they come (workspace, narration, background),
 # and that tool is left running; a signal to the process group (Ctrl-C, timeout) stops the
-# tool as well. The Remotion CLI runs with cwd <ws>/runs/<run>: every path it gets is
-# absolute, and provenance.root must be an absolute existing directory.
+# tool as well. The Remotion CLI is the exception: TERM and HUP only make it kill its browser,
+# and the render goes on with a new one, so render.sh waits for the CLI to end before it exits
+# and removes the run directory. The Remotion CLI runs with cwd <ws>/runs/<run>: every path it
+# gets is absolute, and provenance.root must be an absolute existing directory.
 
 set -eu
 
@@ -346,8 +348,11 @@ for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
     print(s["audio"])
 ' "$out/build/timeline.json")"
     t0=$(now)
-    (cd "$run" && "$remotion" render Explain "$out/video.mp4" --props "$out/build/timeline.json") \
-        > "$log" 2>&1 < /dev/null || rc=$?
+    # exec: render.sh waits for the CLI itself. A subshell would end at once on TERM or HUP, and
+    # the EXIT trap would remove the run directory while the CLI, which outlives both, goes on
+    # in it.
+    (cd "$run" && exec "$remotion" render Explain "$out/video.mp4" \
+        --props "$out/build/timeline.json") > "$log" 2>&1 < /dev/null || rc=$?
     t1=$(now)
     if [ "$rc" -ne 0 ]; then
         echo "render: FAIL remotion render exit $rc (log $log)"
