@@ -48,6 +48,53 @@ PALETTE = {
 }
 
 
+# The source the code-card tests read from: lines 47-54 of src/app.py (8 lines, one blank, some indented).
+RAW_SOURCE = {
+    "path": "src/app.py", "from": 47,
+    "lines": [
+        "def handle(request):", "    user = request.user", "    if not user:", "        return None",
+        "    return load(user)", "", "x = 1", "y = 2",
+    ],
+}
+A = "#58c4dd"
+B = "#fc6255"
+
+
+class EvaluatesJs(unittest.TestCase):
+    """Base of the classes that check a kit module by evaluating JS expressions in one Node run.
+    `PRELUDE` is the module source that puts the names the expressions use in scope."""
+
+    PRELUDE = ""
+
+    def calls(self, expressions):
+        """Evaluate each JS expression of `expressions` in order, after PRELUDE. Each result is
+        {"value": v} (an `undefined` is reported as null), or {"error": message, "name": name} when the
+        call threw: a thrown error is read by its message and its class name."""
+        return run_node(
+            "%s"
+            "const out = [%s].map((call) => {"
+            "  try { const value = call(); return { value: value === undefined ? null : value }; }"
+            "  catch (e) { return { error: e.message, name: e.name }; }"
+            "});"
+            "console.log(JSON.stringify(out));"
+            % (self.PRELUDE, ", ".join("() => %s" % e for e in expressions))
+        )
+
+    def values(self, expressions):
+        """The value of each expression; fails when one of them threw."""
+        got = self.calls(expressions)
+        for expression, result in zip(expressions, got):
+            self.assertIn("value", result, "%s threw: %s" % (expression, result.get("error")))
+        return [result["value"] for result in got]
+
+    def errors(self, expressions):
+        """The message each expression threw; fails when one of them returned a value."""
+        got = self.calls(expressions)
+        for expression, result in zip(expressions, got):
+            self.assertIn("error", result, "%s returned %s" % (expression, result.get("value")))
+        return [result["error"] for result in got]
+
+
 @unittest.skipIf(NODE is None, NO_NODE_REASON)
 class TestPalette(unittest.TestCase):
     def test_palette_values(self):
@@ -327,6 +374,242 @@ class TestMarks(unittest.TestCase):
         ]
         got = self.errors([expression for expression, _ in cases])
         self.assertEqual(got, [message for _, message in cases])
+
+
+NOT_FROM_DISK = 'CodeCard: the source was not read from disk; declare it in "sources" of script.json'
+
+# What every TestSource and TestMono script starts from: `raw`, a source made of RAW_SOURCE (a fresh
+# record of made sources in each Node process), and the cards `card` and `big`.
+SCRIPT_START = (
+    "const raw = %s;"
+    "const src = sourceFromDisk(raw);"
+    "const card = { x: 100, y: 50, width: 600, size: 20 };"
+    "const big = { x: 10, y: 0, width: 400, size: 30 };"
+    "const A = %s, B = %s;"
+) % (json.dumps(RAW_SOURCE), json.dumps(A), json.dumps(B))
+
+
+@unittest.skipIf(NODE is None, NO_NODE_REASON)
+class TestSource(EvaluatesJs):
+    PRELUDE = 'import { sourceFromDisk, requireFromDisk } from "%s";' % kit_url("source.ts") + SCRIPT_START
+
+    def test_a_source_from_disk_is_accepted(self):
+        """Red: the maker does not record the object it returns (requireFromDisk refuses it), or
+        requireFromDisk returns a value instead of nothing."""
+        got = self.values(["requireFromDisk(src)", "requireFromDisk(sourceFromDisk(raw))"])
+        self.assertEqual(got, [None, None])
+
+    def test_a_copy_or_a_rebuilt_source_is_refused(self):
+        """Red: requireFromDisk accepts an object the maker did not return: it checks nothing, or only
+        the shape of the object (all four cases pass), or only that the object is frozen (the frozen
+        rebuilt one passes), or it records the path of a made source, not the object (all four pass);
+        or it throws something other than an Error, or a message that differs from the one that names
+        "sources" of script.json."""
+        got = self.calls([
+            "requireFromDisk({ ...src })",
+            "requireFromDisk(JSON.parse(JSON.stringify(src)))",
+            "requireFromDisk({ path: raw.path, from: raw.from, lines: [...raw.lines] })",
+            "requireFromDisk(Object.freeze("
+            "{ path: raw.path, from: raw.from, lines: Object.freeze([...raw.lines]) }))",
+        ])
+        self.assertEqual(got, [{"error": NOT_FROM_DISK, "name": "Error"}] * 4)
+
+    def test_a_source_cannot_change(self):
+        """Red: the source object is not frozen (a write to `path` or `from` passes, or `isFrozen` is
+        false), or `lines` is not frozen (a write to lines[0] or a push passes), or `lines` is the
+        array that was given, not a copy (raw.lines[0] = ... changes the source's line, or throws
+        because the given array was frozen)."""
+        got = self.calls([
+            "Object.isFrozen(src)",
+            "Object.isFrozen(src.lines)",
+            '(src.lines[0] = "changed")',
+            '(src.lines.push("changed"))',
+            '(src.path = "other.py")',
+            "(src.from = 1)",
+            '(raw.lines[0] = "changed", raw.lines.push("extra"), [...src.lines])',
+        ])
+        self.assertEqual(got[:2], [{"value": True}, {"value": True}])
+        for result in got[2:6]:
+            self.assertEqual(result.get("name"), "TypeError", result)
+        self.assertEqual(got[6], {"value": RAW_SOURCE["lines"]})
+
+
+# Every TestMono script imports mono.ts, so a value import of Source in it (`import { Source }` or
+# `import { type Source }`, which Node cannot resolve without an extension) turns all of them red.
+@unittest.skipIf(NODE is None, NO_NODE_REASON)
+class TestMono(EvaluatesJs):
+    PRELUDE = (
+        "import { ADVANCE, monoWidth, colX, lineY, fitColumns, cardHeight, lineSpans, requireLine }"
+        ' from "%s";' % kit_url("mono.ts")
+        + 'import { sourceFromDisk } from "%s";' % kit_url("source.ts")
+        + SCRIPT_START
+    )
+
+    def test_mono_width_counts_code_points(self):
+        """Red: ADVANCE is not 0.6, the width counts UTF-16 units (the smiley is two, so "a" and the
+        smiley give 36, not 24), or the size is not read from the argument (a fixed 20 gives 36 for
+        "abc" at size 10)."""
+        got = self.values([
+            'monoWidth("abc", 20)', 'monoWidth("a\\u{1F600}", 20)', 'monoWidth("abc", 10)', "ADVANCE",
+        ])
+        self.assertEqual(got, [36, 24, 18, 0.6])
+
+    def test_col_x(self):
+        """Red: the padding, the gutter or the gap changes (column 0 is not 188), the advance is not
+        0.6 of the size (column 10 is not 308), the card's x is left out, or the size is not read
+        from the card (a fixed 20 gives the big card, x 10 and size 30, not 170 at column 2)."""
+        got = self.values(["colX(card, 0)", "colX(card, 10)", "colX(big, 2)"])
+        self.assertEqual(got, [188, 308, 170])
+
+    def test_line_y(self):
+        """Red: the baseline is the top of the row (without the `size` term: 66 instead of 86), the row
+        is not 1.6 of the size (line 54 is not 310), the source's first line is not subtracted or is
+        a fixed 47 (a source from line 10 gives 118 for its second line), the card's y is left out,
+        the size is not read from the card (a fixed 20 does not give 142 for the big card), or the
+        line is checked against the source (line 40 is above it and must still give -138)."""
+        got = self.values([
+            "lineY(card, src, 47)", "lineY(card, src, 48)", "lineY(card, src, 54)",
+            "lineY(big, src, 49)", "lineY(card, src, 40)",
+            'lineY(card, sourceFromDisk({ path: "lib/x.ts", from: 10, lines: ["a", "b"] }), 11)',
+        ])
+        self.assertEqual(got, [86, 118, 310, 142, -138, 118])
+
+    def test_fit_columns(self):
+        """Red: the right edge keeps no padding (the card gives 42), the count rounds or takes the
+        ceiling instead of the floor (width 590 is 40.5 columns and must give 40; the ceiling gives 41
+        for the card), a narrow card goes below 0 (width 80 gives -2), or a whole column is lost to
+        rounding error: size 18 and width 140 hold exactly 4 columns, and 4 is not what the plain
+        division gives."""
+        got = self.values([
+            "fitColumns(card)",
+            "fitColumns({ ...card, width: 80 })",
+            "fitColumns({ ...card, width: 590 })",
+            "fitColumns({ ...card, width: 140, size: 18 })",
+            "fitColumns(big)",
+        ])
+        self.assertEqual(got, [41, 0, 40, 4, 14])
+
+    def test_card_height(self):
+        """Red: the padding is counted on one side only (the card gives 272), the row is not 1.6 of
+        the size, the size is not read from the card (a fixed 20 does not give 176 for 3 lines of the
+        big card), or a card of no lines still counts a row (64 instead of 32)."""
+        got = self.values(["cardHeight(card, 8)", "cardHeight(big, 3)", "cardHeight(card, 0)"])
+        self.assertEqual(got, [288, 176, 32])
+
+    def spans(self, text, tints, columns=41):
+        """The JS expression of lineSpans(`text`, `tints`, `columns`); `text` and `tints` are JS source."""
+        return "lineSpans(%s, %s, %d)" % (text, tints, columns)
+
+    def tint(self, frm, to, color="A", line=47):
+        """The JS source of a tint of `line` from `frm` to `to`; `color` names the JS constant A or B."""
+        return "{ line: %d, from: %d, to: %d, color: %s }" % (line, frm, to, color)
+
+    def test_line_spans(self):
+        """Red: a tint that starts before 0 is dropped (-2 to 1 leaves out the first letter), a
+        reversed range is read with its ends swapped (5 to 2 colours the letters from 2 to 5), a
+        tint's `to` is inclusive, an overlap is won by the earlier tint (the reversed order case must
+        show the later one, A, winning over the first four letters), neighbours of one colour are
+        left as several spans, an uncoloured run is absorbed by the coloured span before it, only the
+        tints on the line of the first tint are read (the join case has its second tint on line 99),
+        or an uncoloured span carries a colour (even an empty one)."""
+        text, tint = '"abcdef"', self.tint
+        got = self.values([
+            self.spans(text, "[]"),
+            self.spans(text, "[%s]" % tint(1, 3)),
+            self.spans(text, "[%s, %s]" % (tint(0, 4), tint(2, 6, "B"))),
+            self.spans(text, "[%s, %s]" % (tint(2, 6, "B"), tint(0, 4))),
+            self.spans(text, "[%s]" % tint(3, 3)),
+            self.spans(text, "[%s]" % tint(5, 2)),
+            self.spans(text, "[%s]" % tint(-2, 1)),
+            self.spans(text, "[%s, %s]" % (tint(0, 2), tint(2, 4, line=99))),
+            self.spans(text, "[%s, %s]" % (tint(0, 1), tint(3, 4))),
+        ])
+        plain = lambda t: {"text": t}
+        coloured = lambda t, c: {"text": t, "color": c}
+        self.assertEqual(got, [
+            [plain("abcdef")],
+            [plain("a"), coloured("bc", A), plain("def")],
+            [coloured("ab", A), coloured("cdef", B)],
+            [coloured("abcd", A), coloured("ef", B)],
+            [plain("abcdef")],
+            [plain("abcdef")],
+            [coloured("a", A), plain("bcdef")],
+            [coloured("abcd", A), plain("ef")],
+            [coloured("a", A), plain("bc"), coloured("d", A), plain("ef")],
+        ])
+
+    def test_line_spans_cut(self):
+        """Red: the text is not cut to the columns (4 columns give "abcdef"), a columns of 0 or less is
+        not an empty cut (-1 drops only the last letter, as slice does), or an empty text gives a
+        span of no text. Whatever the cut, the spans of a case join into exactly the cut text."""
+        text = '"abcdef"'
+        to_99 = "[%s]" % self.tint(2, 99)
+        past = "[%s]" % self.tint(5, 9)
+        cases = [
+            (self.spans(text, "[]", 4), "abcd"),
+            (self.spans(text, to_99, 4), "abcd"),
+            (self.spans(text, past, 4), "abcd"),
+            (self.spans('""', "[]"), ""),
+            (self.spans('""', to_99), ""),
+            (self.spans(text, to_99, 0), ""),
+            (self.spans(text, to_99, -1), ""),
+        ]
+        got = self.values([expression for expression, _ in cases])
+        for (expression, cut), spans in zip(cases, got):
+            self.assertEqual("".join(span["text"] for span in spans), cut, expression)
+        self.assertEqual(got[0], [{"text": "abcd"}])
+        self.assertEqual(got[1], [{"text": "ab"}, {"text": "cd", "color": A}])
+        self.assertEqual(got[2], [{"text": "abcd"}])
+        self.assertEqual(got[3:], [[], [], [], []])
+
+    def test_line_spans_count_code_points(self):
+        """Red: the text is split in UTF-16 units (`text.split("")`: the smiley is two, so the tint 1
+        to 2 colours half of it, and 2 columns cut it in half)."""
+        text = '"a\\u{1F600}b"'
+        smiley = "\U0001F600"
+        got = self.values([
+            self.spans(text, "[%s]" % self.tint(1, 2)),
+            self.spans(text, "[]", 2),
+            self.spans(text, "[%s]" % self.tint(2, 3)),
+        ])
+        self.assertEqual(got, [
+            [{"text": "a"}, {"text": smiley, "color": A}, {"text": "b"}],
+            [{"text": "a" + smiley}],
+            [{"text": "a" + smiley}, {"text": "b", "color": A}],
+        ])
+
+    def test_line_spans_keep_spaces(self):
+        """Red: the leading spaces of the text are trimmed (`trimStart`: the tint on column 4 would
+        colour the wrong letter, and 3 columns of "  ab" would give "ab")."""
+        got = self.values([
+            self.spans('"    x = 1"', "[%s]" % self.tint(4, 5)),
+            self.spans('"  ab"', "[]", 3),
+        ])
+        self.assertEqual(got, [
+            [{"text": "    "}, {"text": "x", "color": A}, {"text": " = 1"}],
+            [{"text": "  a"}],
+        ])
+
+    def test_require_line(self):
+        """Red: the range is off by one at either end (46 or 55 returns, 47 or 54 throws), the last
+        line is not worked out from the length of `lines` (a fixed 8 lines: the one-line source of
+        lib/x.ts must refuse line 2), a line that is not a whole number passes (NaN and 47.5 compare
+        false both ways, so only an explicit check refuses them), or a message differs from
+        `CodeCard: line <n> is outside <path>:<first>-<last>` by a word or a number."""
+        one = 'sourceFromDisk({ path: "lib/x.ts", from: 1, lines: ["a"] })'
+        got = self.values(["requireLine(src, 47)", "requireLine(src, 54)", "requireLine(%s, 1)" % one])
+        self.assertEqual(got, [None, None, None])
+        got = self.errors([
+            "requireLine(src, 46)", "requireLine(src, 55)", "requireLine(%s, 2)" % one,
+            "requireLine(src, 47.5)", "requireLine(src, NaN)",
+        ])
+        self.assertEqual(got, [
+            "CodeCard: line 46 is outside src/app.py:47-54",
+            "CodeCard: line 55 is outside src/app.py:47-54",
+            "CodeCard: line 2 is outside lib/x.ts:1-1",
+            "CodeCard: line 47.5 is outside src/app.py:47-54",
+            "CodeCard: line NaN is outside src/app.py:47-54",
+        ])
 
 
 if __name__ == "__main__":
