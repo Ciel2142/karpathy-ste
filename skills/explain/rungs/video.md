@@ -48,7 +48,7 @@ other files from them. Never change a made file by hand.
 | `subject.text`, `subject.kind` | The subject as the user typed it, and its kind: `file`, `directory`, `topic` or `conversation` (`SKILL.md` convention 2). |
 | `provenance.root` | The ABSOLUTE path of the repo root, the `data-root` of convention 2. The template value is `.`, a relative path. `render.sh` stops if the value is not an absolute path of a directory. |
 | `provenance.commit`, `.dirty`, `.date` | The commit hash or `none`; `dirty` or `no`; `YYYY-MM-DD`. |
-| `provenance.source` | The repo root, `model knowledge` or the URLs. |
+| `provenance.source` | The source that you read: the files or the repo root, `model knowledge`, or the URLs. |
 | `provenance.not_covered` | The dropped facets, or `none`. Always write this key. The transcript shows it as `Not covered`. |
 | `sources` | The ranges of files that a code card shows. For a film with no code card, leave out the key or write `[]`. |
 | `scenes` | The scenes, in the order of the film. The table of limits below gives their number. |
@@ -68,7 +68,9 @@ marks of section 4.
 
 Rules for each scene:
 
-- Write the narration in STE. Keep each sentence at 20 words or fewer.
+- Write the narration in STE. Keep each sentence at 20 words or fewer. This limit is smaller than
+  the limit of the STE profile, and it applies here.
+- Write a number as the voice must say it, such as "minus 201". The stage can show `-201`.
 - The prose lint reads only the narration and `provenance.not_covered`. Write them in STE. The
   lint never reads the labels of the scene, the code or the cites.
 - Put a code name in backticks. The transcript shows it as code, and the narrator speaks it as
@@ -105,13 +107,21 @@ text.
 The `timeline` stage fails a scene or a film that is longer than its limit. Plan the length with
 these approximate values:
 
-- The narrator speaks approximately 2.8 words each second.
+- The narrator speaks approximately 2.8 words each second. The two live runs gave 2.7 and 3.0.
+  Numbers and code names are slower than plain words.
 - Each scene adds 0.6 s of lead and default pause. A longer `pause` adds its frames.
 - Each sentence after the first sentence of a scene adds 0.15 s.
 - The template has 8 scenes and 121 words. Its length is 49 s with Kokoro and 43 s with `say`.
-- A safe total for the longest film is approximately 350 words.
+- A safe total for the longest film is approximately 350 words. That film is approximately
+  130 s.
 
-The stage line of `timeline` shows the real length.
+The stage line of `timeline` shows the real length. To come near a length, do these steps:
+
+1. Write the script for that length with the values above, and run `render.sh`.
+2. Read the length in the stage line of `timeline`.
+3. If the film is short, add narration, or add frames to the `pause` of a scene. One frame is
+   1/30 s. A film of 150 s has approximately 380 to 410 words.
+4. If the film is long, remove words.
 
 ## 4. Write the scene
 
@@ -119,6 +129,7 @@ The directory `scene/` holds the picture of the film. You write it in TypeScript
 
 1. Copy the directory `<skill-dir>/video/src/film/` to `<output-dir>/scene/`.
 2. Change the copy into your picture. It is the worked example, the picture of the template.
+   Delete each file of the example that your picture does not use, and add your own files.
 3. Keep the timing in `Film.tsx`, as the example does. Let the other files draw.
 
 The directory obeys these rules:
@@ -128,7 +139,8 @@ The directory obeys these rules:
   directory.
 - `Film.tsx` is necessary, and it holds `export function Film(`.
 - The run writes its own `script.gen.ts`, with the scene ids and the source ids of `script.json`.
-  It ignores the copy in `scene/`, and it does not count it. Do not edit the copy.
+  It ignores the copy in `scene/`, and it does not count it. Do not edit the copy. The copy
+  holds the ids of the example, not your ids.
 
 ### The stage
 
@@ -227,6 +239,9 @@ export type FilmProps<S extends string, R extends string> = { at: At<S>; sources
 - The kit owns the inner geometry of the card. Get a position in the card only from `colX` and
   `lineY`. `colX(card, index)` is the x of column `index` of the code, from 0.
   `lineY(card, source, line)` is the baseline of a line.
+- A row of the card is `1.6 * card.size` high, and the card has 16 px of padding on each side.
+  A card of `n` lines is `32 + n * 1.6 * card.size` high. Put a label under a card at
+  `card.y` plus that height, plus a gap.
 
 ### Marks
 
@@ -251,7 +266,13 @@ Rules for the marks:
 - Use a word mark for "approximately when the voice says the word". For a motion that needs an
   exact frame, use a sentence mark.
 - End a motion that starts at a sentence mark before the middle of that sentence. The guard
-  measures that frame, and the still of the sentence shows it.
+  measures that frame, and the still of the sentence shows it. The middle is approximately 5
+  frames for each word of the sentence. Thus, a motion of 24 frames is safe in a sentence of 6
+  words or more.
+- Text that types, and a line that draws, must be complete at that frame. A name that is half
+  typed in a still reads as a different name.
+- A motion that shows and then leaves, such as a light that moves across a row, must be there at
+  that frame. Time it from a word mark near the middle of the sentence.
 - A sentence ends at `.`, `?` or `!` before white space or the end of the narration. A full
   stop in backticks does not end a sentence.
 - To find the word of a mark, the kit puts it and each word of the narration in lower case. It
@@ -288,6 +309,8 @@ stage stops, and `build/render.log` holds the `MARK scene` line.
 - A `Sans` text has no fixed width. Leave space around it.
 - Draw each text at `MIN_TEXT` px or more on the canvas. The size on the canvas is the font size
   times the scale of each group around the text.
+- `MIN_TEXT` is the limit of the guard, not a good size. In the two live runs, a reader could not
+  read grey text of 13 to 15 px quickly. Draw a caption in a dim colour at 16 px or more.
 
 ### Imports and tokens
 
@@ -508,9 +531,24 @@ Look for these faults in each still:
 5. Text that gives a false picture of the subject, such as a quoted line that the source does
    not hold.
 
+For fault 2, do these checks. In the two live runs, the author found none of these faults, and
+a second reader found each of them:
+
+- For each sentence, find the object on the stage that shows it. A sentence with no object is a
+  fault. Draw the object, or change the sentence.
+- An object that leaves must change or move away. An object that is there in one still and gone
+  in the next still, with no cause, is a fault.
+- Mark the same type of thing in the same way in each scene. If four scenes make the examined
+  text cyan, the fifth scene does too.
+- A light that stays on after its scene, or comes back with no cause, is a fault.
+- When the narration gives a range or a list, the stage shows the same items in the same order.
+
 Fix each fault in `script.json` or in `scene/`. Then run `render.sh` again in the same output
 directory. The run keeps the WAV file of a scene whose narration did not change. Repeat until all
 eleven lines show `ok` and the stills are clean.
+
+After a fix, read again each still of each scene that you changed. If an object that stays on
+the stage moved or changed its size, read all the stills again.
 
 ## 7. Handoff, output directory and pinned versions
 

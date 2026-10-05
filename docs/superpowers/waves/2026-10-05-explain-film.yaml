@@ -82,7 +82,7 @@ waves:
       fails and a run stopped with SIGTERM; `test_video_workspace.py` passes the
       two-package-files case; brainrot's end-to-end cases pass with the background stage in
       the run directory.
-    status: pending
+    status: done
     depends_on: []
     owns:
       - skills/explain/scripts/render.sh (the run directory, its removal, the project of each render step)
@@ -111,7 +111,7 @@ waves:
       spec §5.3 pass (the generated names equal the checked-in `script.gen.ts`; the template's
       cites pass the cite check); `test_transcript.py` and `test_check_render.py` each pass a
       film case; brainrot keeps ten lines and the explainer nine.
-    status: pending
+    status: done
     depends_on: [film-timeline, film-kit, run-directory]
     owns:
       - skills/explain/video/src/FilmStage.tsx
@@ -141,7 +141,7 @@ waves:
       §7.2, asserted by its line, and the clean fixture; the gated test renders the example
       from a `scene/` copy with ten `ok` lines; the four stage plants of spec §9.2 each stop
       with their line before any synthesis; a film run leaves `<ws>/app` unchanged.
-    status: pending
+    status: done
     depends_on: [film-render]
     owns:
       - skills/explain/video/check_scene.py
@@ -168,7 +168,7 @@ waves:
       of spec §9.1 pass in Node, the mark plant gives `guard: FAIL mark:` with the word, and
       the unedited example passes with eleven `ok` lines. If the measurement cannot be made
       to work, the wave is marked blocked here and the design returns to the user (spec §7.3).
-    status: pending
+    status: done
     depends_on: [film-scene-stage]
     owns:
       - skills/explain/video/src/kit/guard.ts
@@ -195,7 +195,7 @@ waves:
       only by section title and only for the five shared sections of spec §8.2; a drift test
       shows that each stage line and FAIL line quoted in `video.md` is a line that `render.sh`
       or its tools print; brainrot renders from its template with ten `ok` lines.
-    status: pending
+    status: done
     depends_on: [film-guard]
     owns:
       - skills/explain/rungs/video.md
@@ -225,7 +225,7 @@ waves:
       and each fold-back change with its reason; the cold run passed within two fix rounds
       and ten runs; the folded values are in `formats.json`, `MIN_TEXT`, the `checkFrames`
       rule, `rungs/video.md` and the spec; the user states acceptance.
-    status: pending
+    status: done
     depends_on: [film-docs]
     owns:
       - docs/superpowers/spikes/ (the film live-run note)
