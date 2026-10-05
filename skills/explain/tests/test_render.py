@@ -579,6 +579,12 @@ class RunDirectoryCase(unittest.TestCase):
         """The path of a run directory of render.sh `pid` in `runs`: run.<pid>.<6 characters>."""
         return r"^%s/run\.%d\.[A-Za-z0-9]{6}$" % (re.escape(str(runs)), pid)
 
+    def render_or_fail_lines(self, stdout):
+        """The stage lines of `stdout` that start with "render", and every line with FAIL in it:
+        none after a signal, which ends render.sh with exit 1 and no FAIL line."""
+        return [line for line in stdout.splitlines()
+                if (STAGE_LINE.match(line) and line.startswith("render")) or "FAIL" in line]
+
     # red: the render keeps cwd <ws>/app
     def test_render_runs_in_its_own_run_directory(self):
         proc = self.start()
@@ -642,7 +648,9 @@ class RunDirectoryCase(unittest.TestCase):
         [pick] = self.tool_calls("pick")
         self.assertRegex(pick[2], self.run_pattern(self.runs, proc.pid))
 
-    # red: no EXIT trap (the directory stays), or no signal trap (the exit code is the signal's)
+    # red: no EXIT trap (the directory stays), or no signal trap (the exit code is the signal's),
+    # or a signal trap that does not exit (trap ':', so the run prints "render: FAIL remotion
+    # render exit <n>" for the CLI the signal killed)
     def test_run_directory_removed_after_a_signal(self):
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             with self.subTest(signal=sig.name):
@@ -651,11 +659,13 @@ class RunDirectoryCase(unittest.TestCase):
                 os.killpg(proc.pid, sig)
                 run = self.finish(proc, timeout=10)
                 self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(self.render_or_fail_lines(run.stdout), [], run.stdout)
                 self.assertEqual(names(self.runs), [])
                 self.assertTrue((self.shared / "sentinel.txt").exists())
 
     # red: the CLI runs in a subshell that the signal ends at once, so render.sh exits and removes
-    # the run directory while the CLI still runs, and the CLI's late write makes it again
+    # the run directory while the CLI still runs, and the CLI's late write makes it again; or a
+    # signal trap that does not exit (trap ':', so the run goes on after the CLI's end)
     def test_render_sh_waits_for_a_cli_that_outlives_the_signal(self):
         end = self.tmp / "remotion.end"
         for sig in (signal.SIGTERM, signal.SIGHUP):
@@ -666,6 +676,7 @@ class RunDirectoryCase(unittest.TestCase):
                 os.killpg(proc.pid, sig)
                 run = self.finish(proc, timeout=10)
                 self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(self.render_or_fail_lines(run.stdout), [], run.stdout)
                 # a render.sh that did not wait has exited before the CLI: wait for the CLI's end
                 deadline = time.monotonic() + 10
                 while not end.exists() and time.monotonic() < deadline:
@@ -685,7 +696,8 @@ class RunDirectoryCase(unittest.TestCase):
                           if line.startswith(("render", "container", "transcript"))], [])
         self.assertEqual(names(self.runs), [])
 
-    # red: a sweep with no age test, or a removal that follows the link
+    # red: a sweep with no age test, or a removal that follows the link, or a sweep with no name
+    # test (an old entry not named run.* goes too)
     def test_old_run_directories_are_swept(self):
         outside = self.tmp / "outside"
         outside.mkdir()
@@ -694,16 +706,62 @@ class RunDirectoryCase(unittest.TestCase):
         old.mkdir(parents=True)
         (old / "node_modules").symlink_to(outside)
         young.mkdir()
+        keep_dir, notes = self.runs / "keep-me", self.runs / "notes.txt"
+        keep_dir.mkdir()
+        (keep_dir / "kept.txt").write_text("kept", encoding="utf-8")
+        notes.write_text("notes", encoding="utf-8")
         now = time.time()
-        # after the link is made: making it changes the directory's modification time
-        os.utime(old, (now - 25 * 3600, now - 25 * 3600))
+        # after the link and kept.txt are made: each changes its directory's modification time
+        for path in (old, keep_dir, notes):
+            os.utime(path, (now - 25 * 3600, now - 25 * 3600))
         os.utime(young, (now - 23 * 3600, now - 23 * 3600))
         run = self.finish(self.start())
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         [call] = self.cli_calls()
-        self.assertEqual(call["runs"], sorted(["run.2.young", os.path.basename(call["cwd"])]))
-        self.assertEqual(names(self.runs), ["run.2.young"])
+        self.assertEqual(call["runs"], sorted(["keep-me", "notes.txt", "run.2.young",
+                                               os.path.basename(call["cwd"])]))
+        self.assertEqual(names(self.runs), ["keep-me", "notes.txt", "run.2.young"])
         self.assertTrue((outside / "keep.txt").exists())
+        self.assertEqual((keep_dir / "kept.txt").read_text(encoding="utf-8"), "kept")
+        self.assertEqual(notes.read_text(encoding="utf-8"), "notes")
+
+    # red: find on the link itself, which lists nothing (the old run directory stays)
+    def test_sweep_works_when_runs_is_a_symlink(self):
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep", encoding="utf-8")
+        target = self.tmp / "runs-elsewhere"
+        old = target / "run.1.oldold"
+        old.mkdir(parents=True)
+        (old / "node_modules").symlink_to(outside)
+        now = time.time()
+        os.utime(old, (now - 25 * 3600, now - 25 * 3600))
+        self.ws.mkdir()
+        self.runs.symlink_to(target)
+        proc = self.start()
+        run = self.finish(proc)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertFalse(old.exists() or old.is_symlink(), "the old run directory stays")
+        self.assertTrue((outside / "keep.txt").exists())
+        self.assertTrue(self.runs.is_symlink(), "<ws>/runs is no longer a symlink")
+        [call] = self.cli_calls()
+        self.assertRegex(call["cwd"], self.run_pattern(os.path.realpath(target), proc.pid))
+        self.assertEqual(names(target), [])
+
+    # red: no chmod after the copy (rm -rf cannot empty the read-only copy of src, so the run
+    # directory stays)
+    def test_run_directory_from_a_read_only_tree_is_removed(self):
+        src = self.tmp / "skill" / "video" / "src"
+        marker = src / "marker.txt"
+        marker.chmod(0o444)
+        src.chmod(0o555)
+        self.addCleanup(marker.chmod, 0o644)
+        self.addCleanup(src.chmod, 0o755)
+        run = self.finish(self.start())
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(names(self.runs), [])
+        self.assertNotIn("Permission denied", run.stderr)
+        self.assertTrue((self.shared / "sentinel.txt").exists())
 
     # red: the failure is ignored and a render starts with an empty run
     def test_unmakeable_run_directory_fails_the_workspace_stage(self):

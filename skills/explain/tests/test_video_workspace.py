@@ -1,7 +1,8 @@
 """Tests for scripts/video-workspace.sh: the Remotion workspace outside the repo. The real
-cmp, cp, mv and shasum run on the real video/ package files; npm, curl and the remotion
-binary that npm installs are fakes that log their arguments, so no registry, Chrome or
-model download is needed. Each test names the mutation that turns it red."""
+cmp, cp, mv and shasum run on the real video/ package files (cp through a wrapper that logs
+its arguments to FAKE_CP_LOG first); npm, curl and the remotion binary that npm installs are
+fakes that log their arguments, so no registry, Chrome or model download is needed. Each
+test names the mutation that turns it red."""
 
 import hashlib
 import os
@@ -46,6 +47,12 @@ while [ $# -gt 0 ]; do
 done
 printf 'not a model\n' > "$out"
 """
+# cp: appends its arguments to FAKE_CP_LOG, one call a line, tab-separated, then runs the
+# real /bin/cp with them. Its own log, so FAKE_LOG keeps only npm, curl and remotion.
+CP_WRAPPER = r"""#!/bin/sh
+(IFS=$(printf '\t'); printf '%s\n' "$*") >> "$FAKE_CP_LOG"
+exec /bin/cp "$@"
+"""
 
 
 class WorkspaceCase(unittest.TestCase):
@@ -55,10 +62,11 @@ class WorkspaceCase(unittest.TestCase):
         self.ws = self.tmp / "ws"
         self.app = self.ws / "app"
         self.log = self.tmp / "fake.log"
+        self.cp_log = self.tmp / "cp.log"
         self.out = self.tmp / "stdout.txt"
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
-        for name, body in (("npm", FAKE_NPM), ("curl", FAKE_CURL)):
+        for name, body in (("npm", FAKE_NPM), ("curl", FAKE_CURL), ("cp", CP_WRAPPER)):
             path = bin_dir / name
             path.write_text(body, encoding="utf-8")
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -68,6 +76,7 @@ class WorkspaceCase(unittest.TestCase):
             EXPLAIN_VIDEO_WORKSPACE=str(self.ws),
             FAKE_LOG=str(self.log),
             FAKE_STDOUT=str(self.out),
+            FAKE_CP_LOG=str(self.cp_log),
         )
 
     def run_ws(self, *args, script=WORKSPACE_SH):
@@ -164,7 +173,8 @@ class PackageFiles(WorkspaceCase):
 
     def test_changed_package_file_arrives_by_a_rename(self):
         """Mutation: the file is overwritten in place (same inode), or the temporary file is
-        left behind in the app."""
+        left behind in the app, or the old file is removed and the new one copied onto its
+        final name (a new inode too, but a reader can see a half-written file)."""
         skill = self.copy_skill()
         script = skill / "scripts" / WORKSPACE_SH.name
         self.assert_ok(self.run_ws("--engine", "say", script=script))
@@ -178,6 +188,11 @@ class PackageFiles(WorkspaceCase):
         self.assertEqual((self.app / "package.json").read_bytes(), source.read_bytes())
         self.assertNotEqual((self.app / "package.json").stat().st_ino, inode)
         self.assertEqual(self.app_names(), names)
+        # every copy into the app (both runs) goes to another name than the final one
+        finals = {str(self.app / name) for name in ("package.json", "package-lock.json")}
+        copies = self.cp_log.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(copies, "the cp wrapper logged no call")
+        self.assertEqual([call for call in copies if call.split("\t")[-1] in finals], [])
 
     def test_backgrounds_made_and_the_old_stage_left_alone(self):
         """Mutation: backgrounds is not made, or the stage is made (a fresh workspace) or

@@ -54,10 +54,12 @@
 # Each render compiles in a run directory of its own, <ws>/runs/run.<pid>.<6 chars>, so two
 # renders can run at the same time and render.sh writes nothing under <ws>/app. It holds a
 # copy of the skill's video/ (without a top-level node_modules or public of the checkout, and
-# without __pycache__), node_modules as a link to the shared <ws>/app/node_modules, and
-# public/ with the narration clips in public/audio (brainrot: also the picker's bg-stage/
-# behind public/bg). The workspace stage makes it, before its ok line, after it has removed
-# each entry of <ws>/runs modified more than a day (1440 min) ago: what a killed render left.
+# without __pycache__; owner-writable, so that a read-only skill tree gives a copy that can be
+# removed), node_modules as a link to the shared <ws>/app/node_modules, and public/ with the
+# narration clips in public/audio (brainrot: also the picker's bg-stage/ behind public/bg).
+# The workspace stage makes it, before its ok line, after it has removed each run directory
+# of <ws>/runs (an entry named run.*; other entries stay) modified more than a day (1440 min)
+# ago: what a killed render left. <ws>/runs may be a symlink to a directory.
 # A failure gives "workspace: FAIL cannot make a run directory in <ws>/runs". An EXIT trap
 # removes it after a pass, a FAIL, or HUP, INT or TERM. render.sh does not signal its
 # children: a signal to render.sh alone takes effect when the running tool returns, or at
@@ -238,17 +240,19 @@ clear_stale() {
     [ ! -d "$out/review" ] || find "$out/review" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 }
 
-# Remove each entry of <ws>/runs modified more than a day (1440 min) ago: the run directory of
-# a render that was killed before its EXIT trap ran. find hands each path to rm -rf as it is,
-# with no trailing slash, so a node_modules link goes and the shared packages stay. A removal
-# that fails is ignored.
+# Remove each run directory of <ws>/runs (an entry named run.*) modified more than a day
+# (1440 min) ago: the run directory of a render that was killed before its EXIT trap ran. Any
+# other entry stays. -H: <ws>/runs may be a symlink to a directory, whose entries are swept; no
+# link below it is followed. find hands each path to rm -rf as it is, with no trailing slash, so
+# a node_modules link goes and the shared packages stay. A removal that fails is ignored.
 sweep_old_runs() {
-    find "$ws/runs" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2> /dev/null || true
+    find -H "$ws/runs" -mindepth 1 -maxdepth 1 -name 'run.*' -mmin +1440 -exec rm -rf {} + \
+        2> /dev/null || true
 }
 
 # Make the run directory of this render: the entries of video/ except a top-level node_modules
-# or public of the checkout (a directory, a file or a link) and __pycache__ at any depth, then
-# node_modules as a link to the shared packages and an empty public/.
+# or public of the checkout (a directory, a file or a link) and __pycache__ at any depth, made
+# owner-writable, then node_modules as a link to the shared packages and an empty public/.
 make_run_dir() {
     local cause="workspace: FAIL cannot make a run directory in $ws/runs" entry
     mkdir -p "$ws/runs" || fail "$cause"
@@ -259,6 +263,10 @@ make_run_dir() {
         case "${entry##*/}" in node_modules | public | __pycache__) continue ;; esac
         cp -R "$entry" "$run" || fail "$cause"
     done
+    # cp -R copies the modes of a read-only skill tree, and rm -rf cannot empty a directory the
+    # owner cannot write. Before the link: once it exists, no recursive command but the removal
+    # may run on $run.
+    chmod -R u+w "$run" || fail "$cause"
     find "$run" -name __pycache__ -prune -exec rm -rf {} + || fail "$cause"
     ln -s "$app/node_modules" "$run/node_modules" || fail "$cause"
     mkdir "$run/public" || fail "$cause"

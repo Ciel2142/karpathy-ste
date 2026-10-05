@@ -664,7 +664,9 @@ class InsideRuns(PickerCase):
 
     def test_dir_inside_the_runs_folder_is_refused_and_nothing_is_deleted(self):
         """Mutation: no guard, or one that still names <ws>/bg-stage, so --dir <run>/bg-stage is
-        emptied first and the run ends "ok generated"."""
+        emptied first and the run ends "ok generated"; or the guard takes the abspath of the
+        folder, not its realpath, so a link outside the workspace to a folder of another run gets
+        past it."""
         self.seed_stage()
         via_link = self.tmp / "via-link"
         via_link.symlink_to(self.runs)
@@ -682,6 +684,14 @@ class InsideRuns(PickerCase):
         for label, folder in folders.items():
             with self.subTest(label):
                 self.assert_refused(self.run_picker(clips=folder), folder)
+        # Made after the case above, which needs it missing. Only the realpath of the link places
+        # it inside the runs folder: the link and its parents are outside the workspace.
+        other_clips = self.runs / "run.2.other" / "clips"
+        other_clips.mkdir(parents=True)
+        via_other = self.tmp / "via-other-run"
+        via_other.symlink_to(other_clips)
+        with self.subTest("a symlink outside the workspace to a folder of another run"):
+            self.assert_refused(self.run_picker(clips=via_other), via_other)
 
     def test_dir_with_other_case_is_refused_on_a_case_insensitive_volume(self):
         """Mutation: the guard compares path strings only, so RUNS gets past it on APFS."""
