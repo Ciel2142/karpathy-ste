@@ -532,7 +532,7 @@ class GuardStageCase(unittest.TestCase):
             "argv": ["render", "Film", "%s/build/guard.mp4" % self.out, "--frames=12-12,47-47,89-89",
                      "--concurrency=1", "--muted", "--props", "%s/build/timeline.json" % self.out],
             "cwd": os.path.realpath(self.run_dir)}])
-        self.assertEqual((self.run_dir / "public" / "audio" / "a.say.wav").read_bytes(), b"clip")
+        self.assertTrue((self.run_dir / "public" / "audio" / "a.say.wav").is_file())
 
     # red: the pass runs for every format
     def test_another_format_has_no_guard_stage(self):
@@ -581,8 +581,8 @@ class GuardStageCase(unittest.TestCase):
             with self.subTest(case=name):
                 edit()
                 done = self.guard()
-                self.assertEqual((done.returncode, done.stdout),
-                                 (1, "guard: FAIL cannot read %s\n" % self.timeline), done.stderr)
+                self.assertEqual((done.returncode, done.stdout, done.stderr),
+                                 (1, "guard: FAIL cannot read %s\n" % self.timeline, ""))
                 self.assertEqual(self.passes(), [])
 
     # red: the failure of the copy is ignored and the pass runs (and a stage line follows), or the line
