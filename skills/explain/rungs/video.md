@@ -38,7 +38,8 @@ Rules for each scene:
 - Write the narration in STE. Write 45 words or fewer. Keep each sentence at 20 words or fewer.
 - The prose lint also reads each `title`, the subtitle, the bullets, the headings and lines of
   `before-after`, and `provenance.not_covered`. Write them in STE. The lint does not read the
-  diagram labels, the code or the cites.
+  diagram labels, the code or the cites. To show text that breaks STE, put it in double quotes in
+  a prop, or in backticks in the narration. The lint does not check quoted text or code.
 - The `timeline` stage fails a scene longer than 60 s or a video longer than 150 s. The narrator
   speaks approximately 3 words each second, and each scene adds 1.7 s of lead and tail. Eight
   scenes of 45 words come near 150 s. With 7 or 8 scenes, write fewer words in each scene. A safe
@@ -152,6 +153,8 @@ Then read the stills:
 
 1. Read each file in `review/` with the Read tool. Never read `video.mp4`.
 2. `still-NN-<scene>.png` shows scene NN at its start, after the lead.
+   When the first cue starts the narration, the start still shows that item as it comes in. That
+   is not a fault. The cue still shows it in full.
 3. `still-NN-<scene>-<k>.png` shows cue k of the scene, 15 frames after the cue frame. The
    number k counts the cues in frame order.
 4. Look for these faults. A title that is absent or clipped. Text that overlaps other text. A

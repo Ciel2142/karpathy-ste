@@ -33,6 +33,7 @@ Read these sections of `<skill-dir>/rungs/video.md` and follow them. Where this 
 | 4. Handoff | Section 6 of this file adds the background. |
 | 5. Output directory | Section 7 of this file adds three items. |
 | 6. Pinned versions and environment | The pinned versions, the models, the workspace and the licence. The voice speed (1.0) and the Constants bullet (1280x720, lead 15, tail 36) differ. Section 8 of this file gives the brainrot values. |
+| `rungs/sheet.md` section 4 (not a section of `video.md`) | The provenance recipe. Section 2 of `video.md` sends you to it. |
 
 Skip section 1 of `video.md`. Section 1 of this file replaces it.
 
@@ -67,8 +68,8 @@ Follow section 2 of `video.md`, with these changes.
 
 A limit failure names the format. For example: `line 7 is 52 columns (max 40, brainrot)`.
 
-- Length: at speed 1.2, the narrator speaks approximately 3.6 words each second. Each scene adds
-  0.6 s of lead and tail. Six scenes of 45 words come near 80 s. These figures are an
+- Length: at speed 1.2, the narrator speaks approximately 3.3 words each second. Each scene adds
+  0.6 s of lead and tail. Six scenes of 45 words come near 85 s. These figures are an
   estimate. The `timeline` stage line shows the real length.
 - Hook: scene 1 is a `title` scene. Its narration is one sentence of 12 words or fewer. The
   sentence says why the subject matters. The cue of the scene is the first words of that
@@ -86,7 +87,7 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
 - Captions: a caption shows 1 to 3 words of the narration at a time. A caption holds at most 20
   characters, so that it fits on one line. A code name that is longer than 20 characters shows
   alone, in smaller type. The word that the voice speaks is yellow. Backticks do not show in a
-  caption.
+  caption. A caption keeps the punctuation of the narration.
 - Code: the range has at most 14 lines, and each line has at most 40 columns. A tab counts as 4
   columns. This command prints the number of each line that is too long:
   `awk '{ gsub(/\t/, "    "); if (length($0) > 40) print NR }' <file>`. If no range of 14 short
@@ -110,7 +111,8 @@ tests only.
   shorter clip starts at 0 and repeats. Set `EXPLAIN_BRAINROT_SEED` to an integer to fix the
   choice of the clip and its start.
 - If the folder does not exist, or it is empty, or it has no good clip, the background is the
-  generated runner loop. The runner is a block character that hops between three lanes. This case is not
+  generated runner loop. A cyan block runs on a three-lane road. Red blocks come
+  toward it. It changes lane to pass them, and no red block covers it. This case is not
   an error. The stage line is `background: ok generated`.
 - To force the generated loop, set `EXPLAIN_BRAINROT_BACKGROUNDS` to an empty folder. Do not set
   it to `<ws>/bg-stage` or `<ws>/app/public`, or to a folder in them. Each render rewrites
@@ -134,7 +136,7 @@ The command prints one line for each stage, in this order. It stops at the first
 |---|---|
 | `script: ok (<n> scenes)` | The script passed all checks with the brainrot limits, and the draft transcript passed `verify.sh`. |
 | `workspace: ok <ws>` | The Remotion workspace is ready. |
-| `narration (<engine>): ok[ (fallback: <cause>)]` | Each scene has a WAV file and a `words.json` file. The voice speaks at speed 1.2. |
+| `narration (<engine>): ok[ (fallback: <cause>)]` | Each scene has a WAV file and a `words.json` file. The voice speaks at speed 1.2. The first lines of `audio/<id>.<engine>.txt` show the engine, the voice and the speed. |
 | `timeline (<n> scenes, <s> s): ok` | `build/timeline.json` exists with the captions. Each scene is 30 s or less, and the short is 90 s or less. |
 | `background: ok <name> @<start> s[ (loop)]` or `background: ok generated` | The background is in `build/timeline.json`. `(loop)` shows that the clip repeats. |
 | `render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok` | Remotion wrote `video.mp4`. The log is `build/render.log`. |
@@ -168,6 +170,7 @@ ten lines show `ok` and the stills are clean.
 2. Run `open video.mp4` only when you run for the user directly. Never run `open` inside a
    subagent (`SKILL.md` convention 6).
 3. Tell the user the narrator: Kokoro `af_heart` at speed 1.2, `say`, or `say` after a fallback.
+   Read the engine and the speed in the first lines of `audio/<id>.<engine>.txt`.
 4. Tell the user the background, from the `background` stage line: a clip name or `generated`.
 
 ## 7. Output directory
