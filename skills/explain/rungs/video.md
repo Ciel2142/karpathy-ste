@@ -367,7 +367,7 @@ A `FAIL` line names the cause. The output of the tool follows it, indented.
 | `timeline (<n> scenes, <s> s): ok` | The run wrote `build/timeline.json`, with the marks of each scene and the check frames. Each scene and the film are within the limits of section 3. |
 | `guard (<n> frames): ok` | The guard rendered the film at its `<n>` check frames only, into `build/guard.mp4`. At each frame, no text is off the canvas, too small, or on another text. The log is `build/guard.log`. This stage comes before the render, so a fault costs no full render. |
 | `render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok` | Remotion wrote `video.mp4`. The log is `build/render.log`. |
-| `container: ok (<s> s)` | The mp4 has one H.264 video stream and one AAC audio stream. Its length is within 0.2 s of the timeline. |
+| `container: ok (<s> s)` | The mp4 has one H.264 video stream and one AAC audio stream. Its frame size is the canvas size of section 3. Its length is within 0.2 s of the timeline. |
 | `sync: ok` | In each scene, the speech starts within 0.25 s of the lead end and stops more than 0.3 s before the scene end. |
 | `stills (<n>): ok <review-dir>` | The stills are in `review/`, one for each check frame. |
 | `transcript: ok` | The final `index.html` has the narrator and passed `verify.sh`. Do not run `verify.sh` again. |

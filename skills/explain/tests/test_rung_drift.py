@@ -92,23 +92,27 @@ WS = "/Users/me/karpathy/video-workspace"
 
 # The samples come from the header of render.sh or of the tool, or from an assertion of a test, with each
 # placeholder filled in. Each evidence is the longest piece of printed text of its statement with no
-# interpolation and no quote mark, plus the piece that names the stage when the longest one does not.
+# interpolation and no quote mark, plus the piece that names the stage when the longest one does not, plus
+# a piece of its tail when one is on exactly one code line (the ok lines, and " (log " of the two lines of a
+# remotion exit, which is on two code lines, so it ties only a change to both).
 PRINTED = (
-    Printed("script: ok (<n> scenes)", "script: ok (8 scenes)", ((RENDER, "script: ok ("),)),
+    Printed("script: ok (<n> scenes)", "script: ok (8 scenes)", ((RENDER, "script: ok ("), (RENDER, " scenes)"))),
     Printed("workspace: ok <ws>", "workspace: ok " + WS, ((RENDER, "workspace: ok "),)),
-    Printed("scene: ok (<n> files)", "scene: ok (2 files)", ((RENDER, "scene: ok ("),)),
+    Printed("scene: ok (<n> files)", "scene: ok (2 files)", ((RENDER, "scene: ok ("), (RENDER, " files)"))),
     Printed("narration (<engine>): ok[ (fallback: <cause>)]", "narration (say): ok (fallback: uv not found)",
             ((RENDER, "): ok (fallback: "), (RENDER, "narration ("))),
     Printed("narration (say): ok (fallback: <cause>)", "narration (say): ok (fallback: uv not found)",
             ((RENDER, "): ok (fallback: "), (RENDER, "narration ("))),
-    Printed("timeline (<n> scenes, <s> s): ok", "timeline (8 scenes, 49.0 s): ok", ((RENDER, "timeline ("),)),
+    Printed("timeline (<n> scenes, <s> s): ok", "timeline (8 scenes, 49.0 s): ok",
+            ((RENDER, "timeline ("), (RENDER, " scenes, "), (RENDER, " s): ok"))),
     Printed("guard (<n> frames): ok", "guard (3 frames): ok", ((RENDER, " frames): ok"), (RENDER, "guard ("))),
     Printed("render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok",
             "render (61.2 s, 1.25 render-min/video-min): ok",
             ((RENDER, " render-min/video-min)"), (RENDER, "render ("))),
     Printed("container: ok (<s> s)", "container: ok (49.0 s)", ((CHECK_RENDER, "container: ok ("),)),
     Printed("sync: ok", "sync: ok", ((CHECK_RENDER, "sync: ok"),)),
-    Printed("stills (<n>): ok <review-dir>", "stills (24): ok %s/review" % OUT, ((CHECK_RENDER, "stills ("),)),
+    Printed("stills (<n>): ok <review-dir>", "stills (24): ok %s/review" % OUT,
+            ((CHECK_RENDER, "stills ("), (CHECK_RENDER, "): ok "))),
     Printed("transcript: ok", "transcript: ok", ((RENDER, "transcript: ok"),)),
     Printed("narration: FALLBACK say (<cause>)", "narration: FALLBACK say (uv not found)",
             (("scripts/narrate.sh", "narration: FALLBACK say ("),)),
@@ -167,17 +171,17 @@ PRINTED = (
             ((RENDER, "guard: FAIL mark: scene "), (MARKS_TS, " is not in the narration"))),
     Printed("guard: FAIL remotion render exit <n> (log <path>)",
             "guard: FAIL remotion render exit 3 (log %s/build/guard.log)" % OUT,
-            ((RENDER, "guard: FAIL remotion render exit "),)),
+            ((RENDER, "guard: FAIL remotion render exit "), (RENDER, " (log "))),
     Printed("guard: FAIL cannot read <out>/build/timeline.json",
             "guard: FAIL cannot read %s/build/timeline.json" % OUT, ((RENDER, "guard: FAIL cannot read "),)),
     Printed("guard: FAIL cannot copy <out>/<clip>", "guard: FAIL cannot copy %s/audio/a.say.wav" % OUT,
             ((RENDER, "copy_clips guard"), (RENDER, ": FAIL cannot copy "))),
     Printed("render: FAIL remotion render exit <n> (log <path>)",
             "render: FAIL remotion render exit 3 (log %s/build/render.log)" % OUT,
-            ((RENDER, "render: FAIL remotion render exit "),)),
+            ((RENDER, "render: FAIL remotion render exit "), (RENDER, " (log "))),
     Printed("render: FAIL remotion render exit 1 (log <path>)",
             "render: FAIL remotion render exit 1 (log %s/build/render.log)" % OUT,
-            ((RENDER, "render: FAIL remotion render exit "),)),
+            ((RENDER, "render: FAIL remotion render exit "), (RENDER, " (log "))),
 )
 
 REQUIRED = (
@@ -673,12 +677,13 @@ class BrainrotRungCase(unittest.TestCase):
         titles = [title for _, title in headings(read(VIDEO_MD))]
         self.assertEqual([title for title in SHARED_TITLES if titles.count(title) != 1], [])
 
-    # red: the speed 1.0 or the canvas in "Pinned versions and environment", or a film limit in another shared
-    # section
+    # red: the speed 1.0 or the canvas in "Pinned versions and environment", a film limit in another shared
+    # section, or a shared section with no text
     def test_the_shared_sections_hold_no_film_value(self):
         for title in SHARED_TITLES:
             body = section(read(VIDEO_MD), title)
             with self.subTest(title=title):
+                self.assertTrue(body.strip(), "the section is empty")
                 self.assertEqual([value for value in FILM_VALUES if value in body], [])
 
     # red: the components table left with neither rung, a rule left out of brainrot.md, or the word explainer

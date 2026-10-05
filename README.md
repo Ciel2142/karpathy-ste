@@ -8,9 +8,9 @@ into `~/.claude/skills/`:
   or HTML prose against the deterministic rules.
 - **`/explain <subject> [--as ste|sheet|page|video|brainrot]`** — explain a file, a directory,
   `this` (the last thing in the conversation) or a topic, in the smallest form that fits:
-  chat text, a one-page sheet (HTML + PNG), an interactive single-file page, or a narrated
-  film (`--as video`: one continuous picture, written for the subject and timed to the
-  narration, with a cited transcript; `--as brainrot`: a vertical 1080×1920 short with a
+  chat text, a one-page sheet (HTML + PNG), an interactive single-file page, a narrated film
+  (`--as video`: one continuous picture, written for the subject and timed to the narration,
+  with a cited transcript), or a vertical 1080×1920 brainrot short (`--as brainrot`: a
   looping background and word-by-word captions). Every artifact is grounded: each claim carries a
   `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails the build when
   a cite does not match the file, the page does not render, or the prose breaks the STE
