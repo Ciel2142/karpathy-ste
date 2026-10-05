@@ -57,10 +57,12 @@ Follow section 2 of `video.md`, with these changes.
 | narration words per scene | 45 | 45 |
 | lead / tail frames | 15 / 36 | 6 / 12 |
 | code range | 14 lines × 72 columns | 14 lines × 40 columns |
-| `bullets-appear` text | 36 chars | 28 chars |
-| `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 30 chars; heading 30 |
-| diagram `label` / `sub` | 14 / 24 | 12 / 20 |
+| `bullets-appear` text | 36 chars | 40 chars |
+| `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 48 chars; heading 45 |
+| diagram `label` / `sub` | 14 / 24 | 12 / 19 |
+| diagram edge `label` | 10 | 10; no label on an edge in a row |
 | `title` title / subtitle | 50 / 80 | 30 / 60 |
+| scene heading | — | 29 chars |
 | caption chunk | — | 1–3 words, 20 chars |
 
 A limit failure names the format. For example: `line 7 is 52 columns (max 40, brainrot)`.
@@ -74,6 +76,11 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
   each limit in the table.
 - Before and after: the component stacks its two panels. The `before` panel is above the `after`
   panel.
+- Scene heading: the heading is the `title` prop of a `bullets-appear`, diagram, code or
+  `before-after` scene. It shows on one line, so it has at most 29 characters.
+- Diagram edges: two nodes in the same row have only 48 px between them. A label on an edge
+  between them is behind the nodes. Put each labelled edge between two rows, for example from
+  `b1` to `b2`. The `script` stage fails a label on an edge in a row.
 - Cues: the cue rule of `video.md` applies. In a brainrot short, the cue frame is the exact
   start of its sentence, not an estimate.
 - Captions: a caption shows 1 to 3 words of the narration at a time. A caption holds at most 20

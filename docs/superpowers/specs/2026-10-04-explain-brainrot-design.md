@@ -94,15 +94,15 @@ explainer column is today's values.
 | narration words per scene | 45 | 45 |
 | lead / tail frames | 15 / 36 | 6 / 12 |
 | code range | 14 lines × 72 columns | 14 lines × 40 columns |
-| `bullets-appear` text | 36 chars | 28 chars |
-| `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 30 chars; heading 30 |
-| diagram `label` / `sub` | 14 / 24 | 12 / 20 |
+| `bullets-appear` text | 36 chars | 40 chars |
+| `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 48 chars; heading 45 |
+| diagram `label` / `sub` | 14 / 24 | 12 / 19 |
+| diagram edge `label` | 10 | 10; no label on an edge in a row |
 | `title` title / subtitle | 50 / 80 | 30 / 60 |
+| scene heading | — | 29 chars |
 | caption chunk | — | 1–3 words, 20 chars |
 
-The brainrot values are starting values. The live run (section 7.5) tunes them against the
-stills and writes the final values into this table, `build-timeline.mjs` and
-`rungs/brainrot.md`.
+(Tuned 2026-10-05 in the live run; evidence in `docs/superpowers/spikes/2026-10-05-explain-brainrot-live-run.md`.)
 
 A limit failure names the format: `line 7 is 52 columns (max 40, brainrot)`.
 
@@ -272,14 +272,17 @@ The tests follow the `unittest` layout in `skills/explain/tests/`. Renders stay 
 
 - A script without `format` validates and builds as today; the existing cases pass unchanged.
 - Each brainrot limit of section 3.4 at its boundary: one case at the limit passes, one just
-  over fails with the format named (7 scenes, a 41-column line, a 29-char bullet, a 31 s scene,
-  a 91 s total, a 31-char `before-after` line, a 6-line `before-after` panel, a 13-char diagram
-  label, a 21-char diagram sub, a 31-char title, a 61-char subtitle).
+  over fails with the format named (7 scenes, a 41-column line, a 41-char bullet, a 31 s scene,
+  a 91 s total, a 49-char `before-after` line, a 46-char `before-after` heading, a 6-line
+  `before-after` panel, a 13-char diagram label, a 20-char diagram sub, a 31-char title, a 61-char
+  subtitle, a 30-char scene heading, a label on an edge in a row). (Amended 2026-10-05 with the
+  tuned values of §3.4.)
 - An unknown `format` fails.
 - A brainrot timeline has lead 6 and tail 12 frames.
 - A brainrot cue frame equals `lead + round(sentence.from × fps)` from `words.json`.
-- Caption chunks: at most 3 words, a break after punctuation, no gap, no overlap, every
-  narration word once and in order, no backticks.
+- Caption chunks: at most 3 words and at most the character cap of §3.4 (a longer word is a
+  chunk alone), a break after punctuation, no gap, no overlap, every narration word once and in
+  order, no backticks.
 
 ### 7.2 Narration (`test_narrate.py`, `say` engine or a stub engine)
 

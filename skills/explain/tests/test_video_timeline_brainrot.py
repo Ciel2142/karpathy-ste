@@ -145,55 +145,55 @@ class TestBrainrotCheck(VideoCase):
             "FAIL script: 9 scenes (needs 3 to 8)",
         )
 
-    def test_brainrot_bullet_28_chars_passes(self):
-        """Red: the brainrot bulletText limit below 28."""
+    def test_brainrot_bullet_40_chars_passes(self):
+        """Red: the brainrot bulletText limit below 40."""
         script = brainrot_script()
-        self.scene(script, "intro")["props"]["bullets"][1]["text"] = "x" * 28
+        self.scene(script, "intro")["props"]["bullets"][1]["text"] = "x" * 40
         result = self.check(script)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
-    def test_brainrot_bullet_29_chars_fails(self):
-        """Red: the bullet shape still reads the explainer 36 (or drops the tag)."""
+    def test_brainrot_bullet_41_chars_fails(self):
+        """Red: the bullet shape reads another limit than brainrot's 40 (or drops the tag)."""
         script = brainrot_script()
-        self.scene(script, "intro")["props"]["bullets"][1]["text"] = "x" * 29
+        self.scene(script, "intro")["props"]["bullets"][1]["text"] = "x" * 41
         self.assertFails(
-            self.check(script), "FAIL scene intro: bullets[1].text is 29 chars (max 28, brainrot)"
+            self.check(script), "FAIL scene intro: bullets[1].text is 41 chars (max 40, brainrot)"
         )
 
     def test_brainrot_before_after_limits(self):
-        """Red: a before-after limit (5 lines, 30 chars, 30-char heading) below brainrot's."""
+        """Red: a before-after limit (5 lines, 48 chars, 45-char heading) below brainrot's."""
         script = brainrot_script()
-        side = {"heading": "h" * 30, "lines": ["x" * 30] * 5}
+        side = {"heading": "h" * 45, "lines": ["x" * 48] * 5}
         self.set_intro(script, "before-after", {"title": "Compare", "before": side, "after": side, "cue": "The router"})
         result = self.check(script)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_brainrot_before_after_over_limits(self):
-        """Red: one of the three before-after limits (either side) still reads the explainer 36 or 10."""
+        """Red: one of the three before-after limits (either side) reads another limit than brainrot's."""
         script = brainrot_script()
-        before = {"heading": "h" * 31, "lines": ["short"] * 6}
-        after = {"heading": "h" * 31, "lines": ["x" * 31, "short"]}
+        before = {"heading": "h" * 46, "lines": ["short"] * 6}
+        after = {"heading": "h" * 46, "lines": ["x" * 49, "short"]}
         self.set_intro(script, "before-after", {"title": "Compare", "before": before, "after": after, "cue": "The router"})
         self.assertFails(
             self.check(script),
-            "FAIL scene intro: before.heading is 31 chars (max 30, brainrot)",
+            "FAIL scene intro: before.heading is 46 chars (max 45, brainrot)",
             "FAIL scene intro: before.lines has 6 items (needs 0 to 5, brainrot)",
-            "FAIL scene intro: after.heading is 31 chars (max 30, brainrot)",
-            "FAIL scene intro: after.lines[0] is 31 chars (max 30, brainrot)",
+            "FAIL scene intro: after.heading is 46 chars (max 45, brainrot)",
+            "FAIL scene intro: after.lines[0] is 49 chars (max 48, brainrot)",
         )
 
     def test_brainrot_diagram_label_sub_limits(self):
-        """Red: the diagram label or sub limit still reads the explainer 14 or 24."""
+        """Red: the diagram label or sub limit reads another limit than brainrot's 12 or 19."""
         script = brainrot_script()
         node = self.scene(script, "flow")["props"]["nodes"][1]
-        node["label"], node["sub"] = "l" * 12, "s" * 20
+        node["label"], node["sub"] = "l" * 12, "s" * 19
         result = self.check(script)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
-        node["label"], node["sub"] = "l" * 13, "s" * 21
+        node["label"], node["sub"] = "l" * 13, "s" * 20
         self.assertFails(
             self.check(script),
             "FAIL scene flow: nodes[1].label is 13 chars (max 12, brainrot)",
-            "FAIL scene flow: nodes[1].sub is 21 chars (max 20, brainrot)",
+            "FAIL scene flow: nodes[1].sub is 20 chars (max 19, brainrot)",
         )
 
     def test_brainrot_title_limits(self):
@@ -210,6 +210,81 @@ class TestBrainrotCheck(VideoCase):
             "FAIL scene intro: subtitle is 61 chars (max 60, brainrot)",
         )
 
+    def test_brainrot_scene_heading_limits(self):
+        """Red: the heading (`title` prop) of a before-after, diagram or code scene has no brainrot
+        limit, or the limit is not 29, or its line loses the tag."""
+        script = brainrot_script()
+        for scene_id in ("flow", "code"):
+            self.scene(script, scene_id)["props"]["title"] = "h" * 29
+        side = {"heading": "Before", "lines": []}
+        self.set_intro(script, "before-after", {"title": "h" * 29, "before": side, "after": side, "cue": "The router"})
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        for scene_id in ("intro", "flow", "code"):
+            self.scene(script, scene_id)["props"]["title"] = "h" * 30
+        self.assertFails(
+            self.check(script),
+            "FAIL scene intro: title is 30 chars (max 29, brainrot)",
+            "FAIL scene flow: title is 30 chars (max 29, brainrot)",
+            "FAIL scene code: title is 30 chars (max 29, brainrot)",
+        )
+
+    def test_brainrot_bullets_scene_heading_limit(self):
+        """Red: the bullets-appear heading keeps no limit in brainrot."""
+        script = brainrot_script()
+        self.scene(script, "intro")["props"]["title"] = "h" * 29
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.scene(script, "intro")["props"]["title"] = "h" * 30
+        self.assertFails(self.check(script), "FAIL scene intro: title is 30 chars (max 29, brainrot)")
+
+    def test_explainer_scene_heading_has_no_limit(self):
+        """Red: the brainrot heading limit reaches the explainer (its row has sceneTitle null)."""
+        script = base_script()
+        for scene_id in ("intro", "flow", "code"):
+            self.scene(script, scene_id)["props"]["title"] = "h" * 200
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_brainrot_edge_label_between_rows_passes(self):
+        """Red: the same-row rule also takes the label of an edge between two rows, or the
+        between-row label limit below 10."""
+        script = brainrot_script()
+        self.set_cells(script, req="a1", router="a2", handler="b2")
+        edges = self.scene(script, "flow")["props"]["edges"]
+        edges[0]["label"] = "e" * 10  # a1 -> a2: a column, two rows
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_brainrot_edge_label_on_a_same_row_edge_fails(self):
+        """Red: the brainrot validator lets a label stand on an edge between two cells of one row
+        (the label hides behind the two nodes), or the line does not name the edge and the format."""
+        script = brainrot_script()
+        self.set_cells(script, req="a1", router="b1", handler="b2")
+        self.scene(script, "flow")["props"]["edges"][0]["label"] = "in"
+        self.assertFails(
+            self.check(script),
+            "FAIL scene flow: edges[0] req-router has a label on a same-row edge (a1-b1, brainrot)",
+        )
+
+    def test_brainrot_same_row_edge_without_label_passes(self):
+        """Red: the same-row rule fails an edge that has no label, or an empty label (nothing is drawn)."""
+        script = brainrot_script()
+        self.set_cells(script, req="a1", router="b1", handler="c1")
+        edges = self.scene(script, "flow")["props"]["edges"]
+        del edges[0]["label"]
+        edges[1]["label"] = ""
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_explainer_same_row_edge_label_passes(self):
+        """Red: the same-row rule reaches the explainer (its row has no such rule)."""
+        script = base_script()
+        self.set_cells(script, req="a1", router="b1", handler="b2")
+        self.scene(script, "flow")["props"]["edges"][0]["label"] = "e" * 10
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
     def test_explainer_limits_unchanged_under_explicit_format(self):
         """Red: the explainer shapes are built from the brainrot row or carry the tag."""
         script = base_script()
@@ -222,6 +297,11 @@ class TestBrainrotCheck(VideoCase):
         """Turn scene `intro` into another component; its narration and cites stay."""
         scene = self.scene(script, "intro")
         scene["component"], scene["props"] = component, props
+
+    def set_cells(self, script, **cells):
+        """Move the nodes of scene `flow` to the given cells, by node id."""
+        for node in self.scene(script, "flow")["props"]["nodes"]:
+            node["cell"] = cells.get(node["id"], node["cell"])
 
     def scenes_of(self, script, count):
         """`count` scenes: the three fixture scenes, then renamed copies of the first."""

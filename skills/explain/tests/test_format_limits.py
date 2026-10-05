@@ -40,7 +40,11 @@ CELL_TEMPLATES = [
         "stacked; 0–{beforeAfterLines} lines × {beforeAfterLineChars} chars; heading {beforeAfterHeading}",
     ),
     ("diagram `label` / `sub`", "{diagramLabel} / {diagramSub}", "{diagramLabel} / {diagramSub}"),
+    # The edge label limit (10) is fixed in build-timeline.mjs for both formats; the brainrot
+    # clause follows sameRowEdgeLabel (test_rung_edge_label_row_follows_same_row_rule).
+    ("diagram edge `label`", "10", "10; no label on an edge in a row"),
     ("`title` title / subtitle", "{titleTitle} / {titleSubtitle}", "{titleTitle} / {titleSubtitle}"),
+    ("scene heading", "—", "{sceneTitle} chars"),
     ("caption chunk", "—", "1–3 words, {captionChars} chars"),
 ]
 
@@ -114,6 +118,19 @@ class TestRungMatchesFormats(unittest.TestCase):
         cap = load_formats()["brainrot"]["captionChars"]
         sentence = "caption holds at most %d characters" % cap
         self.assertIn(sentence, " ".join(rung_text().split()))
+
+    def test_rung_heading_sentence_matches(self):
+        """Red: the Scene heading bullet of the rung holds another limit than formats.json."""
+        cap = load_formats()["brainrot"]["sceneTitle"]
+        self.assertIn("so it has at most %d characters" % cap, " ".join(rung_text().split()))
+
+    def test_rung_edge_label_row_follows_same_row_rule(self):
+        """Red: formats.json lets a brainrot edge in a row carry a label again (sameRowEdgeLabel no
+        longer false) while the rung still forbids it, or the explainer row gains the rule."""
+        formats = load_formats()
+        self.assertIs(formats["brainrot"]["sameRowEdgeLabel"], False)
+        self.assertIsNone(formats["explainer"]["sameRowEdgeLabel"])
+        self.assertEqual(rung_limits_table()["diagram edge `label`"], ("10", "10; no label on an edge in a row"))
 
     def test_fill_refuses_a_null_field(self):
         """Red: `fill` turns a null that a template names into the text "None" (the rung table
