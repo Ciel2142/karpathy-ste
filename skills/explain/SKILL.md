@@ -125,8 +125,9 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
 
 1. Read `<skill-dir>/../ste/SKILL.md` by path. Write all prose under that profile.
 2. Read `<skill-dir>/rungs/<rung>.md` of the chosen rung only, and each section
-   that it names. For a video or a brainrot short, the rung file replaces steps 3 to 6 (write
-   `script.json`, run `render.sh`, read the stills).
+   that it names. For a video, the rung file replaces steps 3 to 6. Write `script.json` and
+   the scene directory `scene/`, run `render.sh`, read the stills. For a brainrot short, the
+   rung file replaces them too. Write `script.json`, run `render.sh`, read the stills.
 3. Write `index.html` in the output directory.
 4. Run `<skill-dir>/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
 5. Run `<skill-dir>/scripts/snapshot.sh` as the rung file shows. Read the
@@ -140,7 +141,8 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
 - `<skill-dir>/rungs/sheet.md`: the sheet rung (canvas, panels, template, snapshot arguments).
 - `<skill-dir>/rungs/page.md`: the page rung (sections, steps player, diagrams, template,
   snapshot arguments).
-- `<skill-dir>/rungs/video.md`: the video rung (script, components, cue rule, render
-  pipeline, pinned versions).
-- `<skill-dir>/rungs/brainrot.md`: the brainrot rung (the sections of `video.md` to read, the
-  format key, the limits, the background folder, the extra checks of the stills).
+- `<skill-dir>/rungs/video.md`: the video rung (the grammar of a film, the script, the scene
+  and its kit, the marks, the render pipeline, the stills, the pinned versions).
+- `<skill-dir>/rungs/brainrot.md`: the brainrot rung (its script, components and cue rule, the
+  limits, the background folder, the checks of the stills, and the sections of `video.md` that
+  it shares).

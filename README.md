@@ -9,8 +9,9 @@ into `~/.claude/skills/`:
 - **`/explain <subject> [--as ste|sheet|page|video|brainrot]`** — explain a file, a directory,
   `this` (the last thing in the conversation) or a topic, in the smallest form that fits:
   chat text, a one-page sheet (HTML + PNG), an interactive single-file page, or a narrated
-  mp4 with a cited transcript (`--as brainrot`: a vertical 1080×1920 short with a looping
-  background and word-by-word captions). Every artifact is grounded: each claim carries a
+  film (`--as video`: one continuous picture, written for the subject and timed to the
+  narration, with a cited transcript; `--as brainrot`: a vertical 1080×1920 short with a
+  looping background and word-by-word captions). Every artifact is grounded: each claim carries a
   `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails the build when
   a cite does not match the file, the page does not render, or the prose breaks the STE
   profile.
@@ -60,7 +61,8 @@ check the licence again beyond that.
 skills/ste/        SKILL.md, scripts/ste_lint.py, tests/
 skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot}.md,
                    templates/, scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
-                   scripts/cite_check.py, video/ (Remotion app + pipeline), tests/
+                   scripts/cite_check.py, video/ (Remotion app + pipeline; video/src/kit/ is
+                   the film kit, video/src/film/ the worked example), tests/
 docs/superpowers/  the spec, wave map, plans and live-run notes behind the skills
 ```
 
@@ -71,6 +73,5 @@ cd skills/ste     && python3 -B -m unittest discover -s tests
 cd skills/explain && python3 -B -m unittest discover -s tests
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render tests.test_check_render  # renders once, needs the workspace
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_brainrot  # two brainrot renders (generated loop, fixture clip), needs the workspace
-tests/capture_landscape_baseline.sh main  # once, from the pre-refactor commit; needs the workspace
-EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_landscape_regression  # renders the full template, compares stills with that baseline
+EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film  # renders the worked film and its planted faults, needs the workspace
 ```

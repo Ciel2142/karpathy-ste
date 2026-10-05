@@ -28,7 +28,10 @@ Each test names the mutation that turns it red.
 BrainrotRungCase ties brainrot.md to video.md by title: each block of brainrot.md that names video.md (a
 pointer block) holds a title of one of the five shared sections (SHARED_TITLES) in double quotes, and no
 other title of video.md and no section number; each shared title is one heading of video.md, and its
-section holds no film value; brainrot.md holds its own rules, among them the components table."""
+section holds no film value; brainrot.md holds its own rules, among them the components table.
+
+SkillMdCase ties SKILL.md to the rungs: step 2 of its Build procedure names the scene directory, and its
+bullets under Rung files describe the film in video.md and the components in brainrot.md."""
 
 import ast
 import json
@@ -686,6 +689,38 @@ class BrainrotRungCase(unittest.TestCase):
         components = section(self.text, "Components")
         self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
         self.assertFalse("explainer" in self.text.lower(), "brainrot.md holds the word explainer")
+
+
+class SkillMdCase(unittest.TestCase):
+    def bullets(self):
+        """The bullets of section "Rung files" of SKILL.md: each is its "- " line and the indented lines below
+        it, joined by a space. The key is the first backtick span of the bullet."""
+        found, current = {}, None
+        for line in section(read(SKILL_MD), "Rung files").split("\n"):
+            if line.startswith("- "):
+                current = re.search(r"`([^`]+)`", line).group(1)
+                found[current] = line
+            elif current and line.startswith(" "):
+                found[current] += " " + line.strip()
+            else:
+                current = None
+        return found
+
+    # red: step 2 of the Build procedure still lists the steps of a sheet or page for a video (no "scene/"), the
+    # bullet of rungs/video.md names the components or the cue rule again (they moved to brainrot.md), the
+    # bullet of rungs/video.md leaves out the scene, or the bullet of rungs/brainrot.md leaves out the components
+    def test_skill_md_describes_the_film_rung(self):
+        body = section(read(SKILL_MD), "Build procedure").split("\n")
+        start = next(i for i, line in enumerate(body) if line.startswith("2. "))
+        end = next(i for i, line in enumerate(body) if line.startswith("3. "))
+        self.assertIn("scene/", "\n".join(body[start:end]))
+        bullets = self.bullets()
+        video = bullets["<skill-dir>/rungs/video.md"]
+        brainrot = bullets["<skill-dir>/rungs/brainrot.md"]
+        self.assertIn("scene", video)
+        self.assertNotIn("components", video)
+        self.assertNotIn("cue rule", video)
+        self.assertIn("components", brainrot)
 
 
 if __name__ == "__main__":
