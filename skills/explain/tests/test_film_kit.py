@@ -693,17 +693,25 @@ class TestMono(EvaluatesJs):
         ])
 
 
+class RendersKit(unittest.TestCase):
+    """Base of the classes that render kit components to static markup. A class sets IMPORTS, the first
+    lines of the entry (the kit imports and whatever its cases share), and passes `render` the JSX of each
+    case."""
+
+    IMPORTS = ""
+
+    def render(self, **cases):
+        """render_cases with IMPORTS in scope: each keyword is a case name, its value JSX."""
+        return render_cases(self.IMPORTS, cases)
+
+
 @needs_kit_tools
-class TestKitDraws(unittest.TestCase):
+class TestKitDraws(RendersKit):
     """The text and stroke components, rendered to static markup (see render_cases)."""
 
     IMPORTS = 'import { Mono, Sans } from "../kit/text";\nimport { Draw, Mark } from "../kit/draw";\n'
     TEXT = "  ab\U0001F600"  # two leading spaces, then one code point outside the BMP
     BLUE = PALETTE["C"]["blue"]
-
-    def render(self, **cases):
-        """render_cases with the kit components in scope: each keyword is a case name, its value JSX."""
-        return render_cases(self.IMPORTS, cases)
 
     def test_mono_forces_the_advance(self):
         """Red: textLength counts UTF-16 units instead of code points (72, not 60: the smiley is
@@ -850,6 +858,251 @@ class TestKitDraws(unittest.TestCase):
         offsets = {name: [path.get("stroke-dashoffset") for path in group[0]] for name, group in got.items()}
         self.assertEqual(offsets, {"0.25": ["0.5"], "0.5": ["0"], "0.75": ["0", "0.5"], "1": ["0", "0"]})
         self.assertEqual([path.get("opacity") for path in got["1"][0]], ["0.4", "0.4"])
+
+
+@needs_kit_tools
+class TestCodeCard(RendersKit):
+    """The code card, rendered to static markup (see render_cases) over lines 47-54 of src/app.py. `card` is
+    100, 50, 600 wide at 20 px: its numbers end at x 164, its code starts at x 188 and fits 41 columns, its
+    height is 288, and line k has its baseline at y 86 + 32 * (k - 47). `big` is another card, so that a
+    value the code card hard-codes for `card` is seen."""
+
+    LINES = [
+        "def handle(request):",  # 47
+        "route = table[request.path]",  # 48: its characters 2 to 4 are "ute"
+        "    result = fetch_account(request.session, cache=CACHE_KEY)",  # 49: 60 characters, 41 fit
+        "",  # 50
+        "    return render(result)",  # 51: four leading spaces
+        "def render(result):",  # 52
+        '    note = "saved \U0001F600"',  # 53: a character outside the BMP
+        "# end",  # 54
+    ]
+    YELLOW = PALETTE["C"]["yellow"]
+    # The props of a band on a line that the source lacks (99 is past its end) and of a tint on one (46 is
+    # before its start).
+    BAND_99 = 'bands={[{ line: 99, color: "#fff", opacity: 1 }]}'
+    TINT_46 = 'tints={[{ line: 46, from: 0, to: 2, color: "#fff" }]}'
+    IMPORTS = (
+        'import { CodeCard } from "../kit/code";\n'
+        'import { sourceFromDisk } from "../kit/source";\n'
+        "const src = sourceFromDisk(%s);\n"
+        "const card = { x: 100, y: 50, width: 600, size: 20 };\n"
+        "const big = { x: 10, y: 0, width: 400, size: 30 };\n"
+    ) % json.dumps({"path": "src/app.py", "from": 47, "lines": LINES})
+
+    @staticmethod
+    def baseline(line):
+        """The y of source line `line` in `card`: 50 + 16 + 20 for line 47, then 32 for each line."""
+        return 86 + 32 * (line - 47)
+
+    @staticmethod
+    def content(text):
+        """Everything a <text> holds, its <tspan>s included, as one string."""
+        return "".join(text.itertext())
+
+    @staticmethod
+    def numbers(group):
+        """The line-number texts of a card (they end at their x)."""
+        return [text for text in group.iter("text") if text.get("text-anchor") == "end"]
+
+    @staticmethod
+    def codes(group):
+        """The texts of the code of a card, as a dict from the y of the line to the <text>."""
+        return {text.get("y"): text for text in group.iter("text") if text.get("text-anchor") == "start"}
+
+    @staticmethod
+    def card_of(props="", source="src", card="card"):
+        """The JSX of a CodeCard of the JS expressions `card` and `source`, with other `props` as source."""
+        return "<CodeCard card={%s} source={%s} %s />" % (card, source, props)
+
+    def cards(self, **extras):
+        """Render `card` and `src` as a CodeCard for each keyword; its value is the source of the other
+        props ("" for none). Returns a dict from the keyword to the outer <g> of that card."""
+        got = self.render(**{name: self.card_of(props) for name, props in extras.items()})
+        groups = {}
+        for name, children in got.items():
+            (group,) = children
+            self.assertEqual(group.tag, "g", name)
+            groups[name] = group
+        return groups
+
+    def refusals(self, **cases):
+        """The message each case throws when it renders (the JSX of a case, by name). A case that renders
+        gives "rendered", which no test expects."""
+        tries = "".join(
+            'try { show(%s, %s); out[%s] = "rendered"; } catch (e) { out[%s] = e.message; }\n'
+            % (json.dumps(name), jsx, json.dumps(name), json.dumps(name))
+            for name, jsx in cases.items()
+        )
+        return render_kit(self.IMPORTS + SHOW + tries + "print();\n")
+
+    def test_card_frame(self):
+        """Red: the height leaves out the padding or counts only the lines that have code (256, not
+        288); the fill is not C.panel, the stroke is not C.line or not 2 px wide, or the corners are
+        not 8 px round; or a rect other than the frame is drawn when there is no band."""
+        group = self.cards(plain="")["plain"]
+        rects = list(group.iter("rect"))
+        expected = {
+            "x": "100", "y": "50", "width": "600", "height": "288", "rx": "8",
+            "fill": PALETTE["C"]["panel"], "stroke": PALETTE["C"]["line"], "stroke-width": "2",
+        }
+        self.assertEqual(attrs(rects[0], expected), expected)
+        self.assertEqual(len(rects), 1)
+
+    def test_line_numbers_and_lines(self):
+        """Red: a number is not its line's own (they count from 1), is not right-aligned, is not at x
+        164 or is off the baseline of its line; a line of code is not at x 188 or is off its baseline,
+        drops its leading spaces (line 51), or a line is missing."""
+        group = self.cards(plain="")["plain"]
+        numbers = self.numbers(group)
+        self.assertEqual([self.content(text) for text in numbers], [str(k) for k in range(47, 55)])
+        for text, k in zip(numbers, range(47, 55)):
+            expected = {"x": "164", "y": str(self.baseline(k)), "text-anchor": "end"}
+            self.assertEqual(attrs(text, expected), expected, "number %d" % k)
+        codes = self.codes(group)
+        for k, line in enumerate(self.LINES, 47):
+            if line == "":
+                continue
+            text = codes[str(self.baseline(k))]
+            self.assertEqual(text.get("x"), "188", "line %d" % k)
+            self.assertEqual(self.content(text), line[:41], "line %d" % k)
+        self.assertTrue(self.content(codes[str(self.baseline(51))]).startswith("    "))
+
+    def test_lines_are_set_on_the_grid_like_mono(self):
+        """Red: a line of code or a number is not in MONO or not at the card's size (20), a line of
+        code is not in C.text or a number is not in C.muted, white-space:pre is dropped from the code
+        (its leading spaces would collapse), or a textLength is not 12 for each code point of the text
+        drawn: it counts UTF-16 units (line 53 gives 252, not 240) or the line before the cut (line 49
+        gives 720, not 492)."""
+        group = self.cards(plain="")["plain"]
+        for text in self.codes(group).values():
+            expected = {
+                "font-family": PALETTE["MONO"], "font-size": "20", "fill": PALETTE["C"]["text"],
+                "style": "white-space:pre", "textLength": str(12 * len(self.content(text))),
+            }
+            self.assertEqual(attrs(text, expected), expected, self.content(text))
+        for text in self.numbers(group):
+            expected = {
+                "font-family": PALETTE["MONO"], "font-size": "20", "fill": PALETTE["C"]["muted"],
+                "style": "white-space:pre", "textLength": "24",
+            }
+            self.assertEqual(attrs(text, expected), expected, self.content(text))
+
+    def test_a_long_line_is_cut_without_an_ellipsis(self):
+        """Red: a line of 60 characters is drawn whole (the card fits 41), is cut a column early or
+        late (40 or 42 characters), ends in an ellipsis (40 characters and "…"), or keeps the
+        textLength of the whole line (720, not 492)."""
+        long = self.LINES[2]
+        self.assertEqual(len(long), 60)
+        text = self.codes(self.cards(plain="")["plain"])[str(self.baseline(49))]
+        self.assertEqual(self.content(text), long[:41])
+        self.assertEqual(text.get("textLength"), "492")
+
+    def test_an_empty_line_draws_its_number_only(self):
+        """Red: an empty line draws a text of no characters (16 texts: the check for an empty line is
+        missing), or it draws no number (7 numbers, 14 texts)."""
+        group = self.cards(plain="")["plain"]
+        texts = list(group.iter("text"))
+        numbers, codes = self.numbers(group), self.codes(group)
+        self.assertEqual((len(texts), len(numbers), len(codes)), (15, 8, 7))
+        self.assertIn("50", [self.content(text) for text in numbers])
+        self.assertNotIn(str(self.baseline(50)), [text.get("y") for text in codes.values()])
+
+    def test_a_tint_is_a_tspan_inside_the_line(self):
+        """Red: a tint is a text of its own (16 texts), ends at its `to` inclusive (the tspan holds
+        "ute "), is drawn on every line (more than one tspan) or on another line than its own, its
+        tspan has not the tint's colour, or the tint draws its characters twice."""
+        group = self.cards(tinted='tints={[{ line: 48, from: 2, to: 5, color: "%s" }]}' % A)["tinted"]
+        self.assertEqual(len(list(group.iter("text"))), 15)
+        (tspan,) = list(group.iter("tspan"))
+        line = self.LINES[1]
+        text = self.codes(group)[str(self.baseline(48))]
+        self.assertEqual(list(text), [tspan])
+        self.assertEqual(tspan.get("fill"), A)
+        self.assertEqual((text.text, tspan.text, tspan.tail), (line[:2], line[2:5], line[5:]))
+        self.assertEqual(self.content(text), line)
+
+    def test_a_tint_past_the_cut_is_clipped(self):
+        """Red: the cut is wrong when a tint runs past it: it is 3 columns late (44 characters, and a
+        tspan of 6) or there is no cut (the whole line)."""
+        tint = 'tints={[{ line: 49, from: 38, to: 60, color: "%s" }]}' % A
+        text = self.codes(self.cards(tinted=tint)["tinted"])[str(self.baseline(49))]
+        long = self.LINES[2]
+        (tspan,) = list(text)
+        self.assertEqual((text.text, tspan.text, tspan.tail), (long[:38], long[38:41], None))
+        self.assertEqual(text.get("textLength"), "492")
+
+    def test_a_band_is_a_bar_behind_one_line(self):
+        """Red: the bands are drawn after the lines or before the frame (the first rect is a band); a
+        band is not at the card's x + 8 or not as wide as the card less 8 on each side (584), does not
+        start at its baseline - 20 or is not 32 high, has not its own colour, opacity or 4 px corners,
+        or only the first of several bands is drawn."""
+        bands = ('bands={[{ line: 48, color: "%s", opacity: 0.2 },'
+                 ' { line: 52, color: "%s", opacity: 0.4 }]}' % (self.YELLOW, B))
+        group = self.cards(banded=bands)["banded"]
+        order = [element.tag for element in group.iter() if element.tag in ("rect", "text")]
+        self.assertEqual(order, ["rect"] * 3 + ["text"] * 15)
+        frame, first, second = group.iter("rect")
+        self.assertEqual((frame.get("x"), frame.get("width")), ("100", "600"))
+        for band, y, color, opacity in ((first, "98", self.YELLOW, "0.2"), (second, "226", B, "0.4")):
+            expected = {"x": "108", "y": y, "width": "584", "height": "32", "rx": "4",
+                        "fill": color, "opacity": opacity}
+            self.assertEqual(attrs(band, expected), expected)
+
+    def test_card_opacity(self):
+        """Red: the outer g has no opacity, or always 1 (the opacity is not passed on), or a default
+        other than 1."""
+        got = self.cards(plain="", faint="opacity={0.5}")
+        self.assertEqual(got["faint"].get("opacity"), "0.5")
+        self.assertEqual(got["plain"].get("opacity"), "1")
+
+    def test_the_card_decides_every_position(self):
+        """Red: the frame, the numbers, the code, the band or the cut is placed with a value of `card`
+        written out (x 100, y 50, width 600, the height 288, size 20, 41 columns), so that `big` (x 10,
+        y 0, 400 wide, size 30: a frame 416 high, numbers ending at x 98, code at x 134, a cut at 14
+        columns) is drawn where `card` would be."""
+        band = 'bands={[{ line: 49, color: "%s", opacity: 0.2 }]}' % self.YELLOW
+        got = self.render(big=self.card_of(band, card="big"))
+        (group,) = got["big"]
+        frame, band = group.iter("rect")
+        expected = {"x": "10", "y": "0", "width": "400", "height": "416"}
+        self.assertEqual(attrs(frame, expected), expected)
+        expected = {"x": "18", "y": "112", "width": "384", "height": "48"}
+        self.assertEqual(attrs(band, expected), expected)
+        self.assertEqual({text.get("x") for text in self.numbers(group)}, {"98"})
+        text = self.codes(group)["142"]
+        self.assertEqual((text.get("x"), text.get("textLength")), ("134", "252"))
+        self.assertEqual(self.content(text), self.LINES[2][:14])
+
+    def test_a_source_not_from_disk_is_refused(self):
+        """Red: CodeCard draws a copy of a source (a spread, here), checks the source after the bands
+        and tints (a copy with a band on line 99 gives the message about the line), or throws a message
+        other than the one that names "sources" of script.json."""
+        got = self.refusals(
+            copy=self.card_of(source="{ ...src }"),
+            copy_and_band=self.card_of(self.BAND_99, source="{ ...src }"),
+        )
+        self.assertEqual(got, {"copy": NOT_FROM_DISK, "copy_and_band": NOT_FROM_DISK})
+
+    def test_a_band_or_tint_outside_the_source_is_refused(self):
+        """Red: only the bands are checked against the source (the tint on line 46 is drawn), or only
+        the tints (the band on line 99 is drawn), or a message differs from
+        `CodeCard: line <n> is outside <path>:<first>-<last>` by a word or a number."""
+        got = self.refusals(band=self.card_of(self.BAND_99), tint=self.card_of(self.TINT_46))
+        self.assertEqual(got, {
+            "band": "CodeCard: line 99 is outside src/app.py:47-54",
+            "tint": "CodeCard: line 46 is outside src/app.py:47-54",
+        })
+
+    def test_col_x_and_line_y_are_reexported(self):
+        """Red: code.tsx does not export colX or lineY (the bundle does not build), or exports others
+        than the functions of mono.ts (the values are those of `card`: 188 and 308, 86 and 310)."""
+        got = render_kit(
+            self.IMPORTS + 'import { colX, lineY } from "../kit/code";\n'
+            "console.log(JSON.stringify({ colX: [colX(card, 0), colX(card, 10)],"
+            " lineY: [lineY(card, src, 47), lineY(card, src, 54)] }));\n"
+        )
+        self.assertEqual(got, {"colX": [188, 308], "lineY": [86, 310]})
 
 
 @needs_kit_tools

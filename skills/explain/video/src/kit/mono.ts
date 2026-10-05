@@ -25,7 +25,7 @@ export type Span = { text: string; color?: string };
 const PADDING = 16;
 const GUTTER = 4; // columns for the line number
 const GAP = 2; // columns between the gutter and the code
-const ROW = 1.6; // the height of a row, as a fraction of the font size
+export const ROW = 1.6; // the height of a row, as a fraction of the font size
 // Added before a whole-column count is floored, so a card that fits k columns exactly does not
 // lose one to rounding error (size 18, width 140: 4 columns, but 3.9999999999999996 in floats).
 const SLACK = 1e-9;
