@@ -2,6 +2,7 @@
 // bullets stay.
 import { useCurrentFrame } from "remotion";
 import { Content, cueAt, ramp, SceneTitle } from "../layout";
+import { useBox } from "../sceneBox";
 import { theme } from "../theme";
 import type { BulletsProps, Cued } from "../types";
 
@@ -10,6 +11,7 @@ const SLIDE_PX = 24;
 
 export function BulletsAppear({ title, bullets, cueFrames }: Cued<BulletsProps>) {
   const frame = useCurrentFrame();
+  const box = useBox();
   return (
     <>
       <SceneTitle text={title} />
@@ -35,7 +37,7 @@ export function BulletsAppear({ title, bullets, cueFrames }: Cued<BulletsProps>)
                   background: theme.blue,
                 }}
               />
-              <div style={{ fontSize: 32, lineHeight: 1.3 }}>{bullet.text}</div>
+              <div style={{ fontSize: box.type.bullet, lineHeight: 1.3 }}>{bullet.text}</div>
             </div>
           );
         })}

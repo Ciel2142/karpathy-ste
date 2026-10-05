@@ -2,12 +2,15 @@
 # narrate.sh: one WAV per scene of a video script, Kokoro af_heart first, macOS say as the
 # labelled fallback (spec: video rung).
 #
-#   narrate.sh <script.json> <audio-dir> [--engine kokoro|say]     (default kokoro)
+#   narrate.sh <script.json> <audio-dir> [--engine kokoro|say] [--speed <d.d>]
+#   --engine  kokoro (default) or say
+#   --speed   one digit, a full stop, one digit, from 0.5 to 2.0 (default 1.0); both engines
+#             and the say fallback use it (say at 175 wpm times the speed, no -r at 1.0)
 #   env EXPLAIN_VIDEO_WORKSPACE   workspace root (default $HOME/karpathy/video-workspace)
 #
 #   exit 0  every scene has a WAV and <audio-dir>/durations.json is written
 #   exit 1  the say path failed too (a "narration: FAIL <cause>" line says why)
-#   exit 2  usage: missing argument, unknown --engine, no script file
+#   exit 2  usage: missing argument, unknown --engine, bad --speed, no script file
 #
 # stdout: one "narration: <id> <engine> <seconds> s (synthesized|reused)" line per scene.
 # When Kokoro cannot run, the first stdout line is
@@ -22,18 +25,24 @@
 set -eu
 
 usage() {
-    echo "usage: narrate.sh <script.json> <audio-dir> [--engine kokoro|say]" >&2
+    echo "usage: narrate.sh <script.json> <audio-dir> [--engine kokoro|say] [--speed <d.d>]" >&2
     exit 2
 }
 
 script=""
 audio=""
 engine="kokoro"
+speed="1.0"
 while [ $# -gt 0 ]; do
     case "$1" in
         --engine)
             [ $# -ge 2 ] || usage
             engine="$2"
+            shift 2
+            ;;
+        --speed)
+            [ $# -ge 2 ] || usage
+            speed="$2"
             shift 2
             ;;
         -*) usage ;;
@@ -51,6 +60,10 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$script" ] && [ -n "$audio" ] || usage
 case "$engine" in kokoro | say) ;; *) usage ;; esac
+# --speed: <digit>.<digit> from 0.5 to 2.0, checked on the two digits read as 5..20.
+case "$speed" in [0-9].[0-9]) ;; *) usage ;; esac
+tenths="${speed%.*}${speed#*.}"
+{ [ "$tenths" -ge 5 ] && [ "$tenths" -le 20 ]; } || usage
 if [ ! -f "$script" ]; then
     echo "narrate.sh: no such script: $script" >&2
     exit 2
@@ -71,9 +84,9 @@ run_say() {
     fi
     if [ $# -gt 0 ]; then
         echo "narration: FALLBACK say ($1)"
-        exec python3 "$narrate_py" --engine say --fallback "$1" "$script" "$audio"
+        exec python3 "$narrate_py" --engine say --fallback "$1" --speed "$speed" "$script" "$audio"
     fi
-    exec python3 "$narrate_py" --engine say "$script" "$audio"
+    exec python3 "$narrate_py" --engine say --speed "$speed" "$script" "$audio"
 }
 
 [ "$engine" = "say" ] && run_say
@@ -89,7 +102,7 @@ rc=0
 out=$(uv run --python 3.12 \
     --with kokoro-onnx==0.6.1 --with onnxruntime==1.30.0 --with soundfile==0.14.0 \
     --with numpy==2.5.3 --with espeakng-loader==0.2.4 \
-    python3 "$narrate_py" --engine kokoro --models "$models" "$script" "$audio" 2> "$err") || rc=$?
+    python3 "$narrate_py" --engine kokoro --models "$models" --speed "$speed" "$script" "$audio" 2> "$err") || rc=$?
 
 last=""
 while IFS= read -r line; do

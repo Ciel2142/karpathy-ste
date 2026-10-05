@@ -12,7 +12,7 @@ waves:
       The explain unit suites pass, and the gated landscape regression renders the full
       template script (all five components) with every still within the spec §7.4
       threshold of the stills captured on `main` before the refactor.
-    status: pending
+    status: done   # 2026-10-04, commits 80ff4c9..6f689af + fix 2101274/fbcea9e; regression 0 px on 17 stills
     depends_on: []
     owns:
       - skills/explain/video/src/layout.tsx
@@ -39,7 +39,7 @@ waves:
     done_when: >-
       `test_narrate.py` passes, including the splitter, words.json and speed-cache cases
       of spec §7.2, with the existing narration cases unchanged.
-    status: pending
+    status: done   # 2026-10-04, commits c2c3cd9..fe61abe; real Kokoro smoke ok
     depends_on: []
     owns:
       - skills/explain/video/narrate.py
@@ -61,7 +61,7 @@ waves:
       cases; every pre-existing case passes unchanged except the expected top-level key
       list of `test_timeline_top_level_shape` (gains `format`, `maxSceneSeconds`,
       `maxTotalSeconds`).
-    status: pending
+    status: done   # 2026-10-04, commits 1c850c6..1608171 + fix 10bde68/c723675
     depends_on: []
     owns:
       - skills/explain/video/build-timeline.mjs
@@ -83,11 +83,19 @@ waves:
       place of its MAX_SCENE_S / MAX_TOTAL_S constants, and tests the 30/31 s and 90/91 s
       boundaries; `Short` wraps each scene in a positioned container of the panel size,
       because `Title` uses AbsoluteFill (scenebox plan, placement contract).
+      Carried from the wave-1 final review (feat/explain-brainrot at fbcea9e): the
+      renderer tolerates zero-length caption chunks (from == to); a portrait-size unit
+      test of cellCentre/segment; CodeHighlights MAX_LINES (14) must follow
+      FORMATS.codeLines; size type.code so 40 columns plus the line-number gutter fit the
+      984 px content width (rows clip with overflow hidden); watch sync tail headroom
+      (brainrot tail 12 frames = 0.4 s vs verify_sync MIN_TAIL 0.3 s); split
+      tests/test_narrate.py (904 lines) before it grows; optional: make --check
+      atSentenceStart backtick-aware for brainrot so a code-span cue fails at --check.
     done_when: >-
       All explain unit suites pass; the gated E2E renders the brainrot template once with
       the generated loop and once with the fixture clip, each with ten `ok` stage lines
       and 1080x1920 in `container`; the explainer E2E still prints its nine `ok` lines.
-    status: pending
+    status: done   # 2026-10-05, commits b89d401..df7d7de + final fix 5ee8da6..37f8ec6; brainrot E2E ten lines x2, landscape 0 px
     depends_on: [scenebox, sentence-narration, brainrot-timeline]
     owns:
       - skills/explain/video/src/Explain.tsx (format switch)
@@ -116,15 +124,24 @@ waves:
       A real subject from this repo renders as `brainrot`; the limits of spec §3.4 are
       tuned against its stills and folded back; the user accepts the video on a phone.
     done_when: >-
-      `docs/superpowers/spikes/2026-10-xx-explain-brainrot-live-run.md` records the run,
+      `docs/superpowers/spikes/2026-10-05-explain-brainrot-live-run.md` records the run,
       the stills read, the limit changes and their reasons; the tuned values are in
-      `build-timeline.mjs`, `rungs/brainrot.md` and spec §3.4; the user states acceptance.
-    status: pending
+      `video/formats.json` (read by `build-timeline.mjs` and `transcript.py`),
+      `rungs/brainrot.md` and spec §3.4; the user states acceptance.
+    status: done   # 2026-10-05, commits 05d7059..ac5afbf; live run ste_lint.py ten ok, limits tuned, user accepted on a phone ("ok")
     depends_on: [brainrot-render]
     owns:
       - docs/superpowers/spikes/ (brainrot live-run note)
-      - limit values in skills/explain/video/build-timeline.mjs and skills/explain/rungs/brainrot.md
-      - spec §3.4 table values
+      - skills/explain/video/formats.json (new; the FORMATS rows move out of build-timeline.mjs)
+      - skills/explain/video/build-timeline.mjs (formats load, caption character cap)
+      - skills/explain/video/transcript.py (Format row size)
+      - skills/explain/video/src/short/captions.ts, CaptionBand.tsx (one-line caption)
+      - skills/explain/video/pick_background.py (probe process group)
+      - skills/explain/rungs/brainrot.md
+      - skills/explain/tests/ (format-limit drift, png_diff ink_extent, stress fixtures and gated case)
+      - spec §3.4 table values, §5.4 caption cap
+      - skills/explain/video/src/short/runner.ts (obstacles kept out of the runner lane, ruling R11)
+      - skills/explain/rungs/video.md, skills/explain/templates/brainrot-script.json (live-run defect answers)
     risk: low
     plan: docs/superpowers/plans/2026-10-04-explain-brainrot-live-run.md
     acceptance:

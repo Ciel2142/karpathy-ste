@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Transcript page for the explain video rung.
 
-Usage: transcript.py <script.json> <output-dir> [--narrator "<text>"]
+Usage: transcript.py <script.json> <output-dir> [--narrator "<text>"] [--background "<text>"]
 
 Writes <output-dir>/index.html (from templates/video.html) and <output-dir>/narration.md.
+A script whose "format" is "brainrot" gets a Format row, a Background row (the --background
+text, default "pending") and a portrait video player; an explainer page has none of the three
+and ignores --background.
 Exit 0 on success; exit 2 with one line on stderr for a usage error, an unreadable or
 invalid script, or a code source that cannot be read. Stdlib only.
 """
@@ -18,7 +21,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "video.html"
-USAGE = 'usage: transcript.py <script.json> <output-dir> [--narrator "<text>"]'
+USAGE = 'usage: transcript.py <script.json> <output-dir> [--narrator "<text>"] [--background "<text>"]'
+FORMATS_FILE = Path(__file__).resolve().parent / "formats.json"  # the limits of build-timeline.mjs
 MAX_SNIPPET_WORDS = 12
 MARKER = re.compile(r"\{\{(\w+)\}\}")
 BACKTICK_SPAN = re.compile(r"`([^`]*)`")
@@ -192,7 +196,32 @@ def render_scene(scene, ctx):
 
 # ---------- page and narration ----------
 
-def render_page(template, script, narrator):
+def is_brainrot(script):
+    return script.get("format", "explainer") == "brainrot"
+
+
+def canvas_label(fmt):
+    """The canvas of a format as "<width>\u00d7<height>", read from FORMATS_FILE at call time."""
+    try:
+        row = json.loads(FORMATS_FILE.read_text(encoding="utf-8"))[fmt]
+        return "%d\u00d7%d" % (row["width"], row["height"])
+    except OSError as error:
+        raise ScriptError("cannot read %s: %s" % (FORMATS_FILE, error.strerror or error))
+    except ValueError as error:
+        raise ScriptError("%s is not valid JSON: %s" % (FORMATS_FILE, error))
+    except (KeyError, TypeError):
+        raise ScriptError("%s has no %s row with a width and a height" % (FORMATS_FILE, fmt))
+
+
+def format_rows(script, background):
+    """The Format and Background rows of a brainrot page; "" for the explainer."""
+    if not is_brainrot(script):
+        return ""
+    rows = [("Format", "brainrot (%s)" % canvas_label("brainrot")), ("Background", background)]
+    return "".join("\n      <div><dt>%s</dt><dd>%s</dd></div>" % (name, esc(text)) for name, text in rows)
+
+
+def render_page(template, script, narrator, background):
     prov = script["provenance"]
     ctx = {"root": prov["root"], "cites": Cites(script)}
     nav = "".join('<a href="#%s">%s</a>' % (esc(s["id"]), esc(s["props"]["title"])) for s in script["scenes"])
@@ -208,6 +237,8 @@ def render_page(template, script, narrator):
         "dirty": esc(prov["dirty"]),
         "date": esc(prov["date"]),
         "narrator": esc(narrator),
+        "format_rows": format_rows(script, background),
+        "video_class": ' class="portrait"' if is_brainrot(script) else "",
         "not_covered": esc(prov["not_covered"]),
     }
     return MARKER.sub(lambda m: values[m.group(1)], template)
@@ -223,20 +254,20 @@ def render_narration(script):
 # ---------- command line ----------
 
 def parse_args(argv):
-    narrator = "pending"
+    options = {"--narrator": "pending", "--background": "pending"}
     positional = []
     args = iter(argv)
     for arg in args:
-        if arg == "--narrator":
+        if arg in options:
             try:
-                narrator = next(args)
+                options[arg] = next(args)
             except StopIteration:
-                raise ScriptError("--narrator needs a value")
+                raise ScriptError("%s needs a value" % arg)
         else:
             positional.append(arg)
     if len(positional) != 2:
         raise ScriptError(USAGE)
-    return positional[0], positional[1], narrator
+    return positional[0], positional[1], options["--narrator"], options["--background"]
 
 
 def load_script(path):
@@ -256,9 +287,9 @@ def write(path, text):
 
 def main(argv):
     try:
-        script_path, out_dir, narrator = parse_args(argv)
+        script_path, out_dir, narrator, background = parse_args(argv)
         script = load_script(script_path)
-        page = render_page(TEMPLATE.read_text(encoding="utf-8"), script, narrator)
+        page = render_page(TEMPLATE.read_text(encoding="utf-8"), script, narrator, background)
         narration = render_narration(script)
         os.makedirs(out_dir, exist_ok=True)
         write(os.path.join(out_dir, "index.html"), page)

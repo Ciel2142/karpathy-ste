@@ -8,21 +8,23 @@ needs EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 import wave
-import zlib
 from array import array
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from png_diff import differing_pixels
 from video_e2e import E2E, E2E_REASON, EXPLAIN, render_fixture
 
 CHECK_RENDER = EXPLAIN / "video" / "check_render.sh"
 VERIFY_SYNC = EXPLAIN / "video" / "verify_sync.py"
+SCENE_BODY = EXPLAIN / "video" / "src" / "sceneBody.tsx"
 RATE = 16000
 FPS = 30
 
@@ -45,58 +47,6 @@ def read_wav(path):
 def run_sync(wav, timeline):
     return subprocess.run([sys.executable, str(VERIFY_SYNC), str(wav), str(timeline)],
                           capture_output=True, text=True, timeout=60)
-
-
-# ---------- a minimal PNG reader: 8-bit RGB or RGBA, not interlaced ----------
-
-def read_png(path, rows):
-    """The first `rows` scanlines of the PNG as (width, channels, [bytes per row])."""
-    data = Path(path).read_bytes()
-    assert data[:8] == b"\x89PNG\r\n\x1a\n", path
-    pos, idat = 8, b""
-    while pos < len(data):
-        length = int.from_bytes(data[pos:pos + 4], "big")
-        kind, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + length]
-        if kind == b"IHDR":
-            width = int.from_bytes(body[0:4], "big")
-            depth, color, interlace = body[8], body[9], body[12]
-            assert depth == 8 and color in (2, 6) and interlace == 0, (path, depth, color, interlace)
-            channels = 3 if color == 2 else 4
-        elif kind == b"IDAT":
-            idat += body
-        pos += 12 + length
-    raw, stride, out, prev = zlib.decompress(idat), width * channels, [], bytearray(width * channels)
-    for y in range(rows):
-        kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
-        for i in range(stride):
-            a = line[i - channels] if i >= channels else 0
-            b, c = prev[i], prev[i - channels] if i >= channels else 0
-            if kind == 1:
-                line[i] = (line[i] + a) & 255
-            elif kind == 2:
-                line[i] = (line[i] + b) & 255
-            elif kind == 3:
-                line[i] = (line[i] + (a + b) // 2) & 255
-            elif kind == 4:
-                p = a + b - c
-                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
-        out.append(line)
-        prev = line
-    return width, channels, out
-
-
-def differing_pixels(png_a, png_b, x0, x1, y0, y1):
-    """Pixels in [x0, x1) x [y0, y1) whose RGB differs by more than 40 in some channel."""
-    _, ca, rows_a = read_png(png_a, y1)
-    _, cb, rows_b = read_png(png_b, y1)
-    count = 0
-    for y in range(y0, y1):
-        ra, rb = rows_a[y], rows_b[y]
-        for x in range(x0, x1):
-            if any(abs(ra[x * ca + k] - rb[x * cb + k]) > 40 for k in range(3)):
-                count += 1
-    return count
 
 
 # ---------- verify_sync.py on synthesized audio ----------
@@ -185,6 +135,119 @@ class ReviewDirNameCase(unittest.TestCase):
         self.assertFalse((tmp / "stills").exists())
 
 
+class ContainerSizeCase(unittest.TestCase):
+    """The size check of check_container against a fake Remotion CLI: no workspace, no render.
+    The fake answers each ffprobe query by its -show_entries list and fails any other tool."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="check-render-size-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        cli = self.tmp / "ws" / "app" / "node_modules" / ".bin" / "remotion"
+        cli.parent.mkdir(parents=True)
+        cli.write_text(
+            "#!/bin/bash\n"
+            'case "$*" in\n'
+            '  *"stream=codec_type,codec_name"*) printf "h264,video\\naac,audio\\n" ;;\n'
+            '  *"-select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x"*)\n'
+            '    echo "$FAKE_SIZE" ;;\n'
+            '  *"format=duration"*) echo 1.000 ;;\n'
+            "  *) exit 1 ;;\n"
+            "esac\n", encoding="utf-8")
+        cli.chmod(0o755)
+        (self.tmp / "video.mp4").write_bytes(b"fake")
+
+    def check(self, width, height, size):
+        timeline = self.tmp / "timeline.json"
+        timeline.write_text(json.dumps({"fps": 30, "totalFrames": 30, "width": width, "height": height,
+                                        "scenes": []}), encoding="utf-8")
+        return subprocess.run(
+            ["/bin/bash", str(CHECK_RENDER), str(self.tmp / "video.mp4"), str(timeline),
+             str(self.tmp / "review")],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "EXPLAIN_VIDEO_WORKSPACE": str(self.tmp / "ws"), "FAKE_SIZE": size})
+
+    # red: the size is not compared, or compared with a constant instead of the timeline's size.
+    # The real ffprobe prints "1280x720x" (a trailing separator); the plain form is also read.
+    def test_size_other_than_the_timeline_fails(self):
+        for width, height, size in ((1080, 1920, "1280x720"), (1280, 720, "1080x1920")):
+            for shape in ("%sx", "%s"):
+                with self.subTest(size=size, shape=shape):
+                    run = self.check(width, height, shape % size)
+                    self.assertEqual((run.returncode, run.stdout),
+                                     (1, "container: FAIL size %s, expected %dx%d\n" % (size, width, height)),
+                                     run.stderr)
+
+    # red: the ok line changed, or a size equal to the timeline's rejected (the trailing separator
+    # of the real ffprobe left in the compared text)
+    def test_size_equal_to_the_timeline_passes_with_the_unchanged_ok_line(self):
+        for width, height in ((1080, 1920), (1280, 720)):
+            for shape in ("%dx%dx", "%dx%d"):
+                with self.subTest(size="%dx%d" % (width, height), shape=shape):
+                    run = self.check(width, height, shape % (width, height))
+                    self.assertEqual(run.stdout.splitlines()[0], "container: ok (1.00 s)", run.stdout)
+
+    # red: an empty ffprobe answer reported as a size, or passed
+    def test_empty_ffprobe_size_fails_as_none(self):
+        run = self.check(1080, 1920, "")
+        self.assertEqual((run.returncode, run.stdout),
+                         (1, "container: FAIL size none, expected 1080x1920\n"), run.stderr)
+
+
+class StillFramesCase(unittest.TestCase):
+    """read_timeline of check_render.sh, run on its own with the script's top-level constants:
+    the frame and the name of every still, without a render."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="check-render-frames-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def still_frames(self, scenes, width, height):
+        """The lines read_timeline prints for a 30 fps timeline of `scenes`."""
+        source = CHECK_RENDER.read_text(encoding="utf-8")
+        constants = "".join(re.findall(r"^[A-Z_]+=\S+.*\n", source, re.M))
+        function = re.search(r"^read_timeline\(\) \{\n.*?^\}\n", source, re.M | re.S)
+        self.assertIsNotNone(function, "no read_timeline() in check_render.sh")
+        timeline = self.tmp / "timeline.json"
+        total = scenes[-1]["from"] + scenes[-1]["durationInFrames"]
+        timeline.write_text(json.dumps({"fps": FPS, "totalFrames": total, "width": width,
+                                        "height": height, "scenes": scenes}), encoding="utf-8")
+        run = subprocess.run(
+            ["/bin/bash", "-c", "set -eu\n%s%s\ntimeline=%s\nread_timeline\n"
+             % (constants, function.group(0), timeline)],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.splitlines()
+
+    @staticmethod
+    def scene(scene_id, start, lead, cues):
+        return {"id": scene_id, "from": start, "durationInFrames": 300, "leadFrames": lead,
+                "cueFrames": cues}
+
+    # red: the scene still taken at from + leadFrames, so a brainrot still (lead 6) catches the
+    # panel mid-fade (FadeIn runs 8 frames)
+    def test_lead_6_scene_still_after_the_fade(self):
+        lines = self.still_frames([self.scene("hook", 0, 6, {"x": 50}),
+                                   self.scene("checks", 300, 6, {})], 1080, 1920)
+        self.assertEqual(lines, ["30 600 1080 1920", "8 still-01-hook.png", "65 still-01-hook-1.png",
+                                 "308 still-02-checks.png"])
+
+    # red: the explainer (lead 15) still moved, which would change the landscape stills
+    def test_lead_15_scene_still_unchanged(self):
+        lines = self.still_frames([self.scene("one", 0, 15, {"b": 100, "a": 40}),
+                                   self.scene("two", 300, 15, {"c": 290})], 1280, 720)
+        self.assertEqual(lines, ["30 600 1280 720", "15 still-01-one.png", "55 still-01-one-1.png",
+                                 "115 still-01-one-2.png", "315 still-02-two.png",
+                                 "599 still-02-two-1.png"])
+
+    # red: FADE_FRAMES missing, or no longer the length of FadeIn in sceneBody.tsx
+    def test_fade_frames_is_the_fade_in_length(self):
+        fade = re.search(r"interpolate\(frame, \[0, (\d+)\]", SCENE_BODY.read_text(encoding="utf-8"))
+        self.assertIsNotNone(fade, "no FadeIn interpolate in sceneBody.tsx")
+        constant = re.search(r"^FADE_FRAMES=(\d+)\b", CHECK_RENDER.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(constant, "no FADE_FRAMES in check_render.sh")
+        self.assertEqual(constant.group(1), fade.group(1))
+
+
 @unittest.skipUnless(E2E, E2E_REASON)
 class CheckRenderCase(unittest.TestCase):
     @classmethod
@@ -213,6 +276,16 @@ class CheckRenderCase(unittest.TestCase):
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertEqual(len(run.stdout.splitlines()), 1, run.stdout)
         self.assertRegex(run.stdout, r"^container: FAIL duration \d+\.\d\d s, expected \d+\.\d\d s\n$")
+
+    # red: the frame size not compared with the timeline's width and height. The fixture render is
+    # 1280x720; the copy of its timeline names 1080x1920 and the shared files stay untouched.
+    def test_container_size_mismatch_fails(self):
+        timeline = dict(self.timeline, width=1080, height=1920)
+        path = self.tmp / "timeline.json"
+        path.write_text(json.dumps(timeline), encoding="utf-8")
+        run = self.check(path, self.tmp / "review")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(run.stdout, "container: FAIL size 1280x720, expected 1080x1920\n")
 
     # red: lead tolerance 2 s
     def test_shifted_speech_is_sync_fail(self):

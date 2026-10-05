@@ -1,0 +1,274 @@
+{
+  "format": "brainrot",
+  "title": "Limits stress test for the brainrot format",
+  "subject": {
+    "text": "tests/fixtures/limits-source.txt",
+    "kind": "file"
+  },
+  "provenance": {
+    "root": "skills/explain",
+    "commit": "86e71d8",
+    "dirty": "no",
+    "date": "2026-10-05",
+    "source": "tests/fixtures/limits-source.txt",
+    "not_covered": "The meaning of the text. The words only fill the limits."
+  },
+  "scenes": [
+    {
+      "id": "hook",
+      "component": "title",
+      "props": {
+        "title": "Many Warm Wins Make Wide Mixes",
+        "subtitle": "Many Mixers Merge Warm Wide Maps While We Wait for More Wins",
+        "cue": "Wonderful Mixed Maps"
+      },
+      "narration": "Wonderful Mixed Maps Make Many Small Wins.",
+      "cites": [
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 1,
+          "snippet": "def merge_wide_maps(maps, wide, mw_max):"
+        }
+      ]
+    },
+    {
+      "id": "bullets",
+      "component": "bullets-appear",
+      "props": {
+        "title": "Many Warm Women Mow Many Maps",
+        "bullets": [
+          {
+            "text": "Weak Maps Wait for Warm Wins With Mixers",
+            "cue": "Each map waits"
+          },
+          {
+            "text": "Mixed Weights Wake Warm Maps With Window",
+            "cue": "The weights wake"
+          },
+          {
+            "text": "Many Warm Maps Make Mild Mixes With Wine",
+            "cue": "Many maps mix"
+          },
+          {
+            "text": "Many Wide Maps Mix Warm Wine With Mixers",
+            "cue": "Wide maps win"
+          }
+        ]
+      },
+      "narration": "Each map waits for a mixer. The weights wake each map. Many maps mix in one pass. Wide maps win most of the time.",
+      "cites": [
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 2,
+          "snippet": "total = 0"
+        },
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 3,
+          "snippet": "for mwm in maps:"
+        }
+      ]
+    },
+    {
+      "id": "diagram",
+      "component": "diagram-with-highlight-walk",
+      "props": {
+        "title": "Warm Women Mow Many Wide Maps",
+        "nodes": [
+          {
+            "id": "n1",
+            "label": "Warm Mixture",
+            "sub": "Warms Many Wide Map",
+            "cell": "a1"
+          },
+          {
+            "id": "n2",
+            "label": "Wild Weights",
+            "sub": "Wakes Many Weak Map",
+            "cell": "b1"
+          },
+          {
+            "id": "n3",
+            "label": "Mixed Models",
+            "sub": "Mixes Warm Weak Map",
+            "cell": "c1"
+          },
+          {
+            "id": "n4",
+            "label": "Weak Windows",
+            "sub": "Wakes Warm Wide Map",
+            "cell": "c2"
+          },
+          {
+            "id": "n5",
+            "label": "Warm Windows",
+            "sub": "Wraps Many Wide Map",
+            "cell": "c3"
+          },
+          {
+            "id": "n6",
+            "label": "Weighted Map",
+            "sub": "Mixes Many Wide Map",
+            "cell": "b3"
+          },
+          {
+            "id": "n7",
+            "label": "Mixed Wisdom",
+            "sub": "Wakes Many Wide Map",
+            "cell": "a3"
+          }
+        ],
+        "edges": [
+          {
+            "from": "n1",
+            "to": "n2"
+          },
+          {
+            "from": "n2",
+            "to": "n3"
+          },
+          {
+            "from": "n3",
+            "to": "n4",
+            "label": "Warm Mixes"
+          },
+          {
+            "from": "n4",
+            "to": "n5",
+            "label": "Map Weight"
+          },
+          {
+            "from": "n5",
+            "to": "n6"
+          },
+          {
+            "from": "n6",
+            "to": "n7"
+          }
+        ],
+        "walk": [
+          {
+            "node": "n1",
+            "cue": "The mixer starts"
+          },
+          {
+            "node": "n2",
+            "cue": "Then the weights"
+          },
+          {
+            "node": "n3",
+            "cue": "At last the models"
+          }
+        ]
+      },
+      "narration": "The mixer starts with one map. Then the weights wake the next node. At last the models merge.",
+      "cites": [
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 6,
+          "snippet": "total += len(mwm.rows)"
+        }
+      ]
+    },
+    {
+      "id": "code",
+      "component": "code-with-line-highlights",
+      "props": {
+        "title": "When Women Mow Many Warm Maps",
+        "source": {
+          "path": "tests/fixtures/limits-source.txt",
+          "from": 1,
+          "to": 14
+        },
+        "highlights": [
+          {
+            "from": 1,
+            "to": 7,
+            "cue": "The first lines"
+          },
+          {
+            "from": 8,
+            "to": 14,
+            "cue": "The last lines"
+          }
+        ]
+      },
+      "narration": "The first lines make the mixer. The last lines set the weight cap.",
+      "cites": [
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 1,
+          "snippet": "def merge_wide_maps(maps, wide, mw_max):"
+        },
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 7,
+          "snippet": "return total * mw_max"
+        },
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 14,
+          "snippet": "WMAX = 99"
+        }
+      ]
+    },
+    {
+      "id": "before-after",
+      "component": "before-after",
+      "props": {
+        "title": "Many Women Mow Warm Wax Mazes",
+        "before": {
+          "heading": "Wide Maps Mix With Warm Models Without Mixers",
+          "lines": [
+            "We Mix Warm Wide Maps With Wax While We Wait Now",
+            "Mix Weak Maps With Warm Models and Many Mixers W",
+            "Many Mixers Wait With Warm Wax for Wide Maps Now",
+            "Mix Many Weak Maps Without Wax While We Wait Now",
+            "Wipe Weak Maps Without Waiting for Warm Mixes No"
+          ]
+        },
+        "after": {
+          "heading": "Warm Models Mix Wide Maps With Many Wax Mixes",
+          "lines": [
+            "Warm Mixes Wake Weak Maps Well While We Wait Now",
+            "Mix Many Wide Maps Without Wax While We Wait Now",
+            "Wait for Wide Mixes Without Me While Maps Warm W",
+            "Mix Warm Maps With Wide Models While We Wait Now",
+            "Where the Wide Mixers Wait Now With Warm Maps Mw"
+          ]
+        },
+        "cue": "Now the mixer"
+      },
+      "narration": "Before the mixer, each map waits alone. Now the mixer merges all maps in one pass.",
+      "cites": [
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 10,
+          "snippet": "def warm_mix(a, b):"
+        },
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 11,
+          "snippet": "mixed = {**a, **b}"
+        }
+      ]
+    },
+    {
+      "id": "folder",
+      "component": "title",
+      "props": {
+        "title": "Where Warm Wide Clips Wait Now",
+        "subtitle": "Many Warm Mixers Match Wide Maps While We Wait Without Worry",
+        "cue": "`EXPLAIN_BRAINROT_BACKGROUNDS`"
+      },
+      "narration": "`EXPLAIN_BRAINROT_BACKGROUNDS` sets the clip folder. An empty folder gives the generated runner.",
+      "cites": [
+        {
+          "path": "tests/fixtures/limits-source.txt",
+          "line": 14,
+          "snippet": "WMAX = 99"
+        }
+      ]
+    }
+  ]
+}

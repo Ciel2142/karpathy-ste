@@ -94,14 +94,15 @@ explainer column is today's values.
 | narration words per scene | 45 | 45 |
 | lead / tail frames | 15 / 36 | 6 / 12 |
 | code range | 14 lines × 72 columns | 14 lines × 40 columns |
-| `bullets-appear` text | 36 chars | 28 chars |
-| `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 30 chars; heading 30 |
-| diagram `label` / `sub` | 14 / 24 | 12 / 20 |
+| `bullets-appear` text | 36 chars | 40 chars |
+| `before-after` | side by side; 0–10 lines × 36 chars; heading 36 | stacked; 0–5 lines × 48 chars; heading 45 |
+| diagram `label` / `sub` | 14 / 24 | 12 / 19 |
+| diagram edge `label` | 10 | 10; no label on an edge in a row |
 | `title` title / subtitle | 50 / 80 | 30 / 60 |
+| scene heading | — | 29 chars |
+| caption chunk | — | 1–3 words, 20 chars |
 
-The brainrot values are starting values. The live run (section 7.5) tunes them against the
-stills and writes the final values into this table, `build-timeline.mjs` and
-`rungs/brainrot.md`.
+(Tuned 2026-10-05 in the live run; evidence in `docs/superpowers/spikes/2026-10-05-explain-brainrot-live-run.md`.)
 
 A limit failure names the format: `line 7 is 52 columns (max 40, brainrot)`.
 
@@ -124,8 +125,10 @@ runs `remotion render Explain`.
 `layout.tsx` no longer exports fixed `FRAME` and `CONTENT` boxes. A React context `SceneBox`
 provides the scene's box: `{ width, height, margin, titleSize }` plus the type sizes the scenes
 use. Scenes read it through `useBox()`. `diagramGeometry.ts` takes the box as a parameter.
-`BeforeAfter` stacks its two panels (before above after) when the box is taller than wide, and
-keeps them side by side otherwise.
+`BeforeAfter` stacks its two panels (before above after) when the box sets `stackPanels`, and
+keeps them side by side otherwise. The brainrot box sets it: its content area (984×758) is wider
+than tall, but two 468 px columns cannot hold a 30-character line. (Amended 2026-10-04 while
+planning wave brainrot-render; the first wording was "when the box is taller than wide".)
 
 The landscape layout provides today's values, so the explainer renders the same pixels as before
 the refactor (checked by the regression test in section 7.4).
@@ -150,16 +153,28 @@ the refactor (checked by the regression test in section 7.4).
    workspace's `remotion ffprobe`. A clip that cannot be probed, or has no video stream, prints
    `background: SKIP <file> (<cause>)`, indented, and the next clip is tried.
 3. For the first good clip: if it is at least as long as the video, pick a random start in
-   `[0, clip − video]`; else the start is 0 and the clip loops. Link the clip by absolute path
-   into `<ws>/app/public/bg/`. File names with spaces work.
+   `[0, clip − video]`; else the start is 0 and the clip loops. Stage the clip in
+   `<ws>/bg-stage/` as the regular file `clip.<ext>`: a hard link to the clip, or a copy when
+   the hard link fails. `<ws>/app/public/bg` is the relative symlink `../../bg-stage`, made again
+   on every run. File names with spaces work.
 4. When the folder is missing, empty, or holds no good clip, the background is `RunnerLoop`.
+
+Why the stage: the static server of Remotion 4.0.532 answers 404 for a file that is itself a
+symlink, and its bundler copies every regular file in `public/` into each bundle. A path through
+the directory symlink `public/bg` to a regular file is served and not copied. The stage lies
+beside the app, not in it: the sync of any checkout's `video-workspace.sh` (`rsync --delete`)
+would delete a stage in `<ws>/app` and leave the link dangling, and a dangling link in `public/`
+fails every render. (Amended 2026-10-05 in the final review of wave brainrot-render.)
 
 `RunnerLoop` is a Remotion component: three lanes in perspective, scrolling stripes, a block
 character that hops between lanes, and obstacles. It is a pure function of the frame number and
 a fixed seed, so two renders are the same.
 
 The choice goes into `build/timeline.json` as
-`background: { kind: "clip", file, start, loop } | { kind: "generated" }`.
+`background: { kind: "clip", file, src, start, seconds, loop } | { kind: "generated" }`. `src` is
+the fixed link name `bg/clip.<ext>` under `public/`, so a file name with spaces never reaches
+Remotion; `seconds` is the clip length, which the loop needs. (Amended 2026-10-04 while planning
+wave brainrot-render.)
 
 ## 5. Narration and captions
 
@@ -206,6 +221,8 @@ the scene start:
 
 Backticks are removed from caption text, as the narrator already speaks code names as plain
 text.
+
+(Amended 2026-10-05 in wave brainrot-live-run: a chunk also closes before it passes the character cap of §3.4; a longer word is a chunk alone, drawn smaller.)
 
 ## 6. Pipeline, checks and errors
 
@@ -255,14 +272,17 @@ The tests follow the `unittest` layout in `skills/explain/tests/`. Renders stay 
 
 - A script without `format` validates and builds as today; the existing cases pass unchanged.
 - Each brainrot limit of section 3.4 at its boundary: one case at the limit passes, one just
-  over fails with the format named (7 scenes, a 41-column line, a 29-char bullet, a 31 s scene,
-  a 91 s total, a 31-char `before-after` line, a 6-line `before-after` panel, a 13-char diagram
-  label, a 21-char diagram sub, a 31-char title, a 61-char subtitle).
+  over fails with the format named (7 scenes, a 41-column line, a 41-char bullet, a 31 s scene,
+  a 91 s total, a 49-char `before-after` line, a 46-char `before-after` heading, a 6-line
+  `before-after` panel, a 13-char diagram label, a 20-char diagram sub, a 31-char title, a 61-char
+  subtitle, a 30-char scene heading, a label on an edge in a row). (Amended 2026-10-05 with the
+  tuned values of §3.4.)
 - An unknown `format` fails.
 - A brainrot timeline has lead 6 and tail 12 frames.
 - A brainrot cue frame equals `lead + round(sentence.from × fps)` from `words.json`.
-- Caption chunks: at most 3 words, a break after punctuation, no gap, no overlap, every
-  narration word once and in order, no backticks.
+- Caption chunks: at most 3 words and at most the character cap of §3.4 (a longer word is a
+  chunk alone), a break after punctuation, no gap, no overlap, every narration word once and in
+  order, no backticks.
 
 ### 7.2 Narration (`test_narrate.py`, `say` engine or a stub engine)
 

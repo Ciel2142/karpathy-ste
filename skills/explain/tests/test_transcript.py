@@ -1,8 +1,11 @@
 """Tests for video/transcript.py: script.json to the transcript page (index.html) and
 narration.md. Each test names the mutation of transcript.py that turns it red."""
 
+import contextlib
 import copy
 import html
+import importlib.util
+import io
 import json
 import os
 import re
@@ -19,6 +22,14 @@ CITE_CHECK = EXPLAIN / "scripts" / "cite_check.py"
 TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 VERIFY_SH = EXPLAIN / "scripts" / "verify.sh"
 BIG_LINES = ["line %d alpha beta" % n for n in range(1, 21)]
+
+
+def load_transcript():
+    """A fresh transcript.py module, so a test can patch its attributes (FORMATS_FILE)."""
+    spec = importlib.util.spec_from_file_location("transcript_under_test", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def template_script():
@@ -320,6 +331,97 @@ class OutputTest(TranscriptCase):
         self.assertIn("<dt>Narrator</dt><dd>kokoro</dd>", self.generate(script, "--narrator", "kokoro"))
         self.assertIn("<dt>Narrator</dt><dd>pending</dd>", self.generate(script))
 
+    def brainrot(self):
+        script = self.retargeted()
+        script["format"] = "brainrot"
+        return script
+
+    def test_brainrot_rows_and_portrait_video(self):
+        """Red: the Format or Background row missing or in the wrong order, the portrait class
+        not on the video element, or the flag value not written into the Background row."""
+        text = self.generate(self.brainrot(), "--background", "bg-1s.mp4 @ 0.0 s (loop)")
+        self.assertIn("<div><dt>Format</dt><dd>brainrot (1080\u00d71920)</dd></div>", text)
+        self.assertIn("<div><dt>Background</dt><dd>bg-1s.mp4 @ 0.0 s (loop)</dd></div>", text)
+        self.assertLess(text.index("<dt>Narrator</dt>"), text.index("<dt>Format</dt>"))
+        self.assertLess(text.index("<dt>Format</dt>"), text.index("<dt>Background</dt>"))
+        page = parse(text)
+        self.assertEqual(page.video["class"], "portrait")
+        self.assertEqual(page.video["src"], "video.mp4")
+        self.assertIn("controls", page.video)
+        self.assertFalse(page.video["inside_section"])
+
+    def test_brainrot_background_pending_by_default(self):
+        """Red: the default of --background is not "pending" (or the row is left out)."""
+        text = self.generate(self.brainrot())
+        self.assertIn("<div><dt>Background</dt><dd>pending</dd></div>", text)
+
+    def test_brainrot_background_is_escaped(self):
+        """Red: the --background value written without html.escape (a clip name can hold
+        & < > or quotes)."""
+        text = self.generate(self.brainrot(), "--background", '<b>Run & "Go".mp4 @ 0.0 s')
+        self.assertNotIn("<b>Run", text)
+        self.assertIn("<dd>%s</dd>" % html.escape('<b>Run & "Go".mp4 @ 0.0 s', quote=True), text)
+
+    def module_with_formats(self, content):
+        """A transcript module whose FORMATS_FILE is a temp file holding `content`."""
+        module = load_transcript()
+        path = self.dir / "formats.json"
+        path.write_text(content, encoding="utf-8")
+        module.FORMATS_FILE = path
+        return module
+
+    def test_format_row_size_from_formats_file(self):
+        """Red: the Format row size is a literal in transcript.py (or read from formats.json at
+        import time), so a changed or patched formats file has no effect."""
+        formats = json.loads((EXPLAIN / "video" / "formats.json").read_text(encoding="utf-8"))
+        formats["brainrot"]["width"] = 1000
+        module = self.module_with_formats(json.dumps(formats))
+        self.assertIn("<dd>brainrot (1000×1920)</dd>", module.format_rows(self.brainrot(), "pending"))
+
+    def test_unusable_formats_file_is_a_script_error(self):
+        """Red: a missing or invalid formats.json, or one without the brainrot width and height,
+        escapes as a traceback instead of one stderr line and exit 2."""
+        script_path = self.dir / "script.json"
+        script_path.write_text(json.dumps(self.brainrot()), encoding="utf-8")
+        cases = {"missing": None, "invalid JSON": "{ not json", "no rows": "[]", "no size": '{"brainrot": {}}'}
+        for name, content in cases.items():
+            with self.subTest(name):
+                module = self.module_with_formats("{}" if content is None else content)
+                if content is None:
+                    module.FORMATS_FILE = self.dir / "gone" / "formats.json"
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = module.main([str(script_path), str(self.out)])
+                self.assertEqual(code, 2)
+                self.assertRegex(err.getvalue(), r"\Atranscript\.py: .*formats\.json.*\n\Z")
+
+    def test_explainer_page_has_no_format_row(self):
+        """Red: the Format or Background row, a video class, or a whitespace line left where
+        {{format_rows}} sits in the explainer page; also for a --background flag on an
+        explainer script, and for a script that names its format "explainer"."""
+        explicit = self.retargeted()
+        explicit["format"] = "explainer"
+        for script, extra in ((self.retargeted(), ()), (explicit, ()),
+                              (self.retargeted(), ("--background", "x.mp4 @ 0.0 s"))):
+            text = self.generate(script, *extra)
+            self.assertNotIn("<dt>Format</dt>", text)
+            self.assertNotIn("<dt>Background</dt>", text)
+            self.assertNotIn("x.mp4", text)
+            self.assertIn('<video controls src="video.mp4"></video>', text)
+            self.assertIn("<dt>Narrator</dt><dd>pending</dd></div>\n    </dl>", text)
+            self.assertNotIn("class", parse(text).video)
+
+    def test_brainrot_transcript_passes_verify(self):
+        """Red: a Format or Background row, or the portrait video, that makes the page fail the
+        self-contained, citations or prose check of verify.sh (the rows sit in the
+        data-ste="skip" dl, so the prose check does not lint them)."""
+        self.generate(self.brainrot(), "--background", "bg-1s.mp4 @ 0.0 s (loop)")
+        run = subprocess.run([str(VERIFY_SH), str(self.out / "index.html")],
+                             capture_output=True, text=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines(),
+                         ["self-contained: ok", "citations: ok", "prose: ok"])
+
     def test_footer_rows_and_provenance_attributes(self):
         """Red: a footer row missing, or data-root or data-kind not taken from the script."""
         script = self.retargeted()
@@ -364,7 +466,7 @@ class UsageTest(TranscriptCase):
         bad = self.dir / "bad.json"
         bad.write_text("{not json", encoding="utf-8")
         for args in ([], [str(bad)], [str(bad), str(self.out)], [str(self.dir / "absent.json"), str(self.out)],
-                     [str(bad), str(self.out), "--narrator"]):
+                     [str(bad), str(self.out), "--narrator"], [str(bad), str(self.out), "--background"]):
             proc = self.run_tool(*args)
             self.assertEqual(proc.returncode, 2, (args, proc.stderr))
             self.assertEqual(proc.stdout, "")

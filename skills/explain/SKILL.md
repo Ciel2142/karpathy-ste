@@ -2,7 +2,7 @@
 name: explain
 description: Use when the user invokes /explain — explain a subject (file, directory, `this`, or topic) in the best rung, from chat text to a one-page sheet, an interactive page, or a narrated video.
 disable-model-invocation: true
-argument-hint: "<subject> [--as ste|sheet|page|video]"
+argument-hint: "<subject> [--as ste|sheet|page|video|brainrot]"
 ---
 
 # explain
@@ -13,12 +13,13 @@ this skill, printed when it starts; the `ste` skill is its sibling `<skill-dir>/
 
 ## Contract
 
-Syntax: `/explain <subject> [--as ste|sheet|page|video]`. The arguments arrive in `$ARGUMENTS`.
+Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot]`. The arguments arrive in
+`$ARGUMENTS`.
 
 1. If `$ARGUMENTS` is empty, stop with a usage error. Print the `argument-hint`.
 2. Find the last `--as <rung>` pair in `$ARGUMENTS`. The last pair wins. Remove it.
-3. If `--as` is present and its value is not `ste`, `sheet`, `page` or `video`, stop with
-   an error. List these four names in the error.
+3. If `--as` is present and its value is not `ste`, `sheet`, `page`, `video` or `brainrot`,
+   stop with an error. List these five names in the error.
 4. Trim the rest. The result is the subject.
 
 ## Subject resolution
@@ -52,6 +53,7 @@ section on a page.
 | `sheet` (static page, exported to PNG) | Reference material for repeated glances; at most 6 facets; "overview of X" | Architecture at a glance, a spec summary |
 | `page` (interactive single-file HTML) | The content has state to explore (a step-through flow, before and after, toggles); more than 6 facets | A PR walkthrough, a plan with waves |
 | `video` (narrated mp4) | A temporal narrative where motion carries meaning | Data in a pipeline, a handshake |
+| `brainrot` (vertical narrated mp4) | Forced only: a vertical narrated short for a phone; never chosen from content | Any subject that the user wants as a phone short |
 
 Read the subject before you choose the rung: the file, the directory, or the repo code of
 a topic. A model-knowledge topic has no source to read. Before you build, print this line,
@@ -63,6 +65,8 @@ also under `--as`:
 names the flag and tells if the content fits the rung. Then follow these rules:
 
 - The `video` rung, chosen or forced, builds a narrated mp4. The video rung is English only.
+- The `brainrot` rung builds a vertical narrated short. Only `--as brainrot` selects it. The
+  brainrot rung is English only, like the video rung.
 - If `rungs/<rung>.md` does not exist for the chosen rung, print the rung line. Say that the
   rung is not available yet. Stop. Offer `sheet` or `ste`.
 - A forced rung can be too small for the content, for example a sheet for more than 6
@@ -75,7 +79,7 @@ names the flag and tells if the content fits the rung. Then follow these rules:
 
 ## Conventions
 
-These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
+These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brainrot`).
 
 1. Prose: follow the STE profile. The final `index.html` passes `ste_lint.py --html` with 0 errors.
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
@@ -114,15 +118,15 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
    The fix loop of a rung stays in its directory. The rung file lists the contents. Git ignores
    `out/`. Never commit it.
 6. Handoff: print the path. When you run for the user directly, run `open index.html`
-   (sheet or page) or `open video.mp4` (video). Inside a subagent, do not run `open`.
+   (sheet or page) or `open video.mp4` (video or brainrot). Inside a subagent, do not run `open`.
 7. Language: write the artifact in English, unless the user asks for another language.
 
 ## Build procedure
 
 1. Read `<skill-dir>/../ste/SKILL.md` by path. Write all prose under that profile.
 2. Read `<skill-dir>/rungs/<rung>.md` of the chosen rung only, and each section
-   that it names. For a video, the rung file replaces steps 3 to 6 (write `script.json`, run
-   `render.sh`, read the stills).
+   that it names. For a video or a brainrot short, the rung file replaces steps 3 to 6 (write
+   `script.json`, run `render.sh`, read the stills).
 3. Write `index.html` in the output directory.
 4. Run `<skill-dir>/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
 5. Run `<skill-dir>/scripts/snapshot.sh` as the rung file shows. Read the
@@ -138,3 +142,5 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`).
   snapshot arguments).
 - `<skill-dir>/rungs/video.md`: the video rung (script, components, cue rule, render
   pipeline, pinned versions).
+- `<skill-dir>/rungs/brainrot.md`: the brainrot rung (the sections of `video.md` to read, the
+  format key, the limits, the background folder, the extra checks of the stills).

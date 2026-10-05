@@ -10,6 +10,9 @@
   below, and writes out/<run>/index.html. A marker is the only dynamic part of this file.
   - Page markers: title, nav (the scene links), sections (one section for each scene).
   - Footer markers: root, kind, subject, source, commit, dirty, date, narrator, not_covered.
+  - Format markers, empty for an explainer: format_rows (the Format and Background rows of a
+    brainrot page, after the Narrator row) and video_class (class="portrait" on the video
+    element of a brainrot page).
   One section for each scene: an h2, the narration as a paragraph, the on-screen text,
   then the cite elements of that scene. The video element stays outside every section.
   verify.sh runs three checks on the result: self-contained, citations and prose.
@@ -49,6 +52,7 @@ figcaption { color: var(--muted); }
 
 header { padding: 32px 0 16px; }
 video { display: block; width: 100%; max-width: 1280px; aspect-ratio: 16 / 9; background: var(--ink); }
+video.portrait { aspect-ratio: 9 / 16; max-width: 405px; }
 nav#toc {
   position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 18px;
   margin-top: 16px; padding: 10px 0; background: #fff; border-bottom: 1.5px solid var(--ink);
@@ -95,7 +99,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
   <h1>{{title}}</h1>
 </header>
 
-<video controls src="video.mp4"></video>
+<video{{video_class}} controls src="video.mp4"></video>
 
 <nav id="toc">{{nav}}</nav>
 
@@ -111,7 +115,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
       <div><dt>Date</dt><dd>{{date}}</dd></div>
       <div><dt>Commit</dt><dd>{{commit}}</dd></div>
       <div><dt>Dirty</dt><dd>{{dirty}}</dd></div>
-      <div><dt>Narrator</dt><dd>{{narrator}}</dd></div>
+      <div><dt>Narrator</dt><dd>{{narrator}}</dd></div>{{format_rows}}
     </dl>
   </div>
   <p class="not-covered">Not covered: {{not_covered}}</p>

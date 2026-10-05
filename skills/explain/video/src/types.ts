@@ -36,6 +36,19 @@ export type BeforeAfterProps = {
   cue: string;
 };
 
+export type Format = "explainer" | "brainrot";
+
+// One spoken word of a caption chunk; frames are relative to the scene start.
+export type CaptionWord = { text: string; from: number; to: number };
+// 1 to 3 words shown together from `from` up to (not including) `to`. A chunk can be
+// zero-length (from == to) for a word under about 17 ms.
+export type CaptionChunk = { from: number; to: number; words: CaptionWord[] };
+
+// The brainrot background, chosen by pick_background.py and written into the timeline.
+export type Background =
+  | { kind: "clip"; file: string; src: string; start: number; seconds: number; loop: boolean }
+  | { kind: "generated" };
+
 // What every scene component receives: its own props plus its cue frames.
 export type Cued<P> = P & { cueFrames: CueFrames };
 
@@ -47,6 +60,7 @@ type SceneTiming = {
   audioFrames: number; // ceil(clip seconds * fps)
   audio: string; // path under public/, e.g. audio/intro.say.wav
   cueFrames: CueFrames;
+  captions?: CaptionChunk[]; // brainrot scenes only
 };
 
 export type TimelineScene = SceneTiming &
@@ -59,10 +73,14 @@ export type TimelineScene = SceneTiming &
   );
 
 export type Timeline = {
+  format: Format;
   engine: string;
   fps: number;
   width: number;
   height: number;
   totalFrames: number;
+  maxSceneSeconds: number;
+  maxTotalSeconds: number;
+  background?: Background; // brainrot only, added by pick_background.py
   scenes: TimelineScene[];
 };

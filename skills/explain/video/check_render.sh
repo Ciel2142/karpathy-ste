@@ -12,6 +12,7 @@
 # stdout, one line per check, in this order, up to the first FAIL:
 #   container: ok (<duration> s)
 #              | FAIL streams <found> (expected one h264 video and one aac audio)
+#              | FAIL size <w>x<h>, expected <W>x<H>       (the timeline's width and height)
 #              | FAIL duration <d> s, expected <e> s        (more than 0.2 s apart)
 #              | FAIL no Remotion CLI at <path> | FAIL ffprobe exit <code>
 #   sync: ok | FAIL <scene id>: <cause>                     (from verify_sync.py)
@@ -22,7 +23,7 @@
 # emptied: "stills: FAIL review dir must be named review: <review-dir>", exit 1.
 #
 # The audio track goes to build/rendered-audio.wav next to the mp4. The review dir is
-# emptied first, then holds one still per scene at from + leadFrames
+# emptied first, then holds one still per scene at from + max(leadFrames, FADE_FRAMES)
 # (still-NN-<scene-id>.png) and one per cue at cueFrame + 15, clamped to the scene's last
 # frame (still-NN-<scene-id>-<k>.png, k in frame order). A still for frame N is taken at
 # (N - 0.5) / fps s: "-ss t" returns the first frame at or after t.
@@ -31,6 +32,10 @@
 set -eu
 
 STILL_AFTER_CUE=15
+# The frames FadeIn of src/sceneBody.tsx takes to bring a scene to full opacity: a scene still
+# is taken no earlier, so a short lead (brainrot, 6) does not catch the panel mid-fade. The
+# explainer lead (15) is longer, so its stills do not move.
+FADE_FRAMES=8
 
 usage() {
     echo "usage: check_render.sh <video.mp4> <timeline.json> <review-dir>" >&2
@@ -70,16 +75,17 @@ remo() {
     (cd "$app" && "$remotion" "$@") < /dev/null
 }
 
-# "<fps> <totalFrames>", then "<frame> <still name>" per still, in scene and frame order.
+# "<fps> <totalFrames> <width> <height>", then "<frame> <still name>" per still, in scene and
+# frame order.
 read_timeline() {
-    python3 - "$timeline" "$STILL_AFTER_CUE" <<'PY'
+    python3 - "$timeline" "$STILL_AFTER_CUE" "$FADE_FRAMES" <<'PY'
 import json, sys
 t = json.load(open(sys.argv[1], encoding="utf-8"))
-after = int(sys.argv[2])
-print(t["fps"], t["totalFrames"])
+after, fade = int(sys.argv[2]), int(sys.argv[3])
+print(t["fps"], t["totalFrames"], t["width"], t["height"])
 for n, s in enumerate(t["scenes"], 1):
     start, last = s["from"], s["from"] + s["durationInFrames"] - 1
-    print(start + s["leadFrames"], "still-%02d-%s.png" % (n, s["id"]))
+    print(start + max(s["leadFrames"], fade), "still-%02d-%s.png" % (n, s["id"]))
     for k, cue in enumerate(sorted(s["cueFrames"].values()), 1):
         print(min(start + cue + after, last), "still-%02d-%s-%d.png" % (n, s["id"], k))
 PY
@@ -89,7 +95,7 @@ if ! info=$(read_timeline 2>&1); then
     echo "check_render.sh: cannot read timeline $timeline: ${info##*$'\n'}" >&2
     exit 2
 fi
-read -r fps total_frames <<< "${info%%$'\n'*}"
+read -r fps total_frames width height <<< "${info%%$'\n'*}"
 stills="${info#*$'\n'}"
 
 fail() {
@@ -98,7 +104,7 @@ fail() {
 }
 
 check_container() {
-    local out rc=0 found duration verdict
+    local out rc=0 found size duration verdict
     [ -x "$remotion" ] || fail "container: FAIL no Remotion CLI at $remotion"
     out=$(remo ffprobe -v error -show_entries stream=codec_type,codec_name -of csv=p=0 "$mp4" 2> /dev/null) \
         || rc=$?
@@ -108,6 +114,13 @@ check_container() {
         | sed 's/,/, /g')
     [ "$found" = "aac audio, h264 video" ] \
         || fail "container: FAIL streams ${found:-none} (expected one h264 video and one aac audio)"
+    size=$(remo ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x \
+        "$mp4" 2> /dev/null) || rc=$?
+    [ "$rc" -eq 0 ] || fail "container: FAIL ffprobe exit $rc"
+    # "<w>x<h>"; this ffprobe prints a trailing separator ("1280x720x"), as it does for the
+    # stream list above.
+    size=$(printf '%s\n' "$size" | awk -F x 'NF { print $1 "x" $2; exit }')
+    [ "$size" = "${width}x$height" ] || fail "container: FAIL size ${size:-none}, expected ${width}x$height"
     duration=$(remo ffprobe -v error -show_entries format=duration -of csv=p=0 "$mp4" 2> /dev/null) \
         || rc=$?
     [ "$rc" -eq 0 ] || fail "container: FAIL ffprobe exit $rc"
