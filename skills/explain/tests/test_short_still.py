@@ -2,13 +2,15 @@
 narrated with the say engine at speed 1.2 and built into a timeline, and `remotion still Explain`
 draws single frames of it. Each test names the mutation that turns it red.
 
-setUpClass syncs the workspace itself (video-workspace.sh --engine say), because the app under
-<ws>/app must hold the current src/ before any still is drawn; the class is skipped, with the
-script's output as the reason, when that fails. The workspace is $EXPLAIN_VIDEO_WORKSPACE, default
-~/karpathy/video-workspace."""
+setUpClass runs video-workspace.sh --engine say itself, because the shared packages in
+<ws>/app/node_modules must be current before any still is drawn; the class is skipped, with the
+script's output as the reason, when that fails. The stills are drawn from the class's own Remotion
+project, <tmp>/runs/still, made as render.sh makes a run directory: a copy of the skill's video/
+(without a top-level node_modules or public, and without __pycache__), node_modules as a link to
+<ws>/app/node_modules, and the narration clips under public/audio. The workspace is
+video_e2e.workspace(): $EXPLAIN_VIDEO_WORKSPACE, default ~/karpathy/video-workspace."""
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -21,9 +23,10 @@ from png_diff import differing_pixels, read_png
 from test_narrate import NARRATE_PY
 from test_video_timeline import APP_LINES, TOOL
 from test_video_timeline_brainrot import brainrot_script
-from video_e2e import E2E, E2E_REASON, EXPLAIN
+from video_e2e import E2E, E2E_REASON, EXPLAIN, workspace
 
 REPO = EXPLAIN.parent.parent
+VIDEO = EXPLAIN / "video"
 WORKSPACE_SH = EXPLAIN / "scripts" / "video-workspace.sh"
 PICKER = EXPLAIN / "video" / "pick_background.py"
 FIXTURE_CLIP = EXPLAIN / "tests" / "fixtures" / "bg-1s.mp4"
@@ -39,8 +42,13 @@ CLIP_TOP = 1000         # the background rows below any one-line caption (its bo
 CLIP_MOVED = 200_000    # see test_long_clip_plays_from_its_start
 
 
-def workspace():
-    return Path(os.environ.get("EXPLAIN_VIDEO_WORKSPACE") or Path.home() / "karpathy" / "video-workspace")
+def copy_project(dest):
+    """Copy the skill's video/ to `dest` as render.sh copies it into a run directory: without a
+    top-level node_modules or public of the checkout, and without __pycache__ at any depth."""
+    def ignore(directory, entries):
+        top = Path(directory) == VIDEO
+        return [e for e in entries if e == "__pycache__" or (top and e in ("node_modules", "public"))]
+    shutil.copytree(VIDEO, dest, ignore=ignore)
 
 
 def png_size(path):
@@ -70,7 +78,8 @@ def lit_pixels(path, y0, y1):
 
 @unittest.skipUnless(E2E, E2E_REASON)
 class ShortStillCase(unittest.TestCase):
-    """One sync, one narrate and one build, shared by the tests; stills are drawn on demand and kept."""
+    """One workspace check, one project, one narrate and one build, shared by the tests; stills are
+    drawn on demand and kept."""
 
     @classmethod
     def setUpClass(cls):
@@ -79,10 +88,15 @@ class ShortStillCase(unittest.TestCase):
         if sync.returncode != 0:
             raise unittest.SkipTest("video-workspace.sh --engine say exit %d: %s"
                                     % (sync.returncode, (sync.stdout + sync.stderr).strip()[-400:]))
-        cls.app = workspace() / "app"
+        shared = workspace() / "app" / "node_modules"
+        cls.remotion = shared / ".bin" / "remotion"
         tmp = tempfile.TemporaryDirectory(prefix="short-still-")
         cls.addClassCleanup(tmp.cleanup)
         cls.root = Path(tmp.name)
+        # The project of the class, in a runs/ folder of its own, as render.sh makes a run directory.
+        cls.app = cls.root / "runs" / "still"
+        copy_project(cls.app)
+        (cls.app / "node_modules").symlink_to(shared)
         (cls.root / "src").mkdir()
         (cls.root / "src" / "app.py").write_text("\n".join(APP_LINES) + "\n", encoding="utf-8")
 
@@ -105,8 +119,9 @@ class ShortStillCase(unittest.TestCase):
             raise AssertionError("build-timeline.mjs exit %d: %s" % (build.returncode, build.stdout + build.stderr))
         timeline = json.loads(built.read_text(encoding="utf-8"))
 
-        # What render.sh does before a render: the narration clips go under <app>/public/audio.
-        (cls.app / "public" / "audio").mkdir(parents=True, exist_ok=True)
+        # As render.sh does in its run directory: the narration clips go under public/audio of the
+        # project.
+        (cls.app / "public" / "audio").mkdir(parents=True)
         for scene in timeline["scenes"]:
             shutil.copy(cls.root / scene["audio"], cls.app / "public" / scene["audio"])
 
@@ -122,8 +137,7 @@ class ShortStillCase(unittest.TestCase):
         """`remotion still Explain` of one frame; the CompletedProcess and the PNG path."""
         png = self.root / name
         run = subprocess.run(
-            [str(self.app / "node_modules" / ".bin" / "remotion"), "still", "Explain", str(png),
-             "--props", str(props), "--frame", str(frame)],
+            [str(self.remotion), "still", "Explain", str(png), "--props", str(props), "--frame", str(frame)],
             cwd=self.app, capture_output=True, text=True, timeout=STILL_TIMEOUT)
         return run, png
 
@@ -134,6 +148,14 @@ class ShortStillCase(unittest.TestCase):
             self.assertEqual(run.returncode, 0, "remotion still exit %d:\n%s%s" % (run.returncode, run.stdout, run.stderr))
             self.stills[frame] = png
         return self.stills[frame]
+
+    # red: cls.app points at <ws>/app again, where older code may have left other sources (the
+    # stills would show those, not the src/ of this checkout)
+    def test_stills_are_drawn_from_this_checkout(self):
+        app = self.app.resolve()
+        self.assertFalse(app.is_relative_to(workspace().resolve()), app)
+        self.assertEqual((self.app / "src" / "Root.tsx").read_bytes(),
+                         (EXPLAIN / "video" / "src" / "Root.tsx").read_bytes())
 
     # red: calculateMetadata ignores the timeline's width and height (the still is the composition's
     # default size), or Short, a scene body or RunnerLoop throws at frame 20 (the still exits non-zero,
@@ -180,17 +202,18 @@ class ShortStillCase(unittest.TestCase):
 
     def long_clip_props(self):
         """Stage the fixture clip as render.sh does, then write the timeline with LONG_CLIP. The
-        picker runs on a temp folder holding a copy of the clip (it refuses a folder inside the
-        workspace) and puts it into <ws>/bg-stage behind <app>/public/bg; it marks the 1 s clip
-        as a loop, which the props then replace."""
+        picker gets the project of the class as its run directory and a temp folder holding a copy
+        of the clip, <tmp>/clips (it refuses a folder in <tmp>/runs, the folder of the run
+        directory); it puts the clip into <project>/bg-stage behind <project>/public/bg and marks
+        the 1 s clip as a loop, which the props then replace."""
         clips = self.root / "clips"
         clips.mkdir(exist_ok=True)
         shutil.copy(FIXTURE_CLIP, clips / FIXTURE_CLIP.name)
         picked = self.root / "timeline-picked.json"
         shutil.copy(self.timeline_path, picked)
         run = subprocess.run(
-            [sys.executable, "-B", str(PICKER), str(picked), str(self.app / "node_modules" / ".bin" / "remotion"),
-             str(self.app), "--dir", str(clips), "--seed", "7"],
+            [sys.executable, "-B", str(PICKER), str(picked), str(self.remotion), str(self.app),
+             "--dir", str(clips), "--seed", "7"],
             capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
         self.assertEqual((run.returncode, run.stdout), (0, "background: ok bg-1s.mp4 @0.0 s (loop)\n"), run.stderr)
         props = self.root / "timeline-long-clip.json"

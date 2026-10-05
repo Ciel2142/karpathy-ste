@@ -9,9 +9,10 @@ tests need no workspace: they fail before any tool that needs one runs. A fake
 npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant that
 gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
 brainrot route: the template, SKILL.md, the rung file, and the format that stage_script reads
-from a real script.json. The end-to-end class renders the
-three-scene fixture once (tests/video_e2e.py) and needs EXPLAIN_VIDEO_E2E=1. Each test names
-the mutation that turns it red."""
+from a real script.json. E2EHelperCase checks the environment that the gated renders get from
+tests/video_e2e.py: the caller's workspace, none of the caller's background settings. The
+end-to-end class renders the three-scene fixture once (tests/video_e2e.py) and needs
+EXPLAIN_VIDEO_E2E=1. Each test names the mutation that turns it red."""
 
 import json
 import os
@@ -25,9 +26,11 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, TEMPLATE, render_fixture
+from video_e2e import (E2E, E2E_REASON, EXPLAIN, RENDER_SH, TEMPLATE, render_env, render_fixture,
+                       workspace)
 
 BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 BUILD_TIMELINE = EXPLAIN / "video" / "build-timeline.mjs"
@@ -761,6 +764,35 @@ class BrainrotRouteCase(unittest.TestCase):
         self.assertEqual((lines, fmt), (["script: ok (5 scenes)"], "fmt=explainer"))
 
 
+class E2EHelperCase(unittest.TestCase):
+    """The environment of the gated renders (tests/video_e2e.py), with no render: they keep the
+    caller's workspace and drop the caller's background settings."""
+
+    # red: render_env drops EXPLAIN_VIDEO_WORKSPACE, so a test render goes to the default workspace
+    # (or workspace() names another workspace than the one the render gets)
+    def test_render_env_keeps_the_callers_workspace(self):
+        default = Path("~/karpathy/video-workspace").expanduser()
+        with mock.patch.dict(os.environ, {"EXPLAIN_VIDEO_WORKSPACE": "/x/ws"}):
+            self.assertEqual(render_env().get("EXPLAIN_VIDEO_WORKSPACE"), "/x/ws")
+            self.assertEqual(workspace(), Path("/x/ws"))
+        with mock.patch.dict(os.environ):
+            os.environ.pop("EXPLAIN_VIDEO_WORKSPACE", None)
+            self.assertIsNone(render_env().get("EXPLAIN_VIDEO_WORKSPACE"))
+            self.assertEqual(workspace(), default)
+        # an empty value counts as unset, as in render.sh (${EXPLAIN_VIDEO_WORKSPACE:-...})
+        with mock.patch.dict(os.environ, {"EXPLAIN_VIDEO_WORKSPACE": ""}):
+            self.assertEqual(workspace(), default)
+
+    # red: render_env keeps the caller's EXPLAIN_BRAINROT_SEED or EXPLAIN_BRAINROT_BACKGROUNDS, so
+    # the caller's seed or clip folder steers a test render (or `extra` is not applied)
+    def test_render_env_drops_the_callers_background_settings(self):
+        caller = {"EXPLAIN_BRAINROT_BACKGROUNDS": "/x/clips", "EXPLAIN_BRAINROT_SEED": "3"}
+        with mock.patch.dict(os.environ, caller):
+            env = render_env()
+            self.assertEqual([name for name in caller if name in env], [])
+            self.assertEqual(render_env(EXPLAIN_BRAINROT_SEED="7").get("EXPLAIN_BRAINROT_SEED"), "7")
+
+
 ORDER = [
     r"script: ok \(3 scenes\)",
     r"workspace: ok /.+",
@@ -788,6 +820,13 @@ class SayFixtureCase(unittest.TestCase):
         for line, pattern in zip(lines, ORDER):
             self.assertRegex(line, "^%s$" % pattern)
         self.assertIn("render-min/video-min", lines[4])
+
+    # red: the helper drops EXPLAIN_VIDEO_WORKSPACE and the render goes to the default workspace.
+    # Not run red (that is a render in a workspace this branch must not use): E2EHelperCase is the
+    # red-first proof of the helper, this case binds the real render to it.
+    def test_render_used_the_callers_workspace(self):
+        self.assertEqual(stage_lines(self.result.stdout)[1:2], ["workspace: ok %s" % workspace()],
+                         self.result.stdout + self.result.stderr)
 
     # red: the transcript stage without --narrator (the row keeps "pending")
     def test_transcript_narrator_row_says_say(self):

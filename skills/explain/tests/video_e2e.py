@@ -2,9 +2,12 @@
 
 render_fixture() runs scripts/render.sh --engine say once per process on a three-scene
 fixture (title, bullets-appear, before-after, copied from the template with an absolute
-provenance.root) in a temp output dir, against the default workspace
-~/karpathy/video-workspace (set up by video-workspace.sh; never deleted here). Both
-test_render and test_check_render reuse the cached result. The temp dir is removed at exit.
+provenance.root) in a temp output dir. The render uses the workspace $EXPLAIN_VIDEO_WORKSPACE,
+else the default workspace ~/karpathy/video-workspace (set up by video-workspace.sh; never
+deleted here), and compiles in a run directory of its own there (<ws>/runs/run.<pid>.<6 chars>,
+which render.sh removes). render_env() is the environment of every gated render: it keeps the
+caller's workspace and drops the caller's background settings. Both test_render and
+test_check_render reuse the cached result. The temp dir is removed at exit.
 """
 
 import atexit
@@ -22,8 +25,24 @@ E2E = os.environ.get("EXPLAIN_VIDEO_E2E") == "1"
 E2E_REASON = "end-to-end render: set EXPLAIN_VIDEO_E2E=1"
 FIXTURE_COMPONENTS = ("title", "bullets-appear", "before-after")
 RENDER_TIMEOUT = 900
+# The caller's background settings: a test render sets its own or none.
+BACKGROUND_SETTINGS = ("EXPLAIN_BRAINROT_BACKGROUNDS", "EXPLAIN_BRAINROT_SEED")
 
 _cache = {}
+
+
+def workspace() -> Path:
+    """The workspace of a test render: $EXPLAIN_VIDEO_WORKSPACE, else ~/karpathy/video-workspace.
+    An empty value counts as unset, as in render.sh."""
+    return Path(os.environ.get("EXPLAIN_VIDEO_WORKSPACE") or Path.home() / "karpathy" / "video-workspace")
+
+
+def render_env(**extra: str) -> dict:
+    """os.environ without the caller's BACKGROUND_SETTINGS, then `extra`. EXPLAIN_VIDEO_WORKSPACE
+    is kept, so the render uses workspace()."""
+    env = {k: v for k, v in os.environ.items() if k not in BACKGROUND_SETTINGS}
+    env.update(extra)
+    return env
 
 
 def fixture_script():
@@ -40,10 +59,9 @@ def render_fixture():
         out = Path(tempfile.mkdtemp(prefix="explain-e2e-"))
         atexit.register(shutil.rmtree, out, ignore_errors=True)
         (out / "script.json").write_text(json.dumps(fixture_script(), indent=2), encoding="utf-8")
-        env = {k: v for k, v in os.environ.items() if k != "EXPLAIN_VIDEO_WORKSPACE"}
         run = subprocess.run(
             ["/bin/bash", str(RENDER_SH), str(out), "--engine", "say"],
-            capture_output=True, text=True, env=env, timeout=RENDER_TIMEOUT,
+            capture_output=True, text=True, env=render_env(), timeout=RENDER_TIMEOUT,
         )
         _cache["result"] = (out, run)
     return _cache["result"]

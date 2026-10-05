@@ -1,15 +1,17 @@
 """End-to-end brainrot renders (EXPLAIN_VIDEO_E2E=1 only): templates/brainrot-script.json through
-scripts/render.sh --engine say, twice, in the default workspace ~/karpathy/video-workspace (never
-deleted here).
+scripts/render.sh --engine say, twice. Each render uses the workspace $EXPLAIN_VIDEO_WORKSPACE, else
+the default workspace ~/karpathy/video-workspace (never deleted here), and compiles in a run
+directory of its own there (<ws>/runs/run.<pid>.<6 chars>, which render.sh removes); its
+environment is render_env() of video_e2e.py.
 
 The generated run has EXPLAIN_BRAINROT_BACKGROUNDS pointing at an empty temp dir, so the picker
 chooses the generated runner loop. The clip run points it at a temp dir that holds a copy of
 fixtures/bg-1s.mp4, a 1 s clip that is shorter than the video, so it loops. Each render is cached
 once per process and script (the pattern of video_e2e.py: temp output dir, an absolute
 provenance.root, the temp dirs removed at exit). Both folders lie outside the workspace, because the
-picker refuses a --dir inside <ws>/bg-stage or <app>/public. The explainer E2E and the landscape
-regression run after this module in the same workspace, to show that a brainrot run leaves the
-explainer alone.
+picker refuses a --dir that is, or lies under, <ws>/runs: the folder that holds the run directory
+it is given. The explainer E2E and the landscape regression run after this module in the same
+workspace, to show that a brainrot run leaves the explainer alone.
 
 The limits case renders fixtures/brainrot-limits-script.json the same way (generated background,
 seed 7): every limited text of the script sits at its brainrot limit, so its stills show the worst
@@ -17,7 +19,6 @@ case of the layout. Each test names the mutation that turns it red."""
 
 import atexit
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -28,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from png_diff import ink_extent
 from test_render import STAGES, stage_lines
-from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT
+from video_e2e import E2E, E2E_REASON, EXPLAIN, RENDER_SH, RENDER_TIMEOUT, render_env, workspace
 
 BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 LIMITS_SCRIPT = EXPLAIN / "tests" / "fixtures" / "brainrot-limits-script.json"
@@ -82,10 +83,6 @@ BACKGROUND_ROW = {"generated": "generated", "clip": "bg-1s.mp4 @ 0.0 s (loop)"}
 _cache = {}
 
 
-def workspace():
-    return Path.home() / "karpathy" / "video-workspace"
-
-
 def render_brainrot(kind, script=BRAINROT_TEMPLATE):
     """(output dir, CompletedProcess) of the one brainrot render of this process for `kind` and
     `script` (the path of a script.json; the template by default): "generated" (an empty
@@ -101,11 +98,7 @@ def render_brainrot(kind, script=BRAINROT_TEMPLATE):
         data = json.loads(Path(script).read_text(encoding="utf-8"))
         data["provenance"]["root"] = str(EXPLAIN)
         (out / "script.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
-        env = {k: v for k, v in os.environ.items()
-               if k not in ("EXPLAIN_VIDEO_WORKSPACE", "EXPLAIN_BRAINROT_BACKGROUNDS",
-                            "EXPLAIN_BRAINROT_SEED")}
-        env["EXPLAIN_BRAINROT_BACKGROUNDS"] = str(clips)
-        env["EXPLAIN_BRAINROT_SEED"] = SEED
+        env = render_env(EXPLAIN_BRAINROT_BACKGROUNDS=str(clips), EXPLAIN_BRAINROT_SEED=SEED)
         run = subprocess.run(
             ["/bin/bash", str(RENDER_SH), str(out), "--engine", "say"],
             capture_output=True, text=True, env=env, timeout=RENDER_TIMEOUT,
@@ -219,6 +212,16 @@ class BrainrotRenderCase(unittest.TestCase):
         for line, pattern in zip(lines, patterns):
             self.assertRegex(line, "^%s$" % (pattern or BACKGROUND[kind]))
         return out
+
+    # red: the helper drops EXPLAIN_VIDEO_WORKSPACE and the render goes to the default workspace.
+    # Not run red (that is a render in a workspace this branch must not use): E2EHelperCase of
+    # test_render is the red-first proof of the helper, this case binds the real renders to it.
+    def test_render_used_the_callers_workspace(self):
+        for kind in ("generated", "clip"):
+            with self.subTest(background=kind):
+                _, run = render_brainrot(kind)
+                self.assertEqual(stage_lines(run.stdout)[1:2], ["workspace: ok %s" % workspace()],
+                                 run.stdout + run.stderr)
 
     # red: the background stage printing no line (nine lines), a stage out of order, or the
     # generated run picking a clip
