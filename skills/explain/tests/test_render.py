@@ -877,7 +877,7 @@ class BrainrotRouteCase(unittest.TestCase):
         run = self.stage_script_format(brainrot)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
                          (0, ["script: ok (4 scenes)", "fmt=brainrot"]), run.stdout + run.stderr)
-        film = json.loads((EXPLAIN / "templates" / "film-script.json").read_text(encoding="utf-8"))
+        film = json.loads((EXPLAIN / "templates" / "video-script.json").read_text(encoding="utf-8"))
         film["provenance"]["root"] = str(EXPLAIN.parent.parent)
         del film["format"]
         run = self.stage_script_format(film)

@@ -34,7 +34,7 @@ rules:
 You write `script.json` and the files of `scene/` (section 4). The `render.sh` command makes all
 other files from them. Never change a made file by hand.
 
-1. Copy `<skill-dir>/templates/film-script.json` to `<output-dir>/script.json`.
+1. Copy `<skill-dir>/templates/video-script.json` to `<output-dir>/script.json`.
 2. Keep `"format": "film"`. A script without the key is also a film.
 3. Replace every value. The template is the worked example, a film about how `/explain` checks
    an artifact.

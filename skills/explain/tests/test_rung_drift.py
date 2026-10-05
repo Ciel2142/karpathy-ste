@@ -22,7 +22,7 @@ FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
 FilmRungCase ties the rest of video.md to its sources: the level-2 titles (FILM_TITLES), the one table
 headed "| Limit | film |" to the film row of video/formats.json and to MIN_TEXT of kit/palette.ts
 (FILM_CELLS, filled by fill of test_format_limits.py), the export lines of the ts blocks of section "Write
-the scene" to the exports of kit/index.ts, and section "Write the script" to templates/film-script.json.
+the scene" to the exports of kit/index.ts, and section "Write the script" to templates/video-script.json.
 Each test names the mutation that turns it red.
 
 BrainrotRungCase ties brainrot.md to video.md by title: each block of brainrot.md that names video.md (a
@@ -229,7 +229,7 @@ FILM_TITLES = ("When a video", "The grammar of a film", "Write the script", "Wri
 FORMATS_JSON = EXPLAIN / "video" / "formats.json"
 PALETTE_TS = EXPLAIN / "video" / "src" / "kit" / "palette.ts"
 KIT_INDEX = EXPLAIN / "video" / "src" / "kit" / "index.ts"
-FILM_TEMPLATE = EXPLAIN / "templates" / "film-script.json"
+FILM_TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 FILM_TABLE_HEADER = "| Limit | film |"
 # (row label, template), in the order of the rows; fill() makes the cell from the film row of formats.json
 # with the key minText added.
@@ -614,12 +614,14 @@ class FilmRungCase(unittest.TestCase):
         self.assertLessEqual({"CodeCard", "Pt", "FilmProps"}, exports)
         self.assertEqual(rung_kit_names(), exports)
 
-    # red: the rung names the old template, or leaves out "format": "film"
+    # red: the rung names the old file name (film, then -script.json), or leaves out templates/video-script.json
+    # or "format": "film", or the template has another format than film
     def test_the_script_section_copies_the_film_template(self):
         body = section(read(VIDEO_MD), "Write the script")
-        self.assertEqual([text for text in ("templates/film-script.json", '"format": "film"') if text not in body],
+        self.assertEqual([text for text in ("templates/video-script.json", '"format": "film"') if text not in body],
                          [])
-        self.assertFalse("video-script.json" in read(VIDEO_MD), "video.md names the old template")
+        old_name = "film" + "-script.json"  # in two parts, so that a grep for the old name finds no line
+        self.assertFalse(old_name in read(VIDEO_MD), "video.md names the old template")
         self.assertEqual(json.loads(read(FILM_TEMPLATE))["format"], "film")
 
     # red: a row of the old components table, or the cue rule, is left in

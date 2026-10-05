@@ -1,5 +1,5 @@
 """The words and the picture of the worked example film, which keep the example true (spec 5.3). The
-skill ships one film, "how /explain checks an artifact before handoff": templates/film-script.json holds
+skill ships one film, "how /explain checks an artifact before handoff": templates/video-script.json holds
 its narration and cites, video/src/film/script.gen.ts the scene and source names that build-timeline.mjs
 --types writes from it, and video/src/film/Film.tsx the picture. The first class holds the script to the
 rules that need no audio: it passes the script check, its generated names are the checked-in file, its
@@ -28,7 +28,7 @@ from test_narrate import NARRATE_PY
 from test_video_timeline import EXPLAIN, TOOL
 
 REPO = EXPLAIN.parent.parent
-FILM_TEMPLATE = EXPLAIN / "templates" / "film-script.json"
+FILM_TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 FILM_DIR = EXPLAIN / "video" / "src" / "film"
 TRANSCRIPT_PY = EXPLAIN / "video" / "transcript.py"
 VERIFY_SH = EXPLAIN / "scripts" / "verify.sh"

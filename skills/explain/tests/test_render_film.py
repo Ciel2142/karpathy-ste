@@ -25,7 +25,7 @@ HUP.
 
 FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders the worked example through scripts/render.sh
 --engine say once per process (render_film() of film_output(): a temporary output directory removed
-at exit, with script.json the template templates/film-script.json, template_script() of
+at exit, with script.json the template templates/video-script.json, template_script() of
 test_film_example.py rooted at the repository, and scene/ a copy of the example scene FILM_DIR; the
 environment render_env() of video_e2e.py, so the render uses workspace()). It holds the eleven stage
 lines (the scene stage counts SCENE_FILES, the guard CHECK_FRAMES), the stills at the check frames,
