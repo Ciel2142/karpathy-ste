@@ -16,6 +16,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from unittest import mock
 
 KIT = Path(__file__).resolve().parent.parent / "video" / "src" / "kit"
 VIDEO = KIT.parent.parent
@@ -40,12 +41,16 @@ def needs_kit_tools(cls):
     return cls
 
 
-def run_checked(argv, cwd=None):
+def run_checked(argv, cwd=None, quiet=False):
     """Run `argv` (in `cwd`) and return its stdout. A non-zero exit raises an AssertionError that
-    carries the command's name, its exit code and its stderr, so a failing test says why."""
+    carries the command's name, its exit code and its stderr, so a failing test says why. With `quiet`
+    anything the command writes to stderr fails the run too, so that a warning cannot pass unseen."""
     done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=120)
+    name, errors = Path(argv[0]).name, done.stderr.strip()
     if done.returncode != 0:
-        raise AssertionError("%s exited %d: %s" % (Path(argv[0]).name, done.returncode, done.stderr.strip()))
+        raise AssertionError("%s exited %d: %s" % (name, done.returncode, errors))
+    if quiet and errors:
+        raise AssertionError("%s wrote to stderr: %s" % (name, errors))
     return done.stdout
 
 
@@ -65,14 +70,19 @@ def kit_app():
     under the workspace. The caller removes it with shutil.rmtree, which unlinks the link and leaves
     the workspace alone."""
     app = Path(tempfile.mkdtemp(prefix="film-kit-"))
-    shutil.copytree(VIDEO, app, ignore=shutil.ignore_patterns("node_modules"), dirs_exist_ok=True)
-    (app / "node_modules").symlink_to(MODULES)
+    try:
+        shutil.copytree(VIDEO, app, ignore=shutil.ignore_patterns("node_modules"), dirs_exist_ok=True)
+        (app / "node_modules").symlink_to(MODULES)
+    except BaseException:
+        shutil.rmtree(app)
+        raise
     return app
 
 
 def render_kit(entry_source):
     """Write `entry_source` as src/kitcheck/entry.tsx of a fresh kit_app(), bundle it with esbuild, run
-    the bundle in Node and return the JSON object it prints. A failing esbuild or Node run raises an
+    the bundle in Node and return the JSON object it prints. An esbuild or Node run that fails, or
+    writes anything to stderr (a warning of esbuild, a development warning of React), raises an
     AssertionError that carries its stderr. The copy is removed afterwards."""
     app = kit_app()
     try:
@@ -82,9 +92,9 @@ def render_kit(entry_source):
         run_checked(
             ["node_modules/.bin/esbuild", "src/kitcheck/entry.tsx", "--bundle", "--format=cjs",
              "--platform=node", "--outfile=out.cjs", "--log-level=warning"],
-            cwd=app,
+            cwd=app, quiet=True,
         )
-        return json.loads(run_checked([NODE, "out.cjs"], cwd=app))
+        return json.loads(run_checked([NODE, "out.cjs"], cwd=app, quiet=True))
     finally:
         shutil.rmtree(app)
 
@@ -790,7 +800,8 @@ class TestKitDraws(unittest.TestCase):
         """Red: a kind takes the other's colour (the check is red or the cross green), both kinds
         draw the same path, the group's transform is not `translate(x y) scale(s)` (the scale is
         dropped or put before the translate, which moves the mark by twice the offset), the default
-        scale is not 1, the stroke width is not 3, the mark is not drawn about 16 px wide and centred
+        scale is not 1, the stroke width is not 3, the cross is one path or a path holds a second
+        subpath (a second `M` restarts the dash), the mark is not drawn about 16 px wide and centred
         on the origin (a path that starts at the origin, or is twice as large), a mark at t 0 draws
         a path or no longer returns its group, or t and opacity are not passed on to the stroke."""
         got = self.render(
@@ -801,19 +812,22 @@ class TestKitDraws(unittest.TestCase):
             half='<Mark kind="check" x={10} y={20} t={0.5} scale={2} opacity={0.4} />',
         )
         shapes = {}
-        for name, stroke in (("check", PALETTE["C"]["green"]), ("cross", PALETTE["C"]["red"])):
+        for name, stroke, strokes in (("check", PALETTE["C"]["green"], 1), ("cross", PALETTE["C"]["red"], 2)):
             (group,) = got[name]
             self.assertEqual(group.tag, "g")
             self.assertEqual(group.get("transform"), "translate(10 20) scale(2)", name)
-            (path,) = group
-            expected = {"stroke": stroke, "stroke-width": "3", "stroke-dashoffset": "0"}
-            self.assertEqual(attrs(path, expected), expected, name)
-            numbers = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", path.get("d"))]
+            self.assertEqual(len(group), strokes, name)
+            numbers = []
+            for path in group:
+                self.assertEqual(path.get("d").count("M"), 1, "%s: a path of one subpath" % name)
+                expected = {"stroke": stroke, "stroke-width": "3", "stroke-dashoffset": "0"}
+                self.assertEqual(attrs(path, expected), expected, name)
+                numbers += [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", path.get("d"))]
             xs, ys = numbers[0::2], numbers[1::2]
             self.assertTrue(12 <= max(xs) - min(xs) <= 16, "%s is %s px wide" % (name, max(xs) - min(xs)))
             self.assertLessEqual(abs(max(xs) + min(xs)) / 2, 1, "%s is off-centre in x" % name)
             self.assertLessEqual(abs(max(ys) + min(ys)) / 2, 1, "%s is off-centre in y" % name)
-            shapes[name] = path.get("d")
+            shapes[name] = [path.get("d") for path in group]
         self.assertNotEqual(shapes["check"], shapes["cross"])
         self.assertEqual(got["plain"][0].get("transform"), "translate(10 20) scale(1)")
         (unseen,) = got["unseen"]
@@ -821,6 +835,56 @@ class TestKitDraws(unittest.TestCase):
         (half_path,) = got["half"][0]
         expected = {"stroke-dashoffset": "0.5", "opacity": "0.4"}
         self.assertEqual(attrs(half_path, expected), expected)
+
+    def test_cross_draws_one_diagonal_after_the_other(self):
+        """Red: the cross is one path of two subpaths (the browser restarts the dash at the second
+        one, so both diagonals grow at once and the X is whole at t 0.5), the first diagonal is not
+        whole at t 0.5, the second starts before 0.5 or is not whole at t 1, or the opacity reaches
+        only one of the two strokes."""
+        got = self.render(**{
+            "0.25": '<Mark kind="cross" x={0} y={0} t={0.25} />',
+            "0.5": '<Mark kind="cross" x={0} y={0} t={0.5} />',
+            "0.75": '<Mark kind="cross" x={0} y={0} t={0.75} />',
+            "1": '<Mark kind="cross" x={0} y={0} t={1} opacity={0.4} />',
+        })
+        offsets = {name: [path.get("stroke-dashoffset") for path in group[0]] for name, group in got.items()}
+        self.assertEqual(offsets, {"0.25": ["0.5"], "0.5": ["0"], "0.75": ["0", "0.5"], "1": ["0", "0"]})
+        self.assertEqual([path.get("opacity") for path in got["1"][0]], ["0.4", "0.4"])
+
+
+@needs_kit_tools
+class TestKitHarness(unittest.TestCase):
+    """The render harness itself: a run that is noisy or fails must say so and leave nothing behind."""
+
+    def test_render_kit_fails_on_anything_written_to_stderr(self):
+        """Red: render_kit returns the JSON of an entry although the run wrote to stderr (the entry's
+        own console.error, an esbuild warning, or the warning that React prints for a list of
+        elements without keys) instead of raising an AssertionError that carries the text."""
+        keyless = SHOW + 'show("list", [<text>a</text>, <text>b</text>]);\nprint();\n'
+        cases = {
+            "console.error": ('console.error("planted"); console.log("{}");', "planted"),
+            "esbuild warning": ('console.log("{}"); if (typeof Math === "strig") console.log(1);', "never evaluate"),
+            "react key warning": (keyless, 'unique "key" prop'),
+        }
+        for name, (source, text) in cases.items():
+            with self.subTest(name):
+                with self.assertRaises(AssertionError) as raised:
+                    render_kit(source)
+                self.assertIn(text, str(raised.exception))
+
+    def test_kit_app_removes_its_copy_when_it_fails(self):
+        """Red: kit_app makes its temporary directory outside the cleanup, so a copy that fails, or a
+        link that fails, leaves a film-kit-* directory behind."""
+        failures = {
+            "copy": mock.patch.object(shutil, "copytree", side_effect=OSError("disk full")),
+            "link": mock.patch.object(Path, "symlink_to", side_effect=OSError("no links")),
+        }
+        for name, failure in failures.items():
+            with self.subTest(name):
+                with tempfile.TemporaryDirectory() as scratch, mock.patch.object(tempfile, "tempdir", scratch):
+                    with failure, self.assertRaises(OSError):
+                        kit_app()
+                    self.assertEqual(os.listdir(scratch), [])
 
 
 if __name__ == "__main__":
