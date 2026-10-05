@@ -278,5 +278,218 @@ class TestFilmCheck(VideoCase):
         self.assertEqual(result.stderr, "")
 
 
+class TestFilmSources(VideoCase):
+    """The `sources` check of a film: the shape of each entry, then the file under the data root."""
+
+    def assertPasses(self, result):
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def with_sources(self, sources):
+        script = film_script()
+        script["sources"] = sources
+        return self.check(script)
+
+    def changed(self, **changes):
+        """The one source of film_script() with these keys set (a value of `...` removes the key)."""
+        source = film_script()["sources"][0]
+        for key, value in changes.items():
+            if value is ...:
+                del source[key]
+            else:
+                source[key] = value
+        return self.with_sources([source])
+
+    def test_sources_absent_and_empty_pass(self):
+        """Red: an empty `sources` array is refused, or an absent key is read as a fault."""
+        script = film_script()
+        del script["sources"]
+        self.assertPasses(self.check(script))
+        self.assertPasses(self.with_sources([]))
+
+    def test_sources_must_be_an_array(self):
+        """Red: a `sources` that is not an array is read as no sources, or the key `sources: null`
+        counts as absent."""
+        for value in ({}, None):
+            with self.subTest(value=value):
+                self.assertFails(self.with_sources(value), "FAIL script: sources must be an array")
+
+    def test_source_shape(self):
+        """Red: an entry that is not an object crashes the check or passes, a missing key passes, or
+        an extra key (here `lines`) passes."""
+        self.assertFails(self.with_sources([7]), "FAIL source #1: must be an object")
+        self.assertFails(self.changed(to=...), 'FAIL source app: missing "to"')
+        self.assertFails(self.changed(lines=[]), 'FAIL source app: unexpected key "lines"')
+
+    def test_source_with_several_shape_faults_gives_one_line_each_in_rule_order(self):
+        """Red: the lines of one entry come in another order than: missing keys, unexpected keys,
+        the id rules, path, from, to; or one line stands for several faults."""
+        source = {"id": "App", "path": 5, "from": "1", "extra": 1}
+        self.assertFails(
+            self.with_sources([source]),
+            'FAIL source #1: missing "to"',
+            'FAIL source #1: unexpected key "extra"',
+            'FAIL source #1: id "App" must match [a-z0-9-]',
+            "FAIL source #1: path must be a string",
+            "FAIL source #1: from must be an integer",
+        )
+
+    def test_source_id(self):
+        """Red: the id pattern of a source is not the scene id pattern, an empty or non-string id
+        passes, or a second entry with the same id is accepted."""
+        self.assertFails(self.changed(id="App"), 'FAIL source #1: id "App" must match [a-z0-9-]')
+        for value in ("", 5):
+            with self.subTest(id=value):
+                self.assertFails(self.changed(id=value), "FAIL source #1: id must be a non-empty string")
+        twin = film_script()["sources"][0]
+        self.assertFails(self.with_sources([twin, dict(twin)]), "FAIL source app: duplicate id")
+
+    def test_source_id_named_like_an_inherited_property_is_ordinary(self):
+        """Red: the ids seen so far are kept in a plain object and looked up with `in`, so the first
+        source called `constructor` is reported as a duplicate; or a second one is not."""
+        source = dict(film_script()["sources"][0], id="constructor")
+        self.assertPasses(self.with_sources([source]))
+        self.assertFails(self.with_sources([source, dict(source)]), "FAIL source constructor: duplicate id")
+
+    def test_source_path(self):
+        """Red: a path that is not a string or is empty passes, or `..` and an absolute path are
+        read (the outside-the-root guard is skipped)."""
+        self.assertFails(self.changed(path=5), "FAIL source app: path must be a string")
+        self.assertFails(self.changed(path=""), "FAIL source app: path is empty")
+        for value in ("../x.py", "/etc/hosts"):
+            with self.subTest(path=value):
+                self.assertFails(
+                    self.changed(path=value),
+                    "FAIL source app: path %s must be a relative path inside the data root" % json.dumps(value),
+                )
+
+    def test_source_range(self):
+        """Red: from or to may be a string or a fraction, an invalid range is not reported, the limit
+        reads another row (20 lines pass, 21 fail), or the line loses the film tag."""
+        for key, value in (("from", "3"), ("from", 3.5), ("to", "10"), ("to", True)):
+            with self.subTest(key=key, value=value):
+                self.assertFails(self.changed(**{key: value}), "FAIL source app: %s must be an integer" % key)
+        self.assertFails(self.changed(**{"from": 0}), "FAIL source app: range 0-10 is not a valid line range")
+        self.assertFails(
+            self.changed(**{"from": 5, "to": 3}), "FAIL source app: range 5-3 is not a valid line range"
+        )
+        self.assertPasses(self.changed(**{"from": 1, "to": 20}))
+        self.assertFails(self.changed(**{"from": 1, "to": 21}), "FAIL source app: range 1-21 is 21 lines (max 20, film)")
+
+    def test_invalid_range_is_the_only_line(self):
+        """Red: an invalid range does not stop the entry: the line count, the path guard or the read
+        also report (this range is 31 lines wide, under a path outside the root)."""
+        self.assertFails(
+            self.changed(**{"from": 0, "to": 30, "path": "../x.py"}),
+            "FAIL source app: range 0-30 is not a valid line range",
+        )
+
+    def test_source_file_faults(self):
+        """Red: a missing file or a directory crashes the check or passes, an empty file or a `to`
+        past the last line passes, or a line names the wrong file or count."""
+        self.write("src/empty.py", "")
+        for value in ("src/missing.py", "src"):
+            with self.subTest(path=value):
+                self.assertFails(
+                    self.changed(path=value),
+                    "FAIL source app: path %s cannot be read under the data root" % value,
+                )
+        self.assertFails(
+            self.changed(path="src/empty.py", **{"from": 1, "to": 1}),
+            "FAIL source app: to 1 is outside src/empty.py (0 lines)",
+        )
+        self.assertFails(
+            self.changed(**{"from": 70, "to": 73}),
+            "FAIL source app: to 73 is outside src/app.py (72 lines)",
+        )
+
+    def test_count_line_does_not_stop_the_later_faults(self):
+        """Red: a range over the limit stops the entry, so a path outside the root, an unreadable path
+        or a `to` past the last line is not reported with it; or the count line comes after it."""
+        count = "FAIL source app: range 1-25 is 25 lines (max 20, film)"
+        self.assertFails(
+            self.changed(path="../x.py", **{"from": 1, "to": 25}),
+            count,
+            'FAIL source app: path "../x.py" must be a relative path inside the data root',
+        )
+        self.assertFails(
+            self.changed(path="src/missing.py", **{"from": 1, "to": 25}),
+            count,
+            "FAIL source app: path src/missing.py cannot be read under the data root",
+        )
+        self.assertFails(
+            self.changed(path="src/wide.py", **{"from": 1, "to": 25}),
+            count,
+            "FAIL source app: to 25 is outside src/wide.py (4 lines)",
+        )
+
+    def test_source_last_line_without_a_final_newline(self):
+        """Red: a file with no newline after its last line loses that line (the splitter drops the
+        last entry whether or not it is empty)."""
+        self.write("src/three.py", "one\ntwo\nthree")
+        self.assertPasses(self.changed(path="src/three.py", **{"from": 3, "to": 3}))
+
+    def test_source_with_crlf_line_ends(self):
+        """Red: a carriage return is a line end of its own (a three-line CRLF file reads as six), or
+        the empty entry after the final CRLF counts as a line."""
+        self.write("src/crlf.py", "one\r\ntwo\r\nthree\r\n")
+        self.assertPasses(self.changed(path="src/crlf.py", **{"from": 3, "to": 3}))
+        self.assertFails(
+            self.changed(path="src/crlf.py", **{"from": 4, "to": 4}),
+            "FAIL source app: to 4 is outside src/crlf.py (3 lines)",
+        )
+
+    def test_source_with_a_nul_byte(self):
+        """Red: the NUL byte is looked for only in the declared lines, is not looked for, or does
+        not stop the entry (a `to` past the last line is reported with it)."""
+        self.write("src/nul.py", "one\ntwo\nthree\nfo\0ur\n")
+        self.assertFails(
+            self.changed(path="src/nul.py", **{"from": 1, "to": 2}),
+            "FAIL source app: src/nul.py has a NUL byte",
+        )
+        self.assertFails(
+            self.changed(path="src/nul.py", **{"from": 1, "to": 9}),
+            "FAIL source app: src/nul.py has a NUL byte",
+        )
+
+    def test_two_faulty_sources_and_a_faulty_scene(self):
+        """Red: the lines come in another order than the sources in script order, then the scene, or
+        the first faulty source stops the check of the next."""
+        script = film_script()
+        script["sources"] = [
+            {"id": "app", "path": "src/app.py", "from": 0, "to": 10},
+            {"id": "wide", "path": "src/missing.py", "from": 1, "to": 2},
+        ]
+        script["scenes"][1]["pause"] = 5
+        self.assertFails(
+            self.check(script),
+            "FAIL source app: range 0-10 is not a valid line range",
+            "FAIL source wide: path src/missing.py cannot be read under the data root",
+            "FAIL scene forms: pause 5 must be an integer from 12 to 90",
+        )
+
+    def test_source_lines_come_after_the_header_and_before_the_scene_count(self):
+        """Red: the source lines come before the header lines or after the scene count."""
+        script = film_script()
+        del script["title"]
+        script["sources"][0]["to"] = 99
+        script["scenes"] = script["scenes"][:2]
+        self.assertFails(
+            self.check(script),
+            "FAIL script: title must be a string",
+            "FAIL source app: range 3-99 is 97 lines (max 20, film)",
+            "FAIL source app: to 99 is outside src/app.py (72 lines)",
+            "FAIL script: 2 scenes (needs 3 to 30, film)",
+        )
+
+    def test_sources_are_not_checked_for_another_format(self):
+        """Red: the source rules run for every format, so `sources: 5` of a brainrot or explainer
+        script adds "sources must be an array" to its unexpected-key line."""
+        for make in (brainrot_script, base_script):
+            with self.subTest(make=make.__name__):
+                script = make()
+                script["sources"] = 5
+                self.assertFails(self.check(script), 'FAIL script: unexpected key "sources"')
+
+
 if __name__ == "__main__":
     unittest.main()

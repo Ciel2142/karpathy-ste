@@ -22,9 +22,25 @@
 //   a film scene has no component or props    one line, for either key or both
 //   pause <v> must be an integer from 12 to 90    <v> as JSON text; 12.0 parses as the integer 12
 // "sources" is an allowed top-level key of a film only; "pause" is a scene key of a film only.
-// The lines of a film come in this order: the header, the scene count, then for each scene the
-// duplicate id line and the scene's own lines (must be an object; missing id, narration; the
+// The lines of a film come in this order: the header, the sources, the scene count, then for each scene
+// the duplicate id line and the scene's own lines (must be an object; missing id, narration; the
 // component line; unexpected keys; the id rules; the narration rules; the cites rules; the pause line).
+// "sources" is absent or an array (absent and [] mean the same) of { id, path, from, to }, all required:
+// a range of at most limits.sourceLines lines that exists in the file at <data-root>/<path>. Each broken
+// rule is one line, "FAIL source <id>: " (or "FAIL source #<n>: " when the id is not a valid one):
+//   FAIL script: sources must be an array
+//   must be an object | missing "<key>" | unexpected key "<key>"
+//   id must be a non-empty string | id "<id>" must match [a-z0-9-] | duplicate id
+//   path must be a string | path is empty | from must be an integer | to must be an integer
+// and, for an entry whose shape holds (an invalid range is the only line when it applies; the count line
+// does not stop the rest; the other causes stop the read, so at most one of them):
+//   range <from>-<to> is not a valid line range
+//   range <from>-<to> is <n> lines (max <sourceLines>, film)
+//   path "<path>" must be a relative path inside the data root
+//   path <path> cannot be read under the data root       missing, a directory, unreadable
+//   <path> has a NUL byte                                anywhere in the file
+//   to <to> is outside <path> (<n> lines)
+// The declared lines are split as a code scene's are (no "\r", no entry for a final newline), tabs kept.
 //
 // A brainrot build also reads <id>.<engine>.words.json, next to durations.json, for every
 // scene (engine is the one actually used, so a Kokoro run that fell back to say reads
@@ -247,13 +263,15 @@ const checkCues = (scene, fail) => {
 
 const columns = (line) => charLength(line) + (TAB_COLUMNS - 1) * (line.split("\t").length - 1);
 
-// Lines of <root>/<file>, one entry per line, no trailing newline.
-const readSourceLines = (root, file) => {
-  const text = fs.readFileSync(path.join(root, file), "utf8");
+// The lines of `text`, one entry per line: no "\r" before a line end, no entry for a final newline.
+const splitLines = (text) => {
   const lines = text.split("\n").map((l) => l.replace(/\r$/, ""));
   if (lines.at(-1) === "") lines.pop();
   return lines;
 };
+
+// Lines of <root>/<file>, one entry per line, no trailing newline.
+const readSourceLines = (root, file) => splitLines(fs.readFileSync(path.join(root, file), "utf8"));
 
 // A data-root path must be relative and stay inside the root: no "..", no absolute path.
 const outsideRoot = (file) => {
@@ -295,6 +313,31 @@ const checkCode = (props, root, fail, limits, tag) => {
       fail(`highlights[${i}] range ${h.from}-${h.to} is outside the source range ${from}-${to}`);
     }
   });
+};
+
+// The declared lines of one film source (tabs kept) or every cause that stops the read, in rule order.
+// `entry` has the shape { path: string, from: integer, to: integer }; the caller checks that. Returns
+// { lines } when no rule breaks, else { causes } (never empty): an invalid range alone; else the count
+// line when the range is over limits.sourceLines, then at most one of: path outside the root, path
+// cannot be read, a NUL byte anywhere in the file, `to` past the last line. `tag` ends the count line.
+const readSource = (entry, root, limits, tag) => {
+  const { path: file, from, to } = entry;
+  if (from < 1 || from > to) return { causes: [`range ${from}-${to} is not a valid line range`] };
+  const causes = [];
+  if (to - from + 1 > limits.sourceLines) {
+    causes.push(`range ${from}-${to} is ${to - from + 1} lines (max ${limits.sourceLines}${tag})`);
+  }
+  if (outsideRoot(file)) return { causes: [...causes, `path ${q(file)} must be a relative path inside the data root`] };
+  let text;
+  try {
+    text = fs.readFileSync(path.join(root, file), "utf8");
+  } catch {
+    return { causes: [...causes, `path ${file} cannot be read under the data root`] };
+  }
+  if (text.includes("\0")) return { causes: [...causes, `${file} has a NUL byte`] };
+  const lines = splitLines(text);
+  if (to > lines.length) return { causes: [...causes, `to ${to} is outside ${file} (${lines.length} lines)`] };
+  return causes.length > 0 ? { causes } : { lines: lines.slice(from - 1, to) };
 };
 
 // ---------- diagram references and cells ----------
@@ -405,8 +448,51 @@ const checkFilmScene = (scene, where, subjectKind, report, limits, tag) => {
   }
 };
 
-const sceneWhere = (scene, index) =>
-  typeof scene?.id === "string" && SCENE_ID.test(scene.id) ? `scene ${scene.id}` : `scene #${index + 1}`;
+// "<kind> <id>" for an item whose id matches the scene id pattern, else "<kind> #<n>" (n from 1).
+const itemWhere = (kind, item, index) =>
+  typeof item?.id === "string" && SCENE_ID.test(item.id) ? `${kind} ${item.id}` : `${kind} #${index + 1}`;
+const sceneWhere = (scene, index) => itemWhere("scene", scene, index);
+
+const SOURCE_KEYS = ["id", "path", "from", "to"];
+const SOURCE_PATH = str(Infinity);
+
+// One entry of a film's `sources`: its shape, then (when the shape holds) readSource. Each broken rule
+// is one `report("source <id>", cause)`, in this order: must be an object; missing keys; unexpected keys;
+// the id rules; the path rules; from; to; duplicate id; then the causes of readSource. `ids` holds the ids
+// of the entries before this one and takes this one's. Returns the declared lines when no rule broke,
+// else undefined. Build mode runs the same check on every entry.
+const checkSource = (entry, index, ids, root, limits, tag, report) => {
+  let broken = false;
+  const fail = (cause) => {
+    broken = true;
+    report(itemWhere("source", entry, index), cause);
+  };
+  if (!isObject(entry)) {
+    fail("must be an object");
+    return undefined;
+  }
+  for (const key of SOURCE_KEYS) if (!has(entry, key)) fail(`missing ${q(key)}`);
+  for (const key of Object.keys(entry)) if (!SOURCE_KEYS.includes(key)) fail(`unexpected key ${q(key)}`);
+  if (has(entry, "id")) checkSceneId(entry.id, fail);
+  if (has(entry, "path")) checkSpec(entry.path, SOURCE_PATH, "path", fail);
+  for (const key of ["from", "to"]) if (has(entry, key)) checkSpec(entry[key], int, key, fail);
+  if (typeof entry.id === "string" && entry.id !== "") {
+    if (ids.has(entry.id)) fail("duplicate id");
+    ids.add(entry.id);
+  }
+  if (broken) return undefined;
+  const read = readSource(entry, root, limits, tag);
+  if (read.causes === undefined) return read.lines;
+  for (const cause of read.causes) fail(cause);
+  return undefined;
+};
+
+// The `sources` of a film (spec 4.2): absent and [] mean the same.
+const checkSources = (sources, root, limits, tag, report) => {
+  if (!Array.isArray(sources)) return report("script", "sources must be an array");
+  const ids = new Set();
+  sources.forEach((entry, i) => checkSource(entry, i, ids, root, limits, tag, report));
+};
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = (s) => {
@@ -449,6 +535,7 @@ const validate = (script, root) => {
   const shapes = shapesOf(format);
   const tag = tagOf(format);
   const isFilm = format === "film";
+  if (isFilm && has(script, "sources")) checkSources(script.sources, root, limits, tag, report);
   if (!Array.isArray(script.scenes)) {
     report("script", "scenes must be an array");
     return lines;
