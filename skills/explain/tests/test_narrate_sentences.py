@@ -180,6 +180,17 @@ class Sentences(NarrateCase):
             f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{ONE}",
         )
 
+    def test_film_is_narrated_in_sentences(self):
+        """Mutation: film is missing from the format table of narrate.py (exit 2), or it maps to the
+        whole-scene mode (no words.json, no mode line in the sidecar)."""
+        run = self.shell(self.brainrot(scene("one", ONE), format="film"), "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue((self.audio / "one.say.words.json").is_file())
+        self.assertEqual(
+            (self.audio / "one.say.txt").read_text(encoding="utf-8"),
+            f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{ONE}",
+        )
+
     def test_explainer_writes_no_words_json(self):
         """Mutation: every script gets a words.json or a mode line, or an explicit explainer is
         treated as brainrot."""

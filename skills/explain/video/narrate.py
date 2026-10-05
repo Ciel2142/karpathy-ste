@@ -12,7 +12,7 @@ Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, say 2205
 a sidecar <id>.<engine>.txt (engine, voice, speed, narration) and durations.json:
 { "engine", "fallback", "scenes": { "<id>": seconds } }.
 
-A script whose "format" is "brainrot" is narrated one sentence at a time: each sentence is
+A script whose "format" is "brainrot" or "film" is narrated one sentence at a time: each sentence is
 synthesised alone, the clips are joined with 0.15 s of silence between them, and
 <id>.<engine>.words.json gets the exact start and end of every sentence and word:
 { "sentences": [{ "from", "to" }], "words": [{ "text", "from", "to" }] } (seconds from the
@@ -50,7 +50,7 @@ SENTENCE_END = ".?!"
 CLAUSE_END = ",;:"
 END_WEIGHT = 2          # a word that ends a clause or a sentence is followed by a pause
 JOIN_GAP_S = 0.15       # silence between two sentence clips
-FORMATS = {"explainer": "scene", "brainrot": "sentences"}   # script format -> narration mode
+FORMATS = {"explainer": "scene", "brainrot": "sentences", "film": "sentences"}   # script format -> narration mode
 
 
 class NarrationError(Exception):
