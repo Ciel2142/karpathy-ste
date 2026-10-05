@@ -12,9 +12,9 @@ four FAIL lines and the lines of tsc, cut and renamed.
 
 GuardStageCase runs stage_guard alone in a temporary directory (an output directory with a timeline of three
 checkFrames and one narration clip, a run directory, a fake remotion: FAKE_PASS): the pass the stage makes
-(its arguments, its cwd), the format that has none, the stage line of a frame fault and of a pass that failed
-otherwise, and the timeline or clip that cannot be read or copied. A marker of the log fails the stage
-whatever the exit code of the pass.
+(its arguments, its cwd), the format that has none, the stage line of a frame fault, of a mark error and of a
+pass that failed otherwise, and the timeline or clip that cannot be read or copied. A marker of the log fails
+the stage whatever the exit code of the pass.
 
 SceneRunCase runs a copy of render.sh as RunDirectoryCase does (RunHarness of test_render.py), on a film
 script, against the same fakes with the real check_scene.py, FAKE_TSC and a build-timeline.mjs that takes
@@ -41,10 +41,11 @@ edit, is their control. The expected lines come from the template and the edited
 the render.
 
 GuardPlantCase (EXPLAIN_VIDEO_E2E=1 only) proves the browser rules of the guard (spec 7.3, 9.2) on the
-same output directory with one scene file added by add_to_film: the planted film, rendered three times,
-stops at its first check frame with the same four faults each time; a label off the canvas at the last
-frame alone stops at the last check frame. FilmRenderCase is their control. Each test names the mutation
-that turns it red."""
+same output directory with one edit: the planted film (a scene file added by add_to_film), rendered three
+times, stops at its first check frame with the same four faults each time; a label off the canvas at the last
+frame alone (a file added the same way) stops at the last check frame; the mark plant (the word of the first
+at("subject", { word: "subject" }) of Film.tsx written as "zebra": no file added) stops with the guard's
+mark line. FilmRenderCase is their control. Each test names the mutation that turns it red."""
 
 import atexit
 import importlib.util
@@ -479,6 +480,15 @@ FRAME_FAULT_LOG = (
     "at src/FilmStage.tsx:40\n"
     '40 \u2502   cancelRender(new Error(guardLine(frame, "guard: FAIL frame 1 (scene z): y", faults)));\n')
 
+# The log of a pass that a mark error ended: the message of marks.ts is the line after the CLI's frame line, and
+# a code frame of the source below it repeats the template of that message, "MARK scene " and all.
+MARK_FAULT_LOG = (
+    "Rendered 1/3\n"
+    "An error occurred while rendering frame 12:\n"
+    ' Error  MARK scene b: word "zebra" is not in the narration\n'
+    "at src/kit/marks.ts:35\n"
+    '35 \u2502 const markError = (scene: string, why: string): Error => new Error(`MARK scene ${scene}: ${why}`);\n')
+
 
 class GuardStageCase(unittest.TestCase):
     """stage_guard alone (with copy_clips, which it calls), against FAKE_PASS. Every path lies in the test's
@@ -555,6 +565,13 @@ class GuardStageCase(unittest.TestCase):
         done = self.guard(log=FRAME_FAULT_LOG, code=0)
         self.assertEqual((done.returncode, done.stdout),
                          (1, 'guard: FAIL frame 47 (scene b): OFFCANVAS "x"\n'), done.stderr)
+
+    # red: the mark error is not a marker (the stage line is the exit line of the pass), "MARK" is kept in the line,
+    # or the last marker line wins (the code frame's "MARK scene ")
+    def test_a_mark_error_is_the_stage_line(self):
+        done = self.guard(log=MARK_FAULT_LOG, code=1)
+        self.assertEqual((done.returncode, done.stdout),
+                         (1, 'guard: FAIL mark: scene b: word "zebra" is not in the narration\n'), done.stderr)
 
     # red: no tail of the log, its head in place of its tail, or no exit code
     def test_any_other_failure_shows_the_log_tail(self):
@@ -1049,16 +1066,18 @@ class GuardPlantCase(unittest.TestCase):
     video.mp4. FilmRenderCase, with the same output directory and no edit, is their control. The expected
     lines come from the plants and the run's own checkFrames."""
 
-    def stops_at_the_guard(self, edit):
+    def stops_at_the_guard(self, edit, added=1):
         """(out, last stage line, checkFrames of out/build/timeline.json) of the render of
-        film_output(edit), once render.sh is seen to stop at the guard."""
+        film_output(edit), once render.sh is seen to stop at the guard. `added` is the number of scene files
+        that `edit` adds to the example (add_to_film adds one; a plant that only changes Film.tsx adds
+        none): the scene stage counts SCENE_FILES plus that."""
         out = film_output(edit)
         run = render_output(out)
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         lines = stage_lines(run.stdout)
         self.assertEqual(len(lines), 6, run.stdout)
-        # ORDER[:5], with the scene stage counting the file that add_to_film added
-        before = ORDER[:2] + [r"scene: ok \(%d files\)" % (SCENE_FILES + 1)] + ORDER[3:5]
+        # ORDER[:5], with the scene stage counting the files that the edit added
+        before = ORDER[:2] + [r"scene: ok \(%d files\)" % (SCENE_FILES + added)] + ORDER[3:5]
         for line, pattern in zip(lines, before):
             self.assertRegex(line, "^%s$" % pattern)
         self.assertEqual([line for line in lines if line.startswith("render")], [], run.stdout)
@@ -1089,6 +1108,19 @@ class GuardPlantCase(unittest.TestCase):
                          ("handoff", timeline["totalFrames"] - 1))
         self.assertEqual(last, 'guard: FAIL frame %d (scene handoff): OFFCANVAS "late"'
                          % check_frames[-1]["frame"])
+
+    # red: a mark error ends the pass as the exit line of the pass ("guard: FAIL remotion render exit 1"), or
+    # keeps "MARK" in the line. Film.tsx calls at() at every frame, so the first check frame throws
+    def test_a_word_that_is_not_said_stops_at_the_guard(self):
+        def unsaid_word(out):
+            film = out / "scene" / "Film.tsx"
+            text = film.read_text(encoding="utf-8")
+            self.assertIn('at("subject", { word: "subject" })', text)
+            film.write_text(text.replace('at("subject", { word: "subject" })',
+                                         'at("subject", { word: "zebra" })', 1), encoding="utf-8")
+
+        _, last, _ = self.stops_at_the_guard(unsaid_word, added=0)
+        self.assertEqual(last, 'guard: FAIL mark: scene subject: word "zebra" is not in the narration')
 
 
 if __name__ == "__main__":

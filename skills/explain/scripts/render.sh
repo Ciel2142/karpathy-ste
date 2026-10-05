@@ -86,7 +86,7 @@
 #       output follow, indented; the rest goes with the run directory (tsc.log in it). "src/film/"
 #       is written "scene/" in them and in the stage line.
 #
-# The guard stage has four FAIL lines. Each stops the run with exit 1 before the render; the run
+# The guard stage has five FAIL lines. Each stops the run with exit 1 before the render; the run
 # directory goes by the EXIT trap. A marker in the log of the pass fails the stage whatever the exit
 # code of the pass: a cancel that the CLI reads late, or never, cannot pass the guard.
 #   guard: FAIL frame <f> (scene <id>): <fault>[; <fault>...]
@@ -94,8 +94,17 @@
 #       that holds "guard: FAIL frame ", from that text to the end of the line: the message that
 #       FilmStage gave to cancelRender, with no "Error" prefix and no code frame below it. Nothing
 #       follows; the log stays in <out>/build/guard.log.
+#   guard: FAIL mark: scene <id>: <cause>
+#       The scene code threw a mark error of spec 6 (kit/marks.ts: a word that the narration does not
+#       say, a sentence past the last one, a scene that does not exist) at a check frame. The line is
+#       the first log line that holds either marker (this one or "guard: FAIL frame "): "guard: FAIL
+#       mark: " and then the text after "MARK " of the message, as marks.ts wrote it, with no "Error"
+#       prefix and no code frame below it. Nothing follows; the log stays in <out>/build/guard.log.
+#       A mark error in code that no check frame reaches is not caught by the guard: it ends the
+#       render stage with "render: FAIL remotion render exit 1", its MARK line in
+#       <out>/build/render.log.
 #   guard: FAIL remotion render exit <n> (log <out>/build/guard.log)
-#       The pass exited non-zero and its log holds no such line (the CLI failed on its own: no
+#       The pass exited non-zero and its log holds neither marker (the CLI failed on its own: no
 #       browser, a bundle error, a clip it could not fetch). The last 40 log lines follow, indented.
 #   guard: FAIL cannot read <out>/build/timeline.json
 #       The timeline is absent or not JSON, or holds no checkFrames, or a frame that is not an
@@ -480,9 +489,14 @@ PY
     (cd "$run" && exec "$remotion" render Film "$out/build/guard.mp4" "--frames=$ranges" \
         --concurrency=1 --muted --props "$timeline") > "$log" 2>&1 < /dev/null || rc=$?
     # The first marker of the log fails the stage whatever the exit code: a cancel that the CLI reads late,
-    # or never, can still end the pass with exit 0.
+    # or never, can still end the pass with exit 0. A frame fault is its own stage line, from its marker on;
+    # a mark error of marks.ts (MARK scene <id>: <cause>) is given the stage's prefix, in place of its MARK.
+    # The code frame below either repeats the source's text, and is never reached: the first line wins.
     while IFS= read -r line || [ -n "$line" ]; do
-        case "$line" in *"guard: FAIL frame "*) fail "guard: FAIL frame ${line#*guard: FAIL frame }" ;; esac
+        case "$line" in
+            *"guard: FAIL frame "*) fail "guard: FAIL frame ${line#*guard: FAIL frame }" ;;
+            *"MARK scene "*) fail "guard: FAIL mark: scene ${line#*MARK scene }" ;;
+        esac
     done < "$log"
     if [ "$rc" -ne 0 ]; then
         echo "guard: FAIL remotion render exit $rc (log $log)"
