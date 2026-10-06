@@ -744,24 +744,36 @@ class PageRungCase(unittest.TestCase):
         run = lint(PAGE_MD)
         self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
 
-    # red: the first-section rule goes back to "what the thing does, for whom, and from start to end", or the
-    # main flow of a directory subject is no longer the diagram of the first section
+    # red: any of the five sentences of the first-section rule is reworded or gone: it goes back to "what the
+    # thing does, for whom, and from start to end", or the main flow is no longer the diagram of the first
+    # section, or "The main flow is the journey of one request, a pipeline or a BPMN process." is replaced (the
+    # BPMN plan quotes all five sentences as its anchor)
     def test_first_section_rule_keeps_the_main_flow(self):
         plan = self.words("Plan the sections")
         for sentence in ("The first section says why the subject exists.",
-                         "For a directory subject, that diagram is the main flow from start to end"):
+                         "One diagram in it carries the main idea.",
+                         "For a directory subject, that diagram is the main flow from start to end, named by "
+                         "its stages.",
+                         "The main flow is the journey of one request, a pipeline or a BPMN process.",
+                         "The mechanics follow in later sections."):
             with self.subTest(sentence=sentence):
                 self.assertEqual(plan.count(sentence), 1)
 
-    # red: the rung leaves out the answer box, the switch or one of the two guard codes, or the sentence that
-    # tells the author to keep the switch is gone
+    # red: the rung leaves out the answer box, the switch or one of the two guard codes; either Keep sentence
+    # (the Sources switch in step 4, the switch as the last child of the nav in step 5) is gone or reworded (a
+    # word filter would pass the other one); or the cause of NOANSWER or NOSOURCES is no longer stated
     def test_page_md_names_the_answer_box_and_switch(self):
         fill = self.words("Fill the template")
         self.assertEqual([name for name in ("div.answer", "show-sources", "NOANSWER", "NOSOURCES")
                           if name not in fill], [])
-        keep = [sentence for sentence in re.split(r"(?<=\.)\s+", fill)
-                if "Keep" in sentence and "Sources switch" in sentence]
-        self.assertTrue(keep, "no Keep sentence names the Sources switch")
+        for sentence in ("Keep the Sources switch, `label.sources` with `input#show-sources`.",
+                         "Keep the Sources switch as the last child of `nav#toc`.",
+                         "The guard reports `NOSOURCES` when the page has a cite block and the nav has no "
+                         "switch.",
+                         "It reports `NOANSWER` when the header has no answer box, or when the box has no text "
+                         "outside its cites."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(fill.count(sentence), 1)
 
     # red: the tiles list "A section without its citation" again (the tiles show the reading view, where no
     # cite shows), or the check that covers the page below the answer box is gone
@@ -804,7 +816,7 @@ class PageRungCase(unittest.TestCase):
             "No two sections contradict each other, and the answer box in the header agrees with each "
             "section."), 1)
         hunt = " ".join(section(text, "Hunt").split())
-        self.assertNotIn("A `<cite>` at the end of a paragraph", text)
+        self.assertNotIn("A `<cite>` at the end of a paragraph", " ".join(text.split()))
         self.assertEqual(hunt.count("The `div.cites` after a paragraph covers each sentence of that paragraph, "
                                     "so read the whole paragraph against the cited lines."), 1)
 

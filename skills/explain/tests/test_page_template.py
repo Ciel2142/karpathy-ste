@@ -7,15 +7,16 @@ exactly once in the template: a template change cannot turn a case into the good
 case without notice. verify.sh must report the one status that the guard writes
 for that edit. verify.sh loads a page twice, 1440x900 and 500x844, both with
 #verify in the URL; there is no plain dump, so the cases for the fragment read the
-DOM state through a probe that wraps setAttribute on <html>. Twenty-three Chrome runs of
+DOM state through a probe that wraps setAttribute on <html>. Twenty-four Chrome runs of
 verify.sh (two dumps each): the good template, the 700 px block, the 13 px rule,
 the 15-unit SVG text, the throwing script, the probe, the probe with the hash
 test defeated; then four more for the clip rule: the hide rule deleted, a clip
 without the button, a clip with the button, a clip with a hidden button; then one
 for Play all: two clips and a probe that drives a run with synthetic events; then
-six for the Sources switch (spec 3, 4): a 12 px snippet, a 700 px span and a 12 px
+seven for the Sources switch (spec 3, 4): a 12 px snippet, a 700 px span and a 12 px
 snippet in a fold, each in a cite that the reading view hides; the switch deleted;
-a page with no cite and no switch; the probe with the switch on at parse time; then
+the switch moved from the nav into the header; a page with no cite and no switch; the
+probe with the switch on at parse time; then
 five for the answer box (spec 2, 4): the box deleted, its <p> blank, its <p> deleted,
 the box outside <header>, and the box and the switch both deleted. The preset case
 stops in verify.sh before Chrome starts. The other cases are static. The glossary case
@@ -439,6 +440,13 @@ class PageGuardTest(unittest.TestCase):
     def test_switch_removed_reports_nosources(self):
         # red: the guard does not look for the switch: the cites hide for good, and no code says so.
         html = self.edit(self.template, "  " + SWITCH + "\n", "")
+        self.assert_both_fail(html, "NOSOURCES")
+
+    def test_switch_outside_the_nav_reports_nosources(self):
+        # red: the guard finds the switch by id anywhere. A switch in <header> scrolls away with the
+        # header, so the reader has no Sources switch in the sticky nav (spec 3).
+        html = self.edit(self.template, "  " + SWITCH + "\n", "")
+        html = self.edit(html, "</header>\n", "  " + SWITCH + "\n</header>\n")
         self.assert_both_fail(html, "NOSOURCES")
 
     def test_page_without_cites_needs_no_switch(self):
