@@ -20,8 +20,8 @@ on a page, write one step for each beat of the story.
   directory subject, that diagram is the main flow from start to end, named by its stages. The
   main flow is the journey of one request, a pipeline or a BPMN process. The mechanics follow in
   later sections.
-- The diagram shows the reason that the answer gives, not a list of the parts of the subject. Test
-  it: cover the prose. Does the diagram alone support the answer?
+- The diagram of the first section shows the reason that the answer gives, not a list of the parts
+  of the subject. Test it: cover the prose. Does the diagram alone support the answer?
 - Each section expands one sentence of the answer. Content that expands no sentence goes into a
   `details.walk` of a reference section, into the glossary, or out of the page into `Not covered`.
 - Put exact rules into `details.walk` elements in a reference section: limits, fault codes and

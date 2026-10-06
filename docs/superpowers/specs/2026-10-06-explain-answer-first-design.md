@@ -92,7 +92,9 @@ Part 2 of the guard in `templates/page.html` changes in three ways.
    this: with the hide rule, a 12 px snippet and a 700 px span in a cite pass all five lines; with
    the switch on, they fail with `SMALLTEXT:12` and `HSCROLL;SMALLTEXT:12`. The guard now measures
    `HSCROLL` and `SMALLTEXT` twice: in the reading view, then with `#show-sources` checked. After the
-   second measure, it sets the switch back to off. A fault in either view is reported one time:
+   second measure, it puts the switch back to the state that it had before. The guard runs on every
+   load, and the browser of a reader can restore the switch as on, so a forced off would undo that.
+   Under `#verify` the saved state is off. A fault in either view is reported one time:
    `HSCROLL` one time, and `SMALLTEXT` with the smallest size of the two views. The `#verify` snapshots
    show the reading view.
 2. **`NOANSWER`.** The page fails if it has no `header .answer`, or if the text of that box outside its
@@ -124,9 +126,9 @@ list the two new codes.
 
 ## 6. Other files
 
-- **`SKILL.md` convention 2:** add one sentence, and no new convention: "The page and lesson
-  templates hide the cite blocks until the reader turns on Sources; the sheet and the video
-  transcript show them."
+- **`SKILL.md` convention 2:** add two sentences, and no new convention: "The page and lesson
+  templates hide the cite blocks until the reader turns on Sources. The sheet and the video
+  transcript show them." The semicolon form drew lint `W LENGTH-PROC`, thus it is two sentences.
 - **`rungs/lesson.md:69-72`:** "The journey of the first section is the first candidate" becomes
   "The main flow of the first section is the first candidate."
 - **`lesson/review-page.md`:** check 2 becomes "No two sections contradict each other, and the answer
