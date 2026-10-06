@@ -16,8 +16,8 @@ A line that one of them prints gives the call, "run_tool <stage> " or "copy_clip
 of its prefix, and its sample starts with "<stage>: FAIL ". REQUIRED is the lines that video.md must quote:
 the eleven ok lines, the fallback line and the FAIL lines of a film that an author meets.
 
-The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, blocks, lint) and the names
-FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
+The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, blocks, lint, limits_table) and the
+names FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
 
 FilmRungCase ties the rest of video.md to its sources: the level-2 titles (FILM_TITLES), the one table
 headed "| Limit | film |" to the film row of video/formats.json (FILM_CELLS, filled by fill of
@@ -50,6 +50,7 @@ from test_format_limits import fill
 EXPLAIN = Path(__file__).resolve().parent.parent
 REPO = EXPLAIN.parent.parent
 VIDEO_MD = EXPLAIN / "rungs" / "video.md"
+LESSON_MD = EXPLAIN / "rungs" / "lesson.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
 STE_LINT = "skills/ste/scripts/ste_lint.py"  # relative to REPO, where lint runs it
@@ -415,14 +416,14 @@ def min_text():
     return int(found[0].group(1))
 
 
-def film_limits_table() -> dict[str, str]:
-    """Row label -> cell of the one table of video.md headed `| Limit | film |`, in the order of its rows.
-    Cells are the text between the pipes, stripped. AssertionError for no such table or more than one, a row
-    that is not two cells, or two rows with one label."""
-    lines = read(VIDEO_MD).split("\n")
-    starts = [index for index, line in enumerate(lines) if line.strip() == FILM_TABLE_HEADER]
+def limits_table(path: Path, header: str) -> dict[str, str]:
+    """Row label -> cell of the one table of the file `path` headed `header` (for example `| Limit | film |`),
+    in the order of its rows. Cells are the text between the pipes, stripped. AssertionError for no such table
+    or more than one, a row that is not two cells, or two rows with one label."""
+    lines = read(path).split("\n")
+    starts = [index for index, line in enumerate(lines) if line.strip() == header]
     if len(starts) != 1:
-        raise AssertionError("%d tables headed %r in video.md, not one" % (len(starts), FILM_TABLE_HEADER))
+        raise AssertionError("%d tables headed %r in %s, not one" % (len(starts), header, Path(path).name))
     rows = {}
     for line in lines[starts[0] + 2:]:  # the header and the separator row
         if not line.startswith("|"):
@@ -432,6 +433,11 @@ def film_limits_table() -> dict[str, str]:
             raise AssertionError("a row that is not two cells, or a second row with its label: %r" % line)
         rows[cells[0]] = cells[1]
     return rows
+
+
+def film_limits_table() -> dict[str, str]:
+    """The limits table of video.md, the one headed `| Limit | film |`."""
+    return limits_table(VIDEO_MD, FILM_TABLE_HEADER)
 
 
 def kit_exports() -> set[str]:

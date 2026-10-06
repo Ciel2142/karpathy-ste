@@ -11,20 +11,35 @@ page, two for the script, six for the render (CHECK_COUNT).
 The text of a check is not pinned here. A unit test cannot tell whether a reviewer finds a planted fault, so
 the gates themselves are measured only by the live run (spec section 7.5).
 
-This module imports helpers from test_rung_drift.py; test_rung_drift.py never imports this module. LESSON_DIR
-and PLACEHOLDERS serve the tests of rungs/lesson.md, which name these prompt files and their placeholders.
-Each test names the mutation that turns it red."""
+LessonRungCase ties rungs/lesson.md, the file that the lesson author reads, to the files it names. The rung
+has the eleven level-2 titles of LESSON_TITLES. Each block of it that names page.md or video.md (a pointer
+block) holds a title of that file in double quotes and no section number, and together the pointer blocks
+quote the six titles of PAGE_TITLES and the ten of VIDEO_TITLES, each one heading of its file. The one table
+headed "| Limit | clip |" is the clip row of video/formats.json (FILM_CELLS, filled by fill), and the floor
+sentence of section "Write the page and the clips" gives that row's minText and the 22 px of C.muted. The one
+fenced html block is CLIP_MARKUP, the markup of spec section 4.2, and the fenced block of section "Finish and
+handoff" is the six lines of verify.sh for a lesson (LESSON_PASS and the media line). Each text of LESSON_TEXTS
+occurs in the rung. The {name} set of the rung is the union of PLACEHOLDERS, and the prompt files that it
+names are the keys of PLACEHOLDERS, each in LESSON_DIR. The rung passes the STE lint.
 
+This module imports helpers from test_rung_drift.py and LESSON_PASS from test_verify.py; test_rung_drift.py
+never imports this module. LESSON_DIR and PLACEHOLDERS name the prompt files and their placeholders, and
+CLIP_MARKUP serves the fixture lesson of the E2E. Each test names the mutation that turns it red."""
+
+import json
 import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_rung_drift import headings, read, section
+from test_rung_drift import (FENCE, FILM_CELLS, FORMATS_JSON, HEADING, LESSON_MD, SECTION_NUMBER, VIDEO_MD, blocks,
+                             fill, heading_rows, headings, limits_table, lint, read, section)
+from test_verify import LESSON_PASS
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 LESSON_DIR = EXPLAIN / "lesson"
+PAGE_MD = EXPLAIN / "rungs" / "page.md"
 
 PAGE, SCRIPT, RENDER = "review-page.md", "review-script.md", "review-render.md"
 # The placeholders of each prompt, braces removed (spec section 6.4).
@@ -39,6 +54,50 @@ CHECK_COUNT = {PAGE: 3, SCRIPT: 2, RENDER: 6}
 
 PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)\}")
 CHECK_LINE = re.compile(r"(\d+)\. ")
+
+# The level-2 titles of lesson.md, in order; the rung numbers them from 1.
+LESSON_TITLES = ("When a lesson", "What to read", "Plan the lesson", "Write the page and the clips",
+                 "Check before the review", "Gate 1: read before the render", "Render the clips",
+                 "Gate 2: read the stills", "Drop a clip", "Finish and handoff", "Output directory")
+# The sections of page.md and of video.md that lesson.md sends the author to; a title of video.md can be a
+# level-3 heading ("The kit", "Marks", "Text on the stage", "The guard", "The FAIL lines").
+PAGE_TITLES = ("Plan the sections", "Fill the template", "Diagram patterns", "Provenance", "Write the prose",
+               "Verify and export")
+VIDEO_TITLES = ("The grammar of a film", "Write the script", "Write the scene", "The kit", "Marks",
+                "Text on the stage", "The guard", "Build and check", "The FAIL lines", "Read the stills")
+CLIP_TABLE_HEADER = "| Limit | clip |"
+# The markup of one clip, as spec section 4.2 gives it. The lesson E2E builds its page from this text.
+CLIP_MARKUP = """<figure class="clip">
+  <video controls preload="none" src="clips/<id>/video.mp4" poster="clips/<id>/poster.png"></video>
+  <figcaption><span class="part"></span>One sentence that says what the clip shows.
+    <a href="clips/<id>/index.html" data-ste="skip">transcript</a></figcaption>
+</figure>"""
+# 22 px is the 16 px dim-caption rule of a film at 75 % (spec section 5.1, step 3): a fixed rule of the plan.
+DIM_FLOOR = 22
+# What lesson.md says in its own words that no table or other test pins: names of files, lines and rules.
+LESSON_TEXTS = (
+    '<meta name="explain-rung" content="lesson">',
+    "Rung: lesson (forced) — <reason> — subject: <subject> (<kind>)",
+    "<id> | <h2 question> | clip: yes|no | <reason, when yes>",
+    "--as page",
+    '"format": "clip"',
+    "templates/video-script.json",
+    "<skill-dir>/video/src/film/",
+    "review/plan.md",
+    "review/plants.md",
+    "review/gate1-page-round-<k>.md",
+    "review/gate1-<id>-round-<k>.md",
+    "review/gate1-<id>.script.json",
+    "review/gate2-<id>-<part>-round-<k>.md",
+    "## Author",
+    "narration (<engine>): ok",
+    "render: FAIL <cause>",
+    "clips/<id>/poster.png",
+    "still-NN-<scene>-end.png",
+    '<div class="wide"><dt>Dropped clips</dt><dd>none</dd></div>',
+    "<id> — <reason>",
+    "disputed findings: none",
+)
 
 READ_ONLY = "Read only these files and the files under the repository root."
 HUNT_CLAIM = "Hunt. Assume one claim in this file is not supported by its cited lines, and find it."
@@ -162,6 +221,116 @@ class LessonPromptCase(unittest.TestCase):
     # red: the sentence left out of the Checks section of the render prompt, or put into another section
     def test_the_render_prompt_skips_check_5_without_changes(self):
         self.assertEqual(held(RENDER, "Checks", (SKIP_CHECK_5,)), [])
+
+
+def fenced_blocks(text):
+    """(opening line, lines) of each fenced block of `text`, in order; the opening line has its outer white
+    space stripped, the lines are as written."""
+    found, current = [], None
+    for line in text.split("\n"):
+        if FENCE.match(line):
+            if current is None:
+                current = (line.strip(), [])
+            else:
+                found.append(current)
+                current = None
+        elif current is not None:
+            current[1].append(line)
+    return found
+
+
+def pointer_blocks(text, name):
+    """The blocks of `text` that name the file `name` and are not a heading. A name is a whole file name: the
+    prompt file `review-page.md` does not name `page.md` (no letter, digit, "_" or "-" before the name)."""
+    pattern = re.compile(r"(?<![\w-])%s" % re.escape(name))
+    return [block for block in blocks(text) if pattern.search(block) and not HEADING.fullmatch(block)]
+
+
+def quoted_titles(block, path):
+    """The titles of the headings of the file `path` that `block` holds in double quotes (a line break inside
+    a title reads as one space)."""
+    flat = squash(block)
+    return [title for _, title in headings(read(path)) if '"%s"' % title in flat]
+
+
+class LessonRungCase(unittest.TestCase):
+    def setUp(self):
+        self.text = read(LESSON_MD)
+
+    # red: a contraction, or a sentence of 26 words
+    def test_lesson_md_lints_clean(self):
+        run = lint(LESSON_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+    # red: a section missing, two swapped, or one numbered out of turn
+    def test_the_headings_of_lesson_md(self):
+        lines = self.text.split("\n")
+        found = [lines[index] for index, level, _ in heading_rows(lines) if level == 2]
+        self.assertEqual(found, ["## %d. %s" % (number, title) for number, title in enumerate(LESSON_TITLES, 1)])
+
+    # red: a pointer block with no title in double quotes (a bare "see page.md"), a title of video.md that the
+    # rung writes as "The Guard", a section named by number ("section 7 of `page.md`"), or a title that no
+    # block quotes any more
+    def test_lesson_points_at_page_and_video_by_title(self):
+        for path, titles in ((PAGE_MD, PAGE_TITLES), (VIDEO_MD, VIDEO_TITLES)):
+            pointers = pointer_blocks(self.text, path.name)
+            held = set()
+            self.assertTrue(pointers, "lesson.md names %s in no block" % path.name)
+            for block in pointers:
+                quoted = quoted_titles(block, path)
+                held.update(quoted)
+                with self.subTest(file=path.name, block=block[:60]):
+                    self.assertTrue(quoted, "no title of %s in double quotes" % path.name)
+                    self.assertIsNone(SECTION_NUMBER.search(squash(block)))
+            with self.subTest(file=path.name, titles=True):
+                self.assertEqual([title for title in titles if title not in held], [])
+                found = [title for _, title in headings(read(path))]
+                self.assertEqual([title for title in titles if found.count(title) != 1], [])
+
+    # red: a value changed in the clip row of formats.json and not in the rung (maxTotalSeconds 50), a row on
+    # one side only, or a second table with the same header
+    def test_the_clip_limits_table_matches_formats(self):
+        row = json.loads(read(FORMATS_JSON))["clip"]
+        expected = [(label, fill(template, row)) for label, template in FILM_CELLS]
+        self.assertEqual(list(limits_table(LESSON_MD, CLIP_TABLE_HEADER).items()), expected)
+
+    # red: the 22 px rule left out, the clip minText of formats.json changed to 20 and the rung left at 19,
+    # or the sentence put into another section
+    def test_the_clip_floors(self):
+        clip = json.loads(read(FORMATS_JSON))["clip"]["minText"]
+        floor = "Draw each text at %s px or more on the canvas, and each text in `C.muted` at %d px or more." % (
+            clip, DIM_FLOOR)
+        # the rung wraps its lines, so the section is read as one line of words
+        body = squash(section(self.text, "Write the page and the clips"))
+        self.assertEqual(body.count(floor), 1)
+
+    # red: preload="none" or data-ste="skip" dropped from the markup, a second html block (the Dropped clips
+    # row in an html fence), or the markup copied with another class
+    def test_the_clip_markup_is_the_spec_markup(self):
+        html = [lines for opener, lines in fenced_blocks(self.text) if opener == "```html"]
+        self.assertEqual(len(html), 1)
+        self.assertEqual("\n".join(html[0]), CLIP_MARKUP)
+
+    # red: the media line left out of the block, or a line of the five reworded
+    def test_lesson_quotes_the_six_verify_lines(self):
+        found = [[line.strip() for line in lines]
+                 for _, lines in fenced_blocks(section(self.text, "Finish and handoff"))]
+        self.assertIn(LESSON_PASS.splitlines() + ["media: ok"], found)
+
+    # red: a report name in the old form (review/gate2-<id>-round-<k>.md), a name of an exact text left out
+    def test_lesson_holds_its_rules(self):
+        text = squash(self.text)
+        self.assertEqual([want for want in LESSON_TEXTS if squash(want) not in text], [])
+
+    # red: {changes} never explained to the author, a word in braces that is no placeholder, a prompt file
+    # that lesson.md leaves out, or a prompt file renamed
+    def test_lesson_names_every_placeholder_and_prompt(self):
+        self.assertEqual(set(PLACEHOLDER.findall(self.text)), set().union(*PLACEHOLDERS.values()))
+        named = set(re.findall(r"<skill-dir>/lesson/([\w-]+\.md)", self.text))
+        self.assertEqual(named, set(PLACEHOLDERS))
+        for name in named:
+            with self.subTest(prompt=name):
+                self.assertTrue((LESSON_DIR / name).is_file())
 
 
 if __name__ == "__main__":
