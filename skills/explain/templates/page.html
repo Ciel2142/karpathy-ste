@@ -8,10 +8,11 @@ window.explainJsErrors = 0;
 window.onerror = function () { window.explainJsErrors += 1; };
 </script>
 <meta name="explain-rung" content="page">
-<title>The page template: a guided tour</title>
+<title>How do you build a page from this template?</title>
 <!--
   explain / rung page. Copy this file to out/<run>/index.html, then fill it.
-  - Put the page title in <title> and in the <h1>. Write one lead paragraph.
+  - Put the page title, a question, in <title> and in the <h1>. Then write the answer box:
+    one <p> of two to four sentences that starts with Short answer, and its cites.
   - One facet per <section>: a unique id, an <h2> with the question the section
     answers, and one <a href="#id"> in <nav id="toc">, in document order.
   - Code: <figure class="code"> with a name:line caption. Long proof: <details class="walk">.
@@ -46,7 +47,7 @@ h1 { font-size: 30px; }
 h2 { font-size: 22px; }
 h3 { font-size: 18px; }
 h1 code, h2 code { font-size: inherit; }
-.lead { font-size: 18px; }
+.answer p { font-size: 18px; }
 code, kbd, pre, button, input, nav a, nav label { font-size: 15px; }
 th, dt, small, sup, sub, cite, figcaption, .caption { font-size: 14px; }
 td { font-size: 15px; }
@@ -84,7 +85,10 @@ body:has(#show-sources:checked) .cites { display: block; }
 
 /* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
 header { padding: 32px 0 16px; }
-.lead { margin-top: 10px; color: var(--muted); }
+/* The answer box: the short answer to the title. Its cites sit on the page ground, so that the
+   block stands out from the fill. */
+.answer { margin-top: 16px; padding: 14px 16px; background: var(--fill); border-left: 4px solid var(--accent); }
+.answer .cites { background: var(--bg); }
 nav#toc {
   position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 18px;
   padding: 10px 0; background: var(--bg); border-bottom: 1.5px solid var(--ink);
@@ -201,8 +205,13 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 </head>
 <body>
 <header>
-  <h1>The page template: a guided tour</h1>
-  <p class="lead">This page is the template for the page rung. It also shows each part of the template in use.</p>
+  <h1>How do you build a page from this template?</h1>
+  <div class="answer">
+    <p><strong>Short answer.</strong> Copy the template file, and write your answer in this box. Give each part of the answer one section, with a question as its title. Write all prose in STE-80. Then run <code>verify.sh</code> on the page.</p>
+    <div class="cites">
+      <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 <code>Simplified Technical English</code></cite>
+    </div>
+  </div>
   <button id="play-all" type="button">Play all</button>
 </header>
 
@@ -418,6 +427,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
         <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
         <tr><td><code>SMALLTEXT:&lt;px&gt;</code></td><td>Some text is smaller than 14 px.</td></tr>
         <tr><td><code>PLAYALL</code></td><td>The Play all button shows on a page without a clip, or it does not show on a page with one.</td></tr>
+        <tr><td><code>NOANSWER</code></td><td>The header has no answer box, or the box has no text outside its cites.</td></tr>
         <tr><td><code>NOSOURCES</code></td><td>The page has a cite block, and the nav has no Sources switch.</td></tr>
         <tr><td><code>JSERROR</code></td><td>A script error occurred.</td></tr>
         <tr><td><code>OK</code></td><td>No check failed.</td></tr>
@@ -606,6 +616,14 @@ window.addEventListener("load", function () {
   var playAll = document.getElementById("play-all");
   var playShown = !!playAll && getComputedStyle(playAll).display !== "none";
   if ((document.querySelectorAll("figure.clip").length > 0) !== playShown) fails.push("PLAYALL");
+  /* Answer: the header holds the answer box, and the box has text outside its cites. */
+  var box = document.querySelector("header .answer"), said = false;
+  if (box) {
+    var rest = box.cloneNode(true), cut = rest.querySelectorAll(".cites");
+    for (var k = 0; k < cut.length; k++) cut[k].remove();
+    said = rest.textContent.trim() !== "";
+  }
+  if (!said) fails.push("NOANSWER");
   /* Sources: a page with a cite block needs the switch in the nav, else the cites hide for good. */
   if (document.querySelector(".cites") && !document.querySelector('nav#toc input#show-sources[type="checkbox"]')) fails.push("NOSOURCES");
   if (window.explainJsErrors > 0) fails.push("JSERROR");
