@@ -122,7 +122,8 @@ indent() {
 # or "rung-missing". Line 2: "preset=yes" if the first <html> start tag has a
 # data-verify attribute, else "preset=no". Then one line per remote reference
 # (check 1), then one line "media-missing <tag> <attr>=<value>" per local media
-# reference whose file does not exist (check 5; only a lesson reports them).
+# reference that names no file inside the directory of index.html (check 5; only a
+# lesson reports them).
 scan() {
     python3 - "$1" <<'PY'
 import os
@@ -220,11 +221,14 @@ print("preset=yes" if scanner.preset else "preset=no")
 for ref in scanner.refs:
     print(" ".join(ref.split()))
 # A media reference names a file beside index.html: cut at the first "#" or "?",
-# percent-decode, and require a regular file (a directory counts as missing).
+# percent-decode, and require a regular file (a directory counts as missing). Only a
+# relative path inside the directory of index.html counts (spec 3.4): an absolute path,
+# or one that leaves the directory after normalization, is missing even if it exists.
 base = os.path.dirname(sys.argv[1])
 for tag, attr, value in scanner.media:
     path = urllib.parse.unquote(re.split(r"[#?]", value, maxsplit=1)[0])
-    if not os.path.isfile(os.path.join(base, path)):
+    inside = not os.path.isabs(path) and os.path.normpath(path).split(os.sep)[0] != os.pardir
+    if not inside or not os.path.isfile(os.path.join(base, path)):
         print(" ".join(("media-missing %s %s=%s" % (tag, attr, value)).split()))
 PY
 }

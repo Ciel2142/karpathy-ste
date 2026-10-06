@@ -447,6 +447,32 @@ class VerifyTest(unittest.TestCase):
             proc.stdout, LESSON_PASS + "media: FAIL 1 missing\n  a href=./clips/intro/\n")
         self.assert_no_chrome_left()
 
+    def test_lesson_media_outside_the_directory_counts_as_missing(self):
+        """Spec 3.4: the only external references are relative paths inside the output
+        directory. Both files exist. Red when a path that escapes the directory after
+        normalization counts as present (the src goes up through clips/../../). Red when
+        an absolute path counts as present (the poster names its file by the full path)."""
+        self.write_clip("video.mp4", "poster.png", "index.html")
+        with open(os.path.join(self.root, "outside.mp4"), "wb") as handle:
+            handle.write(b"x")
+        poster = os.path.join(self.work, "clips", "intro", "poster.png")
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(
+                self,
+                replace_once(self, html, 'src="clips/intro/video.mp4"',
+                             'src="clips/../../outside.mp4"'),
+                'poster="clips/intro/poster.png"', 'poster="%s"' % poster),
+        )
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS + "media: FAIL 2 missing\n"
+            "  video src=clips/../../outside.mp4\n"
+            "  video poster=%s\n" % poster,
+        )
+        self.assert_no_chrome_left()
+
     def test_lesson_media_ignores_links_outside_clips(self):
         """Red when every a href is collected, not only clips/: each of these three
         links resolves to no file beside index.html."""
