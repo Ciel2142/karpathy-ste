@@ -29,6 +29,15 @@ GOOD_OUT = (
     "citations: ok\n"
     "prose: ok\n"
 )
+# The five lines of a page or a lesson that passes; a lesson adds `media: ok` after them.
+LESSON_PASS = (
+    "self-contained: ok\n"
+    "render 1440x900: ok\n"
+    "render 500x844: ok\n"
+    "citations: ok\n"
+    "prose: ok\n"
+)
+CLIP_FIGURE = re.compile(r'<figure class="clip">.*?</figure>\n', re.DOTALL)
 TRANSCRIPT = os.path.join(os.path.dirname(HERE), "video", "transcript.py")
 META_SHEET = '<meta name="explain-rung" content="sheet">'
 
@@ -100,6 +109,14 @@ class VerifyTest(unittest.TestCase):
     def check_lines(self, out):
         """The non-indented lines, i.e. one per check."""
         return [line for line in out.splitlines() if not line.startswith(" ")]
+
+    def write_clip(self, *names):
+        """Create clips/intro/<name> under the work directory, one byte each."""
+        folder = os.path.join(self.work, "clips", "intro")
+        os.makedirs(folder, exist_ok=True)
+        for name in names:
+            with open(os.path.join(folder, name), "wb") as handle:
+                handle.write(b"x")
 
     # --- the all-good fixture ------------------------------------------------
 
@@ -337,6 +354,165 @@ class VerifyTest(unittest.TestCase):
         self.assertIn("render 1440x900: ok", lines)
         self.assertIn("render 500x844: ok", lines)
         self.assertNotIn("render 1920x1080: ok", lines)
+        self.assert_no_chrome_left()
+
+    # --- lesson rung: the media check (spec 6.3) ---------------------------------------
+
+    def test_lesson_with_media_prints_six_ok_lines(self):
+        """Red on the old script: five lines, no `media: ok`. Red when a check is skipped
+        or its line moves: the six lines compare in order."""
+        self.write_clip("video.mp4", "poster.png", "index.html")
+        proc, _ = self.verify_fixture("verify-lesson.html")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assert_no_chrome_left()
+
+    def test_lesson_missing_poster_fails_media_with_a_detail_line(self):
+        """Red when poster is not collected (media: ok). Red when the scanner's
+        media-missing line leaks into check 1 (self-contained: FAIL). Red when the exit
+        code ignores the media FAIL (exit 0)."""
+        self.write_clip("video.mp4", "index.html")
+        proc, _ = self.verify_fixture("verify-lesson.html")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS
+            + "media: FAIL 1 missing\n  video poster=clips/intro/poster.png\n",
+        )
+        self.assert_no_chrome_left()
+
+    def test_lesson_media_counts_references_not_unique_paths(self):
+        """Red when the count is of unique paths (`FAIL 1 missing`). Red when src, poster
+        or the a href is not collected: the count falls below three, and the detail lines
+        keep the order of the document."""
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(
+                self,
+                replace_once(self, html, 'href="clips/intro/index.html"',
+                             'href="clips/intro/video.mp4"'),
+                'poster="clips/intro/poster.png"', 'poster="clips/intro/video.mp4"'),
+        )
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS + "media: FAIL 3 missing\n"
+            "  video src=clips/intro/video.mp4\n"
+            "  video poster=clips/intro/video.mp4\n"
+            "  a href=clips/intro/video.mp4\n",
+        )
+        self.assert_no_chrome_left()
+
+    def test_lesson_media_strips_fragment_query_and_decodes(self):
+        """Red when the fragment is not cut (index.html#scene-1?x=1 is no file). Red when
+        the percent code is not decoded (poster%20a.png is no file)."""
+        self.write_clip("video.mp4", "index.html", "poster a.png")
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(
+                self,
+                replace_once(self, html, 'href="clips/intro/index.html"',
+                             'href="clips/intro/index.html#scene-1?x=1"'),
+                'poster="clips/intro/poster.png"', 'poster="clips/intro/poster%20a.png"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assert_no_chrome_left()
+
+    def test_lesson_media_strips_a_query_without_a_fragment(self):
+        """Red when only a fragment is cut: index.html?v=2 is no file."""
+        self.write_clip("video.mp4", "index.html", "poster.png")
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(
+                self, html, 'href="clips/intro/index.html"',
+                'href="clips/intro/index.html?v=2"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assert_no_chrome_left()
+
+    def test_lesson_media_strips_dot_slash_and_rejects_a_directory(self):
+        """Red when the leading ./ is not stripped before the clips/ test (the href is
+        never collected: media: ok). Red when os.path.exists replaces os.path.isfile (the
+        directory counts as present: media: ok)."""
+        self.write_clip("video.mp4", "index.html", "poster.png")
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(
+                self, html, 'href="clips/intro/index.html"', 'href="./clips/intro/"'),
+        )
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout, LESSON_PASS + "media: FAIL 1 missing\n  a href=./clips/intro/\n")
+        self.assert_no_chrome_left()
+
+    def test_lesson_media_ignores_links_outside_clips(self):
+        """Red when every a href is collected, not only clips/: each of these three
+        links resolves to no file beside index.html."""
+        self.write_clip("video.mp4", "index.html", "poster.png")
+        links = ('<p><a href="notes/absent.html">notes</a> <a href="#top">top</a> '
+                 '<a href="mailto:a@example.test">mail</a></p>\n')
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(self, html, "</section>", links + "</section>"),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assert_no_chrome_left()
+
+    def test_lesson_without_clips_passes_media(self):
+        """Red when the media check demands a clip: a page with no figure.clip must
+        print `media: ok`, not FAIL."""
+        def edit(html):
+            stripped = CLIP_FIGURE.sub("", html, count=1)
+            self.assertNotIn("<figure", stripped)
+            self.assertNotIn("<video", stripped)
+            return stripped
+        proc, _ = self.verify_fixture("verify-lesson.html", edit=edit)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assert_no_chrome_left()
+
+    def test_lesson_remote_video_src_counts_once(self):
+        """Red when the media check also counts a remote value as missing: check 1 and
+        check 5 would both fail the same reference (`media: FAIL 1 missing`)."""
+        self.write_clip("video.mp4", "poster.png", "index.html")
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html", timeout=20,
+            edit=lambda html: replace_once(
+                self, html, 'src="clips/intro/video.mp4"', 'src="https://x.test/v.mp4"'),
+        )
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS.replace(
+                "self-contained: ok\n",
+                "self-contained: FAIL 1 remote reference(s)\n  video src=https://x.test/v.mp4\n")
+            + "media: ok\n",
+        )
+        self.assert_no_chrome_left()
+
+    def test_page_rung_prints_no_media_line(self):
+        """Red when the media line prints for every rung."""
+        proc, _ = self.verify_fixture(
+            "verify-good.html",
+            edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="page"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS)
+        self.assertNotIn("media", proc.stdout)
+        self.assert_no_chrome_left()
+
+    def test_page_rung_ignores_missing_clip_files(self):
+        """Red when a missing local video file fails a page: the page rung has no media
+        check, and its scanner lines must stay out of check 1 and the exit code."""
+        proc, _ = self.verify_fixture(
+            "verify-lesson.html",
+            edit=lambda html: replace_once(self, html, 'content="lesson"', 'content="page"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS)
         self.assert_no_chrome_left()
 
     # --- usage -------------------------------------------------------------------

@@ -68,7 +68,7 @@
       "id": "handoff",
       "narration": "Every check runs, even after a failure. When all checks pass, the artifact is ready.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed." }
+        { "path": "skills/explain/scripts/verify.sh", "line": 24, "snippet": "Every check runs even after an earlier one failed." }
       ]
     }
   ]
