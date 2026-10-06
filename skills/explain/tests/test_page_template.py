@@ -99,6 +99,8 @@ PLAY_ALL_TRACE = [
     ("reject 1", "-", "+Part 2 of 2", "code"),      # a rejected play() skips to the next
     ("error 2", "-", "-", ""),                      # an error mid-clip skips; no clip is next
     ("click", "+Part 1 of 2", "-", "structure"),
+    ("block 1", "-", "-", ""),                      # a blocked play() ends the run: no skip
+    ("click", "+Part 1 of 2", "-", "structure"),
     ("pause 1", "-", "-", ""),                      # the reader's pause ends the run
     ("click", "+Part 1 of 2", "-", "structure"),
     ("play 2", "-", "+", ""),                       # play on another clip ends the run
@@ -118,11 +120,13 @@ PLAY_ALL_TRACE = [
 # and appends ";TRACE:" and one entry per step, read from the DOM and from the stubs,
 # never from the Play all code. The stubs model a browser. play() on a clip that does
 # not play fires "play" at once (a browser fires it later) and returns an object whose
-# catch() keeps the handler, so a step can reject the promise. On a broken clip (after
-# "missing") catch() calls the handler at once and nothing plays. pause() on a playing
-# clip queues "pause", then the stale rejection of its pending play(); the probe
-# delivers them after the step, as a browser does later. paused is true when the clip
-# does not play. A script error in a step appends ";THROWN".
+# catch() keeps the handler, so a step can reject the promise: "reject" with a plain error,
+# "block" with a NotAllowedError (the browser blocks a play() that no click started;
+# nothing played, so no "pause" follows). On a broken clip (after "missing") catch()
+# calls the handler at once and nothing plays. pause() on a playing clip queues "pause",
+# then the stale rejection of its pending play(); the probe delivers them after the step,
+# as a browser does later. paused is true when the clip does not play. A script error in
+# a step appends ";THROWN".
 PLAY_PROBE = """<script>
 (function () {
   var doc = document.documentElement, original = doc.setAttribute;
@@ -150,10 +154,10 @@ PLAY_PROBE = """<script>
       var clips = document.querySelectorAll("figure.clip video");
       var button = document.getElementById("play-all"), errors = window.explainJsErrors;
       var steps = STEPS, trace = [], s, c;
-      function reject(i) {   /* the promise of the last play() rejects */
+      function reject(i, error) {   /* the promise of the last play() rejects */
         var handler = clips[i].probeReject;
         clips[i].probePlays = false; clips[i].probeReject = null;
-        if (handler) handler(new Error("rejected"));
+        if (handler) handler(error || new Error("rejected"));
       }
       var actions = {
         click: function () { button.click(); },
@@ -163,7 +167,8 @@ PLAY_PROBE = """<script>
           fire(clips[i], "pause"); fire(clips[i], "ended");
           delete clips[i].ended;
         },
-        reject: reject,
+        reject: function (i) { reject(i); },
+        block: function (i) { reject(i, new DOMException("blocked", "NotAllowedError")); },
         late: function (i) { fire(clips[i], "ended"); },   /* an "ended" queued earlier */
         error: function (i) {   /* mid-clip: play() resolved before, thus only "error" */
           clips[i].probePlays = false; clips[i].probeReject = null; fire(clips[i], "error");

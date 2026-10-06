@@ -461,8 +461,10 @@ function explainPlayer(player) {
 /* Play all */
 /* A click on #play-all plays each figure.clip video in document order (spec 4.3). The
    running clip shows "Part k of N" in its .part. "ended", "error" or a rejected play()
-   goes to the next clip. The reader's pause, or "play" on another clip, ends the run.
-   The end of a run clears every .part. No timers.
+   goes to the next clip. A play() that the browser blocks (NotAllowedError: no click
+   started it) ends the run, because it would block each next clip too. The reader's
+   pause, or "play" on another clip, ends the run. The end of a run clears every .part.
+   No timers.
    Pause trap: pause() fires its "pause" event later, and that event looks the same as
    the reader's pause. pause() also rejects a pending play() later. If the run plays
    that clip again first (a click, then a skip past a broken clip 1), both are stale:
@@ -490,7 +492,10 @@ function explainPlayAll() {
     label(i, "Part " + (i + 1) + " of " + videos.length);
     videos[i].currentTime = 0;
     var call = ++calls;
-    videos[i].play().catch(function () { if (call === calls) skip(i); });
+    videos[i].play().catch(function (e) {
+      if (call !== calls) return;   /* a stale rejection */
+      if (e && e.name === "NotAllowedError") stop(); else skip(i);
+    });
   }
   function skip(i) { if (at === i) run(i + 1); }   /* only the running clip moves the run */
   function watch(i) {
