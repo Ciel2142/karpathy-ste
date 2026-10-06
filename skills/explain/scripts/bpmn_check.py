@@ -1,7 +1,8 @@
 """Coverage check for `bpmn.py check`: a page against every .bpmn file it cites (spec 2.4).
 
 The four conditions: every plane is drawn, every sub-process is cited, every label is current, and
-every diagram matches its file. A plane or sub-process that p.not-covered names is excused.
+every diagram matches its file. A plane or sub-process that p.not-covered names is excused. A sheet
+skips conditions 1 and 2.
 bpmn.py passes `load` in, so this module does not import bpmn.
 """
 
@@ -151,10 +152,11 @@ def _diagram_lines(diagrams, files, any_unloaded):
     return lines
 
 
-def check_page(html, html_dir, load):
+def check_page(html, html_dir, load, sheet=False):
     """Return (failure lines, whether the page cites a .bpmn file).
 
-    `load` reads a .bpmn path into a model and raises BpmnError."""
+    `load` reads a .bpmn path into a model and raises BpmnError. A sheet is one screen, so it skips
+    conditions 1 and 2."""
     cites = bpmn_cites(html)
     if not cites:
         return [], False
@@ -176,7 +178,7 @@ def check_page(html, html_dir, load):
     coverage_lines = []
     named = _named(not_covered, [model for _path, model in files.values() if model is not None])
     for full, (_path, model) in files.items():
-        if model is not None:
+        if model is not None and not sheet:
             coverage_lines.extend(_coverage(model, covered[full], drawn, named))
     any_unloaded = any(model is None for _path, model in files.values())
     diagram_lines = _diagram_lines(page.diagrams, files, any_unloaded)

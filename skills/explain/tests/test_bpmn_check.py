@@ -240,6 +240,38 @@ class CheckCase(unittest.TestCase):
         self.assertEqual(len(out.splitlines()), 3, out)
         self.assertEqual(out.splitlines()[-1], "bpmn: 2 failures")
 
+    def one_cite_section(self):
+        """A section with one labelled cite of Task_svc and no diagram, as a sheet has."""
+        cite = next(m.group() for m in CITE.finditer(SECTION) if m.group(1) == str(line_of('id="Task_svc"')))
+        return '<section id="stage-a">\n<p>One step.</p>\n<div class="cites">%s</div>\n</section>\n' % cite
+
+    def test_sheet_rung_skips_conditions_1_and_2(self):
+        """Red when --rung sheet still asks for every plane and sub-process, or a page skips them too."""
+        page = bpmn_page(self.out, self.one_cite_section())
+        self.assertEqual(run(["check", "--rung", "sheet", str(page)])[:2], (0, "bpmn: ok\n"))
+        for argv in (["check", str(page)], ["check", "--rung", "page", str(page)]):
+            with self.subTest(argv=argv[1:-1]):
+                code, out, _err = run(argv)
+                self.assertEqual(code, 1)
+                self.assertIn("page | plane | Collaboration_1 (Collaboration_1) has no svg.bpmn", out)
+
+    def test_sheet_rung_keeps_conditions_3_and_4(self):
+        """Red when --rung sheet also skips the label check or the diagram check."""
+        section = LABEL.sub('<span class="bpmn-label">Правка</span>', self.one_cite_section(), count=1)
+        section = section.replace("</section>", '<svg class="bpmn" data-plane="Nope_P"></svg>\n</section>')
+        code, out, _err = run(["check", "--rung", "sheet", str(bpmn_page(self.out, section))])
+        self.assertEqual(code, 1)
+        self.assertIn('| stale: "Правка" is not', out)
+        self.assertIn("stage-a | diagram | data-plane Nope_P is no plane of a cited file\n", out)
+        self.assertEqual(out.splitlines()[-1], "bpmn: 2 failures")
+
+    def test_unknown_rung_is_usage(self):
+        """Red when check accepts a rung that is not sheet, page or lesson, or --rung without a value."""
+        page = bpmn_page(self.out)
+        self.assertEqual(run(["check", "--rung", "video", str(page)])[0], 2)
+        self.assertEqual(run(["check", "--rung", str(page)])[0], 2)
+        self.assertEqual(run(["check", "--rung", "lesson", str(page)])[:2], (0, "bpmn: ok\n"))
+
     def test_no_argument_or_no_data_root_is_usage(self):
         """Red when check runs without a page, or on a page with no data-root, and does not exit 2."""
         self.assertEqual(run(["check"])[0], 2)

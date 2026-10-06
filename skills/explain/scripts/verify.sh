@@ -16,7 +16,7 @@
 #   citations: ok | FAIL <n> failure(s) | FAIL cite_check exit <code>
 #   prose: ok | FAIL <n> error(s) | FAIL lint usage error (exit 2) | FAIL lint exit <code>
 #   media: ok | FAIL <n> missing   (a lesson only; after prose)
-#   bpmn: ok | none | FAIL <n> failure(s) | FAIL bpmn exit <code>   (not a video; the last line)
+#   bpmn: ok | none | FAIL <n> failure(s) | FAIL bpmn exit <code>   (not a video; the last line; a sheet skips conditions 1, 2)
 # Detail lines follow a failing check, indented by two spaces: each remote reference as "<tag> <attr>=<value>" (for CSS:
 # "<tag> style=<fragment>" for a style attribute, "style css=<fragment>" for <style> text), each cite_check failure, each
 # lint error, each missing media reference as "<tag> <attr>=<value>" (the value as written), each bpmn.py check failure.
@@ -404,7 +404,7 @@ fi
 # --- check 6: bpmn (not a video) ------------------------------------------------
 
 if [ "$rung_line" != "rung=video" ]; then
-    bpmn_out=$(python3 "$SCRIPTS/bpmn.py" check "$input_abs" 2>&1)
+    bpmn_out=$(python3 "$SCRIPTS/bpmn.py" check --rung "${rung_line#rung=}" "$input_abs" 2>&1)
     bpmn_status=$?
     # The last stdout line is the summary: "bpmn: ok", "bpmn: none" or "bpmn: <n> failures".
     bpmn_details=$(printf '%s\n' "$bpmn_out" | grep -Ev '^bpmn: (ok|none|[0-9]+ failures)$')

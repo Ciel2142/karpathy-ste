@@ -4,7 +4,7 @@
 Usage: bpmn.py planes <file.bpmn>
        bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]
        bpmn.py label <index.html>
-       bpmn.py check <index.html>
+       bpmn.py check [--rung sheet|page|lesson] <index.html>
 Exit 0 on success, 1 on failures found, 2 on a usage or read error.
 """
 
@@ -32,8 +32,9 @@ USAGE = (
     "usage: bpmn.py planes <file.bpmn>\n"
     "       bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]\n"
     "       bpmn.py label <index.html>\n"
-    "       bpmn.py check <index.html>\n"
+    "       bpmn.py check [--rung sheet|page|lesson] <index.html>\n"
 )
+RUNGS = ("sheet", "page", "lesson")
 PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
 
@@ -200,9 +201,9 @@ def label_page(html, html_dir):
     return bpmn_label.label_page(html, html_dir, load)
 
 
-def check_page(html, html_dir):
+def check_page(html, html_dir, sheet=False):
     """(failure lines, whether the page cites a .bpmn file); see bpmn_check."""
-    return bpmn_check.check_page(html, html_dir, load)
+    return bpmn_check.check_page(html, html_dir, load, sheet)
 
 
 def _read_page(args):
@@ -238,11 +239,16 @@ def cmd_label(args):
 
 
 def cmd_check(args):
+    rung = "page"
+    if args[:1] == ["--rung"]:
+        if len(args) < 3 or args[1] not in RUNGS:
+            return _usage()
+        rung, args = args[1], args[2:]
     page = _read_page(args)
     if page is None:
         return 2
     _page_path, html, html_dir = page
-    failures, cited = check_page(html, html_dir)
+    failures, cited = check_page(html, html_dir, rung == "sheet")
     for failure in failures:
         sys.stdout.write(failure + "\n")
     if not cited:

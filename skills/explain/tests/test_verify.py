@@ -11,6 +11,7 @@ that no Chrome survives the run and that the temp profile is removed.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ sys.path.insert(0, HERE)
 from bpmn_page import bpmn_page  # noqa: E402
 
 SCRIPT = os.path.join(os.path.dirname(HERE), "scripts", "verify.sh")
+BPMN_PY = os.path.join(os.path.dirname(HERE), "scripts", "bpmn.py")
 FIXTURES = os.path.join(HERE, "fixtures")
 HANG = os.path.join(FIXTURES, "snap-hang.html")
 SOURCE = "The parser reads each tag and keeps the attributes.\n"
@@ -589,6 +591,26 @@ class VerifyTest(unittest.TestCase):
             "  page | plane | STAGE_A (Первичная проверка) has no svg.bpmn"
             " and is not in Not covered\n",
         )
+        self.assert_no_chrome_left()
+
+    def test_sheet_with_one_bpmn_cite_prints_bpmn_ok(self):
+        """Red when verify.sh does not pass --rung sheet: a sheet with one labelled BPMN cite then fails
+        conditions 1 and 2. The same page as a page rung must still fail condition 1."""
+        shutil.copy(os.path.join(FIXTURES, "two_planes.bpmn"), os.path.join(self.work, "two_planes.bpmn"))
+        cite = ('  <cite data-path="two_planes.bpmn" data-line="18" data-snippet="Проверить паспорт клиента">'
+                'two_planes.bpmn:18 <code>Проверить паспорт клиента</code></cite>\n</div>')
+        path = self.write_index(replace_once(self, fixture("verify-good.html"), "</div>", cite))
+        label = subprocess.run([sys.executable, "-B", BPMN_PY, "label", path], capture_output=True, text=True)
+        self.assertEqual((label.returncode, label.stdout), (0, ""), label.stderr)
+        proc, _ = self.run_verify(path)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, GOOD_OUT.replace(BPMN_NONE, "bpmn: ok\n"))
+        with open(path, encoding="utf-8") as handle:
+            self.write_index(replace_once(self, handle.read(), 'content="sheet"', 'content="page"'))
+        proc, _ = self.run_verify(path)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(self.check_lines(proc.stdout)[-1], "bpmn: FAIL 4 failure(s)")
+        self.assertIn("  page | plane | Collaboration_1 (Collaboration_1) has no svg.bpmn", proc.stdout)
         self.assert_no_chrome_left()
 
     def test_lesson_prints_bpmn_after_media(self):

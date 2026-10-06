@@ -884,6 +884,16 @@ class BpmnRungCase(unittest.TestCase):
         self.assertEqual(places, sorted(places))
         self.assertIn("--plane <id> --highlight <ids>", verify)
 
+    def test_sheet_md_labels_before_verify(self):
+        """Red when "Verify and export" of sheet.md loses `bpmn.py label index.html`, puts it after verify.sh,
+        or breaks the STE profile."""
+        verify = self.words(SHEET_MD, "Verify and export")
+        places = [verify.find(name) for name in ("bpmn.py label index.html", "verify.sh index.html")]
+        self.assertNotIn(-1, places, verify)
+        self.assertLess(places[0], places[1])
+        run = lint(SHEET_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
     def test_page_md_has_the_bpmn_plane_pattern(self):
         """Red when "Diagram patterns" loses the figure.bpmn block or the rule against a flow drawn by hand."""
         patterns = self.words(PAGE_MD, "Diagram patterns")
