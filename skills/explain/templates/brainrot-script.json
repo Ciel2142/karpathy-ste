@@ -7,7 +7,7 @@
     "commit": "8f75ed0",
     "dirty": "no",
     "date": "2026-10-04",
-    "source": "scripts/verify.sh",
+    "source": "skills/explain",
     "not_covered": "The Chrome flags, the process cleanup and the lint rules."
   },
   "scenes": [

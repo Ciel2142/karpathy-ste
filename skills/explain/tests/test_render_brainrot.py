@@ -1,4 +1,5 @@
-"""End-to-end brainrot renders (EXPLAIN_VIDEO_E2E=1 only): templates/brainrot-script.json through
+"""End-to-end brainrot renders (the render cases run with EXPLAIN_VIDEO_E2E=1 only; LimitsScriptCase
+runs without it): templates/brainrot-script.json through
 scripts/render.sh --engine say, twice. Each render uses the workspace $EXPLAIN_VIDEO_WORKSPACE, else
 the default workspace ~/karpathy/video-workspace (never deleted here), and compiles in a run
 directory of its own there (<ws>/runs/run.<pid>.<6 chars>, which render.sh removes); its
@@ -121,13 +122,13 @@ def video_size(mp4):
 LIMITS = json.loads((EXPLAIN / "video" / "formats.json").read_text(encoding="utf-8"))["brainrot"]
 LIMITS_SOURCE = EXPLAIN / "tests" / "fixtures" / "limits-source.txt"
 CHECK_TOOL = EXPLAIN / "video" / "build-timeline.mjs"
-HEADING = 40  # the length of a scene heading in the stress script; the formats have no limit for it
 NAME = "EXPLAIN_BRAINROT_BACKGROUNDS"
 
 
 def limited_texts(script):
-    """(where, text, limit) for every text of `script` that a brainrot limit or the stress heading
-    length bounds, and (where, count, limit) for each list that a limit bounds."""
+    """(where, text, limit) for every text of `script` that a brainrot limit bounds, and (where,
+    count, limit) for each list that a limit bounds. An edge between two cells of one row carries
+    no label in brainrot (count 0, limit 0); every other edge label sits at the 10-char limit."""
     found = []
     for scene in script["scenes"]:
         props, here = scene["props"], scene["id"]
@@ -135,14 +136,19 @@ def limited_texts(script):
             found += [(here + " title", props["title"], LIMITS["titleTitle"]),
                       (here + " subtitle", props["subtitle"], LIMITS["titleSubtitle"])]
             continue
-        found.append((here + " heading", props["title"], HEADING))
+        found.append((here + " heading", props["title"], LIMITS["sceneTitle"]))
         if scene["component"] == "bullets-appear":
             found += [(here + " bullet", b["text"], LIMITS["bulletText"]) for b in props["bullets"]]
             found.append((here + " bullets", len(props["bullets"]), 4))
         elif scene["component"] == "diagram-with-highlight-walk":
             found += [(here + " label", n["label"], LIMITS["diagramLabel"]) for n in props["nodes"]]
             found += [(here + " sub", n["sub"], LIMITS["diagramSub"]) for n in props["nodes"]]
-            found += [(here + " edge", e["label"], 10) for e in props["edges"]]
+            cells = {n["id"]: n["cell"] for n in props["nodes"]}
+            for e in props["edges"]:
+                if cells[e["from"]][1] == cells[e["to"]][1]:
+                    found.append((here + " same-row edge", int("label" in e), 0))
+                else:
+                    found.append((here + " edge", e["label"], 10))
             found.append((here + " nodes", len(props["nodes"]), 7))
         elif scene["component"] == "code-with-line-highlights":
             source = props["source"]
@@ -291,7 +297,10 @@ class BrainrotRenderCase(unittest.TestCase):
     # red: a panel text that runs into the outer 24 px of the panel (a scene that lays a text out
     # wider than its content box), in any of the stills of the stress script. The panel is white and
     # its content box starts 48 px from each side, so any ink in x 0-23 or x 1057-1079 above the
-    # seam is an overflow. The caption lies below y 912, so it is not in this box.
+    # seam is an overflow. The caption lies below y 912, so it is not in this box. Also red: ink in
+    # the seam band x 0-1079, y 912-927, between the content box (it ends at y 911) and the top of
+    # a full-size caption (y 928): a panel text that runs down out of its box, or a caption that
+    # grows up into the panel.
     def test_limits_stills_keep_panel_margins(self):
         out, run = render_brainrot("generated", LIMITS_SCRIPT)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
@@ -301,6 +310,8 @@ class BrainrotRenderCase(unittest.TestCase):
             for x0, x1 in ((0, 24), (1057, 1080)):
                 with self.subTest(still=still.name, x0=x0):
                     self.assertIsNone(ink_extent(still, x0, x1, 0, 912))
+            with self.subTest(still=still.name, band="seam"):
+                self.assertIsNone(ink_extent(still, 0, 1080, 912, 928))
 
 
 if __name__ == "__main__":

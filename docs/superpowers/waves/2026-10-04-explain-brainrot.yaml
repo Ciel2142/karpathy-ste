@@ -128,7 +128,7 @@ waves:
       the stills read, the limit changes and their reasons; the tuned values are in
       `video/formats.json` (read by `build-timeline.mjs` and `transcript.py`),
       `rungs/brainrot.md` and spec §3.4; the user states acceptance.
-    status: pending
+    status: done   # 2026-10-05, commits 05d7059..ac5afbf; live run ste_lint.py ten ok, limits tuned, user accepted on a phone ("ok")
     depends_on: [brainrot-render]
     owns:
       - docs/superpowers/spikes/ (brainrot live-run note)
@@ -140,6 +140,8 @@ waves:
       - skills/explain/rungs/brainrot.md
       - skills/explain/tests/ (format-limit drift, png_diff ink_extent, stress fixtures and gated case)
       - spec §3.4 table values, §5.4 caption cap
+      - skills/explain/video/src/short/runner.ts (obstacles kept out of the runner lane, ruling R11)
+      - skills/explain/rungs/video.md, skills/explain/templates/brainrot-script.json (live-run defect answers)
     risk: low
     plan: docs/superpowers/plans/2026-10-04-explain-brainrot-live-run.md
     acceptance:

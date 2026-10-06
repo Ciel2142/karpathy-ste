@@ -132,8 +132,9 @@ const MAX_PAUSE = 90;
 const TAB_COLUMNS = 4;
 // The two formats. The list is fixed: another row of formats.json (a stale one) does not make a format.
 const FORMAT_NAMES = ["film", "brainrot"];
-// Limits per format. The brainrot and film values are the spec starting values; tune them in formats.json
-// only. The film row holds no component limit: a film has no components.
+// Limits per format. The brainrot values were tuned in the brainrot live run (spec 3.4) and the film
+// values are the spec starting values; change them in formats.json only. The film row holds no
+// component limit: a film has no components.
 // A file that is missing, unreadable, not JSON or without the film and the brainrot row ends the run here:
 // the FAIL line and exit 1 (the same as finish, which is not defined yet at load time).
 const loadFormats = () => {
@@ -196,15 +197,17 @@ const cell = { t: "cell" };
 
 // The shapes of one format: every limit comes from its FORMATS row.
 const shapesFor = (limits) => {
+  // The heading of the four scenes that are not `title` scenes; sceneTitle null: no limit.
+  const heading = str(limits.sceneTitle ?? Infinity);
   const side = obj({
     heading: str(limits.beforeAfterHeading),
     lines: arr(str(limits.beforeAfterLineChars, true), 0, limits.beforeAfterLines),
   });
   return {
     title: { title: str(limits.titleTitle), subtitle: str(limits.titleSubtitle), cue },
-    "bullets-appear": { title: str(Infinity), bullets: arr(obj({ text: str(limits.bulletText), cue }), 2, 4) },
+    "bullets-appear": { title: heading, bullets: arr(obj({ text: str(limits.bulletText), cue }), 2, 4) },
     "diagram-with-highlight-walk": {
-      title: str(Infinity),
+      title: heading,
       nodes: arr(
         obj({ id: str(Infinity), label: str(limits.diagramLabel), sub: str(limits.diagramSub, true), cell }),
         2,
@@ -214,11 +217,11 @@ const shapesFor = (limits) => {
       walk: arr(obj({ node: str(Infinity), cue })),
     },
     "code-with-line-highlights": {
-      title: str(Infinity),
+      title: heading,
       source: obj({ path: str(Infinity), from: int, to: int }),
       highlights: arr(obj({ from: int, to: int, cue })),
     },
-    "before-after": { title: str(Infinity), before: side, after: side, cue },
+    "before-after": { title: heading, before: side, after: side, cue },
   };
 };
 
@@ -404,7 +407,9 @@ const readSource = (entry, root, limits, tag) => {
 
 // ---------- diagram references and cells ----------
 
-const checkDiagram = (props, fail) => {
+// sameRowEdgeLabel false (brainrot): two nodes of one row leave too little room between them for a
+// label, so an edge between two cells of the same row carries none. null: any edge may carry one.
+const checkDiagram = (props, fail, limits, tag) => {
   const nodes = list(props.nodes).filter(isObject);
   const ids = new Set(nodes.map((n) => n.id));
   const cellOwner = new Map();
@@ -420,6 +425,15 @@ const checkDiagram = (props, fail) => {
   });
   list(props.walk).forEach((w, i) => {
     if (isObject(w) && typeof w.node === "string" && !ids.has(w.node)) fail(`walk[${i}].node ${q(w.node)} is not a node id`);
+  });
+  if (limits.sameRowEdgeLabel !== false) return;
+  const cellOf = new Map(nodes.map((n) => [n.id, n.cell]));
+  list(props.edges).forEach((e, i) => {
+    if (!isObject(e) || typeof e.label !== "string" || e.label === "") return;
+    const [a, b] = [cellOf.get(e.from), cellOf.get(e.to)];
+    if (CELLS.includes(a) && CELLS.includes(b) && a[1] === b[1]) {
+      fail(`edges[${i}] ${e.from}-${e.to} has a label on a same-row edge (${a}-${b}${tag})`);
+    }
   });
 };
 
@@ -476,7 +490,7 @@ const checkScene = (scene, where, root, subjectKind, report, limits, shapes, tag
       checkShape(scene.props, shape, "", fail, tag);
       if (isObject(scene.props)) {
         checkCues(scene, fail);
-        if (scene.component === "diagram-with-highlight-walk") checkDiagram(scene.props, fail);
+        if (scene.component === "diagram-with-highlight-walk") checkDiagram(scene.props, fail, limits, tag);
         if (scene.component === "code-with-line-highlights") checkCode(scene.props, root, fail, limits, tag);
       }
     }

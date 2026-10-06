@@ -1,0 +1,174 @@
+version: 2
+feature: explain-lesson
+spec: docs/superpowers/specs/2026-10-04-explain-lesson-design.md
+coverage: waived
+# Base (spec §6.5, amendment A1 of 2026-10-06): one feature branch `feat/explain-lesson`, cut
+# from `main` after `feat/explain-film` merges (epic kp-5s0, wave explainer-removal, its last).
+# Waves 1-4 are driven by the ralph loop (/Users/valukin/ralphloop) in the worktree
+# /Users/valukin/karpathy-wt/lesson; `ralph_wave` below is the number in the epic's
+# `wave-explain-lesson-<n>` label and in the plan glob `docs/superpowers/plans/*-explain-lesson-w<n>.md`.
+# lesson-live-run has no epic on purpose: its done_when needs the user (subject choice,
+# disputed findings); it runs interactively after the loop's finish session.
+waves:
+  - id: clip-format
+    ralph_wave: 2
+    slice: domain
+    goal: >-
+      A `"format": "clip"` script passes every stage of the film pipeline as a film of at
+      most 60 s (spec §6.1): the `clip` row of `formats.json` (the film row with
+      `maxTotalSeconds: 60`, `sourceLines: 12`, `minText: 19`; the film row gains
+      `minText: 14`), `clip` in every format list and every film-path test
+      (build-timeline `FORMAT_NAMES`, both `format must be` messages, build-mode `isFilm`;
+      `narrate.py` and `check_budgets.py` lists; `render.sh`, `check_render.sh`,
+      `transcript.py`, `types.ts`, `Root.tsx`), and `minText` carried from the row into
+      the timeline.
+    done_when: >-
+      `test_video_timeline_clip.py` passes (a clip timeline with `maxTotalSeconds: 60` and
+      `minText: 19`; the three-name format message); `test_check_budgets.py` passes the
+      61 s clip case with `FAIL total 61.0 s (max 60, clip)`; `test_format_limits.py`
+      covers three rows; the film-path cases for `render.sh` and `transcript.py` pass
+      for a clip; the message asserts in the film and brainrot timeline tests and in
+      `test_narrate_sentences.py` list three names; the unit suite and the film E2E pass.
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/video/formats.json
+      - skills/explain/video/build-timeline.mjs (FORMAT_NAMES, messages, isFilm, minText in the timeline)
+      - skills/explain/video/narrate.py, skills/explain/video/check_budgets.py (clip in their format lists)
+      - skills/explain/video/src/types.ts
+      - skills/explain/scripts/render.sh, skills/explain/video/check_render.sh, skills/explain/video/transcript.py, skills/explain/video/src/Root.tsx (clip takes the film path)
+      - skills/explain/tests/test_video_timeline_clip.py
+      - skills/explain/tests/test_video_timeline_film.py, test_video_timeline_brainrot.py (message asserts only)
+      - skills/explain/tests/test_check_budgets.py (clip case)
+      - skills/explain/tests/test_format_limits.py (three rows)
+      - skills/explain/tests/test_render.py, test_transcript.py, test_narrate_sentences.py (clip film-path cases, message asserts)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film
+
+  - id: clip-checks
+    ralph_wave: 3
+    slice: domain
+    goal: >-
+      The guard stage reads its text floor from the timeline's `minText` (19 px for a clip,
+      14 px for a film; the kit keeps `MIN_TEXT`), `CodeCard` shows a visible `…` on a line
+      it cuts, and `build-timeline.mjs --check` refuses, for every format with `sources`,
+      a source range that holds no cited line (spec §6.1 guard and kit rows, §6.2);
+      `rungs/video.md` states the floor as a number per format.
+    done_when: >-
+      `test_film_guard.py` passes the `minText` cases (a 16 px label passes a film and
+      fails a clip with `SMALLTEXT 16 px`); `test_film_kit.py` passes the cut-mark and
+      `sourceLines: 12` cases; the source-cite cases pass with
+      `FAIL source <id>: no cite on <path> inside <from>-<to>` and the `changed()` cases of
+      `test_video_timeline_film.py` are fixed; the worked example, every fixture and the
+      film E2E pass the source-cite check; the unit suite and the film E2E pass.
+    status: pending
+    depends_on: [clip-format]
+    owns:
+      - skills/explain/video/src/FilmStage.tsx (minText from the timeline)
+      - skills/explain/video/src/kit/mono.ts (the cut mark)
+      - skills/explain/video/build-timeline.mjs (the source-cite check only)
+      - skills/explain/video/src/film/ (source-cite fix only, if needed)
+      - skills/explain/rungs/video.md (the floor as a number per format)
+      - skills/explain/tests/test_film_guard.py (minText cases), test_film_kit.py (cut mark)
+      - skills/explain/tests/test_video_timeline_film.py (source-cite and changed() cases)
+      - skills/explain/tests/fixtures/ and video E2E scripts (source-cite fixes only)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film
+
+  - id: lesson-page
+    ralph_wave: 1
+    slice: domain
+    goal: >-
+      The page template carries the clip CSS, the `Play all` button, its code in block 2 and
+      the `play-all-visibility` guard rule (spec §4.3, §4.4); `verify.sh` accepts
+      `rung=lesson` with the page viewports and the sixth `media` line (spec §6.3);
+      `rungs/page.md` carries the clip criterion, the hint line and the `figure.clip`
+      primitive (spec §3.2).
+    done_when: >-
+      `test_page_template.py` passes with the template as it stands plus the
+      `play-all-visibility` broken state and the 200-line budget; `test_verify.py` passes
+      the five spec §7.2 lesson cases (six ok lines; missing poster FAIL with its detail
+      line and exit 1; fragment stripped; no-clip fixture ok; unknown-rung text lists
+      `lesson`).
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/templates/page.html
+      - skills/explain/scripts/verify.sh
+      - skills/explain/rungs/page.md
+      - skills/explain/tests/test_page_template.py
+      - skills/explain/tests/test_verify.py
+      - skills/explain/tests/fixtures/lesson/ (verify.sh fixtures)
+    risk: low
+    plan: docs/superpowers/plans/2026-10-04-explain-lesson-w1.md
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest tests.test_page_template tests.test_verify
+
+  - id: lesson-rung
+    ralph_wave: 4
+    slice: vertical
+    goal: >-
+      `/explain <subject> --as lesson` is routed, documented and buildable end to end: the
+      rung file with both gates and every rule of spec §5, the three reviewer prompts, the
+      `SKILL.md` and `README.md` wiring (spec §3.1, §3.4, §3.5, §6.4), and a gated E2E that
+      renders a one-clip fixture lesson (a three-scene film clip) and passes `verify.sh`
+      (spec §7.4).
+    done_when: >-
+      `test_lesson_prompts.py` passes (placeholders, hunt sentence, zero-findings sentence,
+      quoted-source rule, verdict lines in each prompt); the gated `test_lesson_e2e.py`
+      renders the fixture clip with eleven `ok` lines and the fixture page with six `ok`
+      lines; `SKILL.md` lists six `--as` names and the `lesson` rung row.
+    status: pending
+    depends_on: [clip-checks, lesson-page]
+    owns:
+      - skills/explain/rungs/lesson.md
+      - skills/explain/lesson/review-page.md
+      - skills/explain/lesson/review-script.md
+      - skills/explain/lesson/review-render.md
+      - skills/explain/SKILL.md
+      - README.md (lesson row)
+      - skills/explain/tests/test_lesson_prompts.py
+      - skills/explain/tests/test_lesson_e2e.py
+      - skills/explain/tests/fixtures/lesson-e2e/
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_lesson_e2e
+
+  - id: lesson-live-run
+    ralph_wave: null   # no epic; run interactively with the user after the finish session
+    slice: vertical
+    goal: >-
+      One real `/explain <repo file or directory> --as lesson` run with three planted faults
+      (spec §7.5), both gates run by fresh subagents, the user adjudicating disputed
+      findings, and a fold-back that tunes the clip limits and the rung file from what the
+      run showed.
+    done_when: >-
+      `docs/superpowers/spikes/<date>-explain-lesson-live-run.md` exists with the spec §7.5
+      numbers (findings per gate and round, fixed, disputed, plants found and missed, drops,
+      removals, wall time and tokens per gate, lines of scene code and author minutes and
+      render runs per clip), the planted faults are confirmed removed
+      from the artifact, every fold-back change is committed, and the unit suites pass.
+    status: pending
+    depends_on: [lesson-rung]
+    owns:
+      - docs/superpowers/spikes/ (the live-run document)
+      - skills/explain/rungs/lesson.md (fold-back edits)
+      - skills/explain/lesson/*.md (fold-back edits)
+      - skills/explain/video/formats.json (clip row tuning only)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - the live-run document holds every number that spec §7.5 names
+deferred: []
+approval:
+  required: false
+  reason: null

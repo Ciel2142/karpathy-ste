@@ -62,7 +62,8 @@ Rules for each scene:
 - Write the narration in STE. Write 45 words or fewer. Keep each sentence at 20 words or fewer.
 - The prose lint also reads each `title`, the subtitle, the bullets, the headings and lines of
   `before-after`, and `provenance.not_covered`. Write them in STE. The lint does not read the
-  diagram labels, the code or the cites.
+  diagram labels, the code or the cites. To show text that breaks STE, put it in double quotes in
+  a prop, or in backticks in the narration. The lint does not check quoted text or code.
 - Put a code name in backticks. The transcript shows it as code, and the narrator speaks it as
   plain text. Prefer words, such as "the check script", to a file name.
 - Write the cites as `{ "path": …, "line": …, "snippet": … }`. The `path` is relative to
@@ -84,16 +85,18 @@ Keep every text inside the limits of this table:
 | narration words per scene | 45 |
 | lead / tail frames | 6 / 12 |
 | code range | 14 lines × 40 columns |
-| `bullets-appear` text | 28 chars |
-| `before-after` | stacked; 0–5 lines × 30 chars; heading 30 |
-| diagram `label` / `sub` | 12 / 20 |
+| `bullets-appear` text | 40 chars |
+| `before-after` | stacked; 0–5 lines × 48 chars; heading 45 |
+| diagram `label` / `sub` | 12 / 19 |
+| diagram edge `label` | 10; no label on an edge in a row |
 | `title` title / subtitle | 30 / 60 |
+| scene heading | 29 chars |
 | caption chunk | 1–3 words, 20 chars |
 
 A limit failure names the format. For example: `line 7 is 52 columns (max 40, brainrot)`.
 
-- Length: at speed 1.2, the narrator speaks approximately 3.6 words each second. Each scene adds
-  0.6 s of lead and tail. Six scenes of 45 words come near 80 s. These figures are an
+- Length: at speed 1.2, the narrator speaks approximately 3.3 words each second. Each scene adds
+  0.6 s of lead and tail. Six scenes of 45 words come near 85 s. These figures are an
   estimate. The `timeline` stage line shows the real length.
 - Hook: scene 1 is a `title` scene. Its narration is one sentence of 12 words or fewer. The
   sentence says why the subject matters. The cue of the scene is the first words of that
@@ -101,10 +104,15 @@ A limit failure names the format. For example: `line 7 is 52 columns (max 40, br
   each limit in the table.
 - Before and after: the component stacks its two panels. The `before` panel is above the `after`
   panel.
+- Scene heading: the heading is the `title` prop of a `bullets-appear`, diagram, code or
+  `before-after` scene. It shows on one line, so it has at most 29 characters.
+- Diagram edges: two nodes in the same row have only 48 px between them. A label on an edge
+  between them is behind the nodes. Put each labelled edge between two rows, for example from
+  `b1` to `b2`. The `script` stage fails a label on an edge in a row.
 - Captions: a caption shows 1 to 3 words of the narration at a time. A caption holds at most 20
-  characters, so that it fits on one line. A code name that is longer than 20 characters shows
+  characters, so that it fits on one line. A code name that is longer than this limit shows
   alone, in smaller type. The word that the voice speaks is yellow. Backticks do not show in a
-  caption.
+  caption. A caption keeps the punctuation of the narration.
 - Code: the range has at most 14 lines, and each line has at most 40 columns. A tab counts as 4
   columns. This command prints the number of each line that is too long:
   `awk '{ gsub(/\t/, "    "); if (length($0) > 40) print NR }' <file>`. If no range of 14 short
@@ -175,7 +183,8 @@ tests only.
   shorter clip starts at 0 and repeats. Set `EXPLAIN_BRAINROT_SEED` to an integer to fix the
   choice of the clip and its start.
 - If the folder does not exist, or it is empty, or it has no good clip, the background is the
-  generated runner loop. The runner is a block character that hops between three lanes. This case is not
+  generated runner loop. A cyan block runs on a three-lane road. Red blocks come
+  toward it. It changes lane to pass them, and no red block covers it. This case is not
   an error. The stage line is `background: ok generated`.
 - To force the generated loop, set `EXPLAIN_BRAINROT_BACKGROUNDS` to an empty folder. Do not set
   it to `<ws>/runs`, or to a folder in it. Each render makes its own folder there and removes
@@ -199,7 +208,7 @@ A `FAIL` line names the cause. The output of the tool follows it, indented.
 |---|---|
 | `script: ok (<n> scenes)` | The script passed all checks with the brainrot limits, and the draft transcript passed `verify.sh`. |
 | `workspace: ok <ws>` | The Remotion workspace is ready. |
-| `narration (<engine>): ok[ (fallback: <cause>)]` | Each scene has a WAV file and a `words.json` file. The voice speaks at speed 1.2. |
+| `narration (<engine>): ok[ (fallback: <cause>)]` | Each scene has a WAV file and a `words.json` file. The voice speaks at speed 1.2. The first lines of `audio/<id>.<engine>.txt` show the engine, the voice and the speed. |
 | `timeline (<n> scenes, <s> s): ok` | `build/timeline.json` exists with the captions. Each scene is 30 s or less, and the short is 90 s or less. |
 | `background: ok <name> @<start> s[ (loop)]` or `background: ok generated` | The background is in `build/timeline.json`. `(loop)` shows that the clip repeats. |
 | `render (<s> s, <ratio> render-min/video-min)[ (limit 2.0)]: ok` | Remotion wrote `video.mp4`. The log is `build/render.log`. |
