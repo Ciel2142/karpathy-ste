@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
 from bpmn_label import SUB_PROCESS_KINDS as SUBS, clean
+from bpmn_marks import circle, esc, event, f, path, poly, rect
 
 if TYPE_CHECKING:
     from bpmn import Model, Plane
@@ -30,28 +31,6 @@ TASKS = set(TAGS) | {"task", "callActivity"}
 EVENTS = {"startEvent", "intermediateCatchEvent", "intermediateThrowEvent", "endEvent",
           "boundaryEvent"}
 GLYPHS = {"exclusiveGateway": "×", "parallelGateway": "+", "complexGateway": "*"}
-# Event markers as polygons on a unit square around the centre, scaled by the radius.
-MARKS = {
-    "error": [(-.5, .55), (-.2, -.55), (.12, .1), (.5, -.55), (.2, .55), (-.12, -.1)],
-    "link": [(-.55, -.2), (.1, -.2), (.1, -.5), (.6, 0), (.1, .5), (.1, .2), (-.55, .2)],
-    "signal": [(0, -.55), (.5, .4), (-.5, .4)],
-    "escalation": [(0, -.55), (.45, .55), (0, .1), (-.45, .55)],
-    "compensate": [(-.6, 0), (-.05, -.4), (-.05, 0), (.5, -.4), (.5, .4), (-.05, 0), (-.05, .4)],
-    "cancel": [(-.45, -.3), (-.3, -.45), (0, -.15), (.3, -.45), (.45, -.3), (.15, 0),
-               (.45, .3), (.3, .45), (0, .15), (-.3, .45), (-.45, .3), (-.15, 0)],
-}
-
-
-def f(value):
-    """A number as short text: at most two decimals, no trailing zeros."""
-    text = ("%.2f" % value).rstrip("0").rstrip(".")
-    return "0" if text == "-0" else text
-
-
-def esc(text):
-    """Escape text for an attribute or text content."""
-    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
 
 
 def wrap(name: str, width: float, height: float) -> tuple[list[str], bool]:
@@ -98,90 +77,29 @@ def _boxed(name, x, top, width, height):
     return _text(lines, x + width / 2, top), cut
 
 
-def _circle(cx, cy, r, cls="bpmn-shape", extra=""):
-    return '<circle class="%s" cx="%s" cy="%s" r="%s"%s/>' % (cls, f(cx), f(cy), f(r), extra)
-
-
-def _rect(x, y, w, h, extra="", cls="bpmn-shape"):
-    return '<rect class="%s" x="%s" y="%s" width="%s" height="%s"%s/>' % (
-        cls, f(x), f(y), f(w), f(h), extra)
-
-
-def _path(d, cls="bpmn-flow", extra=""):
-    fill = ' fill="none"' if cls == "bpmn-flow" else ""
-    return '<path class="%s"%s d="%s"%s/>' % (cls, fill, d, extra)
-
-
-def _poly(points, cx, cy, size):
-    return "M" + "L".join("%s %s" % (f(cx + px * size), f(cy + py * size))
-                          for px, py in points) + "Z"
-
-
-def _definition(model, node):
-    """The kind of an event's first event definition, such as "timer", or None."""
-    for child in node.children:
-        tag = model.nodes[child].tag
-        if tag.endswith("EventDefinition"):
-            return tag[:-len("EventDefinition")]
-    return None
-
-
-def _event(model, node, b):
-    x, y, w, h = b
-    cx, cy, r = x + w / 2, y + h / 2, min(w, h) / 2
-    dash = ""
-    if node.attrs.get("cancelActivity") == "false" or node.attrs.get("isInterrupting") == "false":
-        dash = ' stroke-dasharray="4 3"'
-    if node.tag == "endEvent":
-        parts = [_circle(cx, cy, r - 1.5, extra=' stroke-width="4"' + dash)]
-    elif node.tag == "startEvent":
-        parts = [_circle(cx, cy, r, extra=' stroke-width="1.5"' + dash)]
-    else:
-        parts = [_circle(cx, cy, r, extra=dash), _circle(cx, cy, r - 3, extra=dash)]
-    kind = _definition(model, node)
-    filled = node.tag in ("endEvent", "intermediateThrowEvent")
-    if kind == "timer":
-        parts.append(_circle(cx, cy, r * .6))
-        parts.append(_path("M%s %sL%s %sL%s %s" % (f(cx), f(cy - r * .45), f(cx), f(cy),
-                                                   f(cx + r * .3), f(cy))))
-    elif kind == "message":
-        mw, mh = r * 1.0, r * .7
-        parts.append(_rect(cx - mw / 2, cy - mh / 2, mw, mh, cls="bpmn-text" if filled else "bpmn-shape"))
-        if not filled:
-            parts.append(_path("M%s %sL%s %sL%s %s" % (f(cx - mw / 2), f(cy - mh / 2), f(cx),
-                                                       f(cy), f(cx + mw / 2), f(cy - mh / 2))))
-    elif kind == "terminate":
-        parts.append(_circle(cx, cy, r * .6, cls="bpmn-text"))
-    elif kind == "conditional":
-        parts.append(_rect(cx - r * .4, cy - r * .5, r * .8, r))
-    elif kind in MARKS:
-        parts.append(_path(_poly(MARKS[kind], cx, cy, r), "bpmn-text" if filled else "bpmn-flow"))
-    return parts
-
-
 def _gateway(node, b):
     x, y, w, h = b
     cx, cy = x + w / 2, y + h / 2
-    parts = [_path("M%s %sL%s %sL%s %sL%s %sZ" % (f(cx), f(y), f(x + w), f(cy), f(cx), f(y + h),
+    parts = [path("M%s %sL%s %sL%s %sL%s %sZ" % (f(cx), f(y), f(x + w), f(cy), f(cx), f(y + h),
                                                 f(x), f(cy)), "bpmn-shape")]
     if node.tag in GLYPHS:
         parts.append(_glyph(GLYPHS[node.tag], cx, cy, 2))
     elif node.tag == "inclusiveGateway":
-        parts.append(_circle(cx, cy, h * .24, "bpmn-flow", ' fill="none" stroke-width="2.5"'))
+        parts.append(circle(cx, cy, h * .24, "bpmn-flow", ' fill="none" stroke-width="2.5"'))
     elif node.tag == "eventBasedGateway":
         r = h * .3
-        parts.append(_circle(cx, cy, r, "bpmn-flow", ' fill="none"'))
-        parts.append(_circle(cx, cy, r - 3, "bpmn-flow", ' fill="none"'))
+        parts.append(circle(cx, cy, r, "bpmn-flow", ' fill="none"'))
+        parts.append(circle(cx, cy, r - 3, "bpmn-flow", ' fill="none"'))
         corners = [(math.cos(math.radians(-90 + 72 * k)) * .5,
                     math.sin(math.radians(-90 + 72 * k)) * .5) for k in range(5)]
-        parts.append(_path(_poly(corners, cx, cy, r)))
+        parts.append(path(poly(corners, cx, cy, r)))
     return parts
 
 
 def _task(node, b, name):
     x, y, w, h = b
     extra = ' rx="10"' + (' stroke-width="3"' if node.tag == "callActivity" else "")
-    parts = [_rect(x, y, w, h, extra)]
+    parts = [rect(x, y, w, h, extra)]
     top, height = y + PAD, h - 2 * PAD
     if node.tag in TAGS:
         parts.append('<text class="bpmn-text" font-size="%d" x="%s" y="%s">%s</text>' % (
@@ -196,12 +114,12 @@ def _sub(node, di, b, name):
     extra = ' rx="10"'
     if node.attrs.get("triggeredByEvent") == "true":
         extra += ' stroke-dasharray="2 3"'
-    parts = [_rect(x, y, w, h, extra)]
+    parts = [rect(x, y, w, h, extra)]
     if di.attrs.get("isExpanded") == "true":
         lines, cut = wrap(name, w - 2 * PAD, LINE)
         return parts + ([_text(lines, x + PAD, y + 4, "start")] if lines else []), cut
     cx, side = x + w / 2, FONT
-    parts.append(_rect(cx - side / 2, y + h - side - 4, side, side))
+    parts.append(rect(cx - side / 2, y + h - side - 4, side, side))
     parts.append(_glyph("+", cx, y + h - side / 2 - 4))
     text, cut = _boxed(name, x + PAD, y + PAD, w - 2 * PAD, h - 2 * PAD - side - 4)
     return parts + [text], cut
@@ -209,12 +127,12 @@ def _sub(node, di, b, name):
 
 def _pool(di, b, name):
     x, y, w, h = b
-    parts = [_rect(x, y, w, h)]
+    parts = [rect(x, y, w, h)]
     if di.attrs.get("isHorizontal") == "false":
-        parts.append(_path("M%s %sL%s %s" % (f(x), f(y + BAND), f(x + w), f(y + BAND))))
+        parts.append(path("M%s %sL%s %s" % (f(x), f(y + BAND), f(x + w), f(y + BAND))))
         text, cut = _boxed(name, x + PAD, y, w - 2 * PAD, BAND)
         return parts + [text], cut
-    parts.append(_path("M%s %sL%s %s" % (f(x + BAND), f(y), f(x + BAND), f(y + h))))
+    parts.append(path("M%s %sL%s %s" % (f(x + BAND), f(y), f(x + BAND), f(y + h))))
     lines, cut = wrap(name, h - 2 * PAD, BAND)
     if lines:
         cx, cy = x + BAND / 2, y + h / 2
@@ -304,7 +222,7 @@ def _label(ident, name, label, fallback, box):
 def _shape(model, node, di, b, name, notes):
     """Markup of one shape, whether its name was cut, and whether the name sits outside."""
     if node.tag in EVENTS:
-        return _event(model, node, b), False, True
+        return event(model, node, b), False, True
     if node.tag.endswith("Gateway"):
         return _gateway(node, b), False, True
     if node.tag in TASKS:
@@ -315,12 +233,12 @@ def _shape(model, node, di, b, name, notes):
         return _pool(di, b, name) + (False,)
     x, y, w, h = b
     if node.tag == "textAnnotation":
-        bracket = _path("M%s %sL%s %sL%s %sL%s %s" % (f(x + 10), f(y), f(x), f(y), f(x), f(y + h),
+        bracket = path("M%s %sL%s %sL%s %sL%s %s" % (f(x + 10), f(y), f(x), f(y), f(x), f(y + h),
                                                      f(x + 10), f(y + h)))
         lines, _cut = wrap(notes.get(node.attrs.get("id"), ""), w - 10, 10 ** 6)
         return [bracket] + ([_text(lines, x + 5, y + 4, "start")] if lines else []), False, False
     text, cut = _boxed(name, x + PAD, y + PAD, w - 2 * PAD, h - 2 * PAD)
-    return [_rect(x, y, w, h), text], cut, False
+    return [rect(x, y, w, h), text], cut, False
 
 
 def _group(ident, parts, highlight, title, prefix):
