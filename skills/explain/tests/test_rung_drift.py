@@ -13,8 +13,10 @@ matches the sample; each evidence text is in a code line of its file (code_lines
 module docstring); each evidence text is in the sample. Two functions of render.sh print "<stage>: FAIL "
 for a stage they are given: run_tool (before a tool's "FAIL <cause>", without its "FAIL ") and copy_clips.
 A line that one of them prints gives the call, "run_tool <stage> " or "copy_clips <stage>", as the evidence
-of its prefix, and its sample starts with "<stage>: FAIL ". REQUIRED is the lines that video.md must quote:
-the eleven ok lines, the fallback line and the FAIL lines of a film that an author meets.
+of its prefix, and its sample starts with "<stage>: FAIL ". The script stage prints "script: FAIL " and the
+first "narration: FAIL " line of narrate.py --check without that prefix: such a line gives "script: FAIL " of
+render.sh (CHECK_FAIL) and the cause text of narrate.py as its evidence. REQUIRED is the lines that video.md
+must quote: the eleven ok lines, the fallback line and the FAIL lines of a film that an author meets.
 
 The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, blocks, lint, limits_table) and the
 names FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
@@ -24,7 +26,8 @@ headed "| Limit | film |" to the film row of video/formats.json (FILM_CELLS, fil
 test_format_limits.py; the minText of that row is MIN_TEXT of kit/palette.ts), the two sentences that give
 the text floor per format, in sections "Write the scene" and "Build and check", to the minText of the film
 and clip rows, the export lines of the ts blocks of section "Write the scene" to the exports of kit/index.ts,
-and section "Write the script" to templates/video-script.json. Each test names the mutation that turns it red.
+section "Write the script" to templates/video-script.json, and section 1 to the two languages of the rung. Each
+test names the mutation that turns it red.
 
 BrainrotRungCase ties brainrot.md to video.md by title: each block of brainrot.md that names video.md (a
 pointer block) holds a title of one of the five shared sections (SHARED_TITLES) in double quotes, and no
@@ -34,8 +37,11 @@ section holds no film value; brainrot.md holds its own rules, among them the com
 SkillMdCase ties SKILL.md to the rungs: step 2 of its Build procedure names the scene directory, and its
 bullets under Rung files describe the film in video.md, the components in brainrot.md and the clips and
 gates in lesson.md. It pins the texts that route `--as lesson` (the rung row, the bullet, the conventions
-and the build step), and it ties the `--as` list of README.md to the argument-hint of SKILL.md and the
-README rows of the lesson rung to the files that they name."""
+and the build step), the languages of the video and lesson rungs, and convention 7 for a non-English artifact
+with the two rules that point to it, and it ties the `--as` list of README.md to the argument-hint of
+SKILL.md and the README rows of the lesson rung to the files that they name.
+
+HtmlLangCase pins the step of "Fill the template" in page.md and sheet.md that sets the `lang` of `<html>`."""
 
 import ast
 import json
@@ -55,6 +61,8 @@ REPO = EXPLAIN.parent.parent
 VIDEO_MD = EXPLAIN / "rungs" / "video.md"
 LESSON_MD = EXPLAIN / "rungs" / "lesson.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
+PAGE_MD = EXPLAIN / "rungs" / "page.md"
+SHEET_MD = EXPLAIN / "rungs" / "sheet.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
 README_MD = REPO / "README.md"
 STE_LINT = "skills/ste/scripts/ste_lint.py"  # relative to REPO, where lint runs it
@@ -91,8 +99,12 @@ BUILD_TIMELINE = "video/build-timeline.mjs"
 CHECK_BUDGETS = "video/check_budgets.py"
 GUARD_TS = "video/src/kit/guard.ts"
 MARKS_TS = "video/src/kit/marks.ts"
+NARRATE_PY = "video/narrate.py"
 RUN_SCRIPT = (RENDER, "run_tool script ")
 RUN_SCENE = (RENDER, "run_tool scene ")
+# The script stage prints "script: FAIL " and the first "narration: FAIL " line of narrate.py --check with
+# that prefix removed; the cause text is in narrate.py.
+CHECK_FAIL = (RENDER, "script: FAIL ")
 OUT = "/Users/me/out/2026-10-05-120000-video-gates"
 WS = "/Users/me/karpathy/video-workspace"
 
@@ -137,6 +149,19 @@ PRINTED = (
     Printed("script: FAIL source <id>: <cause>",
             "script: FAIL source loop: path src/loop.py cannot be read under the data root",
             (RUN_SCRIPT, (BUILD_TIMELINE, " cannot be read under the data root"))),
+    Printed('script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)',
+            'script: FAIL unspoken text: tools: "KafkaTemplate", "8080"; intro: "JSON" (add to pronounce)',
+            (CHECK_FAIL, (NARRATE_PY, "unspoken text: "), (NARRATE_PY, " (add to pronounce)"))),
+    Printed('script: FAIL abbreviation: <scene>: "<t>", … (write the words out, as «то есть»)',
+            'script: FAIL abbreviation: intro: "т.", "е." (write the words out, as «то есть»)',
+            (CHECK_FAIL, (NARRATE_PY, "abbreviation: "), (NARRATE_PY, " (write the words out, as «то есть»)"))),
+    Printed("script: FAIL no letter: <scene> sentence <k>, …", "script: FAIL no letter: intro sentence 2, 3",
+            (CHECK_FAIL, (NARRATE_PY, "no letter: "), (NARRATE_PY, " sentence "))),
+    Printed("script: FAIL too long: <scene> sentence <k> (<n> characters); … (max 900)",
+            "script: FAIL too long: intro sentence 2 (912 characters); outro sentence 1 (950 characters) (max 900)",
+            (CHECK_FAIL, (NARRATE_PY, "too long: "), (NARRATE_PY, " characters)"), (NARRATE_PY, " (max "))),
+    Printed("script: FAIL engine <e> cannot narrate lang <l>", "script: FAIL engine kokoro cannot narrate lang ru",
+            (CHECK_FAIL, (NARRATE_PY, " cannot narrate lang "))),
     Printed("workspace: FAIL cannot make a run directory in <ws>/runs",
             "workspace: FAIL cannot make a run directory in %s/runs" % WS,
             ((RENDER, "workspace: FAIL cannot make a run directory in "),)),
@@ -207,6 +232,11 @@ REQUIRED = (
     "script: FAIL scene <id>: a film scene has no component or props",
     "script: FAIL scene <id>: pause <v> must be an integer from 12 to 90",
     "script: FAIL source <id>: <cause>",
+    'script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)',
+    'script: FAIL abbreviation: <scene>: "<t>", … (write the words out, as «то есть»)',
+    "script: FAIL no letter: <scene> sentence <k>, …",
+    "script: FAIL too long: <scene> sentence <k> (<n> characters); … (max 900)",
+    "script: FAIL engine <e> cannot narrate lang <l>",
     "workspace: FAIL cannot make a run directory in <ws>/runs",
     "scene: FAIL no scene directory: <path>",
     "scene: FAIL no Film.tsx",
@@ -250,6 +280,12 @@ FILM_CELLS: tuple[tuple[str, str], ...] = (
     ("smallest text", "{minText} px"),
 )
 MIN_TEXT_LINE = re.compile(r"export const MIN_TEXT = (\d+);")
+# The language rule of section 1 of video.md (spec 5.3), word for word.
+VIDEO_LANGUAGES = ('The video rung is English or Russian. A Russian film has `"lang": "ru"` in `script.json`. If '
+                   "the user asks for another language, print the rung line. Say that the video rung is English or "
+                   "Russian. Stop. Offer `page`.")
+# The step of "Fill the template" that sets the language of a page, a sheet or a lesson page (spec 5.1).
+HTML_LANG = "Set the `lang` attribute of `<html>` to the language of the artifact: `en` or `ru`."
 IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 # A list that index.ts exports from a kit file: group 1 is the text between the braces.
 EXPORT_LIST = re.compile(r"\bexport\s+(?:type\s+)?\{([^{}]*)\}\s*from\b")
@@ -303,16 +339,16 @@ def quoted_lines(text):
 
 def line_pattern(quoted):
     """The pattern of the lines that `quoted` describes, for fullmatch: a "<", then characters other than
-    ">", then ">" is a placeholder that matches one or more characters; a "[" directly followed by a space
-    or a ";" opens an optional part, which its matching "]" closes; every other character, another "["
-    among them, matches itself."""
+    ">", then ">" is a placeholder that matches one or more characters; a "…" stands for the rest of a list
+    and matches one or more characters too; a "[" directly followed by a space or a ";" opens an optional
+    part, which its matching "]" closes; every other character, another "[" among them, matches itself."""
     parts, opened, i = [], [], 0
     while i < len(quoted):
         char = quoted[i]
         close = quoted.find(">", i + 1) if char == "<" else -1
-        if close > i + 1:
+        if close > i + 1 or char == "…":
             parts.append(".+")
-            i = close + 1
+            i = close + 1 if close > i + 1 else i + 1
             continue
         if char == "[":
             optional = quoted[i + 1:i + 2] in (" ", ";")
@@ -490,8 +526,9 @@ class HelperCase(unittest.TestCase):
                 "```\n")
         self.assertEqual(quoted_lines(text), ["script: ok (<n> scenes)", "guard (<n> frames): ok"])
 
-    # red: every "[" opens an optional part (the literal [a-z0-9-] becomes optional), or a placeholder that
-    # matches nothing (".*" for ".+")
+    # red: every "[" opens an optional part (the literal [a-z0-9-] becomes optional), a placeholder that
+    # matches nothing (".*" for ".+"), or a "…" that matches only itself (a quoted list line then matches no
+    # printed line)
     def test_line_pattern(self):
         narration = line_pattern("narration (<engine>): ok[ (fallback: <cause>)]")
         self.assertIsNotNone(narration.fullmatch("narration (say): ok"))
@@ -500,6 +537,9 @@ class HelperCase(unittest.TestCase):
         source = line_pattern("FAIL source #<n>: id must match [a-z0-9-]")
         self.assertIsNotNone(source.fullmatch("FAIL source #2: id must match [a-z0-9-]"))
         self.assertIsNone(line_pattern("a <x> b").fullmatch("a  b"))
+        listed = line_pattern("no letter: <scene> sentence <k>, …")
+        self.assertIsNotNone(listed.fullmatch("no letter: intro sentence 2, 3; outro sentence 1"))
+        self.assertIsNone(listed.fullmatch("no letter: intro sentence 2, "))
 
     # red: the module docstring of a .py file is kept, or a comment line is kept
     def test_code_lines_drop_comments(self):
@@ -651,6 +691,13 @@ class FilmRungCase(unittest.TestCase):
         self.assertFalse(old_name in read(VIDEO_MD), "video.md names the old template")
         self.assertEqual(json.loads(read(FILM_TEMPLATE))["format"], "film")
 
+    # red: the stop back to "The video rung is English only.", the Russian film without its "lang" key, or the
+    # stop for a third language without its offer of `page`
+    def test_video_md_states_its_two_languages(self):
+        body = " ".join(section(read(VIDEO_MD), "When a video").split())
+        self.assertIn(VIDEO_LANGUAGES, body)
+        self.assertNotIn("English only", body)
+
     # red: a row of the old components table, or the cue rule, is left in
     def test_video_md_has_no_components(self):
         text = read(VIDEO_MD)
@@ -763,14 +810,15 @@ class SkillMdCase(unittest.TestCase):
     # the row or with a second one, the conventions list without `lesson`, convention 3 without the
     # exception or without one of its three links, convention 5 without the pointer to rungs/lesson.md,
     # convention 6 without the lesson, step 2 without the build sentence, the bullet without the clips
-    # or the gates, or the rule bullet without "Only `--as lesson` selects it."
+    # or the gates, the rule bullet without "Only `--as lesson` selects it.", or the lesson rung back to
+    # English only
     def test_skill_md_routes_the_lesson_rung(self):
         text = read(SKILL_MD)
         rows = [line for line in text.split("\n") if line.startswith("| `lesson`")]
         self.assertEqual(rows, [LESSON_ROW])
         flat = " ".join(text.split())  # the rules wrap over lines
         for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
-                         "The lesson rung is English only, like the video rung.",
+                         "The lesson rung is English or Russian.",
                          "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
                          "`brainrot`, `lesson`).",
                          "(sheet, page or lesson)"):
@@ -791,6 +839,27 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("gates", lesson)
         self.assertTrue(LESSON_MD.is_file(), "rungs/lesson.md does not exist")
 
+    # red: the video rule back to "The video rung is English only."
+    def test_skill_md_states_the_video_languages(self):
+        flat = " ".join(read(SKILL_MD).split())
+        self.assertIn("The `video` rung, chosen or forced, builds a narrated mp4. The video rung is English or "
+                      "Russian.", flat)
+
+    # red: convention 7 back to its one English sentence (no structural rules, no `<code>` for an English
+    # term), or convention 1 or step 1 of the Build procedure with no pointer to convention 7 (all prose under
+    # the full profile again)
+    def test_skill_md_points_non_english_prose_to_convention_7(self):
+        text = read(SKILL_MD)
+        conventions = section(text, "Conventions")
+        seven = " ".join(re.search(r"^7\. .*", conventions, re.M | re.S).group(0).split())
+        self.assertIn("only the structural rules of the STE profile", seven)
+        self.assertIn("`<code>`", seven)
+        one = " ".join(re.search(r"^1\. .*?(?=^2\. )", conventions, re.M | re.S).group(0).split())
+        build = section(text, "Build procedure")
+        step = " ".join(re.search(r"^1\. .*?(?=^2\. )", build, re.M | re.S).group(0).split())
+        self.assertEqual([name for name, body in (("convention 1", one), ("Build step 1", step))
+                          if "convention 7" not in body], [])
+
     # red: the README list of `--as` rungs left at five names (or in another order than the hint of SKILL.md),
     # the Requirements row of `lesson` missing or reworded, the layout line without lesson.md or lesson/, or
     # the tests block without the line of tests.test_lesson_e2e
@@ -804,6 +873,15 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("rungs/{sheet,page,video,brainrot,lesson}.md", readme)
         self.assertIn("lesson/", readme)
         self.assertIn("tests.test_lesson_e2e", readme)
+
+
+class HtmlLangCase(unittest.TestCase):
+    # red: the step left out of "Fill the template" of page.md or of sheet.md (a Russian page keeps the
+    # lang="en" of its template), or put into another section
+    def test_page_and_sheet_set_html_lang(self):
+        for path in (PAGE_MD, SHEET_MD):
+            with self.subTest(file=path.name):
+                self.assertIn(HTML_LANG, " ".join(section(read(path), "Fill the template").split()))
 
 
 if __name__ == "__main__":

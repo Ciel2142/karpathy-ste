@@ -47,6 +47,7 @@ on a page, write one step for each beat of the story.
    shows the button. It also reports `PLAYALL` when a page with a `figure.clip` hides the button or
    has no button.
 4. Rebuild `nav#toc`: one `<a href="#id">` for each section, in document order.
+5. Set the `lang` attribute of `<html>` to the language of the artifact: `en` or `ru`.
 
 | Primitive | Markup | Use it for |
 |---|---|---|

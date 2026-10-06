@@ -9,7 +9,8 @@ plays the clips in document order, so the lesson also works as a series of short
 
 Use a lesson only when the user writes `--as lesson`. Never choose it from the content. The
 grounding does not change. Each section and each scene has cites. The page passes `verify.sh`,
-each clip passes `render.sh`, and all prose follows the STE profile.
+each clip passes `render.sh`, and all prose follows the STE profile. For a non-English lesson,
+follow `SKILL.md` convention 7.
 
 Print this line before you build, as `SKILL.md` says:
 
@@ -29,8 +30,9 @@ and offer `--as page`. Then stop before you write the page. Build nothing. A les
 each clip to a drop rule is different: it ships, with the reasons in the provenance ("Drop a
 clip" below).
 
-The lesson rung is English only, like the video rung. If the user asks for another language,
-print the rung line. Say that the lesson rung is English only. Stop. Offer `page`.
+The lesson rung is English or Russian. A Russian lesson has `<html lang="ru">` on its page and
+`"lang": "ru"` in the `script.json` of each clip. If the user asks for another language, print the
+rung line. Say that the lesson rung is English or Russian. Stop. Offer `page`.
 
 The requirements are the requirements of the page rung and of the video rung. The Remotion
 workspace, the narrator and `tsc` make the clips. `README.md` lists them.
@@ -41,8 +43,9 @@ lesson. You are the author.
 
 ## 2. What to read
 
-Read the STE profile, `<skill-dir>/../ste/SKILL.md`, by path. Write all prose under it. The
-steps of this file replace steps 3 to 6 of the Build procedure of `SKILL.md`.
+Read the STE profile, `<skill-dir>/../ste/SKILL.md`, by path. Write all prose under it. For a
+non-English lesson, follow `SKILL.md` convention 7. The steps of this file replace steps 3 to 6 of
+the Build procedure of `SKILL.md`.
 
 For the page, read these sections of `<skill-dir>/rungs/page.md` and follow them: "Plan the
 sections", "Fill the template", "Diagram patterns", "Provenance", "Write the prose" and "Verify and
@@ -81,9 +84,9 @@ document.
 The reason of a clip says what the motion shows that a still cannot show. The page reviewer of
 gate 1 judges your choices from these lines.
 
-The usual range is 2 to 3 clips in a lesson. A usual clip is 20 to 40 s long. The row "max total
-length" of the table in "Write the page and the clips" gives the longest clip. There is no cap on
-the number of clips.
+The usual range is 2 to 3 clips in a lesson. A usual clip is 20 to 40 s long. A Russian clip of
+20 to 40 s holds approximately 45 to 90 words. The row "max total length" of the table in "Write
+the page and the clips" gives the longest clip. There is no cap on the number of clips.
 
 Count the cost before you mark a clip. The first lesson run measured about 5 lines of scene code
 for each second of clip (the film runs: 7). A clip of 38 s took 2 to 7 render runs. Three clips
@@ -99,6 +102,8 @@ each section, and the `figure.clip` of each clip. Then write the files of each c
 
 Copy `<skill-dir>/templates/page.html` to `index.html` and fill it as "Fill the template" in
 `page.md` says, with the changes below.
+
+Set the `lang` attribute of `<html>` to the language of the artifact: `en` or `ru`.
 
 Set the meta of the page to this line. `verify.sh` runs the `media` check only for this value.
 
@@ -305,8 +310,8 @@ Render each clip with `<skill-dir>/scripts/render.sh clips/<id>`. Run each rende
 background, with its output in a log file.
 
 The first render runs alone, until its `narration (<engine>): ok` line shows. A first install must
-not run two times, and the first Kokoro narration resolves its Python packages. Then start the
-other clips at the same time. Each render has its own run directory.
+not run two times, and the first narration of an engine resolves its Python packages (`torch` for
+`Silero`). Then start the other clips at the same time. Each render has its own run directory.
 
 Each run must end with its eleven `ok` lines, as "Build and check" in `video.md` shows. Read the
 `FAIL` line of a run that stops. These rules tell what to do:

@@ -991,7 +991,8 @@ class BrainrotRouteCase(unittest.TestCase):
         self.assertIn("six names", step3.group(0))
 
     # red: the brainrot row loses "Forced only" / "never chosen from content" (the rung could then
-    # be chosen from content), or the English-only rule of SKILL.md or of the rung file goes
+    # be chosen from content), the English-only rule of SKILL.md or of the rung file goes, or
+    # SKILL.md keeps "like the video rung" (the video rung is English or Russian now)
     def test_brainrot_stays_forced_only_and_english_only(self):
         text = SKILL_MD.read_text(encoding="utf-8")
         row = re.search(r"^\| `brainrot`.*$", text, re.M)
@@ -999,8 +1000,8 @@ class BrainrotRouteCase(unittest.TestCase):
         self.assertIn("Forced only", row.group(0))
         self.assertIn("never chosen from content", row.group(0))
         flat = " ".join(text.split())  # the rule wraps over two lines
-        self.assertIn("Only `--as brainrot` selects it.", flat)
-        self.assertIn("The brainrot rung is English only, like the video rung.", flat)
+        self.assertIn("Only `--as brainrot` selects it. The brainrot rung is English only.", flat)
+        self.assertNotIn("like the video rung", flat)
         rung = " ".join(BRAINROT_RUNG.read_text(encoding="utf-8").split())
         self.assertIn("The brainrot rung is English only. If the user asks for another language, "
                       "print the rung line. Say that the brainrot rung is English only. Stop. "

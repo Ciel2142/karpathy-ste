@@ -25,7 +25,9 @@ fenced html block is CLIP_MARKUP, the markup of spec section 4.2, and the fenced
 handoff" is the six lines of verify.sh for a lesson (LESSON_PASS and the media line). Each text of LESSON_TEXTS
 occurs in the rung, and the rule for a long scene of gate 2 (LONG_SCENE) is the same in the rung and in
 review-render.md. The {name} set of the rung is the union of PLACEHOLDERS, and the prompt files that it
-names are the keys of PLACEHOLDERS, each in LESSON_DIR. The rung passes the STE lint.
+names are the keys of PLACEHOLDERS, each in LESSON_DIR. Section 1 gives the two languages of the rung
+(LESSON_LANGUAGES), the two rules of PROSE_RULES point to convention 7 of SKILL.md, and "The page" sets the
+`lang` of `<html>` (HTML_LANG). The rung passes the STE lint.
 
 This module imports helpers from test_rung_drift.py and LESSON_PASS from test_verify.py; test_rung_drift.py
 never imports this module. LESSON_DIR and PLACEHOLDERS name the prompt files and their placeholders, and
@@ -38,8 +40,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_rung_drift import (FENCE, FILM_CELLS, FORMATS_JSON, HEADING, LESSON_MD, SECTION_NUMBER, VIDEO_MD, blocks,
-                             fill, heading_rows, headings, limits_table, lint, read, section)
+from test_rung_drift import (FENCE, FILM_CELLS, FORMATS_JSON, HEADING, HTML_LANG, LESSON_MD, SECTION_NUMBER,
+                             VIDEO_MD, blocks, fill, heading_rows, headings, limits_table, lint, read, section)
 from test_verify import LESSON_PASS
 
 EXPLAIN = Path(__file__).resolve().parent.parent
@@ -83,6 +85,13 @@ CLIP_MARKUP = """<figure class="clip">
 LONG_SCENE = ("A scene that does not fit in five stills with that `-end` still gets a reviewer of its own. That "
               "reviewer gets all the stills of the scene and that `-end` still: this is the only kind of part "
               "with more than five stills")
+# The language rule of section 1 of lesson.md (spec 5.3 of the Russian design), word for word.
+LESSON_LANGUAGES = ('The lesson rung is English or Russian. A Russian lesson has `<html lang="ru">` on its page and '
+                    '`"lang": "ru"` in the `script.json` of each clip. If the user asks for another language, print '
+                    "the rung line. Say that the lesson rung is English or Russian. Stop. Offer `page`.")
+# The two rules that put all prose of a lesson under the STE profile: (section, a text of the rule's block). Each
+# points to convention 7 of SKILL.md for a non-English lesson.
+PROSE_RULES = (("When a lesson", "all prose follows the STE profile"), ("What to read", "Write all prose under it"))
 # 22 px is the 16 px dim-caption rule of a film at 75 % (spec section 5.1, step 3): a fixed rule of the plan.
 DIM_FLOOR = 22
 # What lesson.md says in its own words that no table or other test pins: names of files, lines and rules.
@@ -313,6 +322,23 @@ class LessonRungCase(unittest.TestCase):
     def test_lesson_md_lints_clean(self):
         run = lint(LESSON_MD)
         self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+    # red: the stop back to "The lesson rung is English only, like the video rung.", a Russian lesson without
+    # one of its two lang settings, or a rule of all prose under the STE profile with no pointer to convention 7
+    def test_lesson_md_states_its_two_languages(self):
+        first = squash(section(self.text, "When a lesson"))
+        self.assertIn(LESSON_LANGUAGES, first)
+        self.assertNotIn("English only", first)
+        for title, rule in PROSE_RULES:
+            found = [squash(block) for block in blocks(section(self.text, title)) if rule in squash(block)]
+            with self.subTest(section=title):
+                self.assertEqual(len(found), 1, "%d blocks hold %r" % (len(found), rule))
+                self.assertIn("convention 7", found[0])
+
+    # red: the step left out of "The page" (a Russian lesson page keeps the lang="en" of the template), or put
+    # into another section
+    def test_the_lesson_page_sets_html_lang(self):
+        self.assertIn(HTML_LANG, squash(section(self.text, "The page")))
 
     # red: a section missing, two swapped, or one numbered out of turn
     def test_the_headings_of_lesson_md(self):
