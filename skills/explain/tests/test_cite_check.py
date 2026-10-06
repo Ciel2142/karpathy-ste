@@ -232,6 +232,8 @@ class TestVisibleText(CiteCheckCase):
             'src.txt:1 "alpha beta"',
             'dir/src.txt:1 "alpha beta"',
             '<code>src.txt</code>:1 <q>alpha beta</q>',
+            'src.txt:1 <code>alpha beta</code>',             # the cite block form
+            'src.txt:1 <code>alpha beta</code> untracked',
         ):
             with self.subTest(text=text):
                 body = section(shown(text, path="sub/dir/src.txt"))
