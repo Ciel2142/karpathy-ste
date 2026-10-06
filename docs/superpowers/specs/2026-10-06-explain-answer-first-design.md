@@ -1,6 +1,6 @@
 # explain: answer-first pages, with the cites behind a Sources switch
 
-Date: 2026-10-06. Status: draft, for review. Branch: `feat/explain-answer-first`, from `main` at
+Date: 2026-10-06. Status: approved 2026-10-06. Branch: `feat/explain-answer-first`, from `main` at
 32cb771. Coverage: not opted in. Lands before the BPMN plan (user decision, 2026-10-06); section 7
 lists what that plan must change.
 
