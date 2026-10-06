@@ -207,14 +207,18 @@ def _edge(model, node, points, prefix):
 
 
 def _label(ident, name, label, fallback, box):
-    """A name outside its shape, at its DI label bounds or at a fallback point."""
+    """A name outside its shape, centred on its DI label bounds, or hung below a fallback point.
+
+    The modeler sizes label bounds for smaller text, so the wrapped block is centred on their middle."""
     if label:
-        x, y, w, _h = label
-        cx, top, width = x + w / 2, y, max(w, LABEL_W)
+        x, y, w, h = label
+        cx, width = x + w / 2, max(w, LABEL_W)
     else:
         (cx, top), width = fallback, LABEL_W
     lines, _cut = wrap(name, width, 10 ** 6)
-    if not label:
+    if label:
+        top = y + h / 2 - len(lines) * LINE / 2
+    else:
         box.append((cx - width / 2, top, cx + width / 2, top + len(lines) * LINE))
     return _text(lines, cx, top, extra=' data-for="%s"' % esc(ident))
 

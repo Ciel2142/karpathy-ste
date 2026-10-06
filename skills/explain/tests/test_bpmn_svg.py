@@ -248,6 +248,26 @@ class SvgCase(unittest.TestCase):
             for size in re.findall(r'font-size="([\d.]+)"', out):
                 self.assertGreaterEqual(float(size), 14)
 
+    def test_outside_label_is_centred_on_its_di_bounds(self):
+        """Red when an outside label hangs from the top of its DI label bounds instead of sitting centred on them."""
+        root = ET.fromstring(FIXTURE.read_text(encoding="utf-8"))
+        di = "{http://www.omg.org/spec/BPMN/20100524/DI}"
+        checked = 0
+        for plane in root.iter(di + "BPMNPlane"):
+            out = svg(plane=plane.get("bpmnElement"))[1]
+            for item in plane:
+                bounds = item.find("%sBPMNLabel/{http://www.omg.org/spec/DD/20100524/DC}Bounds" % di)
+                found = re.search(r'<text [^>]*data-for="%s">(.*?)</text>' % item.get("bpmnElement"), out)
+                if bounds is None or found is None:
+                    continue
+                spans = re.findall(r'<tspan x="([\d.-]+)" y="([\d.-]+)">', found.group(1))
+                x, y, w, h = (float(bounds.get(k)) for k in ("x", "y", "width", "height"))
+                middle = float(spans[0][1]) - bpmn_svg.FONT + len(spans) * bpmn_svg.LINE / 2
+                self.assertAlmostEqual(middle, y + h / 2, delta=0.01, msg=item.get("bpmnElement"))
+                self.assertAlmostEqual(float(spans[0][0]), x + w / 2, delta=0.01)
+                checked += 1
+        self.assertGreater(checked, 5)
+
     def test_long_name_wraps_and_ends_in_ellipsis(self):
         """Red when wrap does not break the name, does not cut it, or the full name has no title."""
         body = group(svg()[1], "Task_svc")

@@ -677,6 +677,9 @@ class PageGuardTest(unittest.TestCase):
         self.assertEqual(rules[".bpmn-label"],
                          "display: block; color: var(--ink); font-family: var(--sans); font-size: 16px;")
         self.assertEqual(rules["cite:has(.bpmn-label) > code"], "color: var(--muted); font-size: 14px;")
+        # Red when an outside label loses its halo, so a flow line crosses its text.
+        self.assertEqual(rules["svg.bpmn text[data-for]"],
+                         "paint-order: stroke; stroke: var(--bg); stroke-width: 3px;")
         for selector, body in rules.items():
             if "bpmn" in selector:
                 for size in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", body):
