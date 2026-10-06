@@ -2,7 +2,7 @@
 (say engine, default speed) writes the WAVs, the words.json files and durations.json that the
 real video/build-timeline.mjs reads in build mode. Each side has its own unit tests with
 hand-made inputs; this module is the only place where one produces what the other consumes for
-a film. Each test names the mutation that turns it red."""
+a film, in English and in Russian. Each test names the mutation that turns it red."""
 
 import json
 import subprocess
@@ -159,6 +159,104 @@ class FilmContract(unittest.TestCase):
                 with self.subTest(scene=scene["id"], still=f"s{k}"):
                     self.assertGreaterEqual(entry["frame"], scene["from"] + start)
                     self.assertLessEqual(entry["frame"], scene["from"] + end)
+
+
+# The same three scenes in Russian: a comma, a double space and a newline between words (type),
+# the sentence "Код 404 готов." between two others (forms), and one sentence with no end mark
+# (ends). The token 404 is mapped, so its spoken form is "четыреста четыре".
+RU_NARRATIONS = {
+    "type": "Маршрутизатор выбирает обработчик, затем  отвечает.\nОбработчик возвращает ответ, и всё.",
+    "forms": "Сначала приходит запрос. Код 404 готов. В конце обработчик отвечает.",
+    "ends": "Одно предложение без знака конца",
+}
+RU_PRONOUNCE = {"404": "четыреста четыре"}
+RU_SENTENCE = ["Код", "404", "готов."]
+
+
+class RussianFilmContract(unittest.TestCase):
+    """The film contract of a Russian script: one check, one narrate run (say, Milena) and one
+    build over its audio directory, shared by the tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory(prefix="film-contract-ru-")
+        cls.addClassCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "src").mkdir()
+        (root / "src" / "app.py").write_text("\n".join(APP_LINES) + "\n", encoding="utf-8")
+        cls.audio = root / "audio"
+        script = film_script()
+        script["lang"] = "ru"
+        script["pronounce"] = dict(RU_PRONOUNCE)
+        for scene in script["scenes"]:
+            scene["narration"] = RU_NARRATIONS[scene["id"]]
+        script_path = root / "script.json"
+        script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+        cls.check = subprocess.run(
+            ["node", str(TOOL), "--check", str(script_path), "--root", str(root)],
+            capture_output=True, text=True,
+        )
+        cls.narrate = subprocess.run(
+            [sys.executable, str(NARRATE_PY), "--engine", "say", str(script_path), str(cls.audio)],
+            capture_output=True, text=True,
+        )
+        out = root / "out" / "timeline.json"
+        cls.build = subprocess.run(
+            ["node", str(TOOL), str(script_path), str(cls.audio / "durations.json"), "say", str(out),
+             "--root", str(root)],
+            capture_output=True, text=True,
+        )
+        cls.timeline = json.loads(out.read_text(encoding="utf-8")) if out.is_file() else None
+
+    def scenes(self):
+        """The built scenes; fails with the output of the failed step when there is no timeline."""
+        self.assertIsNotNone(self.timeline, self.narrate.stdout + self.narrate.stderr + self.build.stdout)
+        return self.timeline["scenes"]
+
+    def words_of(self, scene_id):
+        path = self.audio / f"{scene_id}.say.words.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_fixture_is_a_valid_film_script(self):
+        """Mutation: build-timeline.mjs --check refuses lang ru or the pronounce map on a film, or a
+        narration of the fixture breaks a film limit, so the contract below would test a script that
+        --check rejects."""
+        self.assertEqual((self.check.returncode, self.check.stdout), (0, ""))
+
+    def test_narrate_then_build_exit_zero(self):
+        """Mutation: narrate.py does not narrate a Russian film with say (exit 2), build mode does not
+        read the say words file of a Russian script, or durations.json does not name the voice Milena."""
+        self.assertEqual(self.narrate.returncode, 0, self.narrate.stdout + self.narrate.stderr)
+        self.assertEqual((self.build.returncode, self.build.stdout), (0, ""))
+        self.assertEqual([s["id"] for s in self.scenes()], ["type", "forms", "ends"])
+        self.assertEqual(self.timeline["format"], "film")
+        durations = json.loads((self.audio / "durations.json").read_text(encoding="utf-8"))
+        self.assertEqual((durations["engine"], durations["voice"]), ("say", "Milena"))
+
+    def test_word_texts_are_the_written_tokens(self):
+        """Mutation: a word of the timeline holds the spoken form (the mapped 404 as "четыреста
+        четыре", a token without its comma or full stop), so it is no longer the narration token that
+        a mark matches."""
+        for scene in self.scenes():
+            with self.subTest(scene=scene["id"]):
+                self.assertEqual([w["text"] for w in scene["words"]], RU_NARRATIONS[scene["id"]].split())
+
+    def test_a_mapped_token_weighs_its_spoken_form(self):
+        """Mutation: word_timings weighs the written token (3 for 404, so a width of 3/14 of the
+        sentence), or leaves END_WEIGHT off the last word (16/25)."""
+        words = self.words_of("forms")["words"]
+        texts = [w["text"] for w in words]
+        first = texts.index(RU_SENTENCE[0])
+        self.assertEqual(texts[first:first + 3], RU_SENTENCE)
+        code, number, done = words[first:first + 3]
+        span = done["to"] - code["from"]
+        # Weights: "Код" 3; "404" spoken as "четыреста четыре" 16; "готов." 6 + END_WEIGHT 2.
+        self.assertAlmostEqual((number["to"] - number["from"]) / span, 16 / 27, delta=1e-5)
+        self.assertAlmostEqual((code["to"] - code["from"]) / span, 3 / 27, delta=1e-5)
+        self.assertAlmostEqual((done["to"] - done["from"]) / span, 8 / 27, delta=1e-5)
+        sentences = self.words_of("forms")["sentences"]
+        self.assertIn((round(code["from"], 6), round(done["to"], 6)),
+                      [(s["from"], s["to"]) for s in sentences])
 
 
 if __name__ == "__main__":

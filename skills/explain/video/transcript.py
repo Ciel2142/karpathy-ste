@@ -252,6 +252,7 @@ def render_page(template, script, narrator, background):
     ctx = {"root": prov["root"], "cites": Cites(script)}
     nav = "".join('<a href="#%s">%s</a>' % (esc(s["id"]), esc(scene_heading(script, s))) for s in script["scenes"])
     values = {
+        "lang": esc(script.get("lang", "en")),
         "title": esc(script["title"]),
         "nav": nav,
         "sections": "\n\n".join(render_scene(script, s, ctx) for s in script["scenes"]),
