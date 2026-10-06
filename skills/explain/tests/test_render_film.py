@@ -611,9 +611,11 @@ class GuardStageCase(unittest.TestCase):
                                  (1, "guard: FAIL cannot read %s\n" % self.timeline, ""))
                 self.assertEqual(self.passes(), [])
 
-    # red: the read ignores minText (a timeline with no floor reaches the pass: in JavaScript `px < undefined`
-    # is false, so the size rule is off with no message), takes any value that is present (a string, true,
-    # null), takes 0 or less, or refuses a fractional floor. `true` is no number, though it is an int in Python
+    # red: the read ignores minText (a timeline with no floor reaches the pass: Remotion merges the props over
+    # the default props of the Film composition, which hold minText 14, so the pass measures a clip at the
+    # film floor with no message), takes any value that is present (a string, true, null: with null the
+    # size rule is off), takes 0 or less, or refuses a fractional floor. `true` is no number, though it is
+    # an int in Python
     def test_a_timeline_without_a_floor_cannot_be_read(self):
         def with_min_text(*value):
             def edit():

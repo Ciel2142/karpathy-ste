@@ -611,13 +611,14 @@ class FilmRungCase(unittest.TestCase):
         self.assertEqual(list(film_limits_table().items()), expected)
 
     # red: the minText of the film or the clip row changes and the rung keeps the old number, or a floor
-    # sentence is gone or is in the wrong section, or the guard section loses the floor per format
+    # sentence is gone or is in the wrong section, or the guard section loses the floor per format, or the
+    # rung shows a floor with a fraction as its whole number (the floors are matched as text, not as ints)
     def test_the_floor_per_format_matches_formats(self):
         rows = json.loads(read(FORMATS_JSON))
         film, clip = rows["film"]["minText"], rows["clip"]["minText"]
-        draw = ("Draw each text at the floor of the format or more on the canvas: %d px for a film (`MIN_TEXT`) "
-                "and %d px for a clip." % (film, clip))
-        fault = "less than the floor of the format: %d px for a film and %d px for a clip." % (film, clip)
+        draw = ("Draw each text at the floor of the format or more on the canvas: %s px for a film (`MIN_TEXT`) "
+                "and %s px for a clip." % (film, clip))
+        fault = "less than the floor of the format: %s px for a film and %s px for a clip." % (film, clip)
         # the rung wraps its lines, so each section is read as one line of words
         scene = " ".join(section(read(VIDEO_MD), "Write the scene").split())
         build = " ".join(section(read(VIDEO_MD), "Build and check").split())

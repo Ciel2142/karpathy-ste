@@ -171,7 +171,7 @@ export const C: Record<"bg" | "panel" | "text" | "muted" | "line" | "blue" | "gr
 export const MONO: string; // the font stack of Mono
 export const SANS: string; // the font stack of Sans
 export const STAGE: { readonly width: 1280; readonly height: 720; readonly fps: 30 };
-export const MIN_TEXT: 14; // the smallest text, in px: the table of section 3
+export const MIN_TEXT: 14; // the smallest text of a film, in px: the table of section 3
 // motion.ts
 export const p: (frame: number, start: number, len: number) => number;
 export const lin: (frame: number, start: number, len: number) => number;
@@ -315,7 +315,7 @@ stage stops, and `build/render.log` holds the `MARK scene` line.
   19 px for a clip. The size on the canvas is the font size times the scale of each group around the
   text.
 - The floor is the limit of the guard, not a good size. In the two live runs, a reader could not
-  read grey text of 13 to 15 px quickly. Draw a caption in a dim colour at 16 px or more.
+  read grey text of 13 to 15 px quickly. On a film, draw a caption in a dim colour at 16 px or more.
 
 ### Imports and tokens
 
@@ -419,7 +419,7 @@ The `script` stage checks `script.json`. Most other `FAIL` lines of this stage n
 | `script: FAIL provenance.root must be an existing directory: <path>` | No directory exists at `<path>`. Write the path of the repo root. |
 | `script: FAIL scene <id>: a film scene has no component or props` | The scene has a `component` or a `props` key. A film scene has `id`, `narration`, `cites` and an optional `pause`. Remove the two keys. |
 | `script: FAIL scene <id>: pause <v> must be an integer from 12 to 90` | `pause` is the number of silent frames after the narration of the scene. Write an integer in this range, or remove the key. |
-| `script: FAIL source <id>: <cause>` | An entry of `sources` breaks a rule, and `<cause>` names it. Each entry has the four keys `id`, `path`, `from` and `to`. The range is in the file and within the limit of section 3. |
+| `script: FAIL source <id>: <cause>` | An entry of `sources` breaks a rule, and `<cause>` names it. Each entry has the four keys `id`, `path`, `from` and `to`. The range is in the file and within the limit of section 3. The cause can also be `no cite on <path> inside <from>-<to>`: no cite of that path has a `line` in the range. Add a cite of that path with a `line` in the range, or change the range. |
 
 The `workspace` stage sets up the workspace and makes the run directory. Another `FAIL` line of
 this stage names the step that failed. For `npm ci` and the browser step, it also names the log.

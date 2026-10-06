@@ -113,7 +113,9 @@
 #   guard: FAIL cannot read <out>/build/timeline.json
 #       The timeline is absent or not JSON, or holds no checkFrames, or a frame that is not an
 #       integer of 0 or more, or has no minText that is a number above 0 (the text floor of its
-#       format: without it the size rule would be off). No pass runs.
+#       format). Remotion merges the props over the default props of the Film composition, which
+#       hold minText 14. So with no minText the pass would silently measure at the film floor, a
+#       clip at 14 px and not 19 px. With null, the size rule is off. No pass runs.
 #   guard: FAIL cannot copy <out>/<clip>
 #       A narration clip of the timeline could not be copied into the run directory. No pass runs.
 #
