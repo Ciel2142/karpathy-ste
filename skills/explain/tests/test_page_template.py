@@ -31,6 +31,9 @@ import re
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
+
+from tests.bpmn_page import FIXTURES, bpmn_page
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -660,6 +663,42 @@ class PageGuardTest(unittest.TestCase):
         narrow = [body for sel, body in rules.items() if re.fullmatch(r"@media \(max-width: \d+px\)", sel)]
         self.assertTrue(any(".terms" in body and "grid-template-columns: 1fr" in body
                             for body in narrow), narrow)
+
+    def test_bpmn_rules_exist_and_keep_the_floor(self):
+        """Red: one of the five fixed BPMN rules is gone or changed, or a BPMN rule sets a font-size
+        under 14 px."""
+        rules = {sel: " ".join(body.split()) for sel, body in style_rules(self.template)}
+        self.assertIn("--bpmn-w: max(100%, min(1040px, 100vw - 64px))", rules["figure.bpmn"])
+        self.assertIn("width: var(--bpmn-w)", rules["figure.bpmn"])
+        self.assertIn("margin: 16px 0 16px calc((100% - var(--bpmn-w)) / 2)", rules["figure.bpmn"])
+        self.assertIn("overflow-x: auto", rules["figure.bpmn"])
+        self.assertEqual(rules["figure.bpmn svg"], "display: block; max-width: none;")
+        self.assertEqual(rules["svg.bpmn text"], "font-size: 14px;")
+        self.assertEqual(rules[".bpmn-label"],
+                         "display: block; color: var(--ink); font-family: var(--sans); font-size: 16px;")
+        self.assertEqual(rules["cite:has(.bpmn-label) > code"], "color: var(--muted); font-size: 14px;")
+        for selector, body in rules.items():
+            if "bpmn" in selector:
+                for size in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", body):
+                    self.assertGreaterEqual(float(size), 14, selector)
+
+    def test_bpmn_fixture_page_passes_the_guard(self):
+        """Red: the BPMN rules are removed from the template, or one of them makes the fixture page
+        scroll sideways or show text under 14 px, in the reading view or with Sources on."""
+        page = bpmn_page(Path(self.work))
+        proc = self.verify(str(page))
+        lines = proc.stdout.splitlines()
+        self.assertTrue(set(RENDER_OK) <= set(lines), proc.stdout + proc.stderr)
+
+    def test_wide_bpmn_figure_scrolls_without_page_hscroll(self):
+        """Red: overflow-x is removed from figure.bpmn, so a 988 px SVG widens the 500 px page."""
+        section = (FIXTURES / "bpmn-section.html").read_text(encoding="utf-8")
+        wide = 'viewBox="140 60 988 540" width="988" height="540"'
+        section = self.edit(section, 'viewBox="140 60 600 540" width="600" height="540"', wide)
+        page = bpmn_page(Path(self.work), section)
+        proc = self.verify(str(page))
+        lines = proc.stdout.splitlines()
+        self.assertTrue(set(RENDER_OK) <= set(lines), proc.stdout + proc.stderr)
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)
