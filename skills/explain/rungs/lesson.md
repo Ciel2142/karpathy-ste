@@ -223,8 +223,26 @@ checks one `script.json` against the limits of its format. The fourth writes the
 clip. The fifth runs `verify.sh` on that transcript. It checks the cites of the scenes and the
 lint of the narration.
 
-Thus a wrong snippet, a dead line and a lint fault all show here. Fix each fault, and run the
-commands again until all are clean. The reviewers then spend their attention on meaning.
+If the page cites a `.bpmn` file, also run these two commands in the output directory, in this
+order, before the commands above:
+
+```
+python3 <skill-dir>/scripts/bpmn.py label index.html
+python3 <skill-dir>/scripts/bpmn.py check index.html
+```
+
+The first writes a readable label into each BPMN cite, as "Verify and export" in `page.md` says.
+Thus the reviewers of gate 1 read names, not raw XML. The second checks that each plane has its
+`figure.bpmn` and each sub-process has a cite of its own lines. It also checks that each label is
+current.
+
+For each failure of `check`, fix the section: add the figure, or the paragraph with its cite.
+Name a plane or a sub-process in `Not covered` only when the page does not explain it. Write its
+name verbatim. Run `label` again after each change to a BPMN cite.
+
+Thus a wrong snippet, a dead line, a lint fault and a gap in the BPMN coverage all show here. Fix
+each fault, and run the commands again until all are clean. The reviewers then spend their
+attention on meaning.
 
 ## 6. Gate 1: read before the render
 

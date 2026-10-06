@@ -904,6 +904,15 @@ class BpmnRungCase(unittest.TestCase):
         """Red when "Plan the lesson" no longer names `bpmn.py planes` for the section candidates."""
         self.assertIn("bpmn.py planes", self.words(LESSON_MD, "Plan the lesson"))
 
+    def test_lesson_md_labels_and_checks_before_gate_1(self):
+        """Red when "Check before the review" no longer runs `bpmn.py label` and then `bpmn.py check`, so gate 1
+        reads raw BPMN cites and a missing plane shows only after the renders."""
+        checks = self.words(LESSON_MD, "Check before the review")
+        places = [checks.find(name) for name in ("bpmn.py label index.html", "bpmn.py check index.html")]
+        self.assertNotIn(-1, places, checks)
+        self.assertLess(places[0], places[1])
+        self.assertIn("Not covered", checks)
+
     def test_review_page_has_the_bpmn_check(self):
         """Red when gate 1 has no check 4, a fifth check, or check 4 lost the rule that names match the
         diagram."""

@@ -46,7 +46,9 @@ on a page, write one step for each beat of the story.
     send, wait, timeout, code. Then write one sentence for each sibling with what differs: the
     service, the message, the code variable.
   - For a BPMN main flow, the answer names the stages in process order. Thus each stage section
-    expands one sentence of the answer. A plane that the answer does not name still gets a section
+    expands one sentence of the answer. The answer box holds at most four sentences, thus one
+    sentence can name several stages in process order. Each of those stages still gets its own
+    section. A plane that the answer does not name still gets a section
     or a figure, because a merge may not drop a plane.
   - The mechanics sections follow the stage sections: handlers, delegates, decision tables and
     deployment.
@@ -217,10 +219,14 @@ BPMN steps before step 1:
   for each plane. Put each output into its `figure.bpmn` (section 4).
 - After you write all the cites, run `python3 <skill-dir>/scripts/bpmn.py label index.html`. It
   writes a `span.bpmn-label` with a readable name into each cite of a `.bpmn` file. If it exits
-  with code 1, each line of its output names a cite on a blank line or a comment line. Move that
-  cite to a line that carries a fact. Then run `label` again. Also run it again after each change
-  to a BPMN cite. Never type a label: the `bpmn` line of step 1 fails on a label that `label`
-  did not write.
+  with code 1, each line of its output names one fault:
+  - `<section> | <path>:<line> | no element`: no element owns that line, for example a blank line
+    or a comment line. Move that cite to a line that carries a fact.
+  - `<section> | <path> | <message>`: the cited `.bpmn` file does not exist, or `label` cannot read
+    it. Fix the `data-path` of the cite, or the `data-root` of the provenance.
+
+  Then run `label` again. Also run it again after each change to a BPMN cite. Never type a label:
+  the `bpmn` line of step 1 fails on a label that `label` did not write.
 
 1. Run `<skill-dir>/scripts/verify.sh index.html`. Each line must show `ok`, except that the
    `bpmn` line shows `none` when the page cites no `.bpmn` file. The six lines are
