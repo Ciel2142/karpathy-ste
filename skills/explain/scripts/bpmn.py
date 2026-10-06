@@ -4,6 +4,7 @@
 Usage: bpmn.py planes <file.bpmn>
        bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]
        bpmn.py label <index.html>
+       bpmn.py check <index.html>
 Exit 0 on success, 1 on failures found, 2 on a usage or read error.
 """
 
@@ -14,6 +15,7 @@ import xml.parsers.expat
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+import bpmn_check
 import bpmn_label
 from bpmn_label import (  # noqa: F401  (re-exported for the tests and for check)
     NS_DI,
@@ -30,6 +32,7 @@ USAGE = (
     "usage: bpmn.py planes <file.bpmn>\n"
     "       bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]\n"
     "       bpmn.py label <index.html>\n"
+    "       bpmn.py check <index.html>\n"
 )
 PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
@@ -197,20 +200,35 @@ def label_page(html, html_dir):
     return bpmn_label.label_page(html, html_dir, load)
 
 
-def cmd_label(args):
+def check_page(html, html_dir):
+    """(failure lines, whether the page cites a .bpmn file); see bpmn_check."""
+    return bpmn_check.check_page(html, html_dir, load)
+
+
+def _read_page(args):
+    """(path, html, its directory) of the one page argument, or None after a usage message."""
     if len(args) != 1:
-        return _usage()
+        _usage()
+        return None
     page_path = Path(args[0])
     try:
         data = page_path.read_bytes()
     except OSError as error:
         sys.stderr.write("bpmn.py: %s: cannot read file: %s\n" % (page_path, error.strerror or error))
-        return 2
+        return None
     html = data.decode("utf-8", errors="surrogateescape")
     html_dir = os.path.dirname(os.path.abspath(page_path))
     if page_root(html, html_dir) is None:
         sys.stderr.write("bpmn.py: %s: #provenance has no data-root\n" % page_path)
+        return None
+    return page_path, html, html_dir
+
+
+def cmd_label(args):
+    page = _read_page(args)
+    if page is None:
         return 2
+    page_path, html, html_dir = page
     new_html, failures = label_page(html, html_dir)
     if new_html != html:
         page_path.write_bytes(new_html.encode("utf-8", errors="surrogateescape"))
@@ -219,16 +237,29 @@ def cmd_label(args):
     return 1 if failures else 0
 
 
-def _usage_stub(args):
-    """The check subcommand arrives in a later task."""
-    return _usage()
+def cmd_check(args):
+    page = _read_page(args)
+    if page is None:
+        return 2
+    _page_path, html, html_dir = page
+    failures, cited = check_page(html, html_dir)
+    for failure in failures:
+        sys.stdout.write(failure + "\n")
+    if not cited:
+        sys.stdout.write("bpmn: none\n")
+        return 0
+    if failures:
+        sys.stdout.write("bpmn: %d failures\n" % len(failures))
+        return 1
+    sys.stdout.write("bpmn: ok\n")
+    return 0
 
 
 COMMANDS = {
     "planes": cmd_planes,
     "svg": cmd_svg,
     "label": cmd_label,
-    "check": _usage_stub,
+    "check": cmd_check,
 }
 
 
