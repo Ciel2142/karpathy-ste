@@ -65,6 +65,16 @@ class TestClipCheck(VideoCase):
         script["scenes"] = [dict(first, id="s%d" % n) for n in range(1, 32)]
         self.assertFails(self.check(script), "FAIL script: 31 scenes (needs 3 to 30, clip)")
 
+    def test_a_russian_clip_passes(self):
+        """Red: `lang` or `pronounce` is an unexpected key of a clip, or `lang: "ru"` is refused for a
+        clip (the brainrot line is printed for every format but film), or a clip's pronounce map is
+        checked by another rule than a film's."""
+        script = clip_script()
+        script["lang"] = "ru"
+        script["pronounce"] = {"JSON": "джейсон", "Kafka": "к+афка"}
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
     def test_another_format_names_three_formats(self):
         """Red: the format line still names two formats (the clip is left out of it), or an unknown
         format is accepted."""

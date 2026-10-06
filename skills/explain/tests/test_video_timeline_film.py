@@ -263,6 +263,128 @@ class TestFilmCheck(VideoCase):
         self.scene(script, "intro")["pause"] = 12
         self.assertFails(self.check(script), 'FAIL scene intro: unexpected key "pause"')
 
+    def test_lang_en_ru_and_absent_pass(self):
+        """Red: `lang` is not an allowed top-level key (the check prints `unexpected key "lang"`), or
+        only one of `en` and `ru` is accepted, or the absence of the key is refused."""
+        for lang in ("en", "ru", None):
+            script = film_script()
+            if lang is not None:
+                script["lang"] = lang
+            result = self.check(script)
+            self.assertEqual((result.returncode, result.stdout), (0, ""), lang)
+
+    def test_lang_other_value_fails(self):
+        """Red: any value of `lang` is accepted, or only a case-folded `ru` is, or a number or a null
+        passes (the check reads the value as text), or the line names other languages."""
+        for lang in ("de", "RU", 1, None):
+            script = film_script()
+            script["lang"] = lang
+            self.assertFails(self.check(script), "FAIL script: lang must be en or ru")
+
+    def test_lang_lines_follow_the_format_line(self):
+        """Red: the lang line comes before the format line, or a refused format hides the lang line."""
+        script = film_script()
+        script["format"] = "slides"
+        script["lang"] = "de"
+        self.assertFails(self.check(script), FORMAT_LINE, "FAIL script: lang must be en or ru")
+
+    def test_pronounce_needs_lang_ru(self):
+        """Red: `pronounce` is accepted with no `lang` or with `en`, or the line is reported once per
+        key, or the object line is reported too."""
+        for lang in (None, "en"):
+            script = film_script()
+            if lang is not None:
+                script["lang"] = lang
+            script["pronounce"] = {"JSON": "джейсон"}
+            self.assertFails(self.check(script), "FAIL script: pronounce needs lang ru")
+
+    def test_pronounce_must_be_an_object(self):
+        """Red: an array, a string or a null passes as a map, or the key lines still run on the
+        non-object, or the object line is gone."""
+        for pronounce in ([], "x", None):
+            script = film_script()
+            script["lang"] = "ru"
+            script["pronounce"] = pronounce
+            self.assertFails(self.check(script), "FAIL script: pronounce must be an object")
+
+    def test_pronounce_key_rules(self):
+        """Red: one of the key rules is gone (an empty key, a key with an ASCII or a no-break space, a
+        key ending in `.`, `?` or `!`, a non-string value, an empty value, a value of spaces only), or the empty
+        key also gets the whitespace and ends-with lines, or the lines of one key are out of the
+        order of the interface block (empty; whitespace; ends with; value), or the keys are not
+        reported in insertion order."""
+        script = film_script()
+        script["lang"] = "ru"
+        script["pronounce"] = {
+            "": "x",
+            "a b": "x",
+            "Spring Boot": "x",
+            "Spring\u00a0Boot": "x",
+            "т.": "x",
+            "что?": "x",
+            "да!": "x",
+            "five": 5,
+            "blank": "  ",
+            "nothing": "",
+            "a b.":"\u00a0\u3000",
+            "fine": "джейсон",
+        }
+        value = "must be a string with a non-space character"
+        self.assertFails(
+            self.check(script),
+            'FAIL script: pronounce key "" is empty',
+            'FAIL script: pronounce key "a b" holds whitespace',
+            'FAIL script: pronounce key "Spring Boot" holds whitespace',
+            'FAIL script: pronounce key "Spring\u00a0Boot" holds whitespace',
+            'FAIL script: pronounce key "т." ends with "."',
+            'FAIL script: pronounce key "что?" ends with "?"',
+            'FAIL script: pronounce key "да!" ends with "!"',
+            'FAIL script: pronounce value of "five" ' + value,
+            'FAIL script: pronounce value of "blank" ' + value,
+            'FAIL script: pronounce value of "nothing" ' + value,
+            'FAIL script: pronounce key "a b." holds whitespace',
+            'FAIL script: pronounce key "a b." ends with "."',
+            'FAIL script: pronounce value of "a b." ' + value,
+        )
+
+    def test_pronounce_whitespace_is_the_isspace_set(self):
+        """Red: the whitespace class is JS `\\s` and not Python's `str.isspace()` (U+0085 and U+001C
+        to U+001F are not whitespace, U+FEFF is), or a member of the set is left out of the key rule
+        or of the value rule. Each key is a member between two letters, each value is two members."""
+        members = (
+            [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x85, 0xA0, 0x1680]
+            + list(range(0x2000, 0x200B))
+            + [0x2028, 0x2029, 0x202F, 0x205F, 0x3000]
+        )
+        self.assertTrue(all(chr(m).isspace() for m in members))
+        script = film_script()
+        script["lang"] = "ru"
+        script["pronounce"] = {"a%sb" % chr(m): "x" for m in members}
+        script["pronounce"].update({"v%d" % m: chr(m) * 2 for m in members})
+        value = "must be a string with a non-space character"
+        # json.dumps with ensure_ascii=False quotes a key the way JSON.stringify does.
+        lines = ["FAIL script: pronounce key %s holds whitespace\n" % json.dumps("a%sb" % chr(m), ensure_ascii=False) for m in members]
+        lines += ['FAIL script: pronounce value of "v%d" %s\n' % (m, value) for m in members]
+        result = self.check(script)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "".join(lines))
+
+    def test_pronounce_non_whitespace_look_alikes_pass(self):
+        """Red: the whitespace class is JS `\\s`, which counts U+FEFF as whitespace (a key holding it
+        or a value made of it is refused), or it counts the zero-width space U+200B or the Mongolian
+        vowel separator U+180E."""
+        script = film_script()
+        script["lang"] = "ru"
+        script["pronounce"] = {
+            "a\ufeffb": "x",
+            "a\u200bb": "x",
+            "a\u180eb": "x",
+            "v-feff": "\ufeff",
+            "v-200b": "\u200b",
+        }
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
     def check_with_formats(self, rows, script):
         """--check of `script` by a copy of the tool that has `rows` as its own formats.json."""
         tool = tool_with_formats(self.dir, rows)
@@ -838,6 +960,33 @@ class TestFilmBuild(FilmBuildCase):
         timeline = self.built(engine="kokoro")
         self.assertEqual(timeline["engine"], "kokoro")
         self.assertEqual(timeline["scenes"][0]["audio"], "audio/type.kokoro.wav")
+
+    def test_build_reads_silero_words(self):
+        """Red: `silero` is not an engine (build mode exits 2 with the usage text), or build mode reads
+        the words file of another engine (only <id>.silero.words.json exists here), or the audio
+        name keeps another engine suffix."""
+        script = film_script()
+        clips = self.write_film_words(script, "silero")
+        os.remove(os.path.join(self.dir, "type.silero.words.json"))
+        result, timeline = self.build(script, clips, "silero")
+        self.assertFails(result, "FAIL scene type: cannot read type.silero.words.json: ENOENT")
+        self.assertIsNone(timeline)
+        timeline = self.built(script, engine="silero")
+        self.assertEqual(timeline["engine"], "silero")
+        self.assertEqual(
+            [scene["audio"] for scene in timeline["scenes"]],
+            ["audio/type.silero.wav", "audio/forms.silero.wav", "audio/ends.silero.wav"],
+        )
+
+    def test_build_engine_error_names_three_engines(self):
+        """Red: the engine error or the usage text still names two engines (say and kokoro), or an
+        unknown engine is accepted, or the exit code is not 2."""
+        script_path = self.write_json("script.json", film_script())
+        durations = self.write_json("durations.json", {"engine": "say", "fallback": None, "scenes": {}})
+        result = self.node(script_path, durations, "festival", os.path.join(self.dir, "t.json"))
+        self.assertEqual((result.returncode, result.stdout), (2, ""))
+        self.assertIn('engine must be say, kokoro or silero, got "festival"', result.stderr)
+        self.assertIn("<engine: say|kokoro|silero>", result.stderr)
 
     def test_film_words_file_faults(self):
         """Red: a words file with a word fewer is accepted, a words file with no sentence yields a

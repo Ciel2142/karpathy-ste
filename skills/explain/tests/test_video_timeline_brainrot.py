@@ -61,6 +61,20 @@ class TestBrainrotCheck(VideoCase):
         result = self.check(brainrot_script())
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
+    def test_russian_brainrot_is_refused(self):
+        """Red: `lang: "ru"` is accepted for brainrot, or the line is printed for another format, or
+        the line has other text, or it comes with further lines."""
+        script = brainrot_script()
+        script["lang"] = "ru"
+        self.assertFails(self.check(script), "FAIL script: lang ru is for the film and clip formats only")
+
+    def test_english_brainrot_passes(self):
+        """Red: `lang` is an unexpected key of brainrot, or `lang: "en"` is refused for it."""
+        script = brainrot_script()
+        script["lang"] = "en"
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
     def test_brainrot_six_scenes_pass(self):
         """Red: brainrot maxScenes below 6."""
         script = brainrot_script()
