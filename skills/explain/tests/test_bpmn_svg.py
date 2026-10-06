@@ -268,13 +268,28 @@ class SvgCase(unittest.TestCase):
                 checked += 1
         self.assertGreater(checked, 5)
 
+    def test_tagged_task_holds_three_lines_below_its_tag(self):
+        """Red when the kind tag takes a full text row, so a 100x80 task holds two lines and cuts its name."""
+        body = group(svg()[1], "Task_svc")
+        tag = re.search(r'<text [^>]*y="([\d.]+)">service</text>', body)
+        spans = re.findall(r'<tspan x="[\d.]+" y="([\d.]+)">([^<]*)</tspan>', body)
+        self.assertEqual([text for _y, text in spans], ["Проверить", "паспорт", "клиента"])
+        self.assertNotIn("<title", body)
+        self.assertGreater(float(spans[0][0]) - bpmn_svg.FONT, float(tag.group(1)))
+        self.assertLessEqual(float(spans[-1][0]), 140 + 80 - 4)
+
     def test_long_name_wraps_and_ends_in_ellipsis(self):
         """Red when wrap does not break the name, does not cut it, or the full name has no title."""
-        body = group(svg()[1], "Task_svc")
+        name = "Проверить паспорт клиента в миграционной службе"
+        with tempfile.TemporaryDirectory() as folder:
+            copy = Path(folder) / "long.bpmn"
+            copy.write_text(FIXTURE.read_text(encoding="utf-8").replace(
+                'name="Проверить паспорт клиента"', 'name="%s"' % name, 1), encoding="utf-8")
+            body = group(svg(path=copy)[1], "Task_svc")
         lines = re.findall(r"<tspan[^>]*>([^<]*)</tspan>", body)
-        self.assertGreater(len(lines), 1)
+        self.assertEqual(len(lines), 3)
         self.assertTrue(lines[-1].endswith("…"), lines)
-        self.assertRegex(body, r'^<title id="[^"]+">Проверить паспорт клиента</title>')
+        self.assertRegex(body, r'^<title id="[^"]+">%s</title>' % name)
 
     def test_wrap_breaks_greedily_and_cuts_at_the_height(self):
         """Red when wrap breaks inside a word, packs too much on a line, or keeps lines the height cannot hold."""

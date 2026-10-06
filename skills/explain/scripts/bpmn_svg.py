@@ -22,6 +22,7 @@ MARGIN = 20
 LINE = FONT * 1.2
 PAD = 8  # inner padding of a box that holds a name
 BAND = 30  # name band of a participant or a lane
+TAG_ROW = 4 + FONT + 2  # top of the name in a task with a kind tag
 LABEL_W = 90  # least wrap width of a label outside its shape
 NS_MODEL = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 TAGS = {"serviceTask": "service", "sendTask": "send", "receiveTask": "receive",
@@ -102,9 +103,12 @@ def _task(node, b, name):
     parts = [rect(x, y, w, h, extra)]
     top, height = y + PAD, h - 2 * PAD
     if node.tag in TAGS:
+        # The tag sits in the top padding; the name starts just below its baseline and keeps 4 units
+        # at the bottom, so a 100x80 task holds three lines.
         parts.append('<text class="bpmn-text" font-size="%d" x="%s" y="%s">%s</text>' % (
             FONT, f(x + 6), f(y + 4 + FONT), TAGS[node.tag]))
-        top, height = top + LINE, height - LINE
+        top = y + TAG_ROW
+        height = h - TAG_ROW - 4
     text, cut = _boxed(name, x + PAD, top, w - 2 * PAD, height)
     return parts + [text], cut
 
