@@ -96,7 +96,7 @@ waves:
       the five spec §7.2 lesson cases (six ok lines; missing poster FAIL with its detail
       line and exit 1; fragment stripped; no-clip fixture ok; unknown-rung text lists
       `lesson`).
-    status: pending
+    status: done   # 2026-10-06, ralph wave 1 (kp-4h3), commits 117b772..f533fcd
     depends_on: []
     owns:
       - skills/explain/templates/page.html
