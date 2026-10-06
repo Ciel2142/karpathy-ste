@@ -24,8 +24,11 @@ They are:
 - the `script.json` of the clip, as it is now;
 - the copy of the script that gate 1 read, `review/gate1-<id>.script.json`;
 - the stills of your part, `still-NN-<scene>-s<k>.png` and `still-NN-<scene>-end.png`: the first is the
-  middle of sentence k of scene NN, the second is the last frame of scene NN; the stills of your part are
-  five at most, and they include the `-end` still of the scene before your first scene;
+  middle of sentence k of scene NN, the second is the last frame of scene NN. Your part has five stills at
+  most, and they include the `-end` still of the scene before your first scene (the first scene of a clip has
+  none). A scene that does not fit in five stills with that `-end` still gets a reviewer of its own. That
+  reviewer gets all the stills of the scene and that `-end` still: this is the only kind of part with more
+  than five stills;
 - the transcript of the clip, `clips/<id>/index.html`: the narration and the cites of each scene;
 - `index.html`, the page;
 - the gate-1 reports of this clip, `review/gate1-<id>-round-<k>.md`, with the `## Author` block of each.

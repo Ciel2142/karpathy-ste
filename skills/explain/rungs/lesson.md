@@ -50,8 +50,10 @@ export". This file changes some of their steps, and it says where.
 
 For each clip, read these sections of `<skill-dir>/rungs/video.md` and follow them: "The grammar
 of a film", "Write the script", "Write the scene", "The kit", "Marks", "Text on the stage", "The
-guard", "Build and check", "The FAIL lines" and "Read the stills". Do not read the other sections
-of that file. The lesson has its own handoff and its own output directory.
+guard", "Build and check", "The FAIL lines" and "Read the stills".
+
+A section that this file names includes its subsections. The lesson has its own handoff and its
+own output directory: "Finish and handoff" and "Output directory" below give them.
 
 Where this file and a rung file that it names differ, this file wins. You need no other file to
 build a lesson.
@@ -309,16 +311,19 @@ Gate 2 is a cold read of the stills of each clip that rendered.
 
 1. Read every still of each clip yourself first, as "Read the stills" in `video.md` says. Fix each
    fault, and render the clip again.
-2. Split the stills of each clip into parts, by whole scenes. A reviewer reads five stills at
-   most: a subagent that reads more images stalls.
+2. Split the stills of each clip into parts, by whole scenes. A part has five stills at most,
+   with one exception that follows: a subagent that reads many images stalls.
 3. Start one fresh general-purpose subagent for each part, in parallel. Never start a fork. Its
    prompt is `<skill-dir>/lesson/review-render.md`, filled as the next paragraphs say.
 
 A part holds one or more whole scenes. It holds each still of these scenes:
 `still-NN-<scene>-s<k>.png` for each sentence, and `still-NN-<scene>-end.png`. It also holds the
-`-end` still of the scene before its first scene. A part has five stills at most. A scene with
-more than four sentences gets a reviewer of its own. The first scene of a clip has no scene before
-it.
+`-end` still of the scene before its first scene. The first scene of a clip has no scene before
+it, so its part has no such still.
+
+A part has five stills at most. A scene that does not fit in five stills with that `-end` still
+gets a reviewer of its own. That reviewer gets all the stills of the scene and that `-end` still:
+this is the only kind of part with more than five stills.
 
 The sentence stills are the only place where a reviewer sees on-stage text that appears and goes
 inside a scene. That text is in no script and in no source.

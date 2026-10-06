@@ -19,7 +19,8 @@ headed "| Limit | clip |" is the clip row of video/formats.json (FILM_CELLS, fil
 sentence of section "Write the page and the clips" gives that row's minText and the 22 px of C.muted. The one
 fenced html block is CLIP_MARKUP, the markup of spec section 4.2, and the fenced block of section "Finish and
 handoff" is the six lines of verify.sh for a lesson (LESSON_PASS and the media line). Each text of LESSON_TEXTS
-occurs in the rung. The {name} set of the rung is the union of PLACEHOLDERS, and the prompt files that it
+occurs in the rung, and the rule for a long scene of gate 2 (LONG_SCENE) is the same in the rung and in
+review-render.md. The {name} set of the rung is the union of PLACEHOLDERS, and the prompt files that it
 names are the keys of PLACEHOLDERS, each in LESSON_DIR. The rung passes the STE lint.
 
 This module imports helpers from test_rung_drift.py and LESSON_PASS from test_verify.py; test_rung_drift.py
@@ -72,6 +73,11 @@ CLIP_MARKUP = """<figure class="clip">
   <figcaption><span class="part"></span>One sentence that says what the clip shows.
     <a href="clips/<id>/index.html" data-ste="skip">transcript</a></figcaption>
 </figure>"""
+# The split rule of gate 2 for a long scene, in the words that lesson.md and review-render.md share: the one
+# exception to "five stills at most" (a count of stills, never of sentences).
+LONG_SCENE = ("A scene that does not fit in five stills with that `-end` still gets a reviewer of its own. That "
+              "reviewer gets all the stills of the scene and that `-end` still: this is the only kind of part "
+              "with more than five stills")
 # 22 px is the 16 px dim-caption rule of a film at 75 % (spec section 5.1, step 3): a fixed rule of the plan.
 DIM_FLOOR = 22
 # What lesson.md says in its own words that no table or other test pins: names of files, lines and rules.
@@ -321,6 +327,14 @@ class LessonRungCase(unittest.TestCase):
     def test_lesson_holds_its_rules(self):
         text = squash(self.text)
         self.assertEqual([want for want in LESSON_TEXTS if squash(want) not in text], [])
+
+    # red: the long-scene rule left out of lesson.md or of the render prompt, worded differently in the two, or
+    # the threshold back to a count of sentences ("more than four sentences")
+    def test_a_long_scene_has_its_own_reviewer_in_both_files(self):
+        for name, text in (("lesson.md", self.text), (RENDER, prompt(RENDER))):
+            with self.subTest(file=name):
+                self.assertIn(squash(LONG_SCENE), squash(text))
+                self.assertNotIn("more than four sentences", squash(text))
 
     # red: {changes} never explained to the author, a word in braces that is no placeholder, a prompt file
     # that lesson.md leaves out, or a prompt file renamed
