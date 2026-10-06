@@ -5,19 +5,19 @@ Usage: check_budgets.py <timeline.json>
 
 The limits are the timeline's own: maxSceneSeconds is the longest scene and maxTotalSeconds the
 longest video, both in seconds (build-timeline.mjs writes them per format: film 30 and 150,
-brainrot 30 and 90). A scene is durationInFrames / fps seconds, the video totalFrames / fps; a
-length equal to its limit passes.
+brainrot 30 and 90, clip 30 and 60). A scene is durationInFrames / fps seconds, the video
+totalFrames / fps; a length equal to its limit passes.
 
 stdout, one line, exit 0:
   ok <n> <total %.1f> <total %.3f>                 <n> scenes, total seconds
   FAIL scene <id> is <s %.1f> s (max <%g><tag>)    the first scene over its limit
   FAIL total <s %.1f> s (max <%g><tag>)            every scene fits, the video does not
-<tag> names the format the way build-timeline.mjs (tagOf) does on its limit lines: ", film" or
-", brainrot".
+<tag> names the format the way build-timeline.mjs (tagOf) does on its limit lines: ", film",
+", brainrot" or ", clip".
 Exit 2 (one line on stderr) for a usage error, a timeline that cannot be read, or one without a
 usable format, fps, totalFrames, scenes[].durationInFrames, maxSceneSeconds or maxTotalSeconds;
-there is no default format and no default limit. A usable format is "film" or "brainrot"; any
-other value, or no "format" key, is "<path>: no usable format", checked before the numbers.
+there is no default format and no default limit. A usable format is "film", "brainrot" or "clip";
+any other value, or no "format" key, is "<path>: no usable format", checked before the numbers.
 Stdlib only.
 """
 
@@ -26,7 +26,7 @@ import math
 import sys
 
 USAGE = "usage: check_budgets.py <timeline.json>"
-FORMATS = ("film", "brainrot")  # the formats whose timelines build-timeline.mjs writes
+FORMATS = ("film", "brainrot", "clip")  # the formats whose timelines build-timeline.mjs writes
 
 
 class Unreadable(Exception):
@@ -43,8 +43,8 @@ def number(container, key, where, positive=False):
 
 
 def format_tag(timeline) -> str:
-    """", <format>" of a film or brainrot timeline (build-timeline.mjs tagOf); verdict has checked
-    the format."""
+    """", <format>" of a film, brainrot or clip timeline (build-timeline.mjs tagOf); verdict has
+    checked the format."""
     return ", %s" % timeline["format"]
 
 

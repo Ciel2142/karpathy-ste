@@ -2,6 +2,7 @@
 limits table of rungs/brainrot.md (one column, headed brainrot) and its code and caption sentences (skill
 text that the model reads at run time) must say the same. Each test names the mutation that turns it red."""
 
+import importlib.util
 import json
 import os
 import re
@@ -50,6 +51,14 @@ CELL_TEMPLATES = [
 
 def load_formats():
     return json.loads(FORMATS.read_text(encoding="utf-8"))
+
+
+def load_tool(name):
+    """A Python tool of video/ as a module, loaded by path (it is no package)."""
+    spec = importlib.util.spec_from_file_location(name[:-3] + "_under_test", EXPLAIN / "video" / name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def fill(template, row):
@@ -140,6 +149,18 @@ class TestFormatsRows(unittest.TestCase):
         """Red: formats.json keeps a row of a removed format, or loses the film, the brainrot or the
         clip row."""
         self.assertEqual(sorted(load_formats()), ["brainrot", "clip", "film"])
+
+    def test_every_format_list_names_the_rows(self):
+        """Red: one of the three fixed format lists (FORMAT_NAMES of build-timeline.mjs,
+        NARRATED_FORMATS of narrate.py, FORMATS of check_budgets.py) lacks a name that formats.json has
+        a row for, or keeps a name it has no row for: the render then stops at a later stage."""
+        wanted = ["brainrot", "clip", "film"]
+        line = re.search(r"^const FORMAT_NAMES = (\[.*\]);$", TOOL.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(line, "build-timeline.mjs has no one-line `const FORMAT_NAMES = [...];`")
+        self.assertEqual(sorted(json.loads(line.group(1))), wanted)
+        self.assertEqual(sorted(load_tool("narrate.py").NARRATED_FORMATS), wanted)
+        self.assertEqual(sorted(load_tool("check_budgets.py").FORMATS), wanted)
+        self.assertEqual(sorted(load_formats()), wanted)
 
 
 class TestBuildTimelineReadsFormats(unittest.TestCase):
