@@ -137,7 +137,7 @@ class StageOneCase(unittest.TestCase):
         self.write_script(lambda script: script.update(format="slides"))
         run = self.render()
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
-        self.assertEqual(stage_lines(run.stdout), ["script: FAIL script: format must be film or brainrot"])
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL script: format must be film, brainrot or clip"])
         self.assertFalse((self.out / "audio").exists())
 
     # red: the brainrot template breaks a brainrot limit or a cue rule, so the script stage fails
