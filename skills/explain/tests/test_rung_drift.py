@@ -915,12 +915,13 @@ class BpmnRungCase(unittest.TestCase):
 
     def test_review_page_has_the_bpmn_check(self):
         """Red when gate 1 has no check 4, a fifth check, or check 4 lost the rule that names match the
-        diagram."""
+        diagram or the rule that a collapsed sub-process with its own section or figure is explained."""
         checks = section(read(REVIEW_PAGE_MD), "Checks")
         numbers = re.findall(r"^(\d+)\. ", checks, re.M)
         self.assertEqual(numbers, ["1", "2", "3", "4"])
         four = " ".join(re.search(r"^4\. .*", checks, re.M | re.S).group(0).split())
         self.assertIn("the names in the prose match the diagram", four)
+        self.assertIn("A collapsed sub-process that has its own section or figure counts as explained.", four)
 
     def test_page_md_and_lesson_md_lint_clean(self):
         """Red when a BPMN rule breaks the STE profile in page.md or lesson.md."""
