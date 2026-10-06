@@ -55,8 +55,12 @@ guard", "Build and check", "The FAIL lines" and "Read the stills".
 A section that this file names includes its subsections. The lesson has its own handoff and its
 own output directory: "Finish and handoff" and "Output directory" below give them.
 
-Where this file and a rung file that it names differ, this file wins. You need no other file to
-build a lesson.
+Where this file and a rung file that it names differ, this file wins. A file that a named section
+points to is part of the read. "Provenance" and "Write the prose" in `page.md`, and "Write the
+script" in `video.md`, point to the sections "Provenance recipe" and "Write the prose" of
+`<skill-dir>/rungs/sheet.md`. Read those two sections too. Also read the conventions of `SKILL.md`,
+the templates that this file names and the three prompt files of the two gates. You need no design
+document.
 
 ## 3. Plan the lesson
 
@@ -75,8 +79,9 @@ build a lesson.
 The reason of a clip says what the motion shows that a still cannot show. The page reviewer of
 gate 1 judges your choices from these lines.
 
-The usual range is 2 to 3 clips in a lesson. A usual clip is 20 to 40 s long. A clip is 60 s
-long at most. There is no cap on the number of clips.
+The usual range is 2 to 3 clips in a lesson. A usual clip is 20 to 40 s long. The row "max total
+length" of the table in "Write the page and the clips" gives the longest clip. There is no cap on
+the number of clips.
 
 Count the cost before you mark a clip. The film runs measured about 7 lines of scene code for
 each second of film. They measured 15 to 25 s of author time for each second, over 3 to 6 render
@@ -166,7 +171,7 @@ it, and follow "Write the script" in `video.md`, with these differences:
 | `subject.text`, `subject.kind` | The subject of the lesson and its kind. |
 | `provenance` | The same keys and rules as a film. The root is the absolute path of the repo root. |
 | `provenance.not_covered` | `none`. |
-| `sources` | The ranges of the source lines that the code card shows. A range has 12 lines at most. |
+| `sources` | The ranges of the source lines that the code card shows. A range stays inside the row `source lines` of the table below. |
 
 Start `clips/<id>/scene/` from a copy of `<skill-dir>/video/src/film/`, the worked example. Write
 the picture as "Write the scene" in `video.md` says. A clip is a short film. Its scene code obeys
@@ -221,8 +226,10 @@ subagents, in parallel. Never start a fork: a fork has your context and your bli
 - one page reviewer, with the prompt `<skill-dir>/lesson/review-page.md`;
 - one script reviewer for each clip, with the prompt `<skill-dir>/lesson/review-script.md`.
 
-Before you start them, copy each `clips/<id>/script.json` to `review/gate1-<id>.script.json`.
-Gate 2 compares the script with this copy.
+At each gate 1 dispatch, copy the `clips/<id>/script.json` of each clip that you send to a script
+reviewer to `review/gate1-<id>.script.json`, before you start the reviewers. The new copy replaces
+the old one. A clip that you add in round 2 gets its copy in that dispatch. Gate 2 compares the
+script with the last copy.
 
 Each prompt file is a template. Read it. Replace each name in braces with plain text. Give the
 result to the subagent as its prompt. Fill the names like this:
@@ -236,9 +243,11 @@ result to the subagent as its prompt. Fill the names like this:
 | `{report}` | The absolute path that the reviewer writes its report to. The names are below. |
 | `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report, with your `## Author` block. |
 
-The prompt tells the reviewer to read only these files and the repo. This is an instruction, not
-a sandbox. A reviewer can read any file, so write no secret and no hint of a fault in a file that
-it reads.
+The prompt tells the reviewer to read only these files and the repo. It also closes the output
+directory and its parent directory, except the files that you list and the report of `{previous}`.
+Thus `review/plants.md`, the reports that you do not list and the directories of earlier runs are
+outside what a reviewer reads. This is an instruction, not a sandbox. A reviewer can read any file,
+so write no secret and no hint of a fault in a file that it reads.
 
 The reviewer writes its report to `{report}`:
 
@@ -264,10 +273,12 @@ A clip that you add after round 1 gets its script review in the round-2 dispatch
 
 After round 2, or after round 1 when each verdict is `ok`, apply these rules before any render:
 
+- A finding that a round-2 reviewer makes first. Nobody rules it after your fix. It counts as
+  `open`, whatever your `## Author` block says. The rules below then apply to it.
 - Removal rule, for the page. Remove from the page each claim that has an `open` finding. Never
   ship it. If the removal empties a facet, write the facet in `Not covered`. Then search the
-  narration of each clip for the removed claim. A clip that has it goes through a gate 1 round
-  again, or you drop it.
+  narration of each clip for the removed claim. Drop each clip that has it. An edit of the
+  narration needs a review round, and no round remains.
 - Drop rule, for a clip. Drop each clip that has an `open` finding now ("Drop a clip" below).
   Then no render time goes to it.
 - Disputed findings. An `open` finding whose `## Author` says `not fixed` is a disputed finding.
@@ -300,7 +311,7 @@ Each run must end with its eleven `ok` lines, as "Build and check" in `video.md`
 - `render: FAIL remotion render exit <n>` with a `MARK scene` line in `build/render.log` is a bad
   mark in the scene code. This is a fault of the author, as above.
 - A `container` `FAIL` is a fault of the environment: the mp4 has a wrong size or a wrong frame
-  rate.
+  rate. Print the stage line, tell the user and stop the lesson. Drop nothing for it.
 - A `workspace` `FAIL` or a `narration` `FAIL` is a fault of the environment. So is a `render`
   `FAIL` or a `guard` `FAIL` that names the renderer and shows no `MARK` line. Print the stage
   line, tell the user and stop the lesson. Drop nothing for it.
@@ -419,7 +430,7 @@ the directory.
 | `review/plants.md` | The planted faults of a live run that measures the gates. No reviewer reads it. A normal run has no such file. |
 | `review/gate1-page-round-<k>.md` | The report of the page reviewer for round `<k>`, then your answer. |
 | `review/gate1-<id>-round-<k>.md` | The report of the script reviewer for the clip `<id>`, round `<k>`, then your answer. |
-| `review/gate1-<id>.script.json` | The copy of `script.json` that gate 1 read. |
+| `review/gate1-<id>.script.json` | The copy of `script.json` that the last gate 1 dispatch of the clip gave to its reviewer. |
 | `review/gate2-<id>-<part>-round-<k>.md` | The report of the render reviewer for the clip `<id>`, its part `<part>` and read `<k>`, then your answer. |
 | `clips/<id>/` | One complete film output for each clip: `script.json` and `scene/`, which you write, and all that "Output directory" in `video.md` lists. It also holds `poster.png`. |
 

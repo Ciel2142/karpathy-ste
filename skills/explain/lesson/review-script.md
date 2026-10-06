@@ -13,7 +13,9 @@ You review. You change no file except your report. Write your report to {report}
 
 ## Inputs
 
-Read only these files and the files under the repository root.
+Read only these files and the files under the repository root. Under the directory of the page
+`index.html`, and under its parent directory, read no file except the files listed below and the
+report that Round 2 names. This holds when those directories are under the repository root.
 
 The files, one absolute path per line:
 
