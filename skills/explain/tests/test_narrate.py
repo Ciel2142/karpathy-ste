@@ -599,10 +599,12 @@ class CheckFirst(NarrateCase):
 
     def test_check_printing_no_engine_is_exit_1(self):
         """Mutation: an empty or unknown engine from a check that exits 0 is run (the shell then
-        builds a command line with it) or falls back to say."""
+        builds a command line with it) or falls back to say, or the printed text is matched as a
+        substring ("kokoro silero" holds two engine names). The shim ends with exit 0, so what it
+        prints is all the check prints."""
         for printed in ("", "festival", "kokoro silero"):
             with self.subTest(printed=printed):
-                env = self.with_path_first(self.check_python3(f"echo '{printed}'" if printed else "exit 0"))
+                env = self.with_path_first(self.check_python3(f"echo '{printed}'; exit 0"))
                 run = self.shell(self.two_scenes(), env=env)
                 self.assertEqual(
                     (run.returncode, run.stdout.splitlines()),
