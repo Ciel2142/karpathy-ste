@@ -45,6 +45,7 @@ Test runs: scoped per task; full suite once, in Task 8.
 8. **The BPMN fixture page is built at test time** from `templates/page.html` plus one committed section fragment, as `lesson_page` in `test_lesson_e2e.py` does. The page never drifts from the template, and `verify.sh` runs the template's real guard on it. It is written to a temp directory beside a copy of `two_planes.bpmn`, with `data-root="."` (the template's only live cite is a URL).
 9. **The new `bpmn: none` line ripples through seven existing test modules** that pin the verify lines. Task 6 owns all of them. The list is in Task 6.
 10. **`.bpmn-label` sits inside the hidden cites, and the guard's second measure covers it.** After `feat/explain-answer-first`, each cite block hides behind the Sources switch. The span that `bpmn.py label` writes is inside its `cite`, so the reader sees it only with Sources on. The guard measures `HSCROLL` and `SMALLTEXT` twice, in the reading view and then with Sources on, so a `.bpmn-label` that is under 14 px fails both render lines with `SMALLTEXT`, and one that makes the page scroll fails the 500 px render line with `HSCROLL`. Task 5 needs no guard of its own for this. Cost if wrong: none to the contract.
+11. **Review against `main` at 2d16f3f** (after `worktree-explain-russian` merged): `verify.sh`, `cite_check.py` and the template anchors of `lesson_page` are unchanged. `ste_lint.py --html` skips `cite` and `svg` subtrees, so the English kind words of a label and the names in a plane pass on an English or a Russian page (`SKILL.md` convention 7). Task 6 names its pins by content, not by line number, because the lines moved.
 
 ## File Structure
 
@@ -395,7 +396,7 @@ git commit -m "feat: explain: page template draws a BPMN plane at full size and 
 **Files:**
 - Modify: `skills/explain/scripts/verify.sh` (header comment, a new check after `media`)
 - Modify: `skills/explain/tests/test_verify.py`, `test_page_template.py`, `test_sheet_template.py`, `test_lesson_e2e.py`, `test_lesson_prompts.py` (the pinned line lists)
-- Modify: `skills/explain/rungs/sheet.md:141`, `rungs/page.md` section "Verify and export", `rungs/lesson.md:403-413` (the line counts and the quoted lesson block)
+- Modify: `skills/explain/rungs/sheet.md` section "Verify and export" step 1, `rungs/page.md` section "Verify and export" step 1, `rungs/lesson.md` section "Finish and handoff" step 2 (the line counts and the quoted lesson block)
 
 **Interfaces:**
 - Consumes: the `bpmn.py check` CLI and its summary line (Task 4).
@@ -425,15 +426,17 @@ Expected: `FAILED`
 - [ ] **Step 3: Add the check to `verify.sh`**, in the shape of the `citations` block: run `python3 "$SCRIPTS/bpmn.py" check "$input_abs"`, take the summary from its last stdout line, and print the details through `indent`.
 
 - [ ] **Step 4: Move every pinned line list to the new count.** These are the known pins. Re-run the grep below and fix every hit it prints:
-  - `test_verify.py`: `GOOD_OUT`, `LESSON_PASS`, `CHECKS`, the `len(lines) == 4` asserts (lines 139, 254), the slices at 142, 196, 227, 244, and the `media: ok` endings at 367, 419, 432, 487, 500, 518
+  - `test_verify.py`: `GOOD_OUT`, `LESSON_PASS`, `CHECKS`, the two length-4 asserts (`len(lines)` and `len(self.check_lines(...))`), the slices that end in `"prose: ok"`, the `media: ok` endings, and the docstring "the six lines compare in order"
+  - `test_verify.py`, the `media: FAIL` endings (`LESSON_PASS + "media: FAIL <n> missing\n"` plus detail lines): every check runs after a failure, so each of these stdout lists now ends with `bpmn: none` after the media detail lines
   - `test_page_template.py`: `OTHER_OK`
   - `test_sheet_template.py`: `OK_LINES`
-  - `test_lesson_e2e.py`: lines 254 to 266, and the module docstring's "six ok lines"
-  - `test_lesson_prompts.py`: the docstring at 25 and the assert at 398 (lesson.md's quoted block)
+  - `test_lesson_e2e.py`: the two `LESSON_PASS + "media: ok\n"` asserts, the comment above them ("five lines" for a page), the module docstring's "six ok lines", and the name `test_the_page_prints_six_ok_lines` → `test_the_page_prints_seven_ok_lines`
+  - `test_lesson_prompts.py`: the module docstring ("the six lines of verify.sh for a lesson") and the `LESSON_PASS.splitlines() + ["media: ok"]` assert (lesson.md's quoted block)
   - `rungs/sheet.md` "All four lines" → five, plus the list; `rungs/page.md` "All five lines" → six, plus the list; `rungs/lesson.md` "six lines" → seven, plus `bpmn: ok` in the quoted block
+  - Unchanged: the three-line video, film and clip lists in `test_verify.py`, `test_lesson_e2e.py` and `test_transcript.py`
 
-Run: `cd skills/explain && grep -rn -e "prose: ok" -e "media: ok" -e "four lines" -e "five lines" -e "six lines" rungs lesson tests/*.py scripts/verify.sh`
-Expected: every hit is a list that ends with the `bpmn` line, or a video or film list (three lines, unchanged).
+Run: `cd skills/explain && grep -rn -e "prose: ok" -e "media: ok" -e "media: FAIL" -e "four lines" -e "five lines" -e "six lines" -e "six ok" rungs lesson tests/*.py scripts/verify.sh`
+Expected: every hit is a list that ends with the `bpmn` line, a video or film list (three lines, unchanged), an index into a list (`split("\n")[3]`), or prose that names one line (`lesson.md` on `media: FAIL <n> missing`, the `verify.sh` header).
 
 - [ ] **Step 5: Run the affected modules, expect green** (each with its output in a log file, polled)
 
@@ -463,7 +466,7 @@ git commit -m "feat: explain: verify.sh runs the BPMN coverage check as its last
 **Interfaces:**
 - Consumes: the CLI forms of `planes`, `svg`, `label` and `check` (Tasks 1 to 4). The CSS class names of Task 5. The verify lines of Task 6.
 - Produces, as text in the rung files:
-  - "Plan the sections": the bullets of spec 2.2, added after the first-section rule that `feat/explain-answer-first` put there ("The first section says why the subject exists. One diagram in it carries the main idea. For a directory subject, that diagram is the main flow from start to end, named by its stages. The main flow is the journey of one request, a pipeline or a BPMN process. The mechanics follow in later sections."). They do not replace that rule. The bullets are (the main plane first with the stages highlighted, one section per collapsed stage in process order, a paragraph per inner sub-process, gateway, user task and path-changing boundary event, nested planes, the sibling pattern paragraph, the count follows the planes, `Not covered` by name verbatim). The "about twelve" bullet names the BPMN exception.
+  - "Plan the sections": the bullets of spec 2.2, added after the first-section rule that `feat/explain-answer-first` put there ("The first section says why the subject exists. One diagram in it carries the main idea. For a directory subject, that diagram is the main flow from start to end, named by its stages. The main flow is the journey of one request, a pipeline or a BPMN process. The mechanics follow in later sections."). They do not replace that rule. The bullets are (the main plane first with the stages highlighted, one section per collapsed stage in process order, a paragraph per inner sub-process, gateway, user task and path-changing boundary event, nested planes, the sibling pattern paragraph, the count follows the planes, `Not covered` by name verbatim). The "about twelve" bullet names the BPMN exception. One more bullet joins the BPMN bullets to the answer-first rule "Each section expands one sentence of the answer": for a BPMN main flow, the answer names the stages in process order, so each stage section expands one sentence. A plane that the answer does not name still gets a section or a figure, because a merge may not drop a plane.
   - "Diagram patterns": a pattern "BPMN plane" with the `figure.bpmn` block of spec 2.2, verbatim, and the rule that a flow in a `.bpmn` file is never drawn by hand.
   - "Write the prose": the BPMN cite rule (cite the line that carries the fact: the id line, the `name=` line, the flow or its condition line).
   - "Verify and export": before step 1, two steps in this order: `python3 <skill-dir>/scripts/bpmn.py svg <file> --plane <id> --highlight <ids>` for each plane (while writing), then `python3 <skill-dir>/scripts/bpmn.py label index.html` after the cites are written. Then `verify.sh`.
@@ -475,7 +478,7 @@ git commit -m "feat: explain: verify.sh runs the BPMN coverage check as its last
 ```python
 def test_page_md_names_the_three_bpmn_commands_in_order(self):  # section "Verify and export": "bpmn.py svg" before "bpmn.py label" before "verify.sh"
 def test_page_md_has_the_bpmn_plane_pattern(self):  # section "Diagram patterns" holds '<figure class="bpmn">' and "never drawn by hand"
-def test_page_md_plans_one_section_per_stage(self):  # section "Plan the sections" holds "one section per stage" and "a merge may not drop a plane"
+def test_page_md_plans_one_section_per_stage(self):  # section "Plan the sections" holds "one section per stage", "a merge may not drop a plane", "names the stages in process order", and still holds "Each section expands one sentence of the answer"
 def test_lesson_md_reads_the_planes_as_candidates(self):  # section "Plan the lesson" holds "bpmn.py planes"
 def test_review_page_has_the_bpmn_check(self):  # CHECK_COUNT[PAGE] == 4, and check 4 holds "the names in the prose match the diagram"
 def test_page_md_and_lesson_md_lint_clean(self):  # ste_lint: 0 errors, 0 warnings for both
