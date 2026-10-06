@@ -2,17 +2,25 @@
 """BPMN reader for `explain`: reads a .bpmn file into a model with line spans.
 
 Usage: bpmn.py planes <file.bpmn>
+       bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]
 Exit 0 on success, 1 on failures found, 2 on a usage or read error.
 """
 
+import re
 import sys
 import xml.parsers.expat
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from bpmn_svg import render
+
 NS_MODEL = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 NS_DI = "http://www.omg.org/spec/BPMN/20100524/DI"
-USAGE = "usage: bpmn.py planes <file.bpmn>\n"
+USAGE = (
+    "usage: bpmn.py planes <file.bpmn>\n"
+    "       bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]\n"
+)
+PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
 
 class Node(NamedTuple):
@@ -119,6 +127,11 @@ def load(path):
     return Model(path, nodes, by_id, _planes(nodes, by_id), text.split("\n"))
 
 
+def _write_planes(model, stream):
+    for plane in model.planes:
+        stream.write("%s\t%s\t%d\n" % (plane.id, plane.name or "-", plane.line))
+
+
 def cmd_planes(args):
     if len(args) != 1:
         return _usage()
@@ -127,19 +140,59 @@ def cmd_planes(args):
     except BpmnError as error:
         sys.stderr.write("%s\n" % error)
         return 2
-    for plane in model.planes:
-        sys.stdout.write("%s\t%s\t%d\n" % (plane.id, plane.name or "-", plane.line))
+    _write_planes(model, sys.stdout)
+    return 0
+
+
+def _svg_options(args):
+    """The file and the options of svg, or None on a usage error."""
+    if not args or args[0].startswith("--") or len(args) % 2 == 0:
+        return None
+    options = {"--plane": None, "--highlight": "", "--prefix": None}
+    for key, value in zip(args[1::2], args[2::2]):
+        if key not in options:
+            return None
+        options[key] = value
+    if options["--prefix"] is not None and not PREFIX.match(options["--prefix"]):
+        return None
+    return args[0], options
+
+
+def cmd_svg(args):
+    parsed = _svg_options(args)
+    if parsed is None:
+        return _usage()
+    path, options = parsed
+    try:
+        model = load(path)
+    except BpmnError as error:
+        sys.stderr.write("%s\n" % error)
+        return 2
+    if not model.planes:
+        sys.stderr.write("bpmn.py: %s: no bpmndi:BPMNPlane\n" % path)
+        return 1
+    wanted = options["--plane"]
+    plane = next((p for p in model.planes if wanted in (None, p.id)), None)
+    if plane is None:
+        sys.stderr.write("bpmn.py: %s: no plane %s; the planes are:\n" % (path, wanted))
+        _write_planes(model, sys.stderr)
+        return 2
+    highlight = frozenset(i.strip() for i in options["--highlight"].split(",") if i.strip())
+    text, warnings = render(model, plane, highlight, options["--prefix"] or plane.id)
+    for warning in warnings:
+        sys.stderr.write("bpmn.py: %s: %s\n" % (path, warning))
+    sys.stdout.write(text)
     return 0
 
 
 def _stub(args):
-    """The svg, label and check subcommands arrive in later tasks."""
+    """The label and check subcommands arrive in later tasks."""
     return _usage()
 
 
 COMMANDS = {
     "planes": cmd_planes,
-    "svg": _stub,
+    "svg": cmd_svg,
     "label": _stub,
     "check": _stub,
 }
