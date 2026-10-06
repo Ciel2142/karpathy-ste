@@ -423,9 +423,10 @@ writes these files again. A `FAIL` line that this section does not list names it
 
 The `script` stage checks `script.json`. Most other `FAIL` lines of this stage name a key of
 `script.json` and the rule that it breaks. The stage also checks that the engine fits the `lang`
-of the script. For a Russian film, it then reads each sentence as the voice gets it, after the
-`pronounce` map. A line of this check lists each scene that breaks its rule, and `; ` separates
-two scenes.
+of the script, and for a Russian film it checks each sentence. Three lines read each sentence as
+the voice gets it, after the `pronounce` map: `unspoken text`, `no letter` and `too long`. The
+line `abbreviation` reads the written sentence, with its backticks removed. A line of this check
+lists each scene that breaks its rule, and `; ` separates two scenes.
 
 | Line | Cause and fix |
 |---|---|
@@ -435,7 +436,7 @@ two scenes.
 | `script: FAIL scene <id>: pause <v> must be an integer from 12 to 90` | `pause` is the number of silent frames after the narration of the scene. Write an integer in this range, or remove the key. |
 | `script: FAIL source <id>: <cause>` | An entry of `sources` breaks a rule, and `<cause>` names it. Each entry has the four keys `id`, `path`, `from` and `to`. The range is in the file and within the limit of section 3. The cause can also be `no cite on <path> inside <from>-<to>`: no cite of that path has a `line` in the range. Add a cite of that path with a `line` in the range, or change the range. |
 | `script: FAIL engine <e> cannot narrate lang <l>` | The `--engine` value does not fit the `lang` of the script: `kokoro` speaks only `en`, and `silero` speaks only `ru`. Remove `--engine`, or give `--engine say`. |
-| `script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)` | The voice cannot speak each token `<t>` of the scene: a Latin word, a digit, a sign such as `#`, or an acronym in Cyrillic capitals such as `СУБД`. A token that mixes a Cyrillic letter with a Latin letter also shows the code point of the Latin letter. Add the token to `pronounce`, or write it in Russian words. A `pronounce` value with a Latin letter or a digit gives this line too. |
+| `script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)` | The voice cannot speak each token `<t>` of the scene: a Latin word, a digit, a sign such as `#`, or an acronym in Cyrillic capitals such as `СУБД`. A token also shows a code point, as `(U+XXXX)`, in two cases. Its first bad character is not a letter or a digit: a sign such as `#`, a `+` that is not before a vowel, or a zero-width space. Or it mixes a Cyrillic letter with a Latin letter, and the code point is that of the Latin letter. Add the token to `pronounce`, or write it in Russian words. A `pronounce` value with a Latin letter or a digit gives this line too. |
 | `script: FAIL abbreviation: <scene>: "<t>", … (write the words out, as «то есть»)` | The narration has an abbreviation, such as `т. е.`, `т.д.` or `напр.`. The voice reads it letter by letter, or the cut into sentences splits it. Write the words out, such as `то есть`. A `pronounce` key cannot map an abbreviation. |
 | `script: FAIL no letter: <scene> sentence <k>, …` | Sentence `<k>` of the scene, from 1, has no Cyrillic letter after the `pronounce` map. The voice cannot speak it. Add words to the sentence, or join it to the sentence before it. |
 | `script: FAIL too long: <scene> sentence <k> (<n> characters); … (max 900)` | Sentence `<k>` of the scene has more than 900 characters after the `pronounce` map. The voice fails on a sentence of this length. Cut the sentence, or write shorter `pronounce` values. |

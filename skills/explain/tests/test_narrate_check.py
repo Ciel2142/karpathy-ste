@@ -117,12 +117,12 @@ class EngineAndScript(CheckCase):
             (FILM_TEMPLATE, dict(ru, pronounce={"Spring Boot": "спринг бут"}),
              'pronounce key "Spring Boot" holds whitespace'),
             # A no-break space (U+00A0) between the two words.
-            (FILM_TEMPLATE, dict(ru, pronounce={"Spring Boot": "спринг бут"}),
-             'pronounce key "Spring Boot" holds whitespace'),
+            (FILM_TEMPLATE, dict(ru, pronounce={"Spring\u00a0Boot": "спринг бут"}),
+             'pronounce key "Spring\u00a0Boot" holds whitespace'),
             (FILM_TEMPLATE, dict(ru, pronounce={"т.": "то"}), 'pronounce key "т." ends with "."'),
             # Two causes; only the first prints.
             (FILM_TEMPLATE, dict(ru, pronounce={"a b?": "эй"}), 'pronounce key "a b?" holds whitespace'),
-            (FILM_TEMPLATE, dict(ru, pronounce={"JSON": "  "}),
+            (FILM_TEMPLATE, dict(ru, pronounce={"JSON": " \u00a0"}),
              'pronounce value of "JSON" must be a string with a non-space character'),
             (FILM_TEMPLATE, dict(ru, pronounce={"JSON": 5}),
              'pronounce value of "JSON" must be a string with a non-space character'),
@@ -170,7 +170,7 @@ class Guard(CheckCase):
         cases = [
             ("#", '"#" (U+0023)'),
             ("+т", '"+т" (U+002B)'),               # a "+" before a consonant
-            ("сло​во", '"сло​во" (U+200B)'),   # a zero-width space inside the word
+            ("сло\u200bво", '"сло\u200bво" (U+200B)'),   # a zero-width space inside the word
             ("5", '"5"'),
             ("code", '"code"'),
             ("ОС", '"ОС"'),
