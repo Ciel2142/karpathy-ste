@@ -29,6 +29,7 @@ TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
 FILM_TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 ONE = "Hello there."
 TWO = "A second line."
+MILENA = "Milena              ru_RU    # Здравствуйте! Меня зовут Милена."   # a line of say -v ?
 
 # A stand-in for kokoro_onnx: 0.5 s of silence at STUB_RATE (default 24000); the text BOOM
 # raises, as a real clip failure would. It insists on speed STUB_SPEED (default 1.0) and,
@@ -172,6 +173,21 @@ class NarrateCase(unittest.TestCase):
             self.tool("say", FAKE_SAY),
             FAKE_SAY_LOG=str(self.tmp / "say.log"), FAKE_SAY_RATE_LOG=str(self.rate_log),
         )
+
+    def say_env(self, *voices):
+        """FAKE_SAY first on PATH, its voice list the lines given, and its logs in self.say_log and self.voice_log."""
+        voices_file = self.tmp / "voices.txt"
+        voices_file.write_text("\n".join(voices) + "\n", encoding="utf-8")
+        self.say_log = self.tmp / "say.log"
+        self.voice_log = self.tmp / "say-voice.log"
+        return self.with_path_first(
+            self.tool("say", FAKE_SAY), FAKE_SAY_LOG=str(self.say_log),
+            FAKE_SAY_VOICE_LOG=str(self.voice_log), FAKE_SAY_VOICES=str(voices_file),
+        )
+
+    def ru_models(self):
+        """The Silero model file of the workspace with the wrong bytes: its sha256 is not the pin."""
+        (self.workspace / "models" / "v5_3_ru.pt").write_bytes(b"not the model")
 
     def stub_modules(self):
         stubs = self.tmp / "stubs"
@@ -355,14 +371,15 @@ class UsageErrors(NarrateCase):
         self.assertFalse(self.audio.exists())
 
     def test_bad_speed_is_usage_error(self):
-        """Mutation: --speed is forwarded unchecked, or only the shape (not the 0.5-2.0 range) is checked."""
+        """Mutation: --speed is forwarded unchecked, or only the shape (not the 0.5-2.0 range) is
+        checked, or the usage line still lists two engines."""
         script = self.two_scenes()
         for speed in ("1.25", "2.5", "2.1", "0.4", "-1.0", "fast", ""):
             with self.subTest(speed=speed):
                 run = self.shell(script, "--speed", speed)
                 self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
                 self.assertEqual(
-                    run.stderr.strip(), "usage: narrate.sh <script.json> <audio-dir> [--engine kokoro|say] [--speed <d.d>]")
+                    run.stderr.strip(), "usage: narrate.sh <script.json> <audio-dir> [--engine kokoro|silero|say] [--speed <d.d>]")
                 self.assertFalse(self.audio.exists(), "no engine runs on a bad speed")
         self.assertEqual(self.shell(script, "--speed").returncode, 2, "--speed without a value")
 
@@ -467,6 +484,166 @@ class Fallback(NarrateCase):
         self.assertTrue((self.audio / "one.say.txt").read_text(encoding="utf-8").startswith(
             "engine=say\nvoice=say-default\nspeed=1.2\nmode=sentences\n"))
 
+    def test_silero_run_uses_the_pinned_uv_command(self):
+        """Mutation: the Silero run is given the Kokoro packages, or drops torch or numpy or a pin,
+        or drops -W ignore::SyntaxWarning, or runs --engine kokoro, or passes no --models or no
+        --speed, or a Russian script is run with no engine named, or the fallback of a model that
+        fails its sha leaves the voice at say-default."""
+        self.ru_models()
+        script = self.write_ru_script([scene("one", "Один два.")])
+        log = self.tmp / "uv.log"
+        self.tool("uv", FAKE_UV)
+        env = dict(self.say_env(MILENA), FAKE_UV_LOG=str(log))
+        run = self.shell(script, env=env)
+        self.assert_fallback(run, "model sha mismatch: v5_3_ru.pt")
+        before, _, after = log.read_text(encoding="utf-8").partition(" python3 ")
+        self.assertEqual(before.split(), "run --python 3.12 --with torch==2.14.1 --with numpy==2.5.3".split())
+        narrate_py = after.split()[2]
+        self.assertEqual(
+            after.split(),
+            ["-W", "ignore::SyntaxWarning", narrate_py, "--engine", "silero", "--models",
+             str(self.workspace / "models"), "--speed", "1.0", str(script), str(self.audio)],
+        )
+        self.assertEqual(os.path.realpath(narrate_py), str(NARRATE_PY))
+        self.assertEqual(self.durations()["voice"], "Milena")
+        self.assertEqual(self.voice_log.read_text(encoding="utf-8").splitlines(), ["Milena"])
+
+    def test_silero_models_missing_falls_back(self):
+        """Mutation: the Russian run checks the two Kokoro files (and names one of them), or checks
+        no file and lets uv run."""
+        script = self.write_ru_script([scene("one", "Один два.")])
+        self.tool("uv", "#!/bin/sh\necho 'uv must not run' >&2\nexit 99\n")
+        run = self.shell(script, env=self.say_env(MILENA))
+        self.assert_fallback(run, "models missing: v5_3_ru.pt")
+
+    def test_silero_uv_not_found_falls_back(self):
+        """Mutation: no PATH check for uv on the Silero path, or the cause says something else."""
+        self.ru_models()
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        for name, target in (("say", "/usr/bin/say"), ("afinfo", "/usr/bin/afinfo"),
+                             ("python3", shutil.which("python3")), ("sh", "/bin/sh")):
+            (bin_dir / name).symlink_to(target)
+        run = self.shell(self.write_ru_script([scene("one", "Один два.")]), env=dict(self.env, PATH=str(bin_dir)))
+        self.assert_fallback(run, "uv not found")
+
+    def test_uv_own_exit_2_still_falls_back(self):
+        """Mutation: a run that exits 2 is read as a check failure (exit 2, no fallback) instead of
+        falling back, or the cause drops the last stderr line."""
+        self.ru_models()
+        self.tool("uv", "#!/bin/sh\necho 'resolving' >&2\necho 'no solution found' >&2\nexit 2\n")
+        run = self.shell(self.write_ru_script([scene("one", "Один два.")]), env=self.say_env(MILENA))
+        self.assert_fallback(run, "uv run failed: no solution found")
+
+    def test_engine_fail_line_is_the_cause(self):
+        """Mutation: only exit 3 reads the stdout line (the same line with exit 1 shows "uv run
+        failed: exit 1"), or the cause keeps the "narration: FAIL " prefix, or it is Kokoro's text."""
+        self.ru_models()
+        for code in (3, 1):
+            with self.subTest(code=code):
+                shutil.rmtree(self.audio, ignore_errors=True)
+                self.tool("uv", f"#!/bin/sh\necho 'narration: FAIL silero clip failed: one: boom'\nexit {code}\n")
+                run = self.shell(self.write_ru_script([scene("one", "Один два.")]), env=self.say_env(MILENA))
+                self.assert_fallback(run, "silero clip failed: one: boom")
+
+    def test_kokoro_own_fail_line_is_the_cause(self):
+        """Mutation: a Kokoro run that ends with its own FAIL line and exit 1 (a wrong sample
+        rate) falls back with "uv run failed: exit 1" in place of that line."""
+        stubs = self.stub_modules()
+        self.tool("uv", FAKE_UV)
+        env = self.with_path_first(self.tmp / "bin", PYTHONPATH=stubs, STUB_RATE="22050", FAKE_UV_LOG=str(self.tmp / "uv.log"))
+        run = self.shell(self.write_script([scene("one", ONE)]), env=env)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        cause = self.durations()["fallback"]
+        self.assertTrue(cause.startswith("scene one: "), cause)
+        self.assertTrue(cause.endswith("is 22050 Hz (expected 24000)"), cause)
+        self.assertEqual(run.stdout.splitlines()[0], f"narration: FALLBACK say ({cause})")
+
+
+class CheckFirst(NarrateCase):
+    """narrate.sh runs narrate.py --check before anything else: its exit 2 and its other failures
+    end the run with no fallback, and the engine it prints is the engine that runs. A say that
+    knows Milena is first on PATH, so a run that falls back anyway succeeds (exit 0, a FALLBACK
+    line) and the test sees it."""
+
+    def check_python3(self, body):
+        """A python3 whose --check run is `body` (shell); any other run is the real python3."""
+        return self.tool("python3", f'#!/bin/sh\ncase "$*" in *--check*) {body} ;; esac\nexec {sys.executable} "$@"\n')
+
+    def test_check_exit_2_passes_through(self):
+        """Mutation: a check that exits 2 falls back to say (exit 0, a FALLBACK line, a clip), or
+        becomes exit 1, or its line is dropped or given a prefix, or the check is not given the
+        --engine of the command line (kokoro on ru, silero on en run on), or the guard is not run."""
+        cases = (
+            ("the guard", lambda: self.write_ru_script([scene("one", "Порт 8080 открыт.")]), (),
+             'narration: FAIL unspoken text: one: "8080" (add to pronounce)'),
+            ("kokoro on ru", lambda: self.write_ru_script([scene("one", "Один два.")]), ("--engine", "kokoro"),
+             "narration: FAIL engine kokoro cannot narrate lang ru"),
+            ("silero on en", lambda: self.write_script([scene("one", ONE)]), ("--engine", "silero"),
+             "narration: FAIL engine silero cannot narrate lang en"),
+        )
+        for label, make_script, extra, line in cases:
+            with self.subTest(label):
+                run = self.shell(make_script(), *extra, env=self.say_env(MILENA))
+                self.assertEqual((run.returncode, run.stdout.splitlines()), (2, [line]), run.stdout + run.stderr)
+                self.assertNotIn("FALLBACK", run.stdout)
+                self.assertFalse(self.audio.exists(), "no engine ran, so no clip and no durations.json")
+
+    def test_check_exit_1_is_exit_1_without_fallback(self):
+        """Mutation: a check that exits 1 falls back to say (a FALLBACK line first), or exits 2, or
+        its output is dropped."""
+        env = self.with_path_first(self.check_python3("echo boom; exit 1"))
+        run = self.shell(self.two_scenes(), env=env)
+        self.assertEqual((run.returncode, run.stdout.splitlines()), (1, ["boom"]), run.stdout + run.stderr)
+        self.assertFalse(self.audio.exists())
+
+    def test_check_printing_no_engine_is_exit_1(self):
+        """Mutation: an empty or unknown engine from a check that exits 0 is run (the shell then
+        builds a command line with it) or falls back to say."""
+        for printed in ("", "festival", "kokoro silero"):
+            with self.subTest(printed=printed):
+                env = self.with_path_first(self.check_python3(f"echo '{printed}'" if printed else "exit 0"))
+                run = self.shell(self.two_scenes(), env=env)
+                self.assertEqual(
+                    (run.returncode, run.stdout.splitlines()),
+                    (1, ["narration: FAIL narrate.py --check printed no engine"]), run.stdout + run.stderr)
+                self.assertFalse(self.audio.exists())
+
+    def test_no_python3(self):
+        """Mutation: the python3 check runs only on the say path (any other run then dies with
+        "python3: command not found", exit 127 or an empty line), or has another text or exit."""
+        empty = self.tmp / "empty"
+        empty.mkdir()
+        for extra in ((), ("--engine", "say"), ("--engine", "kokoro")):
+            with self.subTest(extra=extra):
+                run = self.shell(self.two_scenes(), *extra, env=dict(self.env, PATH=str(empty)))
+                self.assertEqual(
+                    (run.returncode, run.stdout.splitlines()), (1, ["narration: FAIL python3 not found"]),
+                    run.stdout + run.stderr)
+
+    def test_engine_say_on_russian_uses_milena(self):
+        """Mutation: a Russian say run passes no -v, or is labelled as a fallback, or a Russian
+        script given --engine say runs Silero."""
+        script = self.write_ru_script([scene("one", "Один два."), scene("two", "Три четыре.")])
+        run = self.shell(script, "--engine", "say", env=self.say_env(MILENA))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn("FALLBACK", run.stdout)
+        self.assertEqual(self.voice_log.read_text(encoding="utf-8").splitlines(), ["Milena", "Milena"])
+        durations = self.durations()
+        self.assertEqual((durations["engine"], durations["voice"], durations["fallback"]), ("say", "Milena", None))
+
+    def test_check_gets_the_speed(self):
+        """Mutation: the check is run without --speed, with or without an --engine on the command
+        line (a Russian film at 1.2 then passes it and falls back to say at speed 1.0 or runs on)."""
+        script = self.write_ru_script([scene("one", "Один два.")])
+        for extra in ((), ("--engine", "silero"), ("--engine", "say")):
+            with self.subTest(extra=extra):
+                run = self.shell(script, "--speed", "1.2", *extra, env=self.say_env(MILENA))
+                self.assertEqual(
+                    (run.returncode, run.stdout.splitlines()),
+                    (2, ["narration: FAIL lang ru narrates at speed 1.0 only"]), run.stdout + run.stderr)
+                self.assertFalse(self.audio.exists())
+
 
 class KokoroDirect(NarrateCase):
     def test_clip_exception_exits_3_and_leaves_no_clip(self):
@@ -506,23 +683,9 @@ class KokoroDirect(NarrateCase):
         self.assertEqual(self.durations()["fallback"], "uv not found")
 
 
-MILENA = "Milena              ru_RU    # Здравствуйте! Меня зовут Милена."
-
-
 class RussianSay(NarrateCase):
     """narrate.py --engine say: the voice follows the script's language, and a Russian run checks
     that say has Milena. The say list and the logs come from FAKE_SAY."""
-
-    def say_env(self, *voices):
-        """FAKE_SAY first on PATH, its voice list the lines given, and its logs in self.say_log and self.voice_log."""
-        voices_file = self.tmp / "voices.txt"
-        voices_file.write_text("\n".join(voices) + "\n", encoding="utf-8")
-        self.say_log = self.tmp / "say.log"
-        self.voice_log = self.tmp / "say-voice.log"
-        return self.with_path_first(
-            self.tool("say", FAKE_SAY), FAKE_SAY_LOG=str(self.say_log),
-            FAKE_SAY_VOICE_LOG=str(self.voice_log), FAKE_SAY_VOICES=str(voices_file),
-        )
 
     def assert_milena_missing(self, *voices):
         script = self.write_ru_script([scene("one", "Один два.")])
