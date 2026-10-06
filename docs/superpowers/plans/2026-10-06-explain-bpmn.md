@@ -511,7 +511,7 @@ git commit -m "docs: explain: a BPMN subject gets one section per stage, a diagr
 
 - [ ] **Step 1: Run the full suite** (log file, polled)
 
-Run: `cd skills/explain && python3 -B -m unittest discover -s tests -t . > /tmp/bpmn-full.log 2>&1; tail -3 /tmp/bpmn-full.log`
+Run: `cd skills/explain && python3 -B -m unittest $(ls tests/test_*.py | sed 's#/#.#;s#\.py$##') > /tmp/bpmn-full.log 2>&1; tail -3 /tmp/bpmn-full.log`
 Expected: `OK` (gated video and lesson E2E tests may be `skipped`)
 
 - [ ] **Step 2: Run the tool end to end on the delivered aos lesson** (a dry read, which proves the tool on a real page and writes nothing). Copy `out/2026-10-06-145908-lesson-aos/index.html` to a temp directory, then run `bpmn.py label` and `bpmn.py check` on the copy.
