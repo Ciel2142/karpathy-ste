@@ -3,8 +3,8 @@
 Date: 2026-10-04, amended 2026-10-06
 Status: approved by the user (2026-10-04), after section-by-section approval and a three-reviewer spec
 review. Amended 2026-10-06 to target the film format (film spec `2026-10-05-explain-film-design.md`
-§11 and decision D4), then cold-reviewed by three reviewers; the amendment awaits the user's
-review. Section 11 lists what changed.
+§11 and decision D4), then cold-reviewed by three reviewers; the amendment was approved by the
+user on 2026-10-06. Section 11 lists what changed.
 Base: `main` at `683eeef` (brainrot, film and lesson are merged). Line numbers below are as of that
 commit; the plan re-locates any that move.
 
