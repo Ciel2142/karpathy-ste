@@ -431,6 +431,19 @@ class PageGuardTest(unittest.TestCase):
         for path in (TEMPLATE, SHEET, VIDEO):
             self.assertNotIn("#fff", read(path), path)
 
+    def test_cites_collect_in_a_block_under_the_prose(self):
+        """Red: a template lacks the .cites rules, shows a cite inline in the prose, or quotes the
+        snippet instead of setting it in <code>."""
+        for rule in (".cites {", ".cites cite {", ".cites cite + cite {", ".cites code {"):
+            self.assertIn(rule, self.template, rule)
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)
+        cites = re.findall(r"<cite\b[^>]*>(.*?)</cite>", markup, re.S)
+        self.assertTrue(cites)
+        for text in cites:
+            self.assertRegex(text, r"^[^<\"]+ <code>[^<]+</code>$")
+        blocks = re.findall(r'<div class="cites">(.*?)</div>', markup, re.S)
+        self.assertEqual(sum(block.count("<cite") for block in blocks), len(cites))
+
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)
         broken = self.edit(self.template, LAST_SCRIPT_END,

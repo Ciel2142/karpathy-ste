@@ -68,6 +68,13 @@ code, kbd, pre { font-family: var(--mono); }
 a { color: var(--accent); }
 cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
 figcaption { color: var(--muted); }
+/* Cites: one block under the element it supports (a sibling of a p or a figcaption, the last
+   child of a li or a dd). name:line in the accent, the snippet as code. */
+.cites { margin-top: 6px; padding: 6px 10px; background: var(--fill); border-left: 3px solid var(--line); }
+.cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
+.cites cite + cite { margin-top: 4px; }
+.cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono);
+  font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
 header { padding: 32px 0 16px; }
@@ -101,6 +108,7 @@ body:not(:has(figure.clip)) #play-all { display: none; }
 section { padding: 28px 0 8px; scroll-margin-top: var(--nav-h, 64px); }
 section + section { border-top: 1px solid var(--line); }
 section > * + * { margin-top: 14px; }
+section > .cites { margin-top: 6px; }
 .rules { padding-left: 22px; }
 .rules li + li { margin-top: 4px; }
 
@@ -220,16 +228,22 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
     <li>The body contains the header, the navigation bar, one section for each facet and the footer.</li>
     <li>Two scripts close the body: the steps player and guard part 2.</li>
   </ol>
-  <!-- Citation pattern: <cite data-path="src/app.py" data-line="12" data-snippet="def
-       main(argv):">app.py:12 "def main(argv):"</cite>. data-path is the full path,
-       relative to data-root; the visible name is its basename (or a longer tail if two
-       cited files have that basename). The snippet is at most 12 words, verbatim from
-       that line. A URL citation starts data-path with https:// and is not checked again. -->
+  <!-- Citation pattern: the cites of a paragraph collect in one div.cites after it (the last
+       child of a li or a dd). Each cite: <cite data-path="src/app.py" data-line="12"
+       data-snippet="def main(argv):">app.py:12 <code>def main(argv):</code></cite>.
+       data-path is the full path, relative to data-root; the visible name is its basename
+       (or a longer tail if two cited files have that basename). The snippet is at most 12
+       words, verbatim from that line, set in code with no quotes. A URL citation starts
+       data-path with https:// and is not checked again. -->
   <ul class="rules">
     <li>Answer one question in each section.</li>
     <li>Put one link to each section in the navigation bar.</li>
     <li>Cite each claim about a file.</li>
-    <li>Write all prose in STE-80. <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 "Simplified Technical English"</cite></li>
+    <li>Write all prose in STE-80.
+      <div class="cites">
+        <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 <code>Simplified Technical English</code></cite>
+      </div>
+    </li>
   </ul>
 </section>
 

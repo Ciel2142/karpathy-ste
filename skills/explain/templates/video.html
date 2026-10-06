@@ -52,6 +52,13 @@ code, pre { font-family: var(--mono); }
 a { color: var(--accent); }
 cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
 figcaption { color: var(--muted); }
+/* Cites: one block under the element it supports (a sibling of a p or a figcaption, the last
+   child of a li or a dd). name:line in the accent, the snippet as code. */
+.cites { margin-top: 6px; padding: 6px 10px; background: var(--fill); border-left: 3px solid var(--line); }
+.cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
+.cites cite + cite { margin-top: 4px; }
+.cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono);
+  font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 header { padding: 32px 0 16px; }
 video { display: block; width: 100%; max-width: 1280px; aspect-ratio: 16 / 9; background: var(--ink); }
@@ -69,8 +76,7 @@ section + section { border-top: 1px solid var(--line); }
 section > * + * { margin-top: 14px; }
 section ul { padding-left: 22px; }
 section li + li { margin-top: 4px; }
-ul.cites { list-style: none; padding: 0; }
-ul.cites li + li { margin-top: 2px; }
+section > .cites { margin-top: 6px; }
 .before-after { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .before-after > div { padding: 8px 12px; background: var(--fill); border: 1px solid var(--line); }
 

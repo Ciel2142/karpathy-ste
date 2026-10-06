@@ -46,6 +46,13 @@ body { color: var(--ink); font-family: var(--sans); line-height: 1.35; }
 code, kbd, pre { font-family: var(--mono); }
 h1, h2, h3, p, ul, ol, dl, dd, figure, pre { margin: 0; }
 cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
+/* Cites: one block under the element it supports (a sibling of a p, the last child of a li).
+   name:line in the accent, the snippet as code on the same line: a sheet is dense. */
+.cites { margin-top: 4px; padding: 3px 8px; background: var(--fill); border-left: 3px solid var(--line); }
+.cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
+.cites cite + cite { margin-top: 2px; }
+.cites code { padding: 0; background: none; color: var(--ink); font-family: var(--mono); font-size: 12px;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
 sup { line-height: 0; }
 button { font-family: var(--sans); }
 
@@ -96,6 +103,7 @@ button { font-family: var(--sans); }
 }
 .panel-body { padding: 14px 16px; }
 .panel-body > * + * { margin-top: 12px; }
+.panel-body > .cites { margin-top: 6px; }
 .note { color: var(--muted); font-size: 13px; }
 .box { padding: 10px 12px; background: var(--fill); border: 1px solid var(--line); }
 .box strong { display: block; }
@@ -401,17 +409,22 @@ button { font-family: var(--sans); }
   <header class="panel-head"><span class="tag">F</span><h2>Which rules apply?</h2><span class="caption">rungs/sheet.md</span></header>
   <div class="panel-body">
     <!-- primitive: rule list. Short STE sentences, one rule per <li>. This is prose. -->
-    <!-- Citation pattern: <cite data-path="src/app.py" data-line="12" data-snippet="def
-         main(argv):">app.py:12 "def main(argv):"</cite>. data-path is the full path,
-         relative to data-root; the visible name is its basename (or a longer tail if two
-         cited files have that basename). The snippet is at most 12 words, verbatim from
-         that line. A URL citation starts data-path with https:// and is not checked again. -->
+    <!-- Citation pattern: the cites of a paragraph collect in one div.cites after it (the last
+         child of a li). Each cite: <cite data-path="src/app.py" data-line="12"
+         data-snippet="def main(argv):">app.py:12 <code>def main(argv):</code></cite>.
+         data-path is the full path, relative to data-root; the visible name is its basename
+         (or a longer tail if two cited files have that basename). The snippet is at most 12
+         words, verbatim from that line, set in code with no quotes. A URL citation starts
+         data-path with https:// and is not checked again. -->
     <ul class="rules">
       <li>Answer one question in each panel.</li>
-      <li>Show a limit as a bar.</li>
       <li>Do not leave a panel empty.</li>
       <li>Cite each claim about a file.</li>
-      <li>Write all prose in STE-80. <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 "Simplified Technical English"</cite></li>
+      <li>Write all prose in STE-80.
+        <div class="cites">
+          <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 <code>Simplified Technical English</code></cite>
+        </div>
+      </li>
     </ul>
   </div>
 </section>
