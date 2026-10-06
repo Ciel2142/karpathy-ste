@@ -9,10 +9,12 @@
 #   env EXPLAIN_BRAINROT_SEED          brainrot only: an integer that fixes the clip choice and
 #                                      its start (pick_background.py reads it; default random)
 #
-# The format is script.json's "format": "film" when the key is absent, or "brainrot". Any other
-# value stops the script stage with "script: FAIL script: format must be film or brainrot", so
-# the format is read once the check of that stage has passed. A film run has eleven stages, a
-# brainrot run ten: the film has "scene" and "guard", brainrot has "background".
+# The format is script.json's "format": "film" when the key is absent, or "brainrot" or "clip". Any
+# other value stops the script stage with "script: FAIL script: format must be film, brainrot or
+# clip", so the format is read once the check of that stage has passed. A clip is a film of at
+# most 60 s: a clip run is a film run (eleven stages, "scene" and "guard", composition Film, the
+# film stills). A film run has eleven stages, a brainrot run ten: the film has "scene" and
+# "guard", brainrot has "background".
 #
 #   exit 0  all stages of the format passed
 #   exit 1  a stage failed; the stages after it do not run; or HUP, INT or TERM stopped the run
@@ -35,7 +37,7 @@
 #                                           brainrot script narrates at --speed 1.2
 #   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
 #                                           limits from it (film scene <= 30 s, total <= 150 s;
-#                                           brainrot 30 s and 90 s)
+#                                           clip 30 s and 60 s; brainrot 30 s and 90 s)
 #   guard (<n> frames): ok                  film only: composition Film rendered at the <n> checkFrames
 #                                           of the timeline alone, into build/guard.mp4, log
 #                                           build/guard.log; FilmStage measures the text at each of
@@ -50,8 +52,8 @@
 #   stills (<n>): ok <review-dir>           /
 #   transcript: ok                          transcript.py --narrator (a brainrot run also
 #                                           --background, read from the timeline), then verify.sh
-# The render stage renders composition Film for a film and composition Explain for a brainrot
-# script. The stills of a film are cut at the checkFrames of its timeline:
+# The render stage renders composition Film for a film or a clip and composition Explain for a
+# brainrot script. The stills of a film (a clip too) are cut at the checkFrames of its timeline:
 # still-NN-<scene-id>-s<k>.png at the middle of sentence k of a scene and
 # still-NN-<scene-id>-end.png at its last frame.
 # A failing stage prints "<stage>: FAIL <cause>" and, below it, the tool's output indented
@@ -110,7 +112,10 @@
 #       browser, a bundle error, a clip it could not fetch). The last 40 log lines follow, indented.
 #   guard: FAIL cannot read <out>/build/timeline.json
 #       The timeline is absent or not JSON, or holds no checkFrames, or a frame that is not an
-#       integer of 0 or more. No pass runs.
+#       integer of 0 or more, or has no minText that is a number above 0 (the text floor of its
+#       format). Remotion merges the props over the default props of the Film composition, which
+#       hold minText 14. So with no minText the pass would silently measure at the film floor, a
+#       clip at 14 px and not 19 px. With null, the size rule is off. No pass runs.
 #   guard: FAIL cannot copy <out>/<clip>
 #       A narration clip of the timeline could not be copied into the run directory. No pass runs.
 #
@@ -206,7 +211,7 @@ remotion="$app/node_modules/.bin/remotion"
 tsc="$app/node_modules/.bin/tsc"
 
 root=""       # provenance.root
-fmt="film"    # the script's format: film or brainrot
+fmt="film"    # the script's format: film, brainrot or clip
 used=""       # the engine that made the audio (durations.json)
 fallback=""   # the fallback cause, empty when none
 video_s=""    # video length in seconds (totalFrames / fps)
@@ -302,7 +307,7 @@ PY
     case "$root" in /*) ;; *) fail "script: FAIL provenance.root must be an absolute path" ;; esac
     [ -d "$root" ] || fail "script: FAIL provenance.root must be an existing directory: $root"
     run_tool script node "$video/build-timeline.mjs" --check "$script" --root "$root"
-    # --check has accepted the format, so it is film or brainrot.
+    # --check has accepted the format, so it is film, brainrot or clip.
     fmt=$(python3 -c '
 import json, sys
 print(json.load(open(sys.argv[1], encoding="utf-8")).get("format", "film"))
@@ -373,7 +378,7 @@ stage_workspace() {
 # after the name would reach the shared packages.
 stage_scene() {
     local file cause="" first="" types line count=0 rc=0
-    [ "$fmt" = "film" ] || return 0
+    [ "$fmt" != "brainrot" ] || return 0
     run_tool scene python3 "$video/check_scene.py" "$out/scene"
     rm -rf "$run/src/film" && mkdir -p "$run/src/film" \
         || fail "scene: FAIL cannot copy the scene to $run/src/film"
@@ -470,14 +475,18 @@ for s in json.load(open(sys.argv[1], encoding="utf-8"))["scenes"]:
 # rendered frame, and a clip it cannot fetch ends the pass.
 stage_guard() {
     local timeline="$out/build/timeline.json" log="$out/build/guard.log" info count ranges line rc=0
-    [ "$fmt" = "film" ] || return 0
+    [ "$fmt" != "brainrot" ] || return 0
     info=$(python3 - "$timeline" <<'PY'
 import json, sys
 try:
-    frames = [check["frame"] for check in json.load(open(sys.argv[1], encoding="utf-8"))["checkFrames"]]
+    timeline = json.load(open(sys.argv[1], encoding="utf-8"))
+    frames = [check["frame"] for check in timeline["checkFrames"]]
+    min_text = timeline.get("minText")
 except (OSError, ValueError, KeyError, TypeError):
     sys.exit(1)
 if not frames or not all(type(f) is int and f >= 0 for f in frames):
+    sys.exit(1)
+if type(min_text) not in (int, float) or not min_text > 0:
     sys.exit(1)
 print(len(frames))
 print(",".join("%d-%d" % (f, f) for f in frames))
@@ -531,7 +540,7 @@ stage_background() {
 
 stage_render() {
     local log="$out/build/render.log" t0 t1 rc=0 verdict composition=Explain
-    [ "$fmt" != "film" ] || composition=Film
+    [ "$fmt" = "brainrot" ] || composition=Film
     [ -x "$remotion" ] || fail "render: FAIL no Remotion CLI at $remotion"
     copy_clips render
     t0=$(now)

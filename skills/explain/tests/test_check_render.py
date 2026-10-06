@@ -161,8 +161,8 @@ class ContainerSizeCase(unittest.TestCase):
 
     def check(self, width, height, size):
         timeline = self.tmp / "timeline.json"
-        timeline.write_text(json.dumps({"fps": 30, "totalFrames": 30, "width": width, "height": height,
-                                        "scenes": []}), encoding="utf-8")
+        timeline.write_text(json.dumps({"format": "brainrot", "fps": 30, "totalFrames": 30, "width": width,
+                                        "height": height, "scenes": []}), encoding="utf-8")
         return subprocess.run(
             ["/bin/bash", str(CHECK_RENDER), str(self.tmp / "video.mp4"), str(timeline),
              str(self.tmp / "review")],
@@ -207,8 +207,8 @@ class StillFramesCase(unittest.TestCase):
     def still_frames(self, scenes, width, height):
         """The lines read_timeline prints for a 30 fps timeline of `scenes`."""
         total = scenes[-1]["from"] + scenes[-1]["durationInFrames"]
-        return self.read_timeline_lines({"fps": FPS, "totalFrames": total, "width": width,
-                                         "height": height, "scenes": scenes})
+        return self.read_timeline_lines({"format": "brainrot", "fps": FPS, "totalFrames": total,
+                                         "width": width, "height": height, "scenes": scenes})
 
     def read_timeline_lines(self, timeline):
         """The lines read_timeline prints for the timeline object `timeline`."""
@@ -258,7 +258,15 @@ class StillFramesCase(unittest.TestCase):
             "43 still-01-type-s1.png", "118 still-01-type-s2.png", "152 still-01-type-end.png",
             "196 still-02-checks-s1.png", "271 still-02-checks-s2.png", "323 still-02-checks-end.png"])
 
-    # red: the film branch taken on the presence of checkFrames, not on format "film" (the lead-6
+    # red: the film branch taken for format "film" only (a clip is cut at cueFrames: KeyError, exit 1)
+    def test_clip_stills_are_the_check_frames(self):
+        timeline = dict(json.loads(FILM_TIMELINE.read_text(encoding="utf-8")), format="clip")
+        self.assertEqual(self.read_timeline_lines(timeline), [
+            "30 324 1280 720",
+            "43 still-01-type-s1.png", "118 still-01-type-s2.png", "152 still-01-type-end.png",
+            "196 still-02-checks-s1.png", "271 still-02-checks-s2.png", "323 still-02-checks-end.png"])
+
+    # red: the film branch taken on the presence of checkFrames, not on the format (the lead-6
     # scene object of test_lead_6_scene_still_after_the_fade, a brainrot timeline, would then be
     # cut at the frames of an unrelated checkFrames list)
     def test_a_timeline_that_is_not_a_film_ignores_check_frames(self):

@@ -16,14 +16,15 @@ A line that one of them prints gives the call, "run_tool <stage> " or "copy_clip
 of its prefix, and its sample starts with "<stage>: FAIL ". REQUIRED is the lines that video.md must quote:
 the eleven ok lines, the fallback line and the FAIL lines of a film that an author meets.
 
-The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, blocks, lint) and the names
-FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
+The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, blocks, lint, limits_table) and the
+names FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
 
 FilmRungCase ties the rest of video.md to its sources: the level-2 titles (FILM_TITLES), the one table
-headed "| Limit | film |" to the film row of video/formats.json and to MIN_TEXT of kit/palette.ts
-(FILM_CELLS, filled by fill of test_format_limits.py), the export lines of the ts blocks of section "Write
-the scene" to the exports of kit/index.ts, and section "Write the script" to templates/video-script.json.
-Each test names the mutation that turns it red.
+headed "| Limit | film |" to the film row of video/formats.json (FILM_CELLS, filled by fill of
+test_format_limits.py; the minText of that row is MIN_TEXT of kit/palette.ts), the two sentences that give
+the text floor per format, in sections "Write the scene" and "Build and check", to the minText of the film
+and clip rows, the export lines of the ts blocks of section "Write the scene" to the exports of kit/index.ts,
+and section "Write the script" to templates/video-script.json. Each test names the mutation that turns it red.
 
 BrainrotRungCase ties brainrot.md to video.md by title: each block of brainrot.md that names video.md (a
 pointer block) holds a title of one of the five shared sections (SHARED_TITLES) in double quotes, and no
@@ -31,7 +32,10 @@ other title of video.md and no section number; each shared title is one heading 
 section holds no film value; brainrot.md holds its own rules, among them the components table.
 
 SkillMdCase ties SKILL.md to the rungs: step 2 of its Build procedure names the scene directory, and its
-bullets under Rung files describe the film in video.md and the components in brainrot.md."""
+bullets under Rung files describe the film in video.md, the components in brainrot.md and the clips and
+gates in lesson.md. It pins the texts that route `--as lesson` (the rung row, the bullet, the conventions
+and the build step), and it ties the `--as` list of README.md to the argument-hint of SKILL.md and the
+README rows of the lesson rung to the files that they name."""
 
 import ast
 import json
@@ -49,8 +53,10 @@ from test_format_limits import fill
 EXPLAIN = Path(__file__).resolve().parent.parent
 REPO = EXPLAIN.parent.parent
 VIDEO_MD = EXPLAIN / "rungs" / "video.md"
+LESSON_MD = EXPLAIN / "rungs" / "lesson.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
+README_MD = REPO / "README.md"
 STE_LINT = "skills/ste/scripts/ste_lint.py"  # relative to REPO, where lint runs it
 
 FILM_ORDER = ("script", "workspace", "scene", "narration", "timeline", "guard", "render", "container", "sync",
@@ -231,8 +237,8 @@ PALETTE_TS = EXPLAIN / "video" / "src" / "kit" / "palette.ts"
 KIT_INDEX = EXPLAIN / "video" / "src" / "kit" / "index.ts"
 FILM_TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 FILM_TABLE_HEADER = "| Limit | film |"
-# (row label, template), in the order of the rows; fill() makes the cell from the film row of formats.json
-# with the key minText added.
+# (row label, template), in the order of the rows; fill() makes the cell from the film row of formats.json,
+# its own minText included.
 FILM_CELLS: tuple[tuple[str, str], ...] = (
     ("canvas", "{width}×{height}"),
     ("scenes", "{minScenes}–{maxScenes}"),
@@ -414,14 +420,14 @@ def min_text():
     return int(found[0].group(1))
 
 
-def film_limits_table() -> dict[str, str]:
-    """Row label -> cell of the one table of video.md headed `| Limit | film |`, in the order of its rows.
-    Cells are the text between the pipes, stripped. AssertionError for no such table or more than one, a row
-    that is not two cells, or two rows with one label."""
-    lines = read(VIDEO_MD).split("\n")
-    starts = [index for index, line in enumerate(lines) if line.strip() == FILM_TABLE_HEADER]
+def limits_table(path: Path, header: str) -> dict[str, str]:
+    """Row label -> cell of the one table of the file `path` headed `header` (for example `| Limit | film |`),
+    in the order of its rows. Cells are the text between the pipes, stripped. AssertionError for no such table
+    or more than one, a row that is not two cells, or two rows with one label."""
+    lines = read(path).split("\n")
+    starts = [index for index, line in enumerate(lines) if line.strip() == header]
     if len(starts) != 1:
-        raise AssertionError("%d tables headed %r in video.md, not one" % (len(starts), FILM_TABLE_HEADER))
+        raise AssertionError("%d tables headed %r in %s, not one" % (len(starts), header, Path(path).name))
     rows = {}
     for line in lines[starts[0] + 2:]:  # the header and the separator row
         if not line.startswith("|"):
@@ -431,6 +437,11 @@ def film_limits_table() -> dict[str, str]:
             raise AssertionError("a row that is not two cells, or a second row with its label: %r" % line)
         rows[cells[0]] = cells[1]
     return rows
+
+
+def film_limits_table() -> dict[str, str]:
+    """The limits table of video.md, the one headed `| Limit | film |`."""
+    return limits_table(VIDEO_MD, FILM_TABLE_HEADER)
 
 
 def kit_exports() -> set[str]:
@@ -601,11 +612,27 @@ class FilmRungCase(unittest.TestCase):
         self.assertEqual(found, ["## %d. %s" % (number, title) for number, title in enumerate(FILM_TITLES, 1)])
         self.assertEqual([title for level, title in headings(read(VIDEO_MD)) if level == 2], list(FILM_TITLES))
 
-    # red: a value changed in formats.json or palette.ts and not in the rung, or a row on one side only
+    # red: a value changed in formats.json and not in the rung, a row on one side only, or the film minText of
+    # formats.json and MIN_TEXT of palette.ts differ
     def test_film_limits_table_matches_formats(self):
-        row = dict(json.loads(read(FORMATS_JSON))["film"], minText=min_text())
+        row = json.loads(read(FORMATS_JSON))["film"]
+        self.assertEqual(row["minText"], min_text())
         expected = [(label, fill(template, row)) for label, template in FILM_CELLS]
         self.assertEqual(list(film_limits_table().items()), expected)
+
+    # red: the minText of the film or the clip row changes and the rung keeps the old number, or a floor
+    # sentence is gone or is in the wrong section, or the guard section loses the floor per format, or the
+    # rung shows a floor with a fraction as its whole number (the floors are matched as text, not as ints)
+    def test_the_floor_per_format_matches_formats(self):
+        rows = json.loads(read(FORMATS_JSON))
+        film, clip = rows["film"]["minText"], rows["clip"]["minText"]
+        draw = ("Draw each text at the floor of the format or more on the canvas: %s px for a film (`MIN_TEXT`) "
+                "and %s px for a clip." % (film, clip))
+        fault = "less than the floor of the format: %s px for a film and %s px for a clip." % (film, clip)
+        # the rung wraps its lines, so each section is read as one line of words
+        scene = " ".join(section(read(VIDEO_MD), "Write the scene").split())
+        build = " ".join(section(read(VIDEO_MD), "Build and check").split())
+        self.assertEqual((scene.count(draw), build.count(fault)), (1, 1))
 
     # red: a kit export missing from the rung, or a rung name that the kit does not export (MonoRun, makeAt)
     def test_the_kit_block_is_the_kit_index(self):
@@ -695,6 +722,12 @@ class BrainrotRungCase(unittest.TestCase):
         self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
 
 
+# The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.
+LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections "
+              "carry short narrated clips where motion explains better than a still | A subsystem with two to "
+              "four moving parts |")
+
+
 class SkillMdCase(unittest.TestCase):
     def bullets(self):
         """The bullets of section "Rung files" of SKILL.md: each is its "- " line and the indented lines below
@@ -725,6 +758,52 @@ class SkillMdCase(unittest.TestCase):
         self.assertNotIn("components", video)
         self.assertNotIn("cue rule", video)
         self.assertIn("components", brainrot)
+
+    # red: the lesson row marked as chosen from content (it loses "Forced only"), the rung table without
+    # the row or with a second one, the conventions list without `lesson`, convention 3 without the
+    # exception or without one of its three links, convention 5 without the pointer to rungs/lesson.md,
+    # convention 6 without the lesson, step 2 without the build sentence, the bullet without the clips
+    # or the gates, or the rule bullet without "Only `--as lesson` selects it."
+    def test_skill_md_routes_the_lesson_rung(self):
+        text = read(SKILL_MD)
+        rows = [line for line in text.split("\n") if line.startswith("| `lesson`")]
+        self.assertEqual(rows, [LESSON_ROW])
+        flat = " ".join(text.split())  # the rules wrap over lines
+        for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
+                         "The lesson rung is English only, like the video rung.",
+                         "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
+                         "`brainrot`, `lesson`).",
+                         "(sheet, page or lesson)"):
+            self.assertIn(sentence, flat)
+        conventions = section(text, "Conventions")
+        three = " ".join(re.search(r"^3\. .*?(?=^4\. )", conventions, re.M | re.S).group(0).split())
+        self.assertIn("For the `lesson` rung, the artifact is the output directory.", three)
+        for link in ("`clips/<id>/video.mp4`", "`clips/<id>/poster.png`", "`clips/<id>/index.html`"):
+            self.assertIn(link, three)
+        five = " ".join(re.search(r"^5\. .*?(?=^6\. )", conventions, re.M | re.S).group(0).split())
+        self.assertIn("For a lesson, `rungs/lesson.md` lists the contents.", five)
+        body = section(text, "Build procedure").split("\n")
+        start = next(i for i, line in enumerate(body) if line.startswith("2. "))
+        end = next(i for i, line in enumerate(body) if line.startswith("3. "))
+        self.assertIn("For a lesson, the rung file replaces steps 3 to 6.", " ".join(" ".join(body[start:end]).split()))
+        lesson = self.bullets()["<skill-dir>/rungs/lesson.md"]
+        self.assertIn("clips", lesson)
+        self.assertIn("gates", lesson)
+        self.assertTrue(LESSON_MD.is_file(), "rungs/lesson.md does not exist")
+
+    # red: the README list of `--as` rungs left at five names (or in another order than the hint of SKILL.md),
+    # the Requirements row of `lesson` missing or reworded, the layout line without lesson.md or lesson/, or
+    # the tests block without the line of tests.test_lesson_e2e
+    def test_readme_names_the_lesson_rung(self):
+        readme = read(README_MD)
+        hint = re.search(r'^argument-hint: "<subject> \[--as ([^\]]*)\]"$', read(SKILL_MD), re.M)
+        self.assertIsNotNone(hint, "no argument-hint line")
+        self.assertEqual(re.findall(r"/explain <subject> \[--as ([^\]]*)\]", readme), [hint.group(1)])
+        rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
+        self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
+        self.assertIn("rungs/{sheet,page,video,brainrot,lesson}.md", readme)
+        self.assertIn("lesson/", readme)
+        self.assertIn("tests.test_lesson_e2e", readme)
 
 
 if __name__ == "__main__":

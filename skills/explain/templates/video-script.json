@@ -25,7 +25,7 @@
       "id": "forms",
       "narration": "The artifact is a sheet, a page or a video. We follow a page through the checks.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "all checks of the rung passed (sheet, page: four; video: three)" }
+        { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "of the rung passed (sheet, page: four; lesson: five; video: three)" }
       ]
     },
     {
@@ -68,7 +68,7 @@
       "id": "handoff",
       "narration": "Every check runs, even after a failure. When all checks pass, the artifact is ready.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed." }
+        { "path": "skills/explain/scripts/verify.sh", "line": 24, "snippet": "Every check runs even after an earlier one failed." }
       ]
     }
   ]

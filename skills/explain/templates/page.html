@@ -20,6 +20,7 @@ window.onerror = function () { window.explainJsErrors += 1; };
   - Delete the demo content and the HTML comments; keep the CSS and script comments.
   - Keep <meta name="explain-rung" content="page">, the ids, the classes, the data-*
     attributes and all three scripts. Without the meta, verify.sh exits 2.
+  - Clips (lesson rung): figure.clip markup is in rungs/lesson.md; keep #play-all.
 -->
 <style>
 /* Palette duplicated in sheet.html, video.html and video/src/theme.ts: change all four. */
@@ -75,6 +76,23 @@ nav#toc {
 nav#toc a { color: var(--blue); font-weight: 600; text-decoration: none; }
 nav#toc a:hover { text-decoration: underline; }
 
+/* Clips (lesson rung) and the Play all button. A figure.clip breaks out of the 72ch
+   column: --clip-w = max(100%, min(960px, 100vw - 64px)), and the left margin is half
+   of (column - width), negative when the figure is wider. At 1440 px the width is
+   960 px. At 500 px it is the column, 468 px, and the margin is 0. In between, 16 px
+   or more stays free on each side, even beside a scrollbar of up to 32 px, so the
+   figure never widens the page. The margin is not "auto": a box wider than its
+   column ignores "auto". */
+figure.clip {
+  --clip-w: max(100%, min(960px, 100vw - 64px));
+  width: var(--clip-w); margin: 16px 0 16px calc((100% - var(--clip-w)) / 2);
+}
+.clip video { display: block; width: 100%; background: #000; }
+.clip .part { font-weight: 600; margin-right: 8px; }
+.clip .part:empty { margin-right: 0; }   /* no run: the caption starts at the left edge */
+#play-all { margin-top: 14px; }   /* the rest of its look: the .player button rule */
+body:not(:has(figure.clip)) #play-all { display: none; }
+
 /* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav;
    the guard sets --nav-h to the real nav height in "load". */
 section { padding: 28px 0 8px; scroll-margin-top: var(--nav-h, 64px); }
@@ -115,7 +133,7 @@ figure.diagram figcaption { margin-top: 6px; }
 /* Steps player: one .step visible at a time; .stacked (from #verify) shows all. */
 .player { padding: 12px; border: 1.5px solid var(--ink); }
 .player .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.player button {
+.player button, #play-all {
   padding: 4px 14px; font-family: var(--sans); color: var(--ink); background: #fff;
   border: 1.5px solid var(--ink); cursor: pointer;
 }
@@ -167,6 +185,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 <header>
   <h1>The page template: a guided tour</h1>
   <p class="lead">This page is the template for the page rung. It also shows each part of the template in use.</p>
+  <button id="play-all" type="button">Play all</button>
 </header>
 
 <!-- Navigation: one link per section, in document order. The lint skips <nav>. -->
@@ -372,6 +391,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
       <tbody>
         <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
         <tr><td><code>SMALLTEXT:&lt;px&gt;</code></td><td>Some text is smaller than 14 px.</td></tr>
+        <tr><td><code>PLAYALL</code></td><td>The Play all button shows on a page without a clip, or it does not show on a page with one.</td></tr>
         <tr><td><code>JSERROR</code></td><td>A script error occurred.</td></tr>
         <tr><td><code>OK</code></td><td>No check failed.</td></tr>
       </tbody>
@@ -436,6 +456,65 @@ function explainPlayer(player) {
   next.addEventListener("click", function () { if (at < steps.length - 1) show(at + 1); });
   show(0);
 }
+
+/* Play all */
+/* A click on #play-all plays each figure.clip video in document order (spec 4.3). The
+   running clip shows "Part k of N" in its .part. "ended", "error" or a rejected play()
+   goes to the next clip. A play() that the browser blocks (NotAllowedError: no click
+   started it) ends the run, because it would block each next clip too. The reader's
+   pause, or "play" on another clip, ends the run. The end of a run clears every .part.
+   No timers.
+   Pause trap: pause() fires its "pause" event later, and that event looks the same as
+   the reader's pause. pause() also rejects a pending play() later. If the run plays
+   that clip again first (a click, then a skip past a broken clip 1), both are stale:
+   the run ignores a "pause" while the clip plays (paused is false), and a rejection
+   of any play() call but the last. A click does not pause clip 1: it rewinds it. */
+function explainPlayAll() {
+  var videos = document.querySelectorAll("figure.clip video");
+  var button = document.getElementById("play-all");
+  var at = -1, calls = 0;   /* the running clip, or -1: no run; the play() calls */
+  if (!videos.length || !button) return;   /* no button: the guard reports PLAYALL */
+  function label(i, text) {
+    var part = videos[i].closest("figure.clip").querySelector(".part");
+    if (part) part.textContent = text;
+  }
+  function stop() {   /* the end of a run */
+    at = -1;
+    for (var k = 0; k < videos.length; k++) label(k, "");
+  }
+  function run(i) {   /* play clip i of the run; after the last clip, end the run */
+    stop();
+    if (i >= videos.length) return;
+    at = i;   /* before play(): the "play" event of clip i must find it running */
+    var figure = videos[i].closest("figure.clip");
+    (figure.closest("section") || figure).scrollIntoView({ block: "start" });
+    label(i, "Part " + (i + 1) + " of " + videos.length);
+    videos[i].currentTime = 0;
+    var call = ++calls;
+    videos[i].play().catch(function (e) {
+      if (call !== calls) return;   /* a stale rejection */
+      if (e && e.name === "NotAllowedError") stop(); else skip(i);
+    });
+  }
+  function skip(i) { if (at === i) run(i + 1); }   /* only the running clip moves the run */
+  function watch(i) {
+    var video = videos[i];
+    video.addEventListener("ended", function () { skip(i); });
+    video.addEventListener("error", function () { skip(i); });
+    video.addEventListener("pause", function () {   /* the pause before "ended": ended is true */
+      if (at === i && video.paused && !video.ended) stop();
+    });
+    video.addEventListener("play", function () {   /* the reader plays another clip */
+      if (at >= 0 && at !== i) { videos[at].pause(); stop(); }
+    });
+  }
+  for (var w = 0; w < videos.length; w++) watch(w);
+  button.addEventListener("click", function () {   /* pause the other clips, never clip 1 */
+    for (var k = 1; k < videos.length; k++) videos[k].pause();
+    run(0);
+  });
+}
+explainPlayAll();
 </script>
 <script>
 /* Guard, part 2 of 2 (spec 7, 5.5): runs once, synchronously, in "load". No timers. */
@@ -483,6 +562,10 @@ window.addEventListener("load", function () {
     smallest = Math.min(smallest, px);
   }
   if (smallest < MIN_PX) fails.push("SMALLTEXT:" + Math.round(smallest * 100) / 100);
+  /* Play all: the button shows when the page has a clip, and only then. */
+  var playAll = document.getElementById("play-all");
+  var playShown = !!playAll && getComputedStyle(playAll).display !== "none";
+  if ((document.querySelectorAll("figure.clip").length > 0) !== playShown) fails.push("PLAYALL");
   if (window.explainJsErrors > 0) fails.push("JSERROR");
   /* The tests wrap doc.setAttribute to read the DOM state: keep this one call. */
   doc.setAttribute("data-verify", fails.length ? fails.join(";") : "OK");

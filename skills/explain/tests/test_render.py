@@ -137,7 +137,7 @@ class StageOneCase(unittest.TestCase):
         self.write_script(lambda script: script.update(format="slides"))
         run = self.render()
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
-        self.assertEqual(stage_lines(run.stdout), ["script: FAIL script: format must be film or brainrot"])
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL script: format must be film, brainrot or clip"])
         self.assertFalse((self.out / "audio").exists())
 
     # red: the brainrot template breaks a brainrot limit or a cue rule, so the script stage fails
@@ -810,18 +810,18 @@ class BrainrotRouteCase(unittest.TestCase):
                               "--root", str(EXPLAIN)], capture_output=True, text=True, timeout=60)
         self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "", ""))
 
-    # red: brainrot missing from the argument-hint, the syntax line, or contract step 3
-    def test_skill_md_lists_five_rungs(self):
+    # red: lesson missing from the argument-hint, the syntax line, or contract step 3
+    def test_skill_md_lists_six_rungs(self):
         text = SKILL_MD.read_text(encoding="utf-8")
         hint = re.search(r'^argument-hint: "(.*)"$', text, re.M)
         self.assertIsNotNone(hint, "no argument-hint line")
-        self.assertEqual(hint.group(1), "<subject> [--as ste|sheet|page|video|brainrot]")
-        self.assertIn("Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot]`.", text)
+        self.assertEqual(hint.group(1), "<subject> [--as ste|sheet|page|video|brainrot|lesson]")
+        self.assertIn("Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson]`.", text)
         step3 = re.search(r"^3\. .*?(?=^4\. )", text, re.M | re.S)
         self.assertIsNotNone(step3, "no contract step 3")
-        for name in ("ste", "sheet", "page", "video", "brainrot"):
+        for name in ("ste", "sheet", "page", "video", "brainrot", "lesson"):
             self.assertIn("`%s`" % name, step3.group(0))
-        self.assertIn("five names", step3.group(0))
+        self.assertIn("six names", step3.group(0))
 
     # red: the brainrot row loses "Forced only" / "never chosen from content" (the rung could then
     # be chosen from content), or the English-only rule of SKILL.md or of the rung file goes
@@ -869,8 +869,8 @@ class BrainrotRouteCase(unittest.TestCase):
 
     # red: stage_script leaves fmt at its start value, so a brainrot script gets the film's speed and
     # no background stage; or its format read has another default than film for a script with no
-    # format key; or transcript.py reads a script without the key as another format, so the script
-    # stage fails
+    # format key; or its format read folds a clip into film (fmt=film); or transcript.py reads a script
+    # without the key as another format, so the script stage fails
     def test_stage_script_reads_the_format_from_the_script(self):
         brainrot = json.loads(BRAINROT_TEMPLATE.read_text(encoding="utf-8"))
         brainrot["provenance"]["root"] = str(EXPLAIN)
@@ -883,6 +883,12 @@ class BrainrotRouteCase(unittest.TestCase):
         run = self.stage_script_format(film)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
                          (0, ["script: ok (8 scenes)", "fmt=film"]), run.stdout + run.stderr)
+        clip = json.loads((EXPLAIN / "templates" / "video-script.json").read_text(encoding="utf-8"))
+        clip["provenance"]["root"] = str(EXPLAIN.parent.parent)
+        clip["format"] = "clip"
+        run = self.stage_script_format(clip)
+        self.assertEqual((run.returncode, run.stdout.splitlines()),
+                         (0, ["script: ok (8 scenes)", "fmt=clip"]), run.stdout + run.stderr)
 
 
 class E2EHelperCase(unittest.TestCase):

@@ -3,16 +3,20 @@ that the text of a checked frame must keep (off the canvas, below the minimum si
 text), the quote of a text in a fault, and the stage line of a frame. The cases are those of spec
 9.1, on made-up boxes: the module is plain TypeScript that imports nothing, so Node runs it directly
 and no browser or render is involved. The measuring itself (the <text> elements of the stage, their
-opacity, size and box) is FilmStage's, and the planted film proves it in test_render_film.py. These
-cases are skipped only when `node` is missing. Each test names the mutation that turns it red."""
+opacity, size and box) is FilmStage's, and the planted film proves it in test_render_film.py. The floor
+that FilmStage hands to faultsOf is the minText of its timeline (14 px for a film, 19 px for a clip): one
+case here reads the two rows of video/formats.json, one reads FilmStage.tsx, and the clip plant of
+test_render_film.py proves it in a browser. The logic cases are skipped only when `node` is missing. Each
+test names the mutation that turns it red."""
 
+import json
 import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_film_kit import KIT, NO_NODE_REASON, NODE, EvaluatesJs, kit_url
+from test_film_kit import KIT, NO_NODE_REASON, NODE, VIDEO, EvaluatesJs, kit_url
 
 # A box of the stage as a JS expression, from its four edges in canvas pixels.
 BOX = "box(%s, %s, %s, %s)"
@@ -85,6 +89,14 @@ class GuardLogicCase(EvaluatesJs):
             faults_at(12, measured('"a"', INSIDE, px=11.5)),
         ])
         self.assertEqual(got, [[], ['SMALLTEXT 11.5 px "a"']])
+
+    def test_a_16_px_label_passes_a_film_and_fails_a_clip(self):
+        """Red: the clip row of formats.json has a minText of 16 or less (a label of 16 px passes a clip), or
+        the film row has one above 16 (the label fails a film). The values are read from the rows."""
+        rows = json.loads((VIDEO / "formats.json").read_text(encoding="utf-8"))
+        label = measured('"label"', INSIDE, px=16)
+        got = self.values([faults_at(rows["film"]["minText"], label), faults_at(rows["clip"]["minText"], label)])
+        self.assertEqual(got, [[], ['SMALLTEXT 16.0 px "label"']])
 
     def test_overlap_is_more_than_two_px_on_both_axes(self):
         """Red: one axis is enough (`||` for `&&`: 2 px on x with 10 on y, or 10 on x with 2 on y, is a
@@ -192,6 +204,26 @@ class GuardIsThePipelinesCase(unittest.TestCase):
         imports = re.findall(r"^[ \t]*import\b.*$", guard, re.M)
         self.assertEqual(imports, [], "guard.ts imports: Node cannot run it alone")
         self.assertIsNone(re.search(r"\bguard\b", index, re.I), "kit/index.ts names the guard")
+
+    def test_film_stage_hands_the_guard_the_floor_of_the_timeline(self):
+        """Red: FilmStage passes the MIN_TEXT of the palette, or a number literal, to faultsOf (a clip is
+        measured against 14 px, and a 16 px label passes it), or it calls faultsOf twice."""
+        code = re.sub(r"//.*", "", (VIDEO / "src" / "FilmStage.tsx").read_text())
+        self.assertNotIn("MIN_TEXT", code)
+        calls = re.findall(r"\bfaultsOf\(", code)
+        self.assertEqual(len(calls), 1, calls)
+        args, depth = [""], 0
+        for char in code[code.index("faultsOf(") + len("faultsOf("):]:
+            depth += char in "([{"
+            depth -= char in ")]}"
+            if depth < 0:
+                break
+            if char == "," and depth == 0:
+                args.append("")
+            else:
+                args[-1] += char
+        self.assertEqual(len(args), 3, args)
+        self.assertIn(args[2].strip(), ("minText", "timeline.minText"))
 
 
 if __name__ == "__main__":

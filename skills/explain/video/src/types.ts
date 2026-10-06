@@ -104,9 +104,9 @@ export type CheckFrame = { frame: number; scene: string; still: string };
 // The declared lines of one source of the script, read from disk at build time (tabs as 4 spaces).
 export type FilmSource = { path: string; from: number; lines: string[] };
 
-// build/timeline.json of a film: the composition Film renders it.
+// build/timeline.json of a film or a clip: the composition Film renders it.
 export type FilmTimeline = {
-  format: "film";
+  format: "film" | "clip";
   engine: string;
   fps: number;
   width: number;
@@ -114,6 +114,8 @@ export type FilmTimeline = {
   totalFrames: number;
   maxSceneSeconds: number;
   maxTotalSeconds: number;
+  // The guard's text floor in px, from the format row.
+  minText: number;
   sources: Record<string, FilmSource>;
   checkFrames: CheckFrame[];
   scenes: FilmScene[];

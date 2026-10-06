@@ -46,7 +46,9 @@ times, stops at its first check frame with the same four faults each time; a lab
 frame alone (a file added the same way) stops at the last check frame; a label whose <tspan> is smaller than
 the label (a file added the same way) stops with the size of the <tspan>; the mark plant (the word of the first
 at("subject", { word: "subject" }) of Film.tsx written as "zebra": no file added) stops with the guard's
-mark line. FilmRenderCase is their control. Each test names the mutation that turns it red."""
+mark line; the example as a clip (script.json "format" set to "clip": no file added) stops at the floor of
+a clip, 19 px, with SMALLTEXT faults between 14 and 19 px. FilmRenderCase is their control. Each test names
+the mutation that turns it red."""
 
 import atexit
 import importlib.util
@@ -242,8 +244,8 @@ class FilmFunctionCase(unittest.TestCase):
         remotion.chmod(0o755)
         return remotion
 
-    # red: the composition is the literal Explain (the film case), or Film for every format
-    # (the brainrot case)
+    # red: the composition is the literal Explain (the film and clip cases), Film for every format
+    # (the brainrot case), or Film for the format film alone (the clip case)
     def test_a_film_renders_composition_film(self):
         (self.out / "audio").mkdir()
         (self.out / "audio" / "s1.say.wav").write_bytes(b"clip")
@@ -251,7 +253,7 @@ class FilmFunctionCase(unittest.TestCase):
             json.dumps({"scenes": [{"audio": "audio/s1.say.wav"}]}), encoding="utf-8")
         calls = self.tmp / "calls.json"
         remotion = self.fake_remotion(calls)
-        for fmt, composition in (("film", "Film"), ("brainrot", "Explain")):
+        for fmt, composition in (("film", "Film"), ("clip", "Film"), ("brainrot", "Explain")):
             with self.subTest(fmt=fmt):
                 calls.unlink(missing_ok=True)
                 run = run_functions(
@@ -360,6 +362,18 @@ class SceneStageCase(unittest.TestCase):
             "film": {"Film.tsx": (scene / "Film.tsx").read_text(encoding="utf-8"),
                      "Part.tsx": (scene / "Part.tsx").read_text(encoding="utf-8"),
                      "script.gen.ts": generated}}])
+
+    # red: the stage runs for the format "film" only (a clip prints nothing and runs no tsc)
+    def test_a_clip_has_the_scene_stage(self):
+        script = template_script()
+        script["format"] = "clip"
+        (self.out / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        done = self.stage("clip")
+        self.assertEqual((done.returncode, done.stdout), (0, "scene: ok (2 files)\n"), done.stderr)
+        self.assertEqual(len(self.tsc_calls()), 1)
+        ids = " | ".join('"%s"' % scene["id"] for scene in script["scenes"])
+        generated = (self.film / "script.gen.ts").read_text(encoding="utf-8")
+        self.assertEqual(generated.splitlines()[2:3], ["export type SceneId = %s;" % ids])
 
     # red: a pattern that no file matches (*.ts, for a scene with no script.gen.ts of the author's and no
     # other .ts file) is copied as it is: "scene: FAIL cannot copy the scene to <run>/src/film"
@@ -501,7 +515,7 @@ class GuardStageCase(unittest.TestCase):
         (self.out / "audio" / "a.say.wav").write_bytes(b"clip")
         self.timeline = self.out / "build" / "timeline.json"
         self.timeline.write_text(json.dumps({
-            "scenes": [{"id": "a", "audio": "audio/a.say.wav"}],
+            "scenes": [{"id": "a", "audio": "audio/a.say.wav"}], "minText": 14,
             "checkFrames": [{"frame": 12, "scene": "a", "still": "s1"},
                             {"frame": 47, "scene": "b", "still": "s1"},
                             {"frame": 89, "scene": "b", "still": "end"}]}), encoding="utf-8")
@@ -597,6 +611,42 @@ class GuardStageCase(unittest.TestCase):
                                  (1, "guard: FAIL cannot read %s\n" % self.timeline, ""))
                 self.assertEqual(self.passes(), [])
 
+    # red: the read ignores minText (a timeline with no floor reaches the pass: Remotion merges the props over
+    # the default props of the Film composition, which hold minText 14, so the pass measures a clip at the
+    # film floor with no message), takes any value that is present (a string, true, null: with null the
+    # size rule is off), takes 0 or less, or refuses a fractional floor. `true` is no number, though it is
+    # an int in Python
+    def test_a_timeline_without_a_floor_cannot_be_read(self):
+        def with_min_text(*value):
+            def edit():
+                timeline = json.loads(self.timeline.read_text(encoding="utf-8"))
+                timeline.pop("minText", None)
+                if value:
+                    timeline["minText"] = value[0]
+                self.timeline.write_text(json.dumps(timeline), encoding="utf-8")
+            return edit
+
+        cases = (
+            ("minText removed", with_min_text()),
+            ('minText "14"', with_min_text("14")),
+            ("minText true", with_min_text(True)),
+            ("minText null", with_min_text(None)),
+            ("minText 0", with_min_text(0)),
+            ("minText -1", with_min_text(-1)),
+        )
+        for name, edit in cases:
+            with self.subTest(case=name):
+                edit()
+                done = self.guard()
+                self.assertEqual((done.returncode, done.stdout, done.stderr),
+                                 (1, "guard: FAIL cannot read %s\n" % self.timeline, ""))
+                self.assertEqual(self.passes(), [])
+        with self.subTest(case="minText 14.5"):
+            with_min_text(14.5)()
+            done = self.guard()
+            self.assertEqual((done.returncode, done.stdout), (0, "guard (3 frames): ok\n"), done.stderr)
+            self.assertEqual(len(self.passes()), 1)
+
     # red: the failure of the copy is ignored and the pass runs (and a stage line follows), or the line
     # names no clip
     def test_a_clip_that_cannot_be_copied(self):
@@ -616,10 +666,11 @@ FAKE_TYPES = (
     '  process.exit(0);\n'
     '}\n')
 
-# The timeline that build-timeline.mjs of SceneRunCase writes: that of RUN_FAKES, with the checkFrames of a
-# film: frame 3 (the middle of sentence 1) and frame 89 (the last frame) of scene s1.
+# The timeline that build-timeline.mjs of SceneRunCase writes: that of RUN_FAKES, with the minText of a film
+# (the guard refuses a timeline with none) and the checkFrames of a film: frame 3 (the middle of sentence 1)
+# and frame 89 (the last frame) of scene s1.
 FAKE_CHECK_FRAMES = (
-    ', checkFrames: [{frame: 3, scene: "s1", still: "s1"}, {frame: 89, scene: "s1", still: "end"}]')
+    ', minText: 14, checkFrames: [{frame: 3, scene: "s1", still: "s1"}, {frame: 89, scene: "s1", still: "end"}]')
 FAKE_FILM_TIMELINE = RUN_FAKES["skill/video/build-timeline.mjs"].replace(
     'background: {kind: "generated"}', 'background: {kind: "generated"}' + FAKE_CHECK_FRAMES)
 
@@ -696,6 +747,20 @@ class SceneRunCase(RunHarness, unittest.TestCase):
         self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("guard")], [],
                          run.stdout)
         self.assertEqual(len(self.cli_calls()), 1, run.stdout)
+
+    # red: a clip takes the brainrot path in one place: no scene stage (ten lines, no tsc), no guard
+    # stage (ten lines, one CLI call), or composition Explain in the render
+    def test_a_clip_run_prints_eleven_stage_lines(self):
+        run = self.finish(self.start("clip"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        lines = stage_lines(run.stdout)
+        self.assertEqual([STAGE_LINE.match(line).group(1) for line in lines],
+                         ["script", "workspace", "scene", "narration", "timeline", "guard", "render",
+                          "container", "sync", "stills", "transcript"], run.stdout)
+        self.assertEqual(lines[2], "scene: ok (2 files)")
+        self.assertEqual(lines[5], "guard (2 frames): ok")
+        self.assertEqual([call["argv"][:2] for call in self.cli_calls()],
+                         [["render", "Film"], ["render", "Film"]], run.stdout)
 
     # red: STAGES holds the name of a stage that only a film run has (scene, and guard). The gated
     # BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES; here it is
@@ -1071,8 +1136,9 @@ class GuardPlantCase(unittest.TestCase):
     """The browser rules of the guard (spec 7.3), proven on planted films: film_output(edit), the output
     directory of FilmRenderCase with one edit, rendered by render.sh --engine say. Three plants add a scene
     file to it by add_to_film (the planted film, a label off the canvas at the last frame alone, a label with
-    a small <tspan>); the mark plant adds none and only changes the word of a mark in Film.tsx. Each stops
-    at the guard: render.sh exits 1 after the timeline, with no render line and no video.mp4.
+    a small <tspan>); the mark plant and the clip plant add none: the first changes the word of a mark in
+    Film.tsx, the second the format of script.json. Each stops at the guard: render.sh exits 1 after the
+    timeline, with no render line and no video.mp4.
     FilmRenderCase, with the same output directory and no edit, is their control. The expected lines come
     from the plants and the run's own checkFrames."""
 
@@ -1139,6 +1205,28 @@ class GuardPlantCase(unittest.TestCase):
             lambda out: add_to_film(self, out, "Tiny", TINY, "<Tiny />"))
         self.assertEqual(last, 'guard: FAIL frame %d (scene subject): SMALLTEXT 10.0 px "big tiny"'
                          % check_frames[0]["frame"])
+
+    def test_a_clip_holds_the_example_to_its_floor(self):
+        """Red: FilmStage passes the MIN_TEXT of the palette to the guard and not the minText of its timeline
+        (the clip passes the guard at 14 px, and the run exits 0). The example as a film is the control: it
+        passes (FilmRenderCase). As a clip, the labels of 16 px (WordBar.tsx, Film.tsx) and of 18 px (Forms.tsx)
+        are below the 19 px floor: text that passes a film fails a clip."""
+        def as_clip(out):
+            script = json.loads((out / "script.json").read_text(encoding="utf-8"))
+            script["format"] = "clip"
+            (out / "script.json").write_text(json.dumps(script, indent=2), encoding="utf-8")
+
+        out, last, check_frames = self.stops_at_the_guard(as_clip, added=0)
+        timeline = json.loads((out / "build" / "timeline.json").read_text(encoding="utf-8"))
+        self.assertEqual(timeline["minText"], 19)
+        found = re.fullmatch(r"guard: FAIL frame (\d+) \(scene ([a-z0-9-]+)\): (.+)", last)
+        self.assertIsNotNone(found, last)
+        frame, scene, faults = int(found.group(1)), found.group(2), found.group(3)
+        self.assertIn((frame, scene), [(check["frame"], check["scene"]) for check in check_frames])
+        for fault in re.sub(r" \(\+\d+ more\)$", "", faults).split("; "):
+            small = re.fullmatch(r'SMALLTEXT (\d+\.\d) px ".+"', fault)
+            self.assertIsNotNone(small, fault)
+            self.assertTrue(14 <= float(small.group(1)) < 19, fault)
 
 
 if __name__ == "__main__":

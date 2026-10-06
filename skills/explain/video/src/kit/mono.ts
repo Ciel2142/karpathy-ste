@@ -1,7 +1,8 @@
 // The geometry of the monospace grid a film draws code on. A card holds a gutter of 4 columns for the
 // line number, 2 columns of space, then the code; every character advances 0.6 of the font size and
-// every row is 1.6 of it. Positions count code points, not UTF-16 units. The text components and the
-// code card place and cut text with the functions here, so what they draw and what is measured agree.
+// every row is 1.6 of it. Positions count code points, not UTF-16 units. A cut line ends in `…`, which
+// takes one column. The text components and the code card place and cut text with the functions here,
+// so what they draw and what is measured agree.
 //
 // This file is plain TypeScript. Its one import is `import type`, which Node erases, so Node can run
 // it directly: the Python tests import it without a bundler.
@@ -55,12 +56,21 @@ const tintAt = (tints: readonly Tint[], index: number): string | undefined => {
   return color;
 };
 
-// `text` cut to `columns` code points and split into runs of one colour. A tint is clipped to the cut
-// text, a later tint wins where two overlap, and neighbours of one colour are one span. A tint is read
-// by its `from`, `to` and `color`: its `line` is for the caller, which picks the tints of this line.
+// How a cut line ends. It is one code point, so it takes the last column.
+const CUT_MARK = "…";
+
+// `text` set in `columns` code points and split into runs of one colour. A text that is longer is cut
+// to `columns - 1` code points and ends in `…`, which has no colour. A tint is clipped to the cut text,
+// a later tint wins where two overlap, and neighbours of one colour are one span. A tint is read by its
+// `from`, `to` and `color`: its `line` is for the caller, which picks the tints of this line. With no
+// column to draw in, the result is empty.
 export const lineSpans = (text: string, tints: readonly Tint[], columns: number): Span[] => {
-  const chars = Array.from(text).slice(0, Math.max(0, columns));
-  const colors = chars.map((_, i) => tintAt(tints, i));
+  const room = Math.max(0, columns);
+  const all = Array.from(text);
+  const marked = room > 0 && all.length > room;
+  const kept = all.slice(0, marked ? room - 1 : room);
+  const chars = marked ? [...kept, CUT_MARK] : kept;
+  const colors = chars.map((_, i) => (i < kept.length ? tintAt(tints, i) : undefined));
   const spans: Span[] = [];
   let start = 0;
   for (let i = 1; i <= chars.length; i++) {

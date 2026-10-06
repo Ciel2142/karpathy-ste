@@ -543,6 +543,16 @@ class FilmTest(TranscriptCase):
             written.append([(self.out / name).read_bytes() for name in ("index.html", "narration.md")])
         self.assertEqual(written[0], written[1])
 
+    def test_a_clip_is_a_film_page(self):
+        """Red: is_film is true only for "format": "film", so a clip goes through BODIES (KeyError
+        'component', exit 2); or its page or narration.md differs from the film's."""
+        written = []
+        for script in (dict(self.film(), format="clip"), self.film()):
+            proc = self.run_tool(script, "--narrator", "say", "--background", "x.mp4 @ 0.0 s")
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            written.append([(self.out / name).read_bytes() for name in ("index.html", "narration.md")])
+        self.assertEqual(written[0], written[1])
+
     def test_film_scene_without_a_cites_key(self):
         """Red: scene["cites"] read for a film scene (KeyError 'cites', exit 2): a topic film
         scene has no cites and the page is still written, with an empty cite list."""

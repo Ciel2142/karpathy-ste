@@ -22,6 +22,12 @@ on a page, write one step for each beat of the story.
 - For a file or a directory subject, put at least one `<cite>` in every section.
 - Decide which section holds the steps player. One player for each page is the norm.
 - Decide which diagram pattern each flow uses (section 4).
+- A section would gain from a clip when narration plus motion explains it better than a static
+  view. Examples: a flow, a structure that builds up, a before and after, a camera move along code,
+  a comparison whose terms change.
+- In the page rung only: after you write the plan, if at least one section meets this
+  criterion, print `<n> sections would gain from a clip; rerun with --as lesson`. Then build the
+  page as before. The lesson rung does not print this line.
 
 ## 3. Fill the template
 
@@ -30,7 +36,11 @@ on a page, write one step for each beat of the story.
 3. Copy the pattern that you need before you delete the demo content. Then delete the demo
    content and the HTML comments. Keep the CSS and script comments. Keep
    `<meta name="explain-rung" content="page">`: without it, `verify.sh` exits with code 2. Keep the
-   `<style>` block and all three script blocks.
+   `<style>` block and all three script blocks (blocks 1 and 3: the guard; block 2: `explainPlayer`
+   (the steps player) and Play all). A plain page keeps the `Play all` button; CSS hides it when
+   the page has no `figure.clip`. The guard reports `PLAYALL` when a page with no `figure.clip`
+   shows the button. It also reports `PLAYALL` when a page with a `figure.clip` hides the button or
+   has no button.
 4. Rebuild `nav#toc`: one `<a href="#id">` for each section, in document order.
 
 | Primitive | Markup | Use it for |
@@ -39,6 +49,7 @@ on a page, write one step for each beat of the story.
 | walkthrough | `details.walk > summary`, then `p` | A long proof or a second example. |
 | diagram | `figure.diagram.flow`, `.sequence` or `.layers`, with a `<figcaption>` | A flow, an exchange, a stack. |
 | steps player | `div.player[data-player]`, `button[data-prev]`, `button[data-next]`, `span.caption[data-counter]`, `figure.step[data-step="n"]` | A state that changes in steps. |
+| clip (lesson rung only) | `figure.clip > video[controls][preload=none]` + `figcaption > span.part`, one sentence, `a[data-ste=skip]` "transcript" | A narrated clip of this section; markup in `rungs/lesson.md`. |
 | table | `.table-wrap > table` | Rows and columns. |
 | track list | `ol.track` with one `li.on` | The position in a sequence. |
 | provenance | `#provenance` in the `<footer>` | Section 5. |

@@ -6,15 +6,16 @@ into `~/.claude/skills/`:
 - **`/ste`** — rewrite text, or answer a request, in STE-80: a fixed profile of ASD-STE100
   Simplified Technical English (Issue 9). Ships a lint (`ste_lint.py`) that checks markdown
   or HTML prose against the deterministic rules.
-- **`/explain <subject> [--as ste|sheet|page|video|brainrot]`** — explain a file, a directory,
-  `this` (the last thing in the conversation) or a topic, in the smallest form that fits:
-  chat text, a one-page sheet (HTML + PNG), an interactive single-file page, a narrated film
-  (`--as video`: one continuous picture, written for the subject and timed to the narration,
-  with a cited transcript), or a vertical 1080×1920 brainrot short (`--as brainrot`: a
-  looping background and word-by-word captions). Every artifact is grounded: each claim carries a
-  `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails the build when
-  a cite does not match the file, the page does not render, or the prose breaks the STE
-  profile.
+- **`/explain <subject> [--as ste|sheet|page|video|brainrot|lesson]`** — explain a file, a
+  directory, `this` (the last thing in the conversation) or a topic, in the smallest form that
+  fits: chat text, a one-page sheet (HTML + PNG), an interactive single-file page, a narrated
+  film (`--as video`: one continuous picture, written for the subject and timed to the
+  narration, with a cited transcript), a vertical 1080×1920 brainrot short (`--as brainrot`: a
+  looping background and word-by-word captions), or a lesson (`--as lesson`: a page whose
+  sections carry short narrated clips, with two review gates). Every artifact is grounded: each
+  claim carries a `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails
+  the build when a cite does not match the file, the page does not render, or the prose breaks
+  the STE profile.
 
 Both skills are user-invoked only (`disable-model-invocation: true`).
 
@@ -37,6 +38,7 @@ to choose; the artifacts land under `<clone>/out/` (gitignored).
 | `ste` (chat text) | `python3` (stdlib only) |
 | `sheet`, `page` | Google Chrome at `/Applications/Google Chrome.app` (used headless for the render check and the PNG snapshots) |
 | `video` | `node` (proven on 25.9; an LTS is fine), `npm`, `uv`, `rsync`, `curl`, `shasum`; macOS `say` and `afinfo` |
+| `lesson` | the needs of `page` and of `video` together |
 
 As written the `sheet`, `page` and `video` rungs are macOS-specific (the Chrome path, `say`,
 `afinfo`). `ste` runs anywhere.
@@ -59,8 +61,9 @@ check the licence again beyond that.
 
 ```
 skills/ste/        SKILL.md, scripts/ste_lint.py, tests/
-skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot}.md,
-                   templates/, scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
+skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot,lesson}.md,
+                   lesson/ (the reviewer prompts), templates/,
+                   scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
                    scripts/cite_check.py, video/ (Remotion app + pipeline; video/src/kit/ is
                    the film kit, video/src/film/ the worked example), tests/
 docs/superpowers/  the spec, wave map, plans and live-run notes behind the skills
@@ -74,4 +77,5 @@ cd skills/explain && python3 -B -m unittest discover -s tests
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render tests.test_check_render  # renders once, needs the workspace
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_brainrot  # two brainrot renders (generated loop, fixture clip), needs the workspace
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film  # renders the worked film and its planted faults, needs the workspace
+EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_lesson_e2e  # renders a one-clip fixture lesson, needs the workspace
 ```

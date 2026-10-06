@@ -1,10 +1,10 @@
 #!/bin/bash
-# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5; video: three).
+# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5; lesson: five; video: three).
 #
 #   verify.sh <index.html>
 #   env VERIFY_TIMEOUT   seconds to wait for each Chrome DOM dump (default 60)
 #
-#   exit 0  all checks of the rung passed (sheet, page: four; video: three)
+#   exit 0  all checks of the rung passed (sheet, page: four; lesson: five; video: three)
 #   exit 1  at least one check failed
 #   exit 2  usage: no argument, unreadable file, no or unknown <meta name="explain-rung">
 #
@@ -15,10 +15,12 @@
 #                      | FAIL data-verify preset in source
 #   citations: ok | FAIL <n> failure(s) | FAIL cite_check exit <code>
 #   prose: ok | FAIL <n> error(s) | FAIL lint usage error (exit 2) | FAIL lint exit <code>
+#   media: ok | FAIL <n> missing   (a lesson only; after prose)
 # Detail lines follow a failing check, indented by two spaces: each remote reference
 # as "<tag> <attr>=<value>" (for CSS: "<tag> style=<fragment>" for a style attribute,
-# "style css=<fragment>" for <style> text), each cite_check failure, each lint error.
-# A sheet has one render line (1920x1080); a page two (1440x900, 500x844); a video none.
+# "style css=<fragment>" for <style> text), each cite_check failure, each lint error,
+# each missing media reference as "<tag> <attr>=<value>" (the value as written).
+# A sheet has one render line (1920x1080); a page or a lesson two (1440x900, 500x844); a video none.
 # Every check runs even after an earlier one failed.
 #
 # Only the guard may write data-verify. If the source <html> start tag already carries
@@ -118,12 +120,16 @@ indent() {
 # Parse the HTML with html.parser (never the raw text, so escaped code samples
 # are text, not markup). Line 1: "rung=<content of the first explain-rung meta>",
 # or "rung-missing". Line 2: "preset=yes" if the first <html> start tag has a
-# data-verify attribute, else "preset=no". Every further line is one remote
-# reference (check 1).
+# data-verify attribute, else "preset=no". Then one line per remote reference
+# (check 1), then one line "media-missing <tag> <attr>=<value>" per local media
+# reference that names no file inside the directory of index.html (check 5; only a
+# lesson reports them).
 scan() {
     python3 - "$1" <<'PY'
+import os
 import re
 import sys
+import urllib.parse
 from html.parser import HTMLParser
 
 REMOTE = ("http://", "https://", "//")
@@ -140,6 +146,14 @@ def remote(value):
     return value.strip().lower().startswith(REMOTE)
 
 
+def clip_href(value):
+    """True for an <a href> into a clip folder: leading whitespace and "./" are ignored."""
+    value = value.lstrip()
+    if value.startswith("./"):
+        value = value[2:]
+    return value.startswith("clips/")
+
+
 def css_refs(text):
     for match in CSS.finditer(text):
         target = match.group("imp") or match.group("url")
@@ -153,6 +167,7 @@ class Scanner(HTMLParser):
         self.rung = None
         self.preset = None   # data-verify on the first <html> start tag
         self.refs = []
+        self.media = []      # (tag, attr, value): local video src, poster and clips/ links
         self.in_style = False
 
     def handle_starttag(self, tag, attrs):
@@ -173,6 +188,11 @@ class Scanner(HTMLParser):
             elif name == "style":
                 for fragment in css_refs(value):
                     self.refs.append("%s style=%s" % (tag, fragment))
+        for name, value in values:
+            if (tag == "video" and name in ("src", "poster")) or (
+                    tag == "a" and name == "href" and clip_href(value)):
+                if not remote(value):
+                    self.media.append((tag, name, value.strip()))
         if tag == "style":
             self.in_style = True
 
@@ -200,6 +220,16 @@ print("rung-missing" if scanner.rung is None else "rung=" + scanner.rung)
 print("preset=yes" if scanner.preset else "preset=no")
 for ref in scanner.refs:
     print(" ".join(ref.split()))
+# A media reference names a file beside index.html: cut at the first "#" or "?",
+# percent-decode, and require a regular file (a directory counts as missing). Only a
+# relative path inside the directory of index.html counts (spec 3.4): an absolute path,
+# or one that leaves the directory after normalization, is missing even if it exists.
+base = os.path.dirname(sys.argv[1])
+for tag, attr, value in scanner.media:
+    path = urllib.parse.unquote(re.split(r"[#?]", value, maxsplit=1)[0])
+    inside = not os.path.isabs(path) and os.path.normpath(path).split(os.sep)[0] != os.pardir
+    if not inside or not os.path.isfile(os.path.join(base, path)):
+        print(" ".join(("media-missing %s %s=%s" % (tag, attr, value)).split()))
 PY
 }
 
@@ -273,13 +303,16 @@ max_polls=$((timeout * 5))   # one poll every 0.2 s
 scanned=$(scan "$input_abs") || usage "cannot parse $input_abs"
 rung_line=$(printf '%s\n' "$scanned" | sed -n 1p)
 preset=$(printf '%s\n' "$scanned" | sed -n 2p)
-refs=$(printf '%s\n' "$scanned" | sed '1,2d')
+body=$(printf '%s\n' "$scanned" | sed '1,2d')
+refs=$(printf '%s\n' "$body" | grep -v '^media-missing ')
+media_missing=$(printf '%s\n' "$body" | sed -n 's/^media-missing //p')
 case "$rung_line" in
     rung=sheet) viewports="1920x1080" ;;
     rung=page) viewports="1440x900 500x844" ;;
+    rung=lesson) viewports="1440x900 500x844" ;;
     rung=video) viewports="" ;;   # a transcript: no viewport render, check 2 is skipped
     rung-missing) usage "no <meta name=\"explain-rung\"> in $input_abs" ;;
-    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page or video)" ;;
+    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video or lesson)" ;;
 esac
 
 # --- check 1: self-containment -------------------------------------------------
@@ -355,5 +388,17 @@ case "$lint_status" in
         failed=1
         ;;
 esac
+
+# --- check 5: media (a lesson only) -------------------------------------------
+
+if [ "$rung_line" = "rung=lesson" ]; then
+    if [ -z "$media_missing" ]; then
+        echo "media: ok"
+    else
+        echo "media: FAIL $(printf '%s\n' "$media_missing" | wc -l | tr -d ' ') missing"
+        printf '%s\n' "$media_missing" | indent
+        failed=1
+    fi
+fi
 
 exit "$failed"

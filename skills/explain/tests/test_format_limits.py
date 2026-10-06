@@ -2,6 +2,7 @@
 limits table of rungs/brainrot.md (one column, headed brainrot) and its code and caption sentences (skill
 text that the model reads at run time) must say the same. Each test names the mutation that turns it red."""
 
+import importlib.util
 import json
 import os
 import re
@@ -50,6 +51,14 @@ CELL_TEMPLATES = [
 
 def load_formats():
     return json.loads(FORMATS.read_text(encoding="utf-8"))
+
+
+def load_tool(name):
+    """A Python tool of video/ as a module, loaded by path (it is no package)."""
+    spec = importlib.util.spec_from_file_location(name[:-3] + "_under_test", EXPLAIN / "video" / name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def fill(template, row):
@@ -136,9 +145,22 @@ class TestRungMatchesFormats(unittest.TestCase):
 
 
 class TestFormatsRows(unittest.TestCase):
-    def test_formats_has_the_film_and_brainrot_rows_only(self):
-        """Red: formats.json keeps a row of a removed format, or loses the film or the brainrot row."""
-        self.assertEqual(sorted(load_formats()), ["brainrot", "film"])
+    def test_formats_has_the_three_rows(self):
+        """Red: formats.json keeps a row of a removed format, or loses the film, the brainrot or the
+        clip row."""
+        self.assertEqual(sorted(load_formats()), ["brainrot", "clip", "film"])
+
+    def test_every_format_list_names_the_rows(self):
+        """Red: one of the three fixed format lists (FORMAT_NAMES of build-timeline.mjs,
+        NARRATED_FORMATS of narrate.py, FORMATS of check_budgets.py) lacks a name that formats.json has
+        a row for, or keeps a name it has no row for: the render then stops at a later stage."""
+        wanted = ["brainrot", "clip", "film"]
+        line = re.search(r"^const FORMAT_NAMES = (\[.*\]);$", TOOL.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(line, "build-timeline.mjs has no one-line `const FORMAT_NAMES = [...];`")
+        self.assertEqual(sorted(json.loads(line.group(1))), wanted)
+        self.assertEqual(sorted(load_tool("narrate.py").NARRATED_FORMATS), wanted)
+        self.assertEqual(sorted(load_tool("check_budgets.py").FORMATS), wanted)
+        self.assertEqual(sorted(load_formats()), wanted)
 
 
 class TestBuildTimelineReadsFormats(unittest.TestCase):
@@ -204,10 +226,18 @@ class TestBuildTimelineReadsFormats(unittest.TestCase):
         self.assert_clean_fail(result, "")
 
     def test_formats_file_without_both_rows_fails_cleanly(self):
-        """Red: a valid JSON file that lacks the film or the brainrot row (or whose row is not an
-        object) is accepted, and the check then reads an undefined row: exit 0, or a stack trace."""
+        """Red: a valid JSON file that lacks the film, the brainrot or the clip row (or whose row is
+        not an object) is accepted, and the check then reads an undefined row: exit 0, or a stack
+        trace."""
         script = self.write_script(10)
-        for text in ("null", "[]", '{"film": {}}', '{"brainrot": {}}', '{"film": {}, "brainrot": 7}'):
+        for text in (
+            "null",
+            "[]",
+            '{"film": {}}',
+            '{"brainrot": {}}',
+            '{"film": {}, "brainrot": 7}',
+            '{"film": {}, "brainrot": {}}',
+        ):
             with self.subTest(text=text):
                 (self.dir / "formats.json").write_text(text, encoding="utf-8")
                 result = self.run_node("--check", script, "--root", str(self.dir))

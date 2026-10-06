@@ -38,6 +38,7 @@ const EMPTY_FILM: FilmTimeline = {
   totalFrames: 30,
   maxSceneSeconds: 30,
   maxTotalSeconds: 150,
+  minText: 14,
   sources: {},
   checkFrames: [],
   scenes: [],

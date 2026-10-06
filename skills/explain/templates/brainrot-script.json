@@ -41,7 +41,7 @@
         { "path": "scripts/verify.sh", "line": 12, "snippet": "self-contained: ok" },
         { "path": "scripts/verify.sh", "line": 16, "snippet": "citations: ok" },
         { "path": "scripts/verify.sh", "line": 17, "snippet": "prose: ok" },
-        { "path": "scripts/verify.sh", "line": 21, "snippet": "a page two (1440x900, 500x844); a video none." }
+        { "path": "scripts/verify.sh", "line": 23, "snippet": "two (1440x900, 500x844); a video none." }
       ]
     },
     {
@@ -49,17 +49,17 @@
       "component": "code-with-line-highlights",
       "props": {
         "title": "A safe path for Chrome",
-        "source": { "path": "scripts/verify.sh", "from": 105, "to": 112 },
+        "source": { "path": "scripts/verify.sh", "from": 107, "to": 114 },
         "highlights": [
-          { "from": 107, "to": 110, "cue": "The function swaps" },
-          { "from": 111, "to": 111, "cue": "Then it adds" }
+          { "from": 109, "to": 112, "cue": "The function swaps" },
+          { "from": 113, "to": 113, "cue": "Then it adds" }
         ]
       },
       "narration": "Chrome opens the page by its file address. The function swaps four risky characters for safe codes. Then it adds a mark for the page check.",
       "cites": [
-        { "path": "scripts/verify.sh", "line": 28, "snippet": "in headless Chrome with --dump-dom" },
-        { "path": "scripts/verify.sh", "line": 104, "snippet": "Percent-encode the characters that would end or corrupt" },
-        { "path": "scripts/verify.sh", "line": 111, "snippet": "echo \"file://$p#verify\"" }
+        { "path": "scripts/verify.sh", "line": 30, "snippet": "in headless Chrome with --dump-dom" },
+        { "path": "scripts/verify.sh", "line": 106, "snippet": "Percent-encode the characters that would end or corrupt" },
+        { "path": "scripts/verify.sh", "line": 113, "snippet": "echo \"file://$p#verify\"" }
       ]
     },
     {
@@ -80,7 +80,7 @@
       "narration": "Without the script, a person checks each item by hand. Now one command runs every check and prints one line for each.",
       "cites": [
         { "path": "scripts/verify.sh", "line": 11, "snippet": "stdout carries one line per check" },
-        { "path": "scripts/verify.sh", "line": 22, "snippet": "Every check runs even after an earlier one failed" }
+        { "path": "scripts/verify.sh", "line": 24, "snippet": "Every check runs even after an earlier one failed" }
       ]
     }
   ]

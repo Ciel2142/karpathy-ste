@@ -191,6 +191,15 @@ class Sentences(NarrateCase):
             f"engine=say\nvoice=say-default\nspeed=1.0\nmode=sentences\n{ONE}",
         )
 
+    def test_a_clip_is_narrated_in_sentences(self):
+        """Mutation: clip is missing from the narrated formats of narrate.py (exit 2), or a clip
+        script gets no words.json or no mode line in its sidecar."""
+        run = self.shell(self.brainrot(scene("one", ONE), format="clip"), "--engine", "say")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue((self.audio / "one.say.words.json").is_file())
+        sidecar = (self.audio / "one.say.txt").read_text(encoding="utf-8")
+        self.assertEqual(sidecar.split("\n")[3], "mode=sentences")
+
     def test_a_script_without_a_format_is_narrated_in_sentences(self):
         """Mutation: a script with no format key is narrated whole (no words.json, no mode line), or
         is refused as an unknown format."""
@@ -231,13 +240,14 @@ class Sentences(NarrateCase):
     def test_unknown_format_exit_2(self):
         """Mutation: an unknown format is narrated as a film instead of refused, or fails with
         another code or text."""
-        for value in ("tiktok", "", "Brainrot", 7, None, ["brainrot"]):
+        for value in ("tiktok", "", "Brainrot", "Clip", 7, None, ["brainrot"]):
             with self.subTest(format=value):
                 script = self.brainrot(scene("one", ONE), format=value)
                 run = self.python(script, "--engine", "say")
                 self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
                 self.assertEqual(
-                    run.stdout.strip(), f"narration: FAIL script {script}: format must be film or brainrot")
+                    run.stdout.strip(),
+                    f"narration: FAIL script {script}: format must be film, brainrot or clip")
                 self.assertFalse(self.audio.exists(), "nothing is narrated for an unknown format")
 
     def test_fallback_writes_say_words(self):

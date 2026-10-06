@@ -1,8 +1,9 @@
 """Tests for video/check_budgets.py: the length budgets render.sh checks on build/timeline.json.
 
 The limits come from the timeline (maxSceneSeconds, maxTotalSeconds), not from render.sh, so the
-film (30 s scene, 150 s total) and the brainrot short (30 s, 90 s) share one check. A limit
-failure names the format (", film", ", brainrot"), as build-timeline.mjs does; a timeline of any
+film (30 s scene, 150 s total), the brainrot short (30 s, 90 s) and the clip (30 s, 60 s) share
+one check. A limit failure names the format (", film", ", brainrot", ", clip"), as
+build-timeline.mjs does; a timeline of any
 other format, or without the key, is refused. The fixture timelines are written by the tests at
 30 fps. Each test names the mutation that turns it red."""
 
@@ -84,6 +85,16 @@ class CheckBudgetsCase(unittest.TestCase):
         over = self.check(self.write_timeline([900] * 5 + [30], 30, 150, fmt="film"))
         self.assertEqual(over.returncode, 0, over.stderr)
         self.assertEqual(over.stdout, "FAIL total 151.0 s (max 150, film)\n")
+
+    # red: the clip is judged with the film's total (150 s) instead of the timeline's, the FAIL line
+    # does not carry the tag ", clip", or the clip is not a usable format (exit 2)
+    def test_clip_total_60_ok_61_fails(self):
+        at_limit = self.check(self.write_timeline([900, 900], 30, 60, fmt="clip"))
+        self.assertEqual(at_limit.returncode, 0, at_limit.stderr)
+        self.assertEqual(at_limit.stdout, "ok 2 60.0 60.000\n")
+        over = self.check(self.write_timeline([900, 900, 30], 30, 60, fmt="clip"))
+        self.assertEqual(over.returncode, 0, over.stderr)
+        self.assertEqual(over.stdout, "FAIL total 61.0 s (max 60, clip)\n")
 
     # red: a timeline without the key, or of another format ("slides", an empty name, a number), is
     # judged with untagged lines instead of exit 2, the stderr line is another one, or the format is

@@ -16,9 +16,9 @@ Every scene is narrated one sentence at a time: each sentence is synthesised alo
 are joined with 0.15 s of silence between them, and <id>.<engine>.words.json gets the exact
 start and end of every sentence and word:
 { "sentences": [{ "from", "to" }], "words": [{ "text", "from", "to" }] } (seconds from the
-clip start). A script's "format" is "film" or "brainrot"; a script with no "format" is a film.
-Any other value is refused with exit 2, before a clip is made. A clip from an earlier run that
-has no "mode=sentences" line in its sidecar is made again.
+clip start). A script's "format" is "film", "brainrot" or "clip"; a script with no "format" is a
+film. Any other value is refused with exit 2, before a clip is made. A clip from an earlier run
+that has no "mode=sentences" line in its sidecar is made again.
 
 Exit 0 on success; 1 on a failed scene or a missing tool; 2 on a usage error or an
 unreadable script; 3 when Kokoro cannot run (models missing, or a clip failed), which
@@ -51,7 +51,7 @@ SENTENCE_END = ".?!"
 CLAUSE_END = ",;:"
 END_WEIGHT = 2          # a word that ends a clause or a sentence is followed by a pause
 JOIN_GAP_S = 0.15       # silence between two sentence clips
-NARRATED_FORMATS = ("film", "brainrot")   # the script formats narrate.py accepts; a script with no format is a film
+NARRATED_FORMATS = ("film", "brainrot", "clip")   # the script formats narrate.py accepts; a script with no format is a film
 
 
 class NarrationError(Exception):
@@ -352,7 +352,7 @@ def load_script(path):
         script = json.loads(Path(path).read_text(encoding="utf-8"))
         scenes = [{"id": scene["id"], "narration": scene["narration"]} for scene in script["scenes"]]
         if script.get("format", "film") not in NARRATED_FORMATS:
-            raise ValueError("format must be film or brainrot")
+            raise ValueError("format must be film, brainrot or clip")
         return scenes
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"narration: FAIL script {path}: {exc}")
