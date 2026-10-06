@@ -65,11 +65,11 @@ also under `--as`:
 `<kind>` is `file`, `directory`, `conversation` or `topic`. Under `--as`, the `<reason>`
 names the flag and tells if the content fits the rung. Then follow these rules:
 
-- The `video` rung, chosen or forced, builds a narrated mp4. The video rung is English only.
+- The `video` rung, chosen or forced, builds a narrated mp4. The video rung is English or Russian.
 - The `brainrot` rung builds a vertical narrated short. Only `--as brainrot` selects it. The
-  brainrot rung is English only, like the video rung.
+  brainrot rung is English only.
 - The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. The lesson
-  rung is English only, like the video rung.
+  rung is English or Russian.
 - If `rungs/<rung>.md` does not exist for the chosen rung, print the rung line. Say that the
   rung is not available yet. Stop. Offer `sheet` or `ste`.
 - A forced rung can be too small for the content, for example a sheet for more than 6
@@ -84,7 +84,8 @@ names the flag and tells if the content fits the rung. Then follow these rules:
 
 These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brainrot`, `lesson`).
 
-1. Prose: follow the STE profile. The final `index.html` passes `ste_lint.py --html` with 0 errors.
+1. Prose: follow the STE profile. For a non-English artifact, follow convention 7. The final
+   `index.html` passes `ste_lint.py --html` with 0 errors.
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
    `<cite data-path="…" data-line="…" data-snippet="…">name:line <code>snippet</code></cite>`.
    The snippet has at most 12 words, copied verbatim from that line, set in `<code>` with no
@@ -129,11 +130,17 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
 6. Handoff: print the path. When you run for the user directly, run `open index.html`
    (sheet, page or lesson) or `open video.mp4` (video or brainrot). Inside a subagent, do not
    run `open`.
-7. Language: write the artifact in English, unless the user asks for another language.
+7. Language: write the artifact in English, unless the user asks for another language. For a
+   non-English artifact, apply only the structural rules of the STE profile. These rules are
+   sentence length, paragraph length, active voice, and one instruction in each sentence. The
+   vocabulary and the substitution table of the profile do not apply. Put each English term and
+   each code name in `<code>`, or in backticks in a video script. `ste_lint.py` skips code, but it
+   reports a bare English word in the prose.
 
 ## Build procedure
 
-1. Read `<skill-dir>/../ste/SKILL.md` by path. Write all prose under that profile.
+1. Read `<skill-dir>/../ste/SKILL.md` by path. Write all prose under that profile. For a
+   non-English artifact, follow convention 7.
 2. Read `<skill-dir>/rungs/<rung>.md` of the chosen rung only, and each section
    that it names. For a video, the rung file replaces steps 3 to 6. Write `script.json` and
    the scene directory `scene/`, run `render.sh`, read the stills. For a brainrot short, the

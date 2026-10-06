@@ -69,6 +69,7 @@ on a page, write one step for each beat of the story.
    answer box, or when the box has no text outside its cites.
 5. Rebuild `nav#toc`: one `<a href="#id">` for each section, in document order. Keep the Sources
    switch as the last child of `nav#toc`.
+6. Set the `lang` attribute of `<html>` to the language of the artifact: `en` or `ru`.
 
 | Primitive | Markup | Use it for |
 |---|---|---|

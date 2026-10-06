@@ -20,8 +20,9 @@ SceneRunCase runs a copy of render.sh as RunDirectoryCase does (RunHarness of te
 script, against the same fakes with the real check_scene.py, FAKE_TSC and a build-timeline.mjs that takes
 --types and writes two checkFrames: the eleven stage lines of a film and none of the scene and guard stages
 for another format, the scene that the guard pass and the render draw, where they and tsc run, the three
-FAIL lines that stop a run before any synthesis, and a tsc and a guard pass that outlive TERM and
-HUP.
+FAIL lines that stop a run before any synthesis, the engine that narrate.py --check gives to the
+workspace and narration stages of a run with no --engine, and a tsc and a guard pass that outlive
+TERM and HUP.
 
 FilmRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders the worked example through scripts/render.sh
 --engine say once per process (render_film() of film_output(): a temporary output directory removed
@@ -705,11 +706,11 @@ class SceneRunCase(RunHarness, unittest.TestCase):
         shutil.rmtree(self.out / "scene", ignore_errors=True)
         shutil.copytree(SCENE_CLEAN, self.out / "scene")
 
-    def start(self, fmt="brainrot", **env):
+    def start(self, fmt="brainrot", engine="say", **env):
         """RunHarness.start, once the log and the end mark of the fake tsc of an earlier start are gone."""
         for name in ("tsc.jsonl", "tsc.end"):
             (self.tmp / name).unlink(missing_ok=True)
-        return super().start(fmt, **env)
+        return super().start(fmt, engine, **env)
 
     def tsc_calls(self):
         """The calls of the fake tsc, one dict for each line of tsc.jsonl."""
@@ -761,6 +762,18 @@ class SceneRunCase(RunHarness, unittest.TestCase):
         self.assertEqual(lines[5], "guard (2 frames): ok")
         self.assertEqual([call["argv"][:2] for call in self.cli_calls()],
                          [["render", "Film"], ["render", "Film"]], run.stdout)
+
+    # red: render.sh keeps an engine of its own when the command line has none (the check gets --engine
+    # kokoro, so the Russian run narrates with it), or passes the check's engine to one of the two stages
+    # that need it and not to the other (the workspace fetches the model for silero, narrate.sh runs it)
+    def test_a_film_run_without_engine_passes_the_checked_engine(self):
+        run = self.finish(self.start("film", engine=None, FAKE_CHECK_ENGINE="silero"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        out = os.path.realpath(self.out)
+        self.assertEqual(self.tool_calls("check"), [["--check", "%s/script.json" % out]])
+        self.assertEqual(self.tool_calls("workspace"), [["--engine", "silero"]])
+        self.assertEqual(self.tool_calls("narrate"),
+                         [["%s/script.json" % out, "%s/audio" % out, "--engine", "silero"]])
 
     # red: STAGES holds the name of a stage that only a film run has (scene, and guard). The gated
     # BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES; here it is

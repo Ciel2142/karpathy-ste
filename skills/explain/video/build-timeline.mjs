@@ -4,7 +4,7 @@
 //   build-timeline.mjs --check <script.json> --root <data-root>
 //       validate; exit 0 silently, or one "FAIL <where>: <cause>" line per cause and exit 1
 //   build-timeline.mjs <script.json> <durations.json> <engine> <out.json> [--root <data-root>]
-//       write the timeline JSON for the Remotion app (engine: say | kokoro); it starts with the
+//       write the timeline JSON for the Remotion app (engine: say | kokoro | silero); it starts with the
 //       format, canvas and length budgets, and its lead and tail frames come from the format
 //   build-timeline.mjs --types <script.json> <out.ts>
 //       write the scene and source names of a film script as TypeScript types (see the end of this comment)
@@ -17,6 +17,19 @@
 //   FAIL script: format must be film, brainrot or clip
 // --check prints it, then validates the rest of the script as a film, with the film row. Build mode prints it
 // alone, exits 1 and writes no file.
+// script.json may also carry "lang": "en" (the default when absent) or "ru", and "pronounce": an object from a
+// written term to its spoken Russian form, for every format. --check prints these lines after the format
+// line, in this order, each after its own condition:
+//   FAIL script: lang must be en or ru                           lang is present and is not the string en or ru
+//   FAIL script: lang ru is for the film and clip formats only   lang is ru and the format is brainrot
+//   FAIL script: pronounce needs lang ru                         pronounce is present and lang is not ru
+//   FAIL script: pronounce must be an object                     an array, a string, a null or a number; no key line then
+// and, for each key of pronounce in the order they were written:
+//   FAIL script: pronounce key "<k>" is empty                    "" (this key gets no other key line)
+//   FAIL script: pronounce key "<k>" holds whitespace            any character of Python's str.isspace() set
+//   FAIL script: pronounce key "<k>" ends with "<c>"             the last character is ".", "?" or "!"
+//   FAIL script: pronounce value of "<k>" must be a string with a non-space character
+// The last line is the value's own: it comes for an empty key too. The spoken text itself is not checked here.
 // A clip is a film with its own row: a film of at most 60 s, with fewer source lines. Everything below that
 // is said of a film holds for a clip; only the limits, the tag and the minText of the timeline come from the
 // clip row.
@@ -164,13 +177,15 @@ const loadFormats = () => {
   process.exit(1);
 };
 const FORMATS = loadFormats();
-const ENGINES = ["say", "kokoro"];
+const ENGINES = ["say", "kokoro", "silero"];
+// The same set as Python's str.isspace(). JS \s differs: it holds U+FEFF, and lacks U+0085 and U+001C to U+001F.
+const WHITESPACE = /[\t-\r\u001c-\u001f\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
 const KINDS = ["file", "directory", "topic", "conversation"];
 const SCENE_ID = /^[a-z0-9][a-z0-9-]*$/; // the id names audio files and stills
 const CELLS = ["a", "b", "c"].flatMap((col) => ["1", "2", "3"].map((row) => col + row));
 const USAGE =
   "usage: build-timeline.mjs --check <script.json> --root <data-root>\n" +
-  "       build-timeline.mjs <script.json> <durations.json> <engine: say|kokoro> <out.json> [--root <data-root>]\n" +
+  "       build-timeline.mjs <script.json> <durations.json> <engine: say|kokoro|silero> <out.json> [--root <data-root>]\n" +
   "       build-timeline.mjs --types <script.json> <out.ts>\n";
 
 // ---------- small helpers ----------
@@ -616,12 +631,36 @@ const validDate = (s) => {
   return DATE.test(s) && !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
 };
 
+// The lang and pronounce lines, which come after the format line.
+const checkLang = (script, fail) => {
+  if (has(script, "lang") && !["en", "ru"].includes(script.lang)) fail("lang must be en or ru");
+  if (script.lang === "ru" && formatOf(script) === "brainrot") fail("lang ru is for the film and clip formats only");
+  if (!has(script, "pronounce")) return;
+  if (script.lang !== "ru") fail("pronounce needs lang ru");
+  if (!isObject(script.pronounce)) {
+    fail("pronounce must be an object");
+    return;
+  }
+  for (const [key, value] of Object.entries(script.pronounce)) {
+    if (key === "") fail(`pronounce key ${q(key)} is empty`);
+    else {
+      if (WHITESPACE.test(key)) fail(`pronounce key ${q(key)} holds whitespace`);
+      const last = key.slice(-1);
+      if (".?!".includes(last)) fail(`pronounce key ${q(key)} ends with ${q(last)}`);
+    }
+    if (typeof value !== "string" || [...value].every((c) => WHITESPACE.test(c))) {
+      fail(`pronounce value of ${q(key)} must be a string with a non-space character`);
+    }
+  }
+};
+
 const checkHeader = (script, report) => {
   const fail = (cause) => report("script", cause);
   // `sources` belongs to a film only (a refused format is validated as a film).
-  const allowed = ["format", "title", "subject", "provenance", "scenes", ...(filmRules(formatOf(script)) ? ["sources"] : [])];
+  const allowed = ["format", "lang", "pronounce", "title", "subject", "provenance", "scenes", ...(filmRules(formatOf(script)) ? ["sources"] : [])];
   for (const key of Object.keys(script)) if (!allowed.includes(key)) fail(`unexpected key ${q(key)}`);
   if (!knownFormat(formatOf(script))) fail("format must be film, brainrot or clip");
+  checkLang(script, fail);
   checkSpec(script.title, str(Infinity), "title", fail);
   checkShape(script.subject, { text: str(Infinity), kind: str(Infinity) }, "subject", fail);
   if (isObject(script.subject) && typeof script.subject.kind === "string" && !KINDS.includes(script.subject.kind)) {
@@ -1031,7 +1070,7 @@ const main = () => {
   }
   if (positional.length !== 4) usageError("build mode needs <script.json> <durations.json> <engine> <out.json>");
   const [scriptFile, durationsFile, engine, outFile] = positional;
-  if (!ENGINES.includes(engine)) usageError(`engine must be say or kokoro, got ${q(engine)}`);
+  if (!ENGINES.includes(engine)) usageError(`engine must be say, kokoro or silero, got ${q(engine)}`);
   const script = readJson(scriptFile, "script");
   const durations = readJson(durationsFile, "durations");
   const failures = [script.fail, durations.fail].filter(Boolean);

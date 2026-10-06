@@ -42,6 +42,7 @@ facets. Write `Not covered: none` if you dropped nothing.
    and `span-12`. There is no `span-10` or `span-11`. Each row of panels adds up to 12 columns.
    In row 2 the title block takes the last 3 columns. Thus the panels D and E (C and D after
    re-lettering to 4 panels) add up to 9 columns, and panel F sits above the title block.
+6. Set the `lang` attribute of `<html>` to the language of the artifact: `en` or `ru`.
 
 Put one primitive in each `.panel-body`.
 

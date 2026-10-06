@@ -11,8 +11,9 @@ A forced `--as video` keeps the content, also when the content fits a page. A vi
 scenes than the scene limit in the table of section 3. Keep the most important facets. Write each
 dropped facet in `provenance.not_covered`.
 
-The video rung is English only. If the user asks for another language, print the rung line.
-Say that the video rung is English only. Stop. Offer `page`.
+The video rung is English or Russian. A Russian film has `"lang": "ru"` in `script.json`. If the
+user asks for another language, print the rung line. Say that the video rung is English or Russian.
+Stop. Offer `page`.
 
 ## 2. The grammar of a film
 
@@ -44,6 +45,8 @@ other files from them. Never change a made file by hand.
 | Key | Value |
 |---|---|
 | `format` | `film`. Keep this key. |
+| `lang` | `en` or `ru`, the language of the narration and the transcript. Without the key, the film is in English. The narrator follows the language (section 5). |
+| `pronounce` | Only with `"lang": "ru"`. An object that maps a written term to its spoken Russian form, such as `"JSON": "джейсон"`. Every Latin term, number in digits and acronym that the narration speaks needs an entry. A key is one token: it has no white space, and it does not end with `.`, `?` or `!`. Never map an abbreviation: write its words out. In a value, a `+` before a vowel fixes the stress, such as `"Kafka": "к+афка"`. Write `+` only in a value, because the transcript shows the narration as you write it. Prefer Russian words to code names, as in an English film. |
 | `title` | The film title. |
 | `subject.text`, `subject.kind` | The subject as the user typed it, and its kind: `file`, `directory`, `topic` or `conversation` (`SKILL.md` convention 2). |
 | `provenance.root` | The ABSOLUTE path of the repo root, the `data-root` of convention 2. The template value is `.`, a relative path. `render.sh` stops if the value is not an absolute path of a directory. |
@@ -68,9 +71,11 @@ marks of section 4.
 
 Rules for each scene:
 
-- Write the narration in STE. Keep each sentence at 20 words or fewer. This limit is smaller than
-  the limit of the STE profile, and it applies here.
-- Write a number as the voice must say it, such as "minus 201". The stage can show `-201`.
+- Write the narration in STE. For a Russian film, follow `SKILL.md` convention 7. Keep each
+  sentence at 20 words or fewer. This limit is smaller than the limit of the STE profile, and it
+  applies here.
+- Write a number as the voice must say it, such as "minus 201". The stage can show `-201`. In a
+  Russian film, write a number in words, or map its digits in `pronounce`.
 - The prose lint reads only the narration and `provenance.not_covered`. Write them in STE. The
   lint never reads the labels of the scene, the code or the cites.
 - Put a code name in backticks. The transcript shows it as code, and the narrator speaks it as
@@ -112,11 +117,13 @@ these approximate values:
 
 - The narrator speaks approximately 2.8 words each second. The two live runs gave 2.7 and 3.0.
   Numbers and code names are slower than plain words.
+- In a Russian film, `Silero` speaks approximately 2.3 to 2.9 words each second.
 - Each scene adds 0.6 s of lead and default pause. A longer `pause` adds its frames.
 - Each sentence after the first sentence of a scene adds 0.15 s.
 - The template has 8 scenes and 121 words. Its length is 49 s with Kokoro and 43 s with `say`.
 - A safe total for the longest film is approximately 350 words. That film is approximately
-  130 s.
+  130 s. For a Russian film, the safe total is approximately 270 words.
+- These values are targets. The word limit of a scene in the table above does not change.
 
 The stage line of `timeline` shows the real length. To come near a length, do these steps:
 
@@ -311,6 +318,8 @@ stage stops, and `build/render.log` holds the `MARK scene` line.
   text get smaller, and the characters move off `colX` by up to approximately 14 px. Thus, keep
   a code card and a `Mono` text to characters of one column.
 - A `Sans` text has no fixed width. Leave space around it.
+- Write each label in the language of the script. Code names and source lines stay as the source
+  writes them.
 - Draw each text at the floor of the format or more on the canvas: 14 px for a film (`MIN_TEXT`) and
   19 px for a clip. The size on the canvas is the font size times the scale of each group around the
   text.
@@ -377,7 +386,9 @@ stills of section 6.
 
 ## 5. Build and check
 
-Run one command. Add `--engine say` only when the user asks in words for the macOS voice.
+Run one command. The engine follows the `lang` of the script: `kokoro` for `en`, and `silero`
+for `ru`. Add `--engine say` only when the user asks in words for the macOS voice. For a Russian
+film, `--engine say` gives the voice `Milena`.
 
 ```
 <skill-dir>/scripts/render.sh <output-dir>
@@ -411,7 +422,11 @@ below, fix its cause, and run `render.sh` again. Never edit a file in `build/`: 
 writes these files again. A `FAIL` line that this section does not list names its cause.
 
 The `script` stage checks `script.json`. Most other `FAIL` lines of this stage name a key of
-`script.json` and the rule that it breaks.
+`script.json` and the rule that it breaks. The stage also checks that the engine fits the `lang`
+of the script, and for a Russian film it checks each sentence. Three lines read each sentence as
+the voice gets it, after the `pronounce` map: `unspoken text`, `no letter` and `too long`. The
+line `abbreviation` reads the written sentence, with its backticks removed. A line of this check
+lists each scene that breaks its rule, and `; ` separates two scenes.
 
 | Line | Cause and fix |
 |---|---|
@@ -420,6 +435,11 @@ The `script` stage checks `script.json`. Most other `FAIL` lines of this stage n
 | `script: FAIL scene <id>: a film scene has no component or props` | The scene has a `component` or a `props` key. A film scene has `id`, `narration`, `cites` and an optional `pause`. Remove the two keys. |
 | `script: FAIL scene <id>: pause <v> must be an integer from 12 to 90` | `pause` is the number of silent frames after the narration of the scene. Write an integer in this range, or remove the key. |
 | `script: FAIL source <id>: <cause>` | An entry of `sources` breaks a rule, and `<cause>` names it. Each entry has the four keys `id`, `path`, `from` and `to`. The range is in the file and within the limit of section 3. The cause can also be `no cite on <path> inside <from>-<to>`: no cite of that path has a `line` in the range. Add a cite of that path with a `line` in the range, or change the range. |
+| `script: FAIL engine <e> cannot narrate lang <l>` | The `--engine` value does not fit the `lang` of the script: `kokoro` speaks only `en`, and `silero` speaks only `ru`. Remove `--engine`, or give `--engine say`. |
+| `script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)` | The voice cannot speak each token `<t>` of the scene: a Latin word, a digit, a sign such as `#`, or an acronym in Cyrillic capitals such as `СУБД`. A token also shows a code point, as `(U+XXXX)`, in two cases. Its first bad character is not a letter or a digit: a sign such as `#`, a `+` that is not before a vowel, or a zero-width space. Or it mixes a Cyrillic letter with a Latin letter, and the code point is that of the Latin letter. Add the token to `pronounce`, or write it in Russian words. A `pronounce` value with a Latin letter or a digit gives this line too. |
+| `script: FAIL abbreviation: <scene>: "<t>", … (write the words out, as «то есть»)` | The narration has an abbreviation, such as `т. е.`, `т.д.` or `напр.`. The voice reads it letter by letter, or the cut into sentences splits it. Write the words out, such as `то есть`. A `pronounce` key cannot map an abbreviation. |
+| `script: FAIL no letter: <scene> sentence <k>, …` | Sentence `<k>` of the scene, from 1, has no Cyrillic letter after the `pronounce` map. The voice cannot speak it. Add words to the sentence, or join it to the sentence before it. |
+| `script: FAIL too long: <scene> sentence <k> (<n> characters); … (max 900)` | Sentence `<k>` of the scene has more than 900 characters after the `pronounce` map. The voice fails on a sentence of this length. Cut the sentence, or write shorter `pronounce` values. |
 
 The `workspace` stage sets up the workspace and makes the run directory. Another `FAIL` line of
 this stage names the step that failed. For `npm ci` and the browser step, it also names the log.
@@ -488,10 +508,12 @@ anything yourself. Before each costly step, the stage prints the cost, indented:
 - `npm ci`: approximately 55 s and 503 MB.
 - Chrome Headless Shell: 193 MB.
 - The two Kokoro model files: 353 MB, only for the Kokoro engine.
+- The `Silero` model `v5_3_ru.pt`: 145 MB, only for a script in Russian.
 
 The `narration` stage of the first Kokoro run also resolves the Python packages through `uv`,
-in approximately 30 s and with no cost line. The first run takes 3 to 6 minutes. If your shell
-tool has a shorter timeout, run `render.sh` in the background with its output in a log file.
+in approximately 30 s and with no cost line. The first `Silero` run resolves its packages in the
+same way, and `torch` adds a download of 127 MB. The first run takes 3 to 6 minutes. If your
+shell tool has a shorter timeout, run `render.sh` in the background with its output in a log file.
 
 ### Narration fallback
 
@@ -500,6 +522,11 @@ If Kokoro cannot run, the narration changes to the macOS `say` voice. The run th
 `narration (say): ok (fallback: <cause>)`. The `Narrator` row of the transcript then shows
 `say (fallback: <cause>)`. Tell the user about the fallback and its cause. Without a fallback,
 the row shows `kokoro (af_heart)` or `say`.
+
+A script in Russian has its own two voices. If `Silero` cannot run, the narration changes to
+`say` with the voice `Milena`, and the same two lines show. The `Narrator` row then shows
+`say (Milena, fallback: <cause>)`. Without a fallback, the row shows `silero (xenia)` or
+`say (Milena)`.
 
 ### Render ratio
 
@@ -562,7 +589,9 @@ the stage moved or changed its size, read all the stills again.
 1. Print the path of the output directory.
 2. Run `open video.mp4` only when you run for the user directly. Never run `open` inside a
    subagent (`SKILL.md` convention 6).
-3. Tell the user the narrator: Kokoro `af_heart`, `say`, or `say` after a fallback.
+3. Tell the user the narrator: Kokoro `af_heart`, `say`, or `say` after a fallback. For a script
+   in Russian, the narrator is `Silero` `xenia`, `say` `Milena`, or `say` `Milena` after a
+   fallback.
 
 ### Output directory
 
@@ -573,7 +602,7 @@ the stage moved or changed its size, read all the stills again.
 | `index.html` | The transcript: the narration and the cites of each scene (one `div.cites` block, none for a scene without cites), under a heading that is the scene id. |
 | `video.mp4` | The narrated video. |
 | `narration.md` | The narration, one heading for each scene. |
-| `audio/` | For each scene, `<id>.<engine>.wav`, its sidecar `<id>.<engine>.txt` and `<id>.<engine>.words.json`. Also `durations.json`. |
+| `audio/` | For each scene, `<id>.<engine>.wav`, its sidecar `<id>.<engine>.txt` and `<id>.<engine>.words.json`. `<engine>` is `kokoro`, `silero` or `say`. Also `durations.json`. |
 | `build/` | `timeline.json`, `guard.log`, `guard.mp4`, `render.log` and `rendered-audio.wav`, the audio track of the mp4. |
 | `review/` | The stills `still-NN-<id>-s<k>.png` and `still-NN-<id>-end.png`. |
 
@@ -588,10 +617,19 @@ the stage moved or changed its size, read all the stills again.
   `https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1`. sha256:
   `kokoro-v1.0.onnx` (325 MB) `beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a`,
   `voices-v1.0.bin` (28 MB) `bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d`.
+- `Silero` runs through `uv run --python 3.12` with `torch==2.14.1` and `numpy==2.5.3`, as
+  `python3 -W ignore::SyntaxWarning`. The voice is `xenia` at 48 kHz. For a script in Russian,
+  the `say` voice is `Milena` (`ru_RU`), at 22.05 kHz.
+- The `Silero` model comes from `https://models.silero.ai/models/tts/ru/v5_3_ru.pt`. sha256:
+  `v5_3_ru.pt` (145 MB, 145359640 bytes)
+  `f036d3da1584899e5e24bdf2d5bd3bcf896e2d62505de39a02caca76014d7a1c`.
 - Workspace: `~/karpathy/video-workspace`, or the path in `EXPLAIN_VIDEO_WORKSPACE`. Its `app/`
   holds the installed packages and the two package files, `package.json` and
   `package-lock.json`. Its `runs/` holds one directory for each render that runs. The render
   removes its directory when it stops, so two renders can run at the same time. Its `models/`
-  holds the Kokoro files. Never install a package globally. Never use `npx`.
+  holds the Kokoro files and the `Silero` model. Never install a package globally. Never use
+  `npx`.
 - Licence: Remotion is free under the Remotion Free License for an individual. Check the licence
   again when the use moves to a for-profit organisation with more than 3 employees.
+- Licence: the `Silero` model is under CC BY-NC 4.0. It is free for a personal use that is not
+  commercial. Check the licence again before a commercial use.

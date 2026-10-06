@@ -2,7 +2,11 @@
 # render.sh: the video rung's one command, from <output-dir>/script.json to a checked
 # video.mp4, its review stills and the final transcript (spec: video rung).
 #
-#   render.sh <output-dir> [--engine kokoro|say]          (default kokoro)
+#   render.sh <output-dir> [--engine kokoro|silero|say]
+#       Without --engine the engine comes from the script's "lang" through narrate.py --check (kokoro
+#       for "en" or no lang, silero for "ru"); the script stage names it, and the workspace and
+#       narration stages get it as --engine. With --engine the check takes that engine: one that does
+#       not fit the lang (kokoro on "ru") fails the script stage.
 #   env EXPLAIN_VIDEO_WORKSPACE        workspace root (default $HOME/karpathy/video-workspace)
 #   env EXPLAIN_BRAINROT_BACKGROUNDS   brainrot only: the background clip folder (default
 #                                      <ws>/backgrounds)
@@ -24,17 +28,20 @@
 #
 # stdout carries one line per stage, in this order, up to the first FAIL (the film prints no
 # "background" line; brainrot prints no "scene" and no "guard" line):
-#   script: ok (<n> scenes)                 check, transcript.py, verify.sh: no synthesis yet
+#   script: ok (<n> scenes)                 check, narrate.py --check (it names the engine),
+#                                           transcript.py, verify.sh: no synthesis yet
 #   workspace: ok <ws>                      video-workspace.sh --engine <engine>, then the run
-#                                           directory (below)
+#                                           directory (below); <engine> is the one that the script
+#                                           stage named
 #   scene: ok (<n> files)                   film only: check_scene.py checks <output-dir>/scene; its
 #                                           <n> *.ts and *.tsx files (not script.gen.ts) replace
 #                                           src/film of the run directory; build-timeline.mjs --types
 #                                           writes script.gen.ts there; tsc, with the run directory
 #                                           as its project, type-checks the lot. The stage comes
 #                                           before the narration, so a fault costs no synthesis
-#   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh; <engine> as used; a
-#                                           brainrot script narrates at --speed 1.2
+#   narration (<engine>): ok [(fallback: <cause>)]      narrate.sh --engine <engine>; <engine> as
+#                                           used (a Silero run that fell back says say); a brainrot
+#                                           script narrates at --speed 1.2
 #   timeline (<n> scenes, <s> s): ok        build/timeline.json; check_budgets.py reads the
 #                                           limits from it (film scene <= 30 s, total <= 150 s;
 #                                           clip 30 s and 60 s; brainrot 30 s and 90 s)
@@ -64,6 +71,15 @@
 # EXPLAIN_BRAINROT_SEED among its causes) is the stage's FAIL line; a picker that fails without
 # one (a usage error) gives "background: FAIL pick_background.py exit <n>" below that indented
 # output.
+#
+# The script stage runs narrate.py --check after build-timeline.mjs --check: no model, no audio. render.sh
+# reads its stdout alone; its stderr goes to the stderr of render.sh. On exit 0 its stdout must be one of
+# kokoro, silero or say: that is the engine of the run, the --engine value or else the first choice of the
+# lang. Any other stdout gives "script: FAIL narrate.py --check printed no engine". On a non-zero exit the
+# stage prints "script: FAIL <cause>" and, below it, that stdout indented by two spaces, and stops with
+# exit 1 before the workspace stage. <cause> is the first "narration: FAIL " line of the stdout without
+# that prefix ("unspoken text: ...", "engine kokoro cannot narrate lang ru"), else the first cause of the
+# stdout.
 #
 # The scene stage has five FAIL lines. Each stops the run with exit 1 before the narration; the run
 # directory goes by the EXIT trap:
@@ -120,10 +136,16 @@
 #       A narration clip of the timeline could not be copied into the run directory. No pass runs.
 #
 # The render ratio is advisory: "(limit 2.0)" only marks a ratio above 2.0. The engine of
-# the timeline and of the Narrator row is the one in audio/durations.json, so a Kokoro run
-# that fell back to say says so. The Narrator row reads "kokoro (af_heart)", "say" or
-# "say (fallback: <cause>)". Once stage 1 passes, a video.mp4, the stills and build/guard.mp4 of
-# an earlier run are removed, so a later FAIL never leaves them next to the new transcript.
+# the timeline and of the Narrator row is the one in audio/durations.json, so a run that
+# fell back to say says so. The Narrator row is made from the engine, the voice and the fallback
+# of that file:
+#   kokoro (af_heart)                        a Kokoro run
+#   say, say (fallback: <cause>)             an English say run
+#   silero (xenia)                           a Silero run
+#   say (Milena), say (Milena, fallback: <cause>)   a Russian say run
+# A durations.json with no voice is "narration (<engine>): FAIL cannot read <out>/audio/durations.json".
+# Once stage 1 passes, a video.mp4, the stills and build/guard.mp4 of an earlier run are removed,
+# so a later FAIL never leaves them next to the new transcript.
 #
 # Each render compiles in a run directory of its own, <ws>/runs/run.<pid>.<6 chars>, so two
 # renders can run at the same time and render.sh writes nothing under <ws>/app. It holds a
@@ -159,12 +181,12 @@ RATIO_LIMIT=2.0
 BRAINROT_SPEED=1.2   # narrate.sh --speed of a brainrot script; a film keeps the default speed of narrate.sh
 
 usage() {
-    echo "usage: render.sh <output-dir> [--engine kokoro|say]" >&2
+    echo "usage: render.sh <output-dir> [--engine kokoro|silero|say]" >&2
     exit 2
 }
 
 out_arg=""
-engine="kokoro"
+engine=""      # kokoro, silero or say: the --engine value, else what narrate.py --check prints
 while [ $# -gt 0 ]; do
     case "$1" in
         --engine)
@@ -181,7 +203,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$out_arg" ] || usage
-case "$engine" in kokoro | say) ;; *) usage ;; esac
+case "$engine" in "" | kokoro | silero | say) ;; *) usage ;; esac
 if [ ! -f "$out_arg/script.json" ]; then
     echo "render.sh: no script.json in $out_arg" >&2
     exit 2
@@ -213,6 +235,7 @@ tsc="$app/node_modules/.bin/tsc"
 root=""       # provenance.root
 fmt="film"    # the script's format: film, brainrot or clip
 used=""       # the engine that made the audio (durations.json)
+voice=""      # the voice that made it (durations.json)
 fallback=""   # the fallback cause, empty when none
 video_s=""    # video length in seconds (totalFrames / fps)
 run=""        # the run directory of this render; "" until make_run_dir has made it
@@ -273,17 +296,16 @@ stream() {
     done < <(rc=0; "$@" 2>&1 < /dev/null || rc=$?; printf '%s%s\n' "$MARK" "$rc")
 }
 
-# The Narrator row of the transcript: the engine that made the audio, the Kokoro voice
-# (narrate.py's af_heart), or the fallback cause.
+# The Narrator row of the transcript, from the engine that made the audio, its voice and the
+# fallback cause (all three from durations.json): the voice of a Kokoro or Silero run, Milena for a
+# Russian say run, and the cause when the run fell back. An English say run names no voice.
 narrator_text() {
-    local used="$1" fallback="$2"
-    if [ -n "$fallback" ]; then
-        printf '%s (fallback: %s)\n' "$used" "$fallback"
-    elif [ "$used" = "kokoro" ]; then
-        printf 'kokoro (af_heart)\n'
-    else
-        printf '%s\n' "$used"
-    fi
+    local used="$1" voice="$2" fallback="$3" detail=""
+    case "$used/$voice" in
+        kokoro/* | silero/* | say/Milena) detail="$voice" ;;
+    esac
+    [ -z "$fallback" ] || detail="${detail:+$detail, }fallback: $fallback"
+    printf '%s%s\n' "$used" "${detail:+ ($detail)}"
 }
 
 now() {
@@ -291,7 +313,7 @@ now() {
 }
 
 stage_script() {
-    local info count
+    local info count checked rc=0 line cause=""
     info=$(python3 - "$script" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -307,6 +329,21 @@ PY
     case "$root" in /*) ;; *) fail "script: FAIL provenance.root must be an absolute path" ;; esac
     [ -d "$root" ] || fail "script: FAIL provenance.root must be an existing directory: $root"
     run_tool script node "$video/build-timeline.mjs" --check "$script" --root "$root"
+    # The narration check: stdout only (its stderr is left to render.sh's own). It prints the engine
+    # on exit 0, and its "narration: FAIL " lines on exit 2.
+    checked=$(python3 "$video/narrate.py" --check ${engine:+--engine "$engine"} "$script") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        while IFS= read -r line; do
+            case "$line" in "narration: FAIL "*) cause="${line#narration: FAIL }"; break ;; esac
+        done <<< "$checked"
+        echo "script: FAIL ${cause:-$(first_cause "$checked")}"
+        printf '%s\n' "$checked" | sed 's/^/  /'
+        exit 1
+    fi
+    case "$checked" in
+        kokoro | silero | say) engine="$checked" ;;
+        *) fail "script: FAIL narrate.py --check printed no engine" ;;
+    esac
     # --check has accepted the format, so it is film, brainrot or clip.
     fmt=$(python3 -c '
 import json, sys
@@ -411,7 +448,7 @@ stage_scene() {
 }
 
 stage_narration() {
-    local info speed_args=()
+    local info rest speed_args=()
     [ "$fmt" != "brainrot" ] || speed_args=(--speed "$BRAINROT_SPEED")
     mkdir -p "$out/audio"
     stream "narration: FAIL " "narration: FAIL " \
@@ -425,10 +462,13 @@ stage_narration() {
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 print(d["engine"])
+print("voice=" + d["voice"])
 print("fallback=" + (d.get("fallback") or ""))
 PY
 ) || fail "narration ($engine): FAIL cannot read $out/audio/durations.json"
     used="${info%%$'\n'*}"
+    rest="${info#*$'\n'voice=}"
+    voice="${rest%%$'\n'*}"
     fallback="${info#*$'\n'fallback=}"
     if [ -n "$fallback" ]; then
         echo "narration ($used): ok (fallback: $fallback)"
@@ -581,7 +621,7 @@ PY
 
 stage_transcript() {
     local narrator timeline="$out/build/timeline.json" background bg_args=()
-    narrator=$(narrator_text "$used" "$fallback")
+    narrator=$(narrator_text "$used" "$voice" "$fallback")
     if [ "$fmt" = "brainrot" ]; then
         background=$(background_text "$timeline") || fail "transcript: FAIL cannot read $timeline"
         bg_args=(--background "$background")

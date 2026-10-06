@@ -45,17 +45,21 @@ As written the `sheet`, `page` and `video` rungs are macOS-specific (the Chrome 
 
 The first video run sets up a gitignored workspace by itself (`<clone>/video-workspace/`, or
 `EXPLAIN_VIDEO_WORKSPACE`) and prints each cost before paying it: `npm ci` ≈ 55 s / 503 MB,
-Chrome Headless Shell 193 MB, the two Kokoro model files 353 MB, a `uv` resolve ≈ 30 s. Nothing
-is installed globally. Later runs reuse the workspace and any narration whose text did not
-change; a one-minute video renders in about 12 s on an Apple Silicon Mac.
+Chrome Headless Shell 193 MB, the two Kokoro model files 353 MB, a `uv` resolve ≈ 30 s. A
+Russian script fetches the Silero model `v5_3_ru.pt` (145 MB) in place of the two Kokoro files,
+and its first narration downloads `torch` (127 MB) through `uv`. Nothing is installed globally.
+Later runs reuse the workspace and any narration whose text did not change; a one-minute video
+renders in about 12 s on an Apple Silicon Mac.
 
-The narrator is Kokoro `af_heart` (via `uv`, pinned packages). When Kokoro cannot run, the
-pipeline falls back to the macOS `say` voice and labels the fallback in its output and in the
+The narrator follows the script's `lang`: Kokoro `af_heart` for English, Silero `xenia` for
+Russian (both via `uv`, pinned packages). When that narrator cannot run, the pipeline falls back
+to the macOS `say` voice (`Milena` for Russian) and labels the fallback in its output and in the
 transcript's Narrator row.
 
 Versions are pinned in `skills/explain/video/package.json`: Remotion 4.0.532, React 19.2.3.
 Remotion is free under its Free License for an individual or a company of up to 3 employees;
-check the licence again beyond that.
+check the licence again beyond that. The Silero model is under CC BY-NC 4.0: personal,
+non-commercial use only; check the licence again before a commercial use.
 
 ## Layout
 

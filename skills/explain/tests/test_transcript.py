@@ -570,6 +570,20 @@ class FilmTest(TranscriptCase):
             written.append([(self.out / name).read_bytes() for name in ("index.html", "narration.md")])
         self.assertEqual(written[0], written[1])
 
+    def test_html_lang_follows_the_script(self):
+        """Red: line 2 of the template keeps lang="en" (a Russian page says en), the marker is
+        filled with a fixed value, or a script with no lang key has no default (KeyError,
+        exit 2) or gets an empty one."""
+        russian = dict(self.film(), lang="ru")
+        english = dict(self.film(), lang="en")
+        for name, script, tag in (("ru", russian, '<html lang="ru">'),
+                                  ("en", english, '<html lang="en">'),
+                                  ("none", self.film(), '<html lang="en">')):
+            with self.subTest(lang=name):
+                text = self.generate(script)
+                self.assertEqual(text.split("\n")[1], tag)
+                self.assertNotIn("{{lang}}", text)
+
     def test_film_scene_without_a_cites_key(self):
         """Red: scene["cites"] read for a film scene (KeyError 'cites', exit 2): a topic film
         scene has no cites and the page is still written, with an empty cite list."""
