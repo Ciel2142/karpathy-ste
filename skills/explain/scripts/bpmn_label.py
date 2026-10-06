@@ -23,7 +23,8 @@ def clean(text):
     return " ".join((text or "").split())
 
 
-FLOW_NODE_KINDS = frozenset(("task", "subProcess", "transaction", "adHocSubProcess", "callActivity"))
+SUB_PROCESS_KINDS = frozenset(("subProcess", "transaction", "adHocSubProcess"))
+FLOW_NODE_KINDS = SUB_PROCESS_KINDS | {"task", "callActivity"}
 CONTAINER_KINDS = frozenset(("process", "collaboration", "participant", "lane", "definitions"))
 DI_KINDS = {"BPMNShape": "shape", "BPMNEdge": "edge", "BPMNLabel": "label", "BPMNPlane": "plane"}
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)

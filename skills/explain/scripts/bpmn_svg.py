@@ -10,7 +10,7 @@ import math
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from bpmn_label import clean
+from bpmn_label import SUB_PROCESS_KINDS as SUBS, clean
 
 if TYPE_CHECKING:
     from bpmn import Model, Plane
@@ -27,7 +27,6 @@ TAGS = {"serviceTask": "service", "sendTask": "send", "receiveTask": "receive",
         "userTask": "user", "businessRuleTask": "rule", "scriptTask": "script",
         "manualTask": "manual"}
 TASKS = set(TAGS) | {"task", "callActivity"}
-SUBS = {"subProcess", "transaction", "adHocSubProcess"}
 EVENTS = {"startEvent", "intermediateCatchEvent", "intermediateThrowEvent", "endEvent",
           "boundaryEvent"}
 GLYPHS = {"exclusiveGateway": "×", "parallelGateway": "+", "complexGateway": "*"}

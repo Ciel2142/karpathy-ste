@@ -138,6 +138,21 @@ class CheckCase(unittest.TestCase):
         code, out, _err = self.check(section, "Ошибка в процессе")
         self.assertEqual((code, out), (0, "bpmn: ok\n"))
 
+    def test_transaction_and_ad_hoc_count_as_sub_processes(self):
+        """Red when condition 2 counts only bpmn:subProcess: an uncited transaction or ad-hoc one then passes."""
+        section = SECTION
+        for needle in ('<bpmn:subProcess id="STAGE_A"', 'name="Первичная проверка">'):
+            section = without_cites(section, line_of(needle))
+        for kind in ("transaction", "adHocSubProcess"):
+            with self.subTest(kind=kind):
+                edits = [('<bpmn:subProcess id="STAGE_A"', '<bpmn:%s id="STAGE_A"' % kind),
+                         ("</bpmn:subProcess>", "</bpmn:%s>" % kind)]
+                code, out, _err = self.check(section, bpmn_edits=edits)
+                self.assertEqual(code, 1)
+                self.assertIn(
+                    "page | sub-process | STAGE_A (Первичная проверка) has no cite and is not in Not covered\n", out
+                )
+
     def test_longer_name_in_not_covered_does_not_excuse_its_prefix(self):
         """Red when Not covered matches by substring: "Первичная проверка СМЭВ4" then excuses STAGE_A."""
         longer = "Первичная проверка СМЭВ4"

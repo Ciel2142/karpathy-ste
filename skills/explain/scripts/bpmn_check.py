@@ -9,7 +9,8 @@ bpmn.py passes `load` in, so this module does not import bpmn.
 import os
 from html.parser import HTMLParser
 
-from bpmn_label import NS_DI, NS_MODEL, BpmnError, bpmn_cites, clean, label_of, owner, page_root
+from bpmn_label import (NS_DI, NS_MODEL, SUB_PROCESS_KINDS, BpmnError, bpmn_cites, clean, label_of, owner,
+                        page_root)
 
 
 class _Page(HTMLParser):
@@ -127,7 +128,7 @@ def _coverage(model, covered, drawn, named):
         if plane.id not in drawn and name not in named:
             lines.append("page | plane | %s (%s) has no svg.bpmn and is not in Not covered" % (plane.id, name))
     for index, node in enumerate(model.nodes):
-        if node.ns != NS_MODEL or node.tag != "subProcess" or "id" not in node.attrs:
+        if node.ns != NS_MODEL or node.tag not in SUB_PROCESS_KINDS or "id" not in node.attrs:
             continue
         name = _key(node)
         if index not in covered and name not in named:
