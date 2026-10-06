@@ -2,10 +2,12 @@
 
 StageFunctionCase runs stage_narration, stage_background and stage_transcript of render.sh against
 fake tools (the format -> --speed mapping, the picker's lines, exit codes and stderr, the
---background text of the transcript). RunHarness is the temp skill tree and the helpers of a run of a
-copy of render.sh against a fake of every tool it calls, in a workspace whose path has a space.
-RunDirectoryCase uses it for the run directory of each render (what it holds, that it goes after a
-pass, a FAIL and a signal, the sweep of old ones); SceneRunCase of test_render_film.py uses it for the
+--background text of the transcript, the voice that durations.json gives the Narrator row).
+RunHarness is the temp skill tree and the helpers of a run of a copy of render.sh against a fake of
+every tool it calls, in a workspace whose path has a space. RunDirectoryCase uses it for the run
+directory of each render (what it holds, that it goes after a pass, a FAIL and a signal, the sweep of
+old ones); ScriptCheckCase for the engine that narrate.py --check gives the stages after the script
+stage, and the stage line of a check that fails; SceneRunCase of test_render_film.py uses it for the
 scene stage of a film. The stage-1 tests need no workspace: they fail before any tool that needs one
 runs. A fake npm that exits 1 sits first on PATH and the workspace is an empty temp dir, so a mutant
 that gets past stage 1 fails fast instead of installing. BrainrotRouteCase checks the user-facing
@@ -33,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from video_e2e import EXPLAIN, RENDER_SH, render_env, workspace
 
 BRAINROT_TEMPLATE = EXPLAIN / "templates" / "brainrot-script.json"
+FILM_TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 BUILD_TIMELINE = EXPLAIN / "video" / "build-timeline.mjs"
 STE_LINT = EXPLAIN.parent / "ste" / "scripts" / "ste_lint.py"
 SKILL_MD = EXPLAIN / "SKILL.md"
@@ -74,9 +77,9 @@ class StageOneCase(unittest.TestCase):
             edit(script)
         (self.out / "script.json").write_text(json.dumps(script, indent=2), encoding="utf-8")
 
-    def render(self):
+    def render(self, engine="say"):
         return subprocess.run(
-            ["/bin/bash", str(RENDER_SH), str(self.out), "--engine", "say"],
+            ["/bin/bash", str(RENDER_SH), str(self.out), *(["--engine", engine] if engine else [])],
             capture_output=True, text=True, env=self.env, timeout=300,
         )
 
@@ -176,14 +179,43 @@ class StageOneCase(unittest.TestCase):
         self.assertFalse((self.out / "video.mp4").exists())
         self.assertEqual(list((self.out / "review").iterdir()), [])
 
+    def write_russian_film(self):
+        """The film template as a Russian film: the English text of its scenes has no mapped word, so
+        narrate.py --check finds unspoken text."""
+        self.write_script(lambda script: script.update(lang="ru"), root=str(EXPLAIN.parent.parent),
+                          template=FILM_TEMPLATE)
 
-def narrator_text(used, fallback):
+    # red: the check of narrate.py is not run at the script stage (the run goes on to the workspace stage),
+    # or the line keeps the "narration: FAIL " prefix ("script: FAIL narration: FAIL unspoken text: ")
+    def test_an_unspoken_token_fails_at_the_script_stage(self):
+        self.write_russian_film()
+        run = self.render()
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        lines = stage_lines(run.stdout)
+        self.assertEqual(len(lines), 1, run.stdout)
+        self.assertTrue(lines[0].startswith("script: FAIL unspoken text: "), lines)
+        self.assertIn("\n  narration: FAIL unspoken text: ", run.stdout)
+        self.assertFalse((self.out / "audio").exists())
+
+    # red: the engine is not given to the check at the script stage (the workspace stage fetches for it
+    # first), or the engine check runs after the guard (the line is then "script: FAIL unspoken text: ...")
+    def test_kokoro_on_a_russian_film_fails_at_the_script_stage(self):
+        self.write_russian_film()
+        run = self.render("kokoro")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL engine kokoro cannot narrate lang ru"])
+        self.assertEqual(run.stdout.splitlines()[1:], ["  narration: FAIL engine kokoro cannot narrate lang ru"])
+        self.assertFalse((self.tmp / "ws").exists())
+
+
+def narrator_text(used, voice, fallback):
     """Run the narrator_text function of render.sh on its own."""
     source = RENDER_SH.read_text(encoding="utf-8")
     match = re.search(r"^narrator_text\(\) \{\n.*?^\}\n", source, re.M | re.S)
     assert match, "no narrator_text() in render.sh"
-    run = subprocess.run(["/bin/bash", "-c", match.group(0) + 'narrator_text "$1" "$2"', "-", used, fallback],
-                         capture_output=True, text=True, timeout=30)
+    run = subprocess.run(
+        ["/bin/bash", "-c", match.group(0) + 'narrator_text "$1" "$2" "$3"', "-", used, voice, fallback],
+        capture_output=True, text=True, timeout=30)
     assert run.returncode == 0, run.stderr
     return run.stdout
 
@@ -191,15 +223,32 @@ def narrator_text(used, fallback):
 class NarratorTextCase(unittest.TestCase):
     # red: the Narrator row without the Kokoro voice ("kokoro")
     def test_kokoro_row_names_the_voice(self):
-        self.assertEqual(narrator_text("kokoro", ""), "kokoro (af_heart)\n")
+        self.assertEqual(narrator_text("kokoro", "af_heart", ""), "kokoro (af_heart)\n")
 
     # red: the voice added to every engine ("say (af_heart)")
     def test_say_row_is_say(self):
-        self.assertEqual(narrator_text("say", ""), "say\n")
+        self.assertEqual(narrator_text("say", "say-default", ""), "say\n")
 
     # red: the fallback cause dropped from the row
     def test_fallback_row_names_the_cause(self):
-        self.assertEqual(narrator_text("say", "no models"), "say (fallback: no models)\n")
+        self.assertEqual(narrator_text("say", "say-default", "no models"), "say (fallback: no models)\n")
+
+    # red: the voice of a Silero run dropped ("silero"), or the voice of an English say run written
+    # ("say (say-default)"), or the Russian say voice dropped ("say"), or its fallback cause put in its
+    # own brackets ("say (Milena) (fallback: no model)") or before the voice ("say (fallback: no model,
+    # Milena)"), or any of the three English rows changed
+    def test_rows_of_each_voice(self):
+        rows = (
+            (("kokoro", "af_heart", ""), "kokoro (af_heart)\n"),
+            (("say", "say-default", ""), "say\n"),
+            (("say", "say-default", "no models"), "say (fallback: no models)\n"),
+            (("silero", "xenia", ""), "silero (xenia)\n"),
+            (("say", "Milena", ""), "say (Milena)\n"),
+            (("say", "Milena", "no model"), "say (Milena, fallback: no model)\n"),
+        )
+        for args, row in rows:
+            with self.subTest(args=args):
+                self.assertEqual(narrator_text(*args), row)
 
 
 def render_functions(names):
@@ -232,16 +281,17 @@ class StageFunctionCase(unittest.TestCase):
         path.write_text("#!/bin/bash\n" + body, encoding="utf-8")
         path.chmod(0o755)
 
-    def run_stage(self, stage, fmt, env=None, helpers=("fail", "stream"), setup=""):
-        """Run `stage` of render.sh with format `fmt`, after the shell text `setup`; every fake
-        tool appends its argv to calls. `helpers` are the other functions the stage calls."""
+    def run_stage(self, stage, fmt, env=None, helpers=("fail", "stream"), setup="", after=""):
+        """Run `stage` of render.sh with format `fmt`, after the shell text `setup` and before the shell
+        text `after`; every fake tool appends its argv to calls. `helpers` are the other functions the
+        stage calls."""
         functions = render_functions([*helpers, stage])
         script = (
             "set -eu\n" + functions +
             'out=%(t)s/out video=%(t)s/video scripts=%(t)s/scripts script=%(t)s/out/script.json\n'
             'ws=%(t)s/ws app=%(t)s/ws/app remotion=%(t)s/ws/app/remote-cli engine=say fmt=%(fmt)s\n'
-            'run=%(t)s/ws/runs/run.1.test\n%(setup)s\n%(stage)s\n'
-            % {"t": self.tmp, "fmt": fmt, "stage": stage, "setup": setup})
+            'run=%(t)s/ws/runs/run.1.test\n%(setup)s\n%(stage)s\n%(after)s\n'
+            % {"t": self.tmp, "fmt": fmt, "stage": stage, "setup": setup, "after": after})
         run_env = {k: v for k, v in os.environ.items()
                    if k not in ("EXPLAIN_BRAINROT_BACKGROUNDS", "EXPLAIN_BRAINROT_SEED")}
         run_env.update(env or {})
@@ -262,7 +312,7 @@ class StageFunctionCase(unittest.TestCase):
     def test_brainrot_narration_gets_speed_1_2(self):
         self.fake(self.tmp / "scripts" / "narrate.sh",
                   'printf "%s\\n" "$*" >> ' + str(self.calls) + '\n'
-                  'echo \'{"engine": "say"}\' > "$2/durations.json"\n')
+                  'echo \'{"engine": "say", "voice": "say-default"}\' > "$2/durations.json"\n')
         run = self.run_stage("stage_narration", "brainrot")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(self.call_lines(),
@@ -273,11 +323,43 @@ class StageFunctionCase(unittest.TestCase):
     def test_film_narration_has_no_speed(self):
         self.fake(self.tmp / "scripts" / "narrate.sh",
                   'printf "%s\\n" "$*" >> ' + str(self.calls) + '\n'
-                  'echo \'{"engine": "say"}\' > "$2/durations.json"\n')
+                  'echo \'{"engine": "say", "voice": "say-default"}\' > "$2/durations.json"\n')
         run = self.run_stage("stage_narration", "film")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(self.call_lines(),
                          ["%s/out/script.json %s/out/audio --engine say" % (self.tmp, self.tmp)])
+
+    # red: the label of a narration FAIL names a fixed engine (kokoro, the old default) or none (the
+    # engine of the command line, which is empty when the check chose it) in place of the engine that
+    # the run resolved
+    def test_narration_failure_names_the_engine_given(self):
+        self.fake(self.tmp / "scripts" / "narrate.sh",
+                  'echo "narration: FAIL boom"\nexit 1\n')
+        run = self.run_stage("stage_narration", "film", setup="engine=silero")
+        self.assertEqual((run.returncode, run.stdout), (1, "narration (silero): FAIL boom\n"), run.stderr)
+
+    # red: durations.json is read without its voice key (the stage prints ok and the Narrator row has no
+    # voice to name), or a missing key is a traceback, or another line than the "cannot read" one
+    def test_durations_without_voice_cannot_be_read(self):
+        self.fake(self.tmp / "scripts" / "narrate.sh",
+                  'echo \'{"engine": "say"}\' > "$2/durations.json"\n')
+        run = self.run_stage("stage_narration", "film")
+        self.assertEqual((run.returncode, run.stdout),
+                         (1, "narration (say): FAIL cannot read %s/out/audio/durations.json\n" % self.tmp),
+                         run.stderr)
+
+    # red: the stage line names the engine of the command line in place of the one durations.json gives
+    # (a Silero run that fell back to say says "silero"), or it keeps no voice, or the voice or the
+    # fallback takes a line of its neighbour ("Milena\nfallback=no model")
+    def test_the_stage_reads_engine_voice_and_fallback_of_durations_json(self):
+        self.fake(self.tmp / "scripts" / "narrate.sh",
+                  'echo \'{"engine": "say", "voice": "Milena", "fallback": "no model"}\' '
+                  '> "$2/durations.json"\n')
+        run = self.run_stage("stage_narration", "film", setup="engine=silero",
+                             after='echo "used=[$used] voice=[$voice] fallback=[$fallback]"')
+        self.assertEqual((run.returncode, run.stdout),
+                         (0, "narration (say): ok (fallback: no model)\n"
+                             "used=[say] voice=[Milena] fallback=[no model]\n"), run.stderr)
 
     # red: the film runs the picker or prints a background line: every format gets the stage
     def test_film_runs_no_background_stage(self):
@@ -357,9 +439,10 @@ class StageFunctionCase(unittest.TestCase):
             % str(self.calls), encoding="utf-8")
         self.fake(self.tmp / "scripts" / "verify.sh", "exit 0\n")
 
-    def run_transcript(self, fmt, background=None, raw=None):
+    def run_transcript(self, fmt, background=None, raw=None, narrator="used=say voice=say-default fallback="):
         """stage_transcript for `fmt`, with `background` in build/timeline.json (or the file
-        text `raw`); returns (run, the argv lists transcript.py was called with)."""
+        text `raw`), after the shell text `narrator` (what stage_narration read); returns
+        (run, the argv lists transcript.py was called with)."""
         self.fake_transcript_tools()
         timeline = self.tmp / "out" / "build" / "timeline.json"
         if raw is not None:
@@ -370,7 +453,7 @@ class StageFunctionCase(unittest.TestCase):
                 body["background"] = background
             timeline.write_text(json.dumps(body), encoding="utf-8")
         run = self.run_stage("stage_transcript", fmt, helpers=self.TRANSCRIPT_HELPERS,
-                             setup="used=say fallback=")
+                             setup=narrator)
         calls = []
         if self.calls.exists():
             calls = [json.loads(line) for line in self.calls.read_text(encoding="utf-8").splitlines()]
@@ -378,6 +461,19 @@ class StageFunctionCase(unittest.TestCase):
 
     def transcript_args(self, *background):
         return ["%s/out/script.json" % self.tmp, "%s/out" % self.tmp, "--narrator", "say", *background]
+
+    # red: the transcript gets the engine alone ("silero"), or the voice and the fallback in the other
+    # order ("say (fallback: Milena, ...)")
+    def test_the_transcript_narrator_row_names_the_voice(self):
+        for narrator, row in (("used=silero voice=xenia fallback=", "silero (xenia)"),
+                              ("used=say voice=Milena fallback='no model'",
+                               "say (Milena, fallback: no model)")):
+            with self.subTest(row=row):
+                self.calls.unlink(missing_ok=True)
+                run, calls = self.run_transcript("film", narrator=narrator)
+                self.assertEqual((run.returncode, run.stdout), (0, "transcript: ok\n"), run.stderr)
+                self.assertEqual(calls, [["%s/out/script.json" % self.tmp, "%s/out" % self.tmp,
+                                          "--narrator", row]])
 
     # red: a brainrot run passes no --background, or a text other than "<file> @ <start %.1f> s"
     # plus " (loop)" for a looping clip (the space after @ is the spec's; the stage line has none)
@@ -458,18 +554,40 @@ except Outlived:
 sys.exit(int(os.environ.get("FAKE_REMOTION_EXIT", "0")))
 """
 
+# The fakes of RunHarness that log their call: LOG_CALL is the shell text that appends its arguments to
+# calls.log as one JSON list (the tool's name first). The fake narrate.py is FAKE_NARRATE_PY: it logs
+# ["check", *argv], then prints FAKE_CHECK_OUT when that is set (an empty value too), else
+# FAKE_CHECK_ENGINE, else the --engine value, else say, and exits FAKE_CHECK_EXIT (default 0).
+LOG_CALL = ('python3 -c \'import json, os, sys; open(os.environ["FAKE_DIR"] + "/calls.log", "a")'
+            '.write(json.dumps(sys.argv[1:]) + "\\n")\' ')
+FAKE_NARRATE_PY = """import json, os, sys
+argv = sys.argv[1:]
+with open(os.environ["FAKE_DIR"] + "/calls.log", "a") as log:
+    log.write(json.dumps(["check"] + argv) + "\\n")
+if "FAKE_CHECK_OUT" in os.environ:
+    print(os.environ["FAKE_CHECK_OUT"])
+else:
+    given = argv[argv.index("--engine") + 1] if "--engine" in argv else "say"
+    print(os.environ.get("FAKE_CHECK_ENGINE", given))
+sys.exit(int(os.environ.get("FAKE_CHECK_EXIT", "0")))
+"""
+
 # The temp tree of RunDirectoryCase, by path under FAKE_DIR: a fake of every tool render.sh calls
-# (narrate.sh and the picker log a JSON list to calls.log), and a video/ with what a checkout may
-# hold besides the sources: its own node_modules and public, and __pycache__ at two depths.
+# (narrate.py, narrate.sh, video-workspace.sh and the picker log a JSON list to calls.log), and a video/
+# with what a checkout may hold besides the sources: its own node_modules and public, and __pycache__
+# at two depths.
 RUN_FAKES = {
     "remotion": FAKE_CLI,
     "skill/scripts/video-workspace.sh":
-        '#!/bin/bash\nnm="$EXPLAIN_VIDEO_WORKSPACE/app/node_modules"\nmkdir -p "$nm/.bin"\n'
+        '#!/bin/bash\n' + LOG_CALL + 'workspace "$@"\n'
+        'nm="$EXPLAIN_VIDEO_WORKSPACE/app/node_modules"\nmkdir -p "$nm/.bin"\n'
         'cp "$FAKE_DIR/remotion" "$nm/.bin/remotion"\necho shared > "$nm/sentinel.txt"\n'
         'echo "workspace: ok $EXPLAIN_VIDEO_WORKSPACE"\n',
     "skill/scripts/narrate.sh":
-        '#!/bin/bash\necho \'["narrate"]\' >> "$FAKE_DIR/calls.log"\n'
-        'echo \'{"engine": "say"}\' > "$2/durations.json"\necho wav > "$2/s1.say.wav"\n',
+        '#!/bin/bash\n' + LOG_CALL + 'narrate "$@"\n'
+        'echo \'{"engine": "say", "voice": "say-default"}\' > "$2/durations.json"\n'
+        'echo wav > "$2/s1.say.wav"\n',
+    "skill/video/narrate.py": FAKE_NARRATE_PY,
     "skill/scripts/verify.sh": "#!/bin/bash\n",
     "skill/video/build-timeline.mjs":
         'import { writeFileSync } from "node:fs";\nconst a = process.argv.slice(2);\n'
@@ -542,10 +660,11 @@ class RunHarness:
         self.out.mkdir()
         self.cli_log = self.tmp / "remotion.jsonl"
 
-    def start(self, fmt="brainrot", **env):
+    def start(self, fmt="brainrot", engine="say", **env):
         """A Popen of the copied render.sh on a one-scene script.json of format `fmt`, in a session
-        of its own, stdout and stderr in files; `env` holds the FAKE_* settings of this run. Its cwd
-        is the temp dir, so a mutant that copies into an empty run writes nothing into the repo."""
+        of its own, stdout and stderr in files; `env` holds the FAKE_* settings of this run. `engine`
+        is the --engine value; None gives no --engine. Its cwd is the temp dir, so a mutant that copies
+        into an empty run writes nothing into the repo."""
         script = {"format": fmt, "provenance": {"root": str(self.tmp)}, "scenes": [{"id": "s1"}]}
         (self.out / "script.json").write_text(json.dumps(script), encoding="utf-8")
         self.cli_log.unlink(missing_ok=True)
@@ -553,7 +672,8 @@ class RunHarness:
         run_env.update(env, EXPLAIN_VIDEO_WORKSPACE=str(self.ws), FAKE_DIR=str(self.tmp))
         with open(self.tmp / "stdout", "w") as stdout, open(self.tmp / "stderr", "w") as stderr:
             proc = subprocess.Popen(
-                ["/bin/bash", str(self.render_sh), str(self.out), "--engine", "say"],
+                ["/bin/bash", str(self.render_sh), str(self.out),
+                 *([] if engine is None else ["--engine", engine])],
                 stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, env=run_env, cwd=self.tmp,
                 start_new_session=True, preexec_fn=default_signals)
         self.addCleanup(kill_group, proc)
@@ -586,7 +706,7 @@ class RunHarness:
         return [json.loads(line) for line in self.cli_log.read_text(encoding="utf-8").splitlines()]
 
     def tool_calls(self, tool):
-        """The argument lists that the fake `tool` (narrate, pick) was called with."""
+        """The argument lists that the fake `tool` (check, workspace, narrate, pick) was called with."""
         log = self.tmp / "calls.log"
         lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
         return [call[1:] for call in map(json.loads, lines) if call[0] == tool]
@@ -797,6 +917,53 @@ class RunDirectoryCase(RunHarness, unittest.TestCase):
         self.assertEqual(self.tool_calls("narrate"), [])
 
 
+class ScriptCheckCase(RunHarness, unittest.TestCase):
+    """The engine of a run is the one that narrate.py --check prints at the script stage; a check that
+    fails stops the run there. It runs against RUN_FAKES, whose narrate.py is FAKE_NARRATE_PY."""
+
+    def script_path(self):
+        return os.path.realpath(self.out) + "/script.json"
+
+    # red: the check gets no --engine that the command line has, so the run uses the engine of the check's
+    # default (the fake prints say) in place of the one given
+    def test_an_engine_given_goes_to_the_check_and_the_stages(self):
+        run = self.finish(self.start(engine="silero"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.tool_calls("check"), [["--check", "--engine", "silero", self.script_path()]])
+        self.assertEqual(self.tool_calls("workspace"), [["--engine", "silero"]])
+        self.assertEqual(self.tool_calls("narrate")[0][2:], ["--engine", "silero", "--speed", "1.2"])
+
+    # red: the line keeps the "narration: FAIL " prefix ("script: FAIL narration: FAIL unspoken text: ..."),
+    # or the output of the check is not printed indented below it, or the run goes on to the workspace stage
+    def test_a_check_fail_line_loses_its_prefix(self):
+        line = 'unspoken text: s1: "JSON" (add to pronounce)'
+        run = self.finish(self.start(FAKE_CHECK_OUT="narration: FAIL " + line, FAKE_CHECK_EXIT="2"))
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL " + line])
+        self.assertEqual(run.stdout.splitlines()[1:], ["  narration: FAIL " + line])
+        self.assertEqual(self.tool_calls("workspace"), [])
+
+    # red: a check that fails with no "narration: FAIL " line has no cause (the stage prints "script: FAIL"
+    # and nothing after it), or the stage takes its last line, or it goes on to the workspace stage
+    def test_a_check_without_a_fail_line_gives_its_first_cause(self):
+        run = self.finish(self.start(FAKE_CHECK_OUT="boom\nsecond", FAKE_CHECK_EXIT="1"))
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertEqual(stage_lines(run.stdout), ["script: FAIL boom"])
+        self.assertEqual(run.stdout.splitlines()[1:], ["  boom", "  second"])
+        self.assertEqual(self.tool_calls("workspace"), [])
+
+    # red: a check that exits 0 with a line that is no engine name is taken as the engine ("festival"),
+    # or an empty output is passed on as an empty --engine, or the run goes on to the workspace stage
+    def test_a_check_that_prints_no_engine_fails(self):
+        for printed in ("festival", "", "say\nkokoro"):
+            with self.subTest(printed=printed):
+                (self.tmp / "calls.log").unlink(missing_ok=True)
+                run = self.finish(self.start(FAKE_CHECK_OUT=printed, FAKE_CHECK_EXIT="0"))
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertEqual(stage_lines(run.stdout), ["script: FAIL narrate.py --check printed no engine"])
+                self.assertEqual(self.tool_calls("workspace"), [])
+
+
 class BrainrotRouteCase(unittest.TestCase):
     """The user-facing brainrot route: template, router and rung file."""
 
@@ -863,7 +1030,7 @@ class BrainrotRouteCase(unittest.TestCase):
         text = (
             "set -eu\n" + render_functions(["fail", "first_cause", "run_tool", "stage_script"]) +
             'out=%(out)s script=%(out)s/script.json video=%(video)s scripts=%(scripts)s\n'
-            'root="" fmt=unset\nstage_script\necho "fmt=$fmt"\n'
+            'root="" fmt=unset engine=""\nstage_script\necho "fmt=$fmt"\necho "engine=$engine"\n'
             % {"out": out, "video": EXPLAIN / "video", "scripts": EXPLAIN / "scripts"})
         return subprocess.run(["/bin/bash", "-c", text], capture_output=True, text=True, timeout=120)
 
@@ -876,19 +1043,22 @@ class BrainrotRouteCase(unittest.TestCase):
         brainrot["provenance"]["root"] = str(EXPLAIN)
         run = self.stage_script_format(brainrot)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
-                         (0, ["script: ok (4 scenes)", "fmt=brainrot"]), run.stdout + run.stderr)
+                         (0, ["script: ok (4 scenes)", "fmt=brainrot", "engine=kokoro"]),
+                         run.stdout + run.stderr)
         film = json.loads((EXPLAIN / "templates" / "video-script.json").read_text(encoding="utf-8"))
         film["provenance"]["root"] = str(EXPLAIN.parent.parent)
         del film["format"]
         run = self.stage_script_format(film)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
-                         (0, ["script: ok (8 scenes)", "fmt=film"]), run.stdout + run.stderr)
+                         (0, ["script: ok (8 scenes)", "fmt=film", "engine=kokoro"]),
+                         run.stdout + run.stderr)
         clip = json.loads((EXPLAIN / "templates" / "video-script.json").read_text(encoding="utf-8"))
         clip["provenance"]["root"] = str(EXPLAIN.parent.parent)
         clip["format"] = "clip"
         run = self.stage_script_format(clip)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
-                         (0, ["script: ok (8 scenes)", "fmt=clip"]), run.stdout + run.stderr)
+                         (0, ["script: ok (8 scenes)", "fmt=clip", "engine=kokoro"]),
+                         run.stdout + run.stderr)
 
 
 class E2EHelperCase(unittest.TestCase):
