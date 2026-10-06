@@ -100,22 +100,36 @@ def _load_cited(cites, root, load):
     return file_lines, files, results
 
 
-def _excused(name, not_covered):
-    return bool(name) and name in not_covered
+def _key(node):
+    """The name by which Not covered names a model element: its name, or its id when it has none."""
+    return clean(node.attrs.get("name")) or node.attrs["id"]
 
 
-def _coverage(model, covered, drawn, not_covered):
+def _named(not_covered, models):
+    """The element keys that Not covered names as whole names.
+
+    Longer keys match first and their match is blanked, so a key inside a longer key does not match there."""
+    keys = {_key(n) for m in models for n in m.nodes if n.ns == NS_MODEL and "id" in n.attrs}
+    text, found = not_covered, set()
+    for key in sorted(keys, key=lambda k: (-len(k), k)):
+        if key in text:
+            found.add(key)
+            text = text.replace(key, "\0")
+    return found
+
+
+def _coverage(model, covered, drawn, named):
     """Condition 1 and 2 lines for one file."""
     lines = []
     for plane in model.planes:
         name = clean(plane.name) or plane.id
-        if plane.id not in drawn and not _excused(name, not_covered):
+        if plane.id not in drawn and name not in named:
             lines.append("page | plane | %s (%s) has no svg.bpmn and is not in Not covered" % (plane.id, name))
     for index, node in enumerate(model.nodes):
         if node.ns != NS_MODEL or node.tag != "subProcess" or "id" not in node.attrs:
             continue
-        name = clean(node.attrs.get("name")) or node.attrs["id"]
-        if index not in covered and not _excused(name, not_covered):
+        name = _key(node)
+        if index not in covered and name not in named:
             lines.append(
                 "page | sub-process | %s (%s) has no cite and is not in Not covered" % (node.attrs["id"], name)
             )
@@ -147,7 +161,7 @@ def check_page(html, html_dir, load):
     page = _Page()
     page.feed(html)
     page.close()
-    not_covered = " ".join("".join(page.not_covered).split())
+    not_covered = " ".join(" ".join(page.not_covered).split())
     drawn = {plane for _section, plane, _ids in page.diagrams}
     file_lines, files, results = _load_cited(cites, page_root(html, html_dir), load)
     covered = {full: set() for full in files}
@@ -160,9 +174,10 @@ def check_page(html, html_dir, load):
         if failure:
             label_lines.append(failure)
     coverage_lines = []
+    named = _named(not_covered, [model for _path, model in files.values() if model is not None])
     for full, (_path, model) in files.items():
         if model is not None:
-            coverage_lines.extend(_coverage(model, covered[full], drawn, not_covered))
+            coverage_lines.extend(_coverage(model, covered[full], drawn, named))
     any_unloaded = any(model is None for _path, model in files.values())
     diagram_lines = _diagram_lines(page.diagrams, files, any_unloaded)
     return file_lines + coverage_lines + label_lines + diagram_lines, True

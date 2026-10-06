@@ -79,9 +79,15 @@ class CheckCase(unittest.TestCase):
         self.out = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.out)
 
-    def check(self, section=SECTION, not_covered=None):
-        """Build the page, optionally set the Not covered text, run check on it."""
+    def check(self, section=SECTION, not_covered=None, bpmn_edits=()):
+        """Build the page, optionally set the Not covered text and edit the .bpmn copy, run check on it."""
         page = bpmn_page(self.out, section)
+        if bpmn_edits:
+            copy = self.out / "two_planes.bpmn"
+            text = copy.read_text(encoding="utf-8")
+            for old, new in bpmn_edits:
+                text = replace_once(text, old, new)
+            copy.write_text(text, encoding="utf-8")
         if not_covered is not None:
             text = page.read_text(encoding="utf-8")
             text = replace_once(
@@ -130,6 +136,30 @@ class CheckCase(unittest.TestCase):
             "page | sub-process | EventSub_1 (Ошибка в процессе) has no cite and is not in Not covered\n", out
         )
         code, out, _err = self.check(section, "Ошибка в процессе")
+        self.assertEqual((code, out), (0, "bpmn: ok\n"))
+
+    def test_longer_name_in_not_covered_does_not_excuse_its_prefix(self):
+        """Red when Not covered matches by substring: "Первичная проверка СМЭВ4" then excuses STAGE_A."""
+        longer = "Первичная проверка СМЭВ4"
+        section = replace_once(SECTION, '<span class="bpmn-label">Ошибка в процессе</span>',
+                               '<span class="bpmn-label">%s</span>' % longer)
+        for needle in ('<bpmn:subProcess id="STAGE_A"', 'name="Первичная проверка">'):
+            section = without_cites(section, line_of(needle))
+        edits = [('name="Ошибка в процессе"', 'name="%s"' % longer)]
+        code, out, _err = self.check(section, longer, edits)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(
+            out,
+            "page | sub-process | STAGE_A (Первичная проверка) has no cite and is not in Not covered\n"
+            "bpmn: 1 failures\n",
+        )
+        code, out, _err = self.check(section, "%s; Первичная проверка" % longer, edits)
+        self.assertEqual((code, out), (0, "bpmn: ok\n"))
+
+    def test_not_covered_chunks_join_with_a_space(self):
+        """Red when the text chunks of p.not-covered join with "": a <br> then merges two words."""
+        section = without_cites(SECTION, line_of('id="EventSub_1"'))
+        code, out, _err = self.check(section, "Ошибка в<br>процессе")
         self.assertEqual((code, out), (0, "bpmn: ok\n"))
 
     def test_cite_of_a_child_does_not_cover_its_sub_process(self):
