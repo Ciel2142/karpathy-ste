@@ -32,7 +32,10 @@ other title of video.md and no section number; each shared title is one heading 
 section holds no film value; brainrot.md holds its own rules, among them the components table.
 
 SkillMdCase ties SKILL.md to the rungs: step 2 of its Build procedure names the scene directory, and its
-bullets under Rung files describe the film in video.md and the components in brainrot.md."""
+bullets under Rung files describe the film in video.md, the components in brainrot.md and the clips and
+gates in lesson.md. It pins the texts that route `--as lesson` (the rung row, the bullet, the conventions
+and the build step), and it ties the `--as` list of README.md to the argument-hint of SKILL.md and the
+README rows of the lesson rung to the files that they name."""
 
 import ast
 import json
@@ -53,6 +56,7 @@ VIDEO_MD = EXPLAIN / "rungs" / "video.md"
 LESSON_MD = EXPLAIN / "rungs" / "lesson.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
+README_MD = REPO / "README.md"
 STE_LINT = "skills/ste/scripts/ste_lint.py"  # relative to REPO, where lint runs it
 
 FILM_ORDER = ("script", "workspace", "scene", "narration", "timeline", "guard", "render", "container", "sync",
@@ -718,6 +722,12 @@ class BrainrotRungCase(unittest.TestCase):
         self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
 
 
+# The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.
+LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections "
+              "carry short narrated clips where motion explains better than a still | A subsystem with two to "
+              "four moving parts |")
+
+
 class SkillMdCase(unittest.TestCase):
     def bullets(self):
         """The bullets of section "Rung files" of SKILL.md: each is its "- " line and the indented lines below
@@ -748,6 +758,52 @@ class SkillMdCase(unittest.TestCase):
         self.assertNotIn("components", video)
         self.assertNotIn("cue rule", video)
         self.assertIn("components", brainrot)
+
+    # red: the lesson row marked as chosen from content (it loses "Forced only"), the rung table without
+    # the row or with a second one, the conventions list without `lesson`, convention 3 without the
+    # exception or without one of its three links, convention 5 without the pointer to rungs/lesson.md,
+    # convention 6 without the lesson, step 2 without the build sentence, the bullet without the clips
+    # or the gates, or the rule bullet without "Only `--as lesson` selects it."
+    def test_skill_md_routes_the_lesson_rung(self):
+        text = read(SKILL_MD)
+        rows = [line for line in text.split("\n") if line.startswith("| `lesson`")]
+        self.assertEqual(rows, [LESSON_ROW])
+        flat = " ".join(text.split())  # the rules wrap over lines
+        for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
+                         "The lesson rung is English only, like the video rung.",
+                         "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
+                         "`brainrot`, `lesson`).",
+                         "(sheet, page or lesson)"):
+            self.assertIn(sentence, flat)
+        conventions = section(text, "Conventions")
+        three = " ".join(re.search(r"^3\. .*?(?=^4\. )", conventions, re.M | re.S).group(0).split())
+        self.assertIn("For the `lesson` rung, the artifact is the output directory.", three)
+        for link in ("`clips/<id>/video.mp4`", "`clips/<id>/poster.png`", "`clips/<id>/index.html`"):
+            self.assertIn(link, three)
+        five = " ".join(re.search(r"^5\. .*?(?=^6\. )", conventions, re.M | re.S).group(0).split())
+        self.assertIn("For a lesson, `rungs/lesson.md` lists the contents.", five)
+        body = section(text, "Build procedure").split("\n")
+        start = next(i for i, line in enumerate(body) if line.startswith("2. "))
+        end = next(i for i, line in enumerate(body) if line.startswith("3. "))
+        self.assertIn("For a lesson, the rung file replaces steps 3 to 6.", " ".join(" ".join(body[start:end]).split()))
+        lesson = self.bullets()["<skill-dir>/rungs/lesson.md"]
+        self.assertIn("clips", lesson)
+        self.assertIn("gates", lesson)
+        self.assertTrue(LESSON_MD.is_file(), "rungs/lesson.md does not exist")
+
+    # red: the README list of `--as` rungs left at five names (or in another order than the hint of SKILL.md),
+    # the Requirements row of `lesson` missing or reworded, the layout line without lesson.md or lesson/, or
+    # the tests block without the line of tests.test_lesson_e2e
+    def test_readme_names_the_lesson_rung(self):
+        readme = read(README_MD)
+        hint = re.search(r'^argument-hint: "<subject> \[--as ([^\]]*)\]"$', read(SKILL_MD), re.M)
+        self.assertIsNotNone(hint, "no argument-hint line")
+        self.assertEqual(re.findall(r"/explain <subject> \[--as ([^\]]*)\]", readme), [hint.group(1)])
+        rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
+        self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
+        self.assertIn("rungs/{sheet,page,video,brainrot,lesson}.md", readme)
+        self.assertIn("lesson/", readme)
+        self.assertIn("tests.test_lesson_e2e", readme)
 
 
 if __name__ == "__main__":
