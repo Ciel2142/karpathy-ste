@@ -90,8 +90,7 @@ PROBE = """<script>
 # Play all, two clips: one row per step that PLAY_PROBE drives, in order. A row holds the
 # step; then clip 1 and clip 2, each "+" (it plays) or "-" (it does not), the text of its
 # .part, and "@t" when its currentTime is t, not 0; then the id of the section that the
-# step scrolled into view, or "". The probe's play() fires "play" at once and its pause()
-# delivers "pause" after the step, so a run that pauses the clip it plays ends at once.
+# step scrolled into view, or "".
 PLAY_ALL_TRACE = [
     ("click", "+Part 1 of 2", "-", "structure"),    # a run starts from clip 1
     ("end 1", "-", "+Part 2 of 2", "code"),         # "pause" (ended true), "ended": next clip
@@ -103,35 +102,48 @@ PLAY_ALL_TRACE = [
     ("pause 1", "-", "-", ""),                      # the reader's pause ends the run
     ("click", "+Part 1 of 2", "-", "structure"),
     ("play 2", "-", "+", ""),                       # play on another clip ends the run
-    ("reject 1", "-", "+", ""),                     # a late rejection after the run: no effect
     ("click", "+Part 1 of 2", "-", "structure"),    # the run pauses the reader's clip 2
     ("end 1", "-", "+Part 2 of 2", "code"),
     ("click", "+Part 1 of 2", "-", "structure"),    # a click restarts the run from clip 1
+    ("late 2", "+Part 1 of 2", "-", ""),            # clip 2 ran out as the reader clicked
     ("seek 1", "+Part 1 of 2@7", "-", ""),
     ("click", "+Part 1 of 2", "-", "structure"),    # a restart on clip 1: rewind, no pause
     ("missing 1", "-", "+Part 2 of 2", "code"),     # error, then the rejection: one skip
+    ("click", "-", "+Part 2 of 2", "code"),         # clip 1 is now broken: play() rejects at
+    ("click", "-", "+Part 2 of 2", "code"),         # once; stale events of clip 2: no effect
 ]
 
-# Stubs play(), pause() and scrollIntoView() so that no media loads, then, when the guard
-# writes data-verify, runs the steps (STEPS: the step column of PLAY_ALL_TRACE) and
-# appends ";TRACE:" and one entry per step, read from the DOM and from the stubs, never
-# from the Play all code. play() on a clip that does not play fires "play" at once (a
-# browser fires it later) and returns an object whose catch() keeps the handler, so a
-# step can reject the promise. pause() on a playing clip queues "pause", delivered after
-# the step, as a browser fires it later. A script error in a step appends ";THROWN".
+# Stubs play(), pause(), paused and scrollIntoView() so that no media loads, then, when
+# the guard writes data-verify, runs the steps (STEPS: the step column of PLAY_ALL_TRACE)
+# and appends ";TRACE:" and one entry per step, read from the DOM and from the stubs,
+# never from the Play all code. The stubs model a browser. play() on a clip that does
+# not play fires "play" at once (a browser fires it later) and returns an object whose
+# catch() keeps the handler, so a step can reject the promise. On a broken clip (after
+# "missing") catch() calls the handler at once and nothing plays. pause() on a playing
+# clip queues "pause", then the stale rejection of its pending play(); the probe
+# delivers them after the step, as a browser does later. paused is true when the clip
+# does not play. A script error in a step appends ";THROWN".
 PLAY_PROBE = """<script>
 (function () {
   var doc = document.documentElement, original = doc.setAttribute;
-  var queued = [], scrolled = "";
+  var queued = [], scrolled = "", media = HTMLMediaElement.prototype;
   function fire(el, type) { el.dispatchEvent(new Event(type)); }
-  HTMLMediaElement.prototype.play = function () {
+  media.play = function () {
     var el = this;
+    el.probeReject = null;   /* a new promise */
+    if (el.probeBroken) {   /* a browser rejects it at once: error code 4 */
+      return { catch: function (handler) { handler(new Error("NotSupportedError")); } };
+    }
     if (!el.probePlays) { el.probePlays = true; fire(el, "play"); }
     return { catch: function (handler) { el.probeReject = handler; } };
   };
-  HTMLMediaElement.prototype.pause = function () {
-    if (this.probePlays) { this.probePlays = false; queued.push(this); }
+  media.pause = function () {
+    var el = this, handler = el.probeReject;
+    if (!el.probePlays) return;
+    el.probePlays = false; el.probeReject = null;
+    queued.push(function () { fire(el, "pause"); if (handler) handler(new Error("AbortError")); });
   };
+  Object.defineProperty(media, "paused", { get: function () { return !this.probePlays; } });
   Element.prototype.scrollIntoView = function () { scrolled = this.id; };
   doc.setAttribute = function (name, value) {
     if (name === "data-verify") {
@@ -152,10 +164,13 @@ PLAY_PROBE = """<script>
           delete clips[i].ended;
         },
         reject: reject,
+        late: function (i) { fire(clips[i], "ended"); },   /* an "ended" queued earlier */
         error: function (i) {   /* mid-clip: play() resolved before, thus only "error" */
           clips[i].probePlays = false; clips[i].probeReject = null; fire(clips[i], "error");
         },
-        missing: function (i) { fire(clips[i], "error"); reject(i); },   /* no file */
+        missing: function (i) {   /* no file: "error", the rejection; then broken */
+          fire(clips[i], "error"); reject(i); clips[i].probeBroken = true;
+        },
         pause: function (i) { clips[i].pause(); },   /* the reader pauses */
         play: function (i) { clips[i].play(); },     /* the reader plays */
         seek: function (i) { clips[i].currentTime = 7; }   /* the clip is at 7 s */
@@ -164,7 +179,7 @@ PLAY_PROBE = """<script>
         var word = steps[s].split(" "), row = [];
         scrolled = "";
         actions[word[0]](word[1] - 1);
-        while (queued.length) fire(queued.shift(), "pause");
+        while (queued.length) queued.shift()();
         for (c = 0; c < clips.length; c++) {
           var time = clips[c].currentTime;
           row.push((clips[c].probePlays ? "+" : "-") +
