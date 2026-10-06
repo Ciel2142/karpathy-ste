@@ -9,7 +9,8 @@
 // the render.
 //
 // The stage also measures the text of the film (spec 7.3): at each frame of the timeline's checkFrames it
-// measures every <text> of the stage and hands the measures to kit/guard.ts. A frame with a fault ends the
+// measures every <text> of the stage and hands the measures to kit/guard.ts, with the floor of the timeline's
+// minText (from the format row: 14 px for a film, 19 px for a clip). A frame with a fault ends the
 // render through cancelRender, with the guard's stage line as the message, which render.sh reads from the
 // log of the guard pass. It measures in a layout effect, which runs in the commit that draws the frame and
 // before the frame is captured: the measured tree is the tree that ships. It measures in every render of
@@ -17,7 +18,7 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ReactElement } from "react";
 import { Html5Audio, Sequence, cancelRender, staticFile, useCurrentFrame } from "remotion";
-import { C, MIN_TEXT, STAGE } from "./kit";
+import { C, STAGE } from "./kit";
 import type { Source } from "./kit";
 import { faultsOf, guardLine } from "./kit/guard";
 import type { Measured } from "./kit/guard";
@@ -67,7 +68,7 @@ const measure = (stage: SVGSVGElement): Measured[] => {
 };
 
 export function FilmStage(timeline: FilmTimeline): ReactElement {
-  const { scenes, sources: declared, checkFrames } = timeline;
+  const { scenes, sources: declared, checkFrames, minText } = timeline;
   const frame = useCurrentFrame();
   const stage = useRef<SVGSVGElement>(null);
   const at = useMemo(() => makeAt<SceneId>(scenes), [scenes]);
@@ -81,9 +82,9 @@ export function FilmStage(timeline: FilmTimeline): ReactElement {
   useLayoutEffect(() => {
     const entry = checkFrames.find((check) => check.frame === frame);
     if (entry === undefined || stage.current === null) return;
-    const faults = faultsOf(measure(stage.current), STAGE, MIN_TEXT);
+    const faults = faultsOf(measure(stage.current), STAGE, minText);
     if (faults.length > 0) cancelRender(new Error(guardLine(frame, entry.scene, faults)));
-  }, [frame, checkFrames]);
+  }, [frame, checkFrames, minText]);
   return (
     <>
       <svg

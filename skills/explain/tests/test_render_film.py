@@ -46,7 +46,9 @@ times, stops at its first check frame with the same four faults each time; a lab
 frame alone (a file added the same way) stops at the last check frame; a label whose <tspan> is smaller than
 the label (a file added the same way) stops with the size of the <tspan>; the mark plant (the word of the first
 at("subject", { word: "subject" }) of Film.tsx written as "zebra": no file added) stops with the guard's
-mark line. FilmRenderCase is their control. Each test names the mutation that turns it red."""
+mark line; the example as a clip (script.json "format" set to "clip": no file added) stops at the floor of
+a clip, 19 px, with SMALLTEXT faults between 14 and 19 px. FilmRenderCase is their control. Each test names
+the mutation that turns it red."""
 
 import atexit
 import importlib.util
@@ -513,7 +515,7 @@ class GuardStageCase(unittest.TestCase):
         (self.out / "audio" / "a.say.wav").write_bytes(b"clip")
         self.timeline = self.out / "build" / "timeline.json"
         self.timeline.write_text(json.dumps({
-            "scenes": [{"id": "a", "audio": "audio/a.say.wav"}],
+            "scenes": [{"id": "a", "audio": "audio/a.say.wav"}], "minText": 14,
             "checkFrames": [{"frame": 12, "scene": "a", "still": "s1"},
                             {"frame": 47, "scene": "b", "still": "s1"},
                             {"frame": 89, "scene": "b", "still": "end"}]}), encoding="utf-8")
@@ -609,6 +611,40 @@ class GuardStageCase(unittest.TestCase):
                                  (1, "guard: FAIL cannot read %s\n" % self.timeline, ""))
                 self.assertEqual(self.passes(), [])
 
+    # red: the read ignores minText (a timeline with no floor reaches the pass: in JavaScript `px < undefined`
+    # is false, so the size rule is off with no message), takes any value that is present (a string, true,
+    # null), takes 0 or less, or refuses a fractional floor. `true` is no number, though it is an int in Python
+    def test_a_timeline_without_a_floor_cannot_be_read(self):
+        def with_min_text(*value):
+            def edit():
+                timeline = json.loads(self.timeline.read_text(encoding="utf-8"))
+                timeline.pop("minText", None)
+                if value:
+                    timeline["minText"] = value[0]
+                self.timeline.write_text(json.dumps(timeline), encoding="utf-8")
+            return edit
+
+        cases = (
+            ("minText removed", with_min_text()),
+            ('minText "14"', with_min_text("14")),
+            ("minText true", with_min_text(True)),
+            ("minText null", with_min_text(None)),
+            ("minText 0", with_min_text(0)),
+            ("minText -1", with_min_text(-1)),
+        )
+        for name, edit in cases:
+            with self.subTest(case=name):
+                edit()
+                done = self.guard()
+                self.assertEqual((done.returncode, done.stdout, done.stderr),
+                                 (1, "guard: FAIL cannot read %s\n" % self.timeline, ""))
+                self.assertEqual(self.passes(), [])
+        with self.subTest(case="minText 14.5"):
+            with_min_text(14.5)()
+            done = self.guard()
+            self.assertEqual((done.returncode, done.stdout), (0, "guard (3 frames): ok\n"), done.stderr)
+            self.assertEqual(len(self.passes()), 1)
+
     # red: the failure of the copy is ignored and the pass runs (and a stage line follows), or the line
     # names no clip
     def test_a_clip_that_cannot_be_copied(self):
@@ -628,10 +664,11 @@ FAKE_TYPES = (
     '  process.exit(0);\n'
     '}\n')
 
-# The timeline that build-timeline.mjs of SceneRunCase writes: that of RUN_FAKES, with the checkFrames of a
-# film: frame 3 (the middle of sentence 1) and frame 89 (the last frame) of scene s1.
+# The timeline that build-timeline.mjs of SceneRunCase writes: that of RUN_FAKES, with the minText of a film
+# (the guard refuses a timeline with none) and the checkFrames of a film: frame 3 (the middle of sentence 1)
+# and frame 89 (the last frame) of scene s1.
 FAKE_CHECK_FRAMES = (
-    ', checkFrames: [{frame: 3, scene: "s1", still: "s1"}, {frame: 89, scene: "s1", still: "end"}]')
+    ', minText: 14, checkFrames: [{frame: 3, scene: "s1", still: "s1"}, {frame: 89, scene: "s1", still: "end"}]')
 FAKE_FILM_TIMELINE = RUN_FAKES["skill/video/build-timeline.mjs"].replace(
     'background: {kind: "generated"}', 'background: {kind: "generated"}' + FAKE_CHECK_FRAMES)
 
@@ -1097,8 +1134,9 @@ class GuardPlantCase(unittest.TestCase):
     """The browser rules of the guard (spec 7.3), proven on planted films: film_output(edit), the output
     directory of FilmRenderCase with one edit, rendered by render.sh --engine say. Three plants add a scene
     file to it by add_to_film (the planted film, a label off the canvas at the last frame alone, a label with
-    a small <tspan>); the mark plant adds none and only changes the word of a mark in Film.tsx. Each stops
-    at the guard: render.sh exits 1 after the timeline, with no render line and no video.mp4.
+    a small <tspan>); the mark plant and the clip plant add none: the first changes the word of a mark in
+    Film.tsx, the second the format of script.json. Each stops at the guard: render.sh exits 1 after the
+    timeline, with no render line and no video.mp4.
     FilmRenderCase, with the same output directory and no edit, is their control. The expected lines come
     from the plants and the run's own checkFrames."""
 
@@ -1165,6 +1203,28 @@ class GuardPlantCase(unittest.TestCase):
             lambda out: add_to_film(self, out, "Tiny", TINY, "<Tiny />"))
         self.assertEqual(last, 'guard: FAIL frame %d (scene subject): SMALLTEXT 10.0 px "big tiny"'
                          % check_frames[0]["frame"])
+
+    def test_a_clip_holds_the_example_to_its_floor(self):
+        """Red: FilmStage passes the MIN_TEXT of the palette to the guard and not the minText of its timeline
+        (the clip passes the guard at 14 px, and the run exits 0). The example as a film is the control: it
+        passes (FilmRenderCase). As a clip, the labels of 16 px (WordBar.tsx, Film.tsx) and of 18 px (Forms.tsx)
+        are below the 19 px floor: text that passes a film fails a clip."""
+        def as_clip(out):
+            script = json.loads((out / "script.json").read_text(encoding="utf-8"))
+            script["format"] = "clip"
+            (out / "script.json").write_text(json.dumps(script, indent=2), encoding="utf-8")
+
+        out, last, check_frames = self.stops_at_the_guard(as_clip, added=0)
+        timeline = json.loads((out / "build" / "timeline.json").read_text(encoding="utf-8"))
+        self.assertEqual(timeline["minText"], 19)
+        found = re.fullmatch(r"guard: FAIL frame (\d+) \(scene ([a-z0-9-]+)\): (.+)", last)
+        self.assertIsNotNone(found, last)
+        frame, scene, faults = int(found.group(1)), found.group(2), found.group(3)
+        self.assertIn((frame, scene), [(check["frame"], check["scene"]) for check in check_frames])
+        for fault in re.sub(r" \(\+\d+ more\)$", "", faults).split("; "):
+            small = re.fullmatch(r'SMALLTEXT (\d+\.\d) px ".+"', fault)
+            self.assertIsNotNone(small, fault)
+            self.assertTrue(14 <= float(small.group(1)) < 19, fault)
 
 
 if __name__ == "__main__":

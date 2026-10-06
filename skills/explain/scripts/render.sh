@@ -112,7 +112,8 @@
 #       browser, a bundle error, a clip it could not fetch). The last 40 log lines follow, indented.
 #   guard: FAIL cannot read <out>/build/timeline.json
 #       The timeline is absent or not JSON, or holds no checkFrames, or a frame that is not an
-#       integer of 0 or more. No pass runs.
+#       integer of 0 or more, or has no minText that is a number above 0 (the text floor of its
+#       format: without it the size rule would be off). No pass runs.
 #   guard: FAIL cannot copy <out>/<clip>
 #       A narration clip of the timeline could not be copied into the run directory. No pass runs.
 #
@@ -476,10 +477,14 @@ stage_guard() {
     info=$(python3 - "$timeline" <<'PY'
 import json, sys
 try:
-    frames = [check["frame"] for check in json.load(open(sys.argv[1], encoding="utf-8"))["checkFrames"]]
+    timeline = json.load(open(sys.argv[1], encoding="utf-8"))
+    frames = [check["frame"] for check in timeline["checkFrames"]]
+    min_text = timeline.get("minText")
 except (OSError, ValueError, KeyError, TypeError):
     sys.exit(1)
 if not frames or not all(type(f) is int and f >= 0 for f in frames):
+    sys.exit(1)
+if type(min_text) not in (int, float) or not min_text > 0:
     sys.exit(1)
 print(len(frames))
 print(",".join("%d-%d" % (f, f) for f in frames))
