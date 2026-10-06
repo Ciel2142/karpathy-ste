@@ -64,6 +64,15 @@ def film_script():
     }
 
 
+def tool_with_formats(directory, rows):
+    """A copy of the tool in <directory>/tool with `rows` as the formats.json beside it; its path."""
+    tool_dir = Path(directory) / "tool"
+    tool_dir.mkdir()
+    shutil.copy(TOOL, tool_dir / TOOL.name)
+    (tool_dir / "formats.json").write_text(json.dumps(rows), encoding="utf-8")
+    return tool_dir / TOOL.name
+
+
 class TestFilmCheck(VideoCase):
     def scenes_of(self, script, count):
         """`count` scenes: copies of the first scene with the ids s1, s2, ..."""
@@ -255,13 +264,10 @@ class TestFilmCheck(VideoCase):
 
     def check_with_formats(self, rows, script):
         """--check of `script` by a copy of the tool that has `rows` as its own formats.json."""
-        tool_dir = Path(self.dir) / "tool"  # a copy of the tool, with its own formats.json beside it
-        tool_dir.mkdir()
-        shutil.copy(TOOL, tool_dir / TOOL.name)
-        (tool_dir / "formats.json").write_text(json.dumps(rows), encoding="utf-8")
+        tool = tool_with_formats(self.dir, rows)
         path = self.write_json("script.json", script)
         return subprocess.run(
-            ["node", str(tool_dir / TOOL.name), "--check", path, "--root", self.dir],
+            ["node", str(tool), "--check", path, "--root", self.dir],
             capture_output=True,
             text=True,
             cwd=self.dir,
@@ -557,21 +563,22 @@ class TestFilmBuild(FilmBuildCase):
 
     def test_film_top_level_values(self):
         """Red: build mode keeps the canvas or budgets of another row for a film, totalFrames
-        is not the sum of the scenes, the engine is not written, `sources` or `checkFrames` is
-        missing, or the timeline gains a key such as `background`."""
+        is not the sum of the scenes, the engine is not written, `sources`, `checkFrames` or
+        `minText` is missing or `minText` is not 14, or the timeline gains a key such as `background`."""
         timeline = self.built()
         self.assertEqual(
             (timeline["format"], timeline["fps"], timeline["width"], timeline["height"]),
             ("film", 30, 1280, 720),
         )
         self.assertEqual((timeline["maxSceneSeconds"], timeline["maxTotalSeconds"]), (30, 150))
+        self.assertEqual(timeline["minText"], 14)
         self.assertEqual(timeline["engine"], "say")
         self.assertEqual(timeline["totalFrames"], 597)
         self.assertEqual(
             sorted(timeline),
             sorted(
                 ["format", "fps", "width", "height", "totalFrames", "maxSceneSeconds",
-                 "maxTotalSeconds", "engine", "sources", "checkFrames", "scenes"]
+                 "maxTotalSeconds", "minText", "engine", "sources", "checkFrames", "scenes"]
             ),
         )
 

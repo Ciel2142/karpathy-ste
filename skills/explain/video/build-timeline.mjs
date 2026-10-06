@@ -18,7 +18,8 @@
 // --check prints it, then validates the rest of the script as a film, with the film row. Build mode prints it
 // alone, exits 1 and writes no file.
 // A clip is a film with its own row: a film of at most 60 s, with fewer source lines. Everything below that
-// is said of a film holds for a clip; only the limits and the tag come from the clip row.
+// is said of a film holds for a clip; only the limits, the tag and the minText of the timeline come from the
+// clip row.
 // Every per-format limit lives in formats.json, next to this file.
 //
 // A film script has no components: its scenes carry id, narration, cites and an optional pause
@@ -89,6 +90,8 @@
 //       id (a plain object: an id such as "2" or "10" serialises first, in numeric order, before the other
 //       ids in script order), each tab replaced by 4 spaces; {} when the film has none (absent and [] mean
 //       the same)
+//   "minText": <n>    the text floor of the guard in px: minText of the row of the format (film 14, clip 19);
+//       a brainrot timeline has no such key
 //   "checkFrames": [{ "frame", "scene", "still" }]    film frames for the guard's stills, in script order:
 //       for each scene one entry per sentence at from + floor((start + end) / 2), start and end being the
 //       scene-relative frames of the sentence's from and to (as for the words), still "s<k>" from k = 1;
@@ -100,12 +103,12 @@
 //
 // --types takes exactly <script.json> and <out.ts>; with --check, with --root or with another number of
 // arguments it is a usage error. It reads the script only (no other file, no durations, no words), needs
-// a film script ("format": "film" or no "format" key) and checks only that "scenes" is an array, that
+// a film script ("format": "film" or "clip", or no "format" key) and checks only that "scenes" is an array, that
 // "sources", when present, is an array, and that every scene and every source is an object whose id is a
 // string matching [a-z0-9-] (the scene id pattern), so an id can never close the string it is written
 // into; every other rule is --check's.
 // FAIL lines (exit 1, no file written; a read error is one of readJson's two lines):
-//   FAIL script: --types needs a film script      not an object, or a "format" key other than "film"
+//   FAIL script: --types needs a film script      not an object, or a "format" key other than "film" or "clip"
 //                                                 (brainrot, or a value that --check refuses)
 //   FAIL script: scenes must be an array
 //   FAIL script: sources must be an array         present and not an array
@@ -252,7 +255,8 @@ const has = (object, key) => Object.hasOwn(object, key);
 const formatOf = (script) => (has(script, "format") ? script.format : "film");
 // A name of FORMAT_NAMES, never a row of formats.json that is not in that list.
 const knownFormat = (format) => typeof format === "string" && FORMAT_NAMES.includes(format);
-// --check validates every format but brainrot as a film: a refused value gets the film rules and row.
+// A film is every format but brainrot: build mode and --types take it as one (they refuse an unknown value),
+// and --check validates a refused value as one too.
 const filmRules = (format) => format !== "brainrot";
 // The row --check reads: the script's own for a known format, the film row for a refused value.
 const rowOf = (format) => FORMATS[knownFormat(format) ? format : "film"];
@@ -917,9 +921,10 @@ const idFailures = (kind, entries) =>
 // A union of string literals, `never` when there are no ids.
 const union = (entries) => (entries.length === 0 ? "never" : entries.map((entry) => q(entry.id)).join(" | "));
 
-// The text of the types file of a film script, or the FAIL lines that refuse it.
+// The text of the types file of a film script (a clip is one), or the FAIL lines that refuse it.
 const typesOf = (script) => {
-  if (!isObject(script) || formatOf(script) !== "film") {
+  const format = isObject(script) ? formatOf(script) : undefined;
+  if (!knownFormat(format) || !filmRules(format)) {
     return { failures: ["FAIL script: --types needs a film script"] };
   }
   const scenes = has(script, "scenes") ? script.scenes : undefined;
@@ -1011,7 +1016,7 @@ const main = () => {
   const limits = FORMATS[format];
   const wordsDir = path.dirname(durationsFile);
   const addFailure = (line) => failures.push(line);
-  const isFilm = format === "film";
+  const isFilm = filmRules(format);
   // A film's source faults come before its scene faults, as in --check.
   const sources = isFilm ? buildSources(script.value, root, limits, tagOf(format), addFailure) : undefined;
   const film = isFilm ? buildFilmScenes(script.value, durations.value, engine, addFailure, limits, wordsDir) : undefined;
@@ -1020,9 +1025,11 @@ const main = () => {
     : buildScenes(script.value, durations.value, engine, root, addFailure, limits, wordsDir);
   if (failures.length > 0) finish(failures);
   const totalFrames = scenes.reduce((sum, s) => sum + s.durationInFrames, 0);
-  const { width, height, maxSceneSeconds, maxTotalSeconds } = limits;
+  const { width, height, maxSceneSeconds, maxTotalSeconds, minText } = limits;
   const head = { format, fps: FPS, width, height, totalFrames, maxSceneSeconds, maxTotalSeconds, engine };
-  const timeline = isFilm ? { ...head, sources, checkFrames: film.checkFrames, scenes } : { ...head, scenes };
+  const timeline = isFilm
+    ? { ...head, minText, sources, checkFrames: film.checkFrames, scenes }
+    : { ...head, scenes };
   writeOutput(outFile, JSON.stringify(timeline, null, 2) + "\n");
 };
 
