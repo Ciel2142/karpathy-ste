@@ -28,8 +28,9 @@ FILM_ROW = {
     "leadFrames": 6,
     "pauseFrames": 12,
     "sourceLines": 20,
+    "minText": 14,
 }
-FORMAT_LINE = "FAIL script: format must be film or brainrot"
+FORMAT_LINE = "FAIL script: format must be film, brainrot or clip"
 
 
 def film_script():
@@ -268,21 +269,21 @@ class TestFilmCheck(VideoCase):
 
     def test_formats_file_without_the_film_row_fails_cleanly(self):
         """Red: the loader does not want the film row (a formats.json without film is accepted and
-        the film check then reads an undefined row), or the cause text is not the two-row one."""
+        the film check then reads an undefined row), or the cause text is not the three-row one."""
         rows = json.loads(FORMATS.read_text(encoding="utf-8"))
         del rows["film"]
         result = self.check_with_formats(rows, film_script())
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(
             result.stdout,
-            "FAIL script: cannot read formats.json: expected an object with a film and a brainrot row\n",
+            "FAIL script: cannot read formats.json: expected an object with a film, a brainrot and a clip row\n",
         )
         self.assertEqual(result.stderr, "")
 
     def test_an_extra_row_does_not_make_a_format(self):
         """Red: knownFormat reads the rows of formats.json (has(FORMATS, format)), so a row beyond
-        the two real ones makes its name valid. The copy of the tool has the two real rows and a
-        third, "slides", a copy of the brainrot row."""
+        the three real ones makes its name valid. The copy of the tool has the three real rows and a
+        fourth, "slides", a copy of the brainrot row."""
         rows = json.loads(FORMATS.read_text(encoding="utf-8"))
         rows["slides"] = copy.deepcopy(rows["brainrot"])
         script = film_script()

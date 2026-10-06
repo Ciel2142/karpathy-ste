@@ -12,19 +12,21 @@
 // Exit 2 on a usage error. FAIL lines go to stdout. Build mode does not re-run the
 // budgets: render.sh runs --check first.
 //
-// script.json may carry "format": "film" (the default when absent) or "brainrot". Any other value is refused
-// with the line
-//   FAIL script: format must be film or brainrot
-// --check prints it, then validates the rest of the script as a film. Build mode prints it alone, exits 1
-// and writes no file.
+// script.json may carry "format": "film" (the default when absent), "brainrot" or "clip". Any other value is
+// refused with the line
+//   FAIL script: format must be film, brainrot or clip
+// --check prints it, then validates the rest of the script as a film, with the film row. Build mode prints it
+// alone, exits 1 and writes no file.
+// A clip is a film with its own row: a film of at most 60 s, with fewer source lines. Everything below that
+// is said of a film holds for a clip; only the limits and the tag come from the clip row.
 // Every per-format limit lives in formats.json, next to this file.
 //
 // A film script has no components: its scenes carry id, narration, cites and an optional pause
 // (frames of silence after the audio, an integer from 12 to 90), and the script may carry a
 // top-level "sources" array. "sources" is an allowed top-level key of a film only; "pause" is a scene key
 // of a film only. --check applies to a film the rules that brainrot has too (the scene count, the keys, the
-// ids, the narration and the cites), with the same lines and the tag ", film" (", brainrot" for brainrot)
-// ending a line that names a limit, for example
+// ids, the narration and the cites), with the same lines and the tag ", film" (", brainrot" for brainrot,
+// ", clip" for a clip; ", film" for a refused format) ending a line that names a limit, for example
 //   FAIL script: <n> scenes (needs 3 to 30, film)
 // and two lines new to film, prefix "FAIL scene <id>: ":
 //   a film scene has no component or props    one line, for either key or both
@@ -130,12 +132,12 @@ const MIN_CUE_GAP = 15;
 const MIN_PAUSE = 12;
 const MAX_PAUSE = 90;
 const TAB_COLUMNS = 4;
-// The two formats. The list is fixed: another row of formats.json (a stale one) does not make a format.
-const FORMAT_NAMES = ["film", "brainrot"];
+// The three formats. The list is fixed: another row of formats.json (a stale one) does not make a format.
+const FORMAT_NAMES = ["film", "brainrot", "clip"];
 // Limits per format. The brainrot values were tuned in the brainrot live run (spec 3.4) and the film
-// values are the spec starting values; change them in formats.json only. The film row holds no
+// values are the spec starting values; change them in formats.json only. The film and clip rows hold no
 // component limit: a film has no components.
-// A file that is missing, unreadable, not JSON or without the film and the brainrot row ends the run here:
+// A file that is missing, unreadable, not JSON or without the film, the brainrot and the clip row ends the run here:
 // the FAIL line and exit 1 (the same as finish, which is not defined yet at load time).
 const loadFormats = () => {
   let cause;
@@ -143,7 +145,7 @@ const loadFormats = () => {
     const rows = JSON.parse(fs.readFileSync(new URL("./formats.json", import.meta.url), "utf8"));
     const isRow = (row) => typeof row === "object" && row !== null && !Array.isArray(row);
     if (FORMAT_NAMES.every((name) => isRow(rows?.[name]))) return rows;
-    cause = "expected an object with a film and a brainrot row";
+    cause = "expected an object with a film, a brainrot and a clip row";
   } catch (err) {
     cause = err.code ?? err.message;
   }
@@ -252,8 +254,10 @@ const formatOf = (script) => (has(script, "format") ? script.format : "film");
 const knownFormat = (format) => typeof format === "string" && FORMAT_NAMES.includes(format);
 // --check validates every format but brainrot as a film: a refused value gets the film rules and row.
 const filmRules = (format) => format !== "brainrot";
-// Suffix of every FAIL line that names a limit: ", brainrot" for brainrot, ", film" for any other value.
-const tagOf = (format) => (format === "brainrot" ? ", brainrot" : ", film");
+// The row --check reads: the script's own for a known format, the film row for a refused value.
+const rowOf = (format) => FORMATS[knownFormat(format) ? format : "film"];
+// Suffix of every FAIL line that names a limit: the format's own name for a known format, ", film" for a refused value.
+const tagOf = (format) => (knownFormat(format) ? `, ${format}` : ", film");
 
 // Only brainrot is made of components; the film row holds no component limit.
 const SHAPES = shapesFor(FORMATS.brainrot);
@@ -591,7 +595,7 @@ const checkHeader = (script, report) => {
   // `sources` belongs to a film only (a refused format is validated as a film).
   const allowed = ["format", "title", "subject", "provenance", "scenes", ...(filmRules(formatOf(script)) ? ["sources"] : [])];
   for (const key of Object.keys(script)) if (!allowed.includes(key)) fail(`unexpected key ${q(key)}`);
-  if (!knownFormat(formatOf(script))) fail("format must be film or brainrot");
+  if (!knownFormat(formatOf(script))) fail("format must be film, brainrot or clip");
   checkSpec(script.title, str(Infinity), "title", fail);
   checkShape(script.subject, { text: str(Infinity), kind: str(Infinity) }, "subject", fail);
   if (isObject(script.subject) && typeof script.subject.kind === "string" && !KINDS.includes(script.subject.kind)) {
@@ -618,7 +622,7 @@ const validate = (script, root) => {
   checkHeader(script, report);
   const format = formatOf(script);
   const isFilm = filmRules(format);
-  const limits = isFilm ? FORMATS.film : FORMATS.brainrot;
+  const limits = rowOf(format);
   const tag = tagOf(format);
   if (isFilm && has(script, "sources")) checkSources(script.sources, root, limits, tag, report);
   if (!Array.isArray(script.scenes)) {
@@ -1003,7 +1007,7 @@ const main = () => {
   const failures = [script.fail, durations.fail].filter(Boolean);
   if (failures.length > 0) finish(failures);
   const format = isObject(script.value) ? formatOf(script.value) : "film";
-  if (!knownFormat(format)) finish(["FAIL script: format must be film or brainrot"]);
+  if (!knownFormat(format)) finish(["FAIL script: format must be film, brainrot or clip"]);
   const limits = FORMATS[format];
   const wordsDir = path.dirname(durationsFile);
   const addFailure = (line) => failures.push(line);

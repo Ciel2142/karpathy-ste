@@ -38,7 +38,7 @@ FILM_COMPONENT_LINES = [
     "FAIL scene flow: a film scene has no component or props",
     "FAIL scene code: a film scene has no component or props",
 ]
-FORMAT_LINE = "FAIL script: format must be film or brainrot"
+FORMAT_LINE = "FAIL script: format must be film, brainrot or clip"
 
 
 class TestBrainrotCheck(VideoCase):

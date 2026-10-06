@@ -9,7 +9,21 @@
     "maxNarrationWords": 45,
     "leadFrames": 6,
     "pauseFrames": 12,
-    "sourceLines": 20
+    "sourceLines": 20,
+    "minText": 14
+  },
+  "clip": {
+    "width": 1280,
+    "height": 720,
+    "minScenes": 3,
+    "maxScenes": 30,
+    "maxSceneSeconds": 30,
+    "maxTotalSeconds": 60,
+    "maxNarrationWords": 45,
+    "leadFrames": 6,
+    "pauseFrames": 12,
+    "sourceLines": 12,
+    "minText": 19
   },
   "brainrot": {
     "width": 1080,

@@ -136,9 +136,10 @@ class TestRungMatchesFormats(unittest.TestCase):
 
 
 class TestFormatsRows(unittest.TestCase):
-    def test_formats_has_the_film_and_brainrot_rows_only(self):
-        """Red: formats.json keeps a row of a removed format, or loses the film or the brainrot row."""
-        self.assertEqual(sorted(load_formats()), ["brainrot", "film"])
+    def test_formats_has_the_three_rows(self):
+        """Red: formats.json keeps a row of a removed format, or loses the film, the brainrot or the
+        clip row."""
+        self.assertEqual(sorted(load_formats()), ["brainrot", "clip", "film"])
 
 
 class TestBuildTimelineReadsFormats(unittest.TestCase):
@@ -204,10 +205,18 @@ class TestBuildTimelineReadsFormats(unittest.TestCase):
         self.assert_clean_fail(result, "")
 
     def test_formats_file_without_both_rows_fails_cleanly(self):
-        """Red: a valid JSON file that lacks the film or the brainrot row (or whose row is not an
-        object) is accepted, and the check then reads an undefined row: exit 0, or a stack trace."""
+        """Red: a valid JSON file that lacks the film, the brainrot or the clip row (or whose row is
+        not an object) is accepted, and the check then reads an undefined row: exit 0, or a stack
+        trace."""
         script = self.write_script(10)
-        for text in ("null", "[]", '{"film": {}}', '{"brainrot": {}}', '{"film": {}, "brainrot": 7}'):
+        for text in (
+            "null",
+            "[]",
+            '{"film": {}}',
+            '{"brainrot": {}}',
+            '{"film": {}, "brainrot": 7}',
+            '{"film": {}, "brainrot": {}}',
+        ):
             with self.subTest(text=text):
                 (self.dir / "formats.json").write_text(text, encoding="utf-8")
                 result = self.run_node("--check", script, "--root", str(self.dir))
