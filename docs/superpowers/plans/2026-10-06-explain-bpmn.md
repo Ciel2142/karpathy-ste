@@ -2,20 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A page or lesson about a BPMN subject draws each plane of the `.bpmn` file from the file's own DI, shows every BPMN cite as a readable label generated from the file, and fails `verify.sh` when a plane or sub-process is neither explained nor listed in `Not covered`.
+**Goal:** A page or lesson about a BPMN subject draws each plane of the `.bpmn` file from the file's own DI, shows every BPMN cite as a readable label generated from the file when the reader turns on Sources, and fails `verify.sh` when a plane or sub-process is neither explained nor listed in `Not covered`.
 
 **Architecture:** One stdlib CLI, `scripts/bpmn.py`, with the subcommands `planes`, `svg`, `label` and `check`. It holds the model (one `xml.parsers.expat` pass over the file, which gives the start and end line of every element), the label rule, the page rewrite and the check. The renderer lives in `scripts/bpmn_svg.py`, imported by `bpmn.py`: it is the largest unit and has a single consumer. `verify.sh` runs `bpmn.py check` as its last check. The page template gets the CSS, and the rung documents get the rules.
 
 **Tech Stack:** Python 3 stdlib (`xml.parsers.expat`, `html.parser`, `html`, `re`, `unittest`), bash (`verify.sh`), Markdown (rung files, prompt).
 
-Base: b98360f (main). One cohesive wave, high risk: it changes two contracts that other code reads, the output lines of `verify.sh` and the cite markup.
+Base: `main` after the merge of `feat/explain-answer-first`. One cohesive wave, high risk: it changes two contracts that other code reads, the output lines of `verify.sh` and the cite markup.
 Test runs: scoped per task; full suite once, in Task 8.
 
 **Spec:** `docs/superpowers/specs/2026-10-06-explain-bpmn-design.md` (approved 2026-10-06). Coverage: not opted in.
 
 ## Global Constraints
 
-- Work on the branch `feat/explain-bpmn`, made from `main` at b98360f. Never commit to `main`. Never stage or commit `.beads/`.
+- Work on the branch `feat/explain-bpmn`, made from `main` after the merge of `feat/explain-answer-first`. Never commit to `main`. Never stage or commit `.beads/`.
 - Run every test command from `skills/explain`, as `python3 -B -m unittest tests.<module>`. Run each command that takes more than 2 minutes (the full suite, `test_verify`, `test_page_template`, `test_lesson_e2e`) with its output in a log file. Poll the log with short `sleep 30; tail` calls until `OK` or `FAILED`. Never end a turn to wait for a notification.
 - System `python3`, stdlib only. No npm, no pip, no bpmn-js.
 - SVG text: 14 units, never less. 1 DI unit = 1 px. A plane's `viewBox` is the bounding box of its shapes, edges and labels plus a margin of 20 units on each side.
@@ -44,6 +44,7 @@ Test runs: scoped per task; full suite once, in Task 8.
 7. **`SKILL.md` gets no change.** Spec 4 says "SKILL.md where it lists scripts", but `SKILL.md` lists no scripts. Its Build procedure runs `verify.sh`, which now runs `check`.
 8. **The BPMN fixture page is built at test time** from `templates/page.html` plus one committed section fragment, as `lesson_page` in `test_lesson_e2e.py` does. The page never drifts from the template, and `verify.sh` runs the template's real guard on it. It is written to a temp directory beside a copy of `two_planes.bpmn`, with `data-root="."` (the template's only live cite is a URL).
 9. **The new `bpmn: none` line ripples through seven existing test modules** that pin the verify lines. Task 6 owns all of them. The list is in Task 6.
+10. **`.bpmn-label` sits inside the hidden cites, and the guard's second measure covers it.** After `feat/explain-answer-first`, each cite block hides behind the Sources switch. The span that `bpmn.py label` writes is inside its `cite`, so the reader sees it only with Sources on. The guard measures `HSCROLL` and `SMALLTEXT` twice, in the reading view and then with Sources on, so a `.bpmn-label` that is under 14 px or that makes the page scroll fails both render lines. Task 5 needs no guard of its own for this. Cost if wrong: none to the contract. A fixture page with no BPMN cite would leave the label rule unmeasured.
 
 ## File Structure
 
@@ -394,7 +395,7 @@ git commit -m "feat: explain: page template draws a BPMN plane at full size and 
 **Files:**
 - Modify: `skills/explain/scripts/verify.sh` (header comment, a new check after `media`)
 - Modify: `skills/explain/tests/test_verify.py`, `test_page_template.py`, `test_sheet_template.py`, `test_lesson_e2e.py`, `test_lesson_prompts.py` (the pinned line lists)
-- Modify: `skills/explain/rungs/sheet.md:141`, `rungs/page.md:135`, `rungs/lesson.md:403-413` (the line counts and the quoted lesson block)
+- Modify: `skills/explain/rungs/sheet.md:141`, `rungs/page.md` section "Verify and export", `rungs/lesson.md:403-413` (the line counts and the quoted lesson block)
 
 **Interfaces:**
 - Consumes: the `bpmn.py check` CLI and its summary line (Task 4).
@@ -454,7 +455,7 @@ git commit -m "feat: explain: verify.sh runs the BPMN coverage check as its last
 ### Task 7: the rung rules and the gate-1 check
 
 **Files:**
-- Modify: `skills/explain/rungs/page.md` ("Plan the sections", "Diagram patterns", "Write the prose", "Verify and export")
+- Modify: `skills/explain/rungs/page.md` ("Plan the sections", after the first-section rule of `feat/explain-answer-first`; "Diagram patterns", "Write the prose", "Verify and export")
 - Modify: `skills/explain/rungs/lesson.md` ("Plan the lesson" step 2)
 - Modify: `skills/explain/lesson/review-page.md` (Checks: a fourth check)
 - Modify: `skills/explain/tests/test_rung_drift.py` (new `BpmnRungCase`), `skills/explain/tests/test_lesson_prompts.py` (`CHECK_COUNT[PAGE]` 3 → 4)
@@ -462,7 +463,7 @@ git commit -m "feat: explain: verify.sh runs the BPMN coverage check as its last
 **Interfaces:**
 - Consumes: the CLI forms of `planes`, `svg`, `label` and `check` (Tasks 1 to 4). The CSS class names of Task 5. The verify lines of Task 6.
 - Produces, as text in the rung files:
-  - "Plan the sections": the bullets of spec 2.2 (the main plane first with the stages highlighted, one section per collapsed stage in process order, a paragraph per inner sub-process, gateway, user task and path-changing boundary event, nested planes, the sibling pattern paragraph, the count follows the planes, `Not covered` by name verbatim). The "about twelve" bullet names the BPMN exception.
+  - "Plan the sections": the bullets of spec 2.2, added after the first-section rule that `feat/explain-answer-first` put there ("The first section says why the subject exists. One diagram in it carries the main idea. For a directory subject, that diagram is the main flow from start to end, named by its stages. The main flow is the journey of one request, a pipeline or a BPMN process. The mechanics follow in later sections."). They do not replace that rule. The bullets are (the main plane first with the stages highlighted, one section per collapsed stage in process order, a paragraph per inner sub-process, gateway, user task and path-changing boundary event, nested planes, the sibling pattern paragraph, the count follows the planes, `Not covered` by name verbatim). The "about twelve" bullet names the BPMN exception.
   - "Diagram patterns": a pattern "BPMN plane" with the `figure.bpmn` block of spec 2.2, verbatim, and the rule that a flow in a `.bpmn` file is never drawn by hand.
   - "Write the prose": the BPMN cite rule (cite the line that carries the fact: the id line, the `name=` line, the flow or its condition line).
   - "Verify and export": before step 1, two steps in this order: `python3 <skill-dir>/scripts/bpmn.py svg <file> --plane <id> --highlight <ids>` for each plane (while writing), then `python3 <skill-dir>/scripts/bpmn.py label index.html` after the cites are written. Then `verify.sh`.
@@ -515,4 +516,4 @@ Expected: `OK` (gated video and lesson E2E tests may be `skipped`)
 Run: `d=$(mktemp -d); cp ~/karpathy/out/2026-10-06-145908-lesson-aos/index.html $d/; python3 skills/explain/scripts/bpmn.py label $d/index.html; python3 skills/explain/scripts/bpmn.py check $d/index.html | tail -1`
 Expected: `bpmn: <n> failures` with n > 0. The old lesson has no plane figures, so condition 1 fires for all eleven planes. That shows the check catches the user's fault 2 on the real subject. Record n in the task's close reason.
 
-- [ ] **Step 3: Hand off the acceptance run.** `/explain` starts only from the user. Ask the user to run `/explain /Users/valukin/work/aos --as lesson`. Acceptance (spec 4): eleven planes shown, every stage section explains its inner sub-processes, every BPMN cite reads as a name, `verify.sh` prints seven `ok` lines, and a cold gate-1 reviewer finds no sub-process without a paragraph.
+- [ ] **Step 3: Hand off the acceptance run.** `/explain` starts only from the user. Ask the user to run `/explain /Users/valukin/work/aos --as lesson`. Acceptance (spec 4): eleven planes shown, every stage section explains its inner sub-processes, every BPMN cite reads as a name when the reader turns on Sources, `verify.sh` prints seven `ok` lines, and a cold gate-1 reviewer finds no sub-process without a paragraph.
