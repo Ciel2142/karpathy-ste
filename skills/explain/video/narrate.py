@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Narration for the explain video rung: one WAV per scene, real lengths from afinfo.
 
-Usage: narrate.py --engine say|kokoro [--models <dir>] [--fallback "<cause>"] [--speed <d.d>]
+Usage: narrate.py --check [--engine kokoro|silero|say] [--speed <d.d>] <script.json>
+       narrate.py --engine kokoro|silero|say [--models <dir>] [--fallback "<cause>"] [--speed <d.d>]
                   <script.json> <audio-dir>
+
+--check reads the script, makes no clip and loads no model (the standard library only), and
+prints one line: the engine to use, the given --engine or else the first choice of the script's
+"lang" (kokoro for en, the default; silero for ru). A synthesis run makes every check of
+--check first, with the same lines and exit code. --models is needed by kokoro and silero.
 
 --speed is one digit, a full stop, one digit, from 0.5 to 2.0 (default 1.0). Kokoro takes it
 as its speed; say takes it as a rate of 175 wpm (say's default) times the speed, and gets no
--r at all at 1.0.
+-r at all at 1.0. A script with "lang": "ru" narrates at 1.0 only.
 
-Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, say 22050 Hz),
-a sidecar <id>.<engine>.txt (engine, voice, speed, "mode=sentences", narration) and
+Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, Silero 48000 Hz, say
+22050 Hz), a sidecar <id>.<engine>.txt (engine, voice, speed, "mode=sentences", narration) and
 durations.json: { "engine", "voice", "fallback", "scenes": { "<id>": seconds } }, where voice is
 the engine's voice: af_heart (Kokoro), say-default or Milena (say), xenia (Silero). A script with
 "lang": "ru" and a "pronounce" map { written term: spoken Russian } is read by the engine in
@@ -21,14 +27,25 @@ are joined with 0.15 s of silence between them, and <id>.<engine>.words.json get
 start and end of every sentence and word:
 { "sentences": [{ "from", "to" }], "words": [{ "text", "from", "to" }] } (seconds from the
 clip start). A script's "format" is "film", "brainrot" or "clip"; a script with no "format" is a
-film. Any other value is refused with exit 2, before a clip is made. A clip from an earlier run
-that has no "mode=sentences" line in its sidecar is made again.
+film. A clip from an earlier run that has no "mode=sentences" line in its sidecar is made again.
 
-Exit 0 on success; 1 on a failed scene or a missing tool; 2 on a usage error or an
-unreadable script; 3 when Kokoro cannot run (models missing, or a clip failed), which
-narrate.sh turns into the say fallback. The say path is stdlib only; kokoro_onnx and
-soundfile are imported lazily by the Kokoro engine, and torch by the Silero engine (which reads
-a pinned model file and checks its size and sha256 before it loads it).
+A script error is one or more lines "narration: FAIL <cause>" on stdout and exit 2, before a
+clip is made. Each of the first three stops the check alone, in this order: the script cannot
+be read, or its "format" is another value, or its "lang" or "pronounce" breaks a rule of
+build-timeline.mjs (the first cause only); the engine does not fit "lang" (say fits both); a
+Russian script at a speed other than 1.0. Then a Russian script is guarded, one line for each
+rule it breaks: "unspoken text" (a spoken token holds a character other than a Cyrillic letter,
+the punctuation of SPOKEN_PUNCTUATION or a "+" before a Cyrillic vowel, or two capital Cyrillic
+letters), "abbreviation" (a written т. е., т.е., or напр. before a lower-case sentence), "no
+letter" (a sentence with no Cyrillic letter) and "too long" (a spoken sentence of more than 900
+characters). English is not guarded.
+
+Exit 0 on success; 1 on a failed scene or a missing tool; 2 on a usage error or a script
+error; 3 when Kokoro or Silero cannot run (models missing, a Silero model that fails its pin
+check, or a clip failed), which narrate.sh turns into the say fallback. The say path and
+--check are stdlib only; kokoro_onnx and soundfile are imported lazily by the Kokoro engine,
+and torch by the Silero engine (which reads a pinned model file and checks its size and sha256
+before it loads it).
 """
 
 import argparse
@@ -70,6 +87,18 @@ CLAUSE_END = ",;:"
 END_WEIGHT = 2          # a word that ends a clause or a sentence is followed by a pause
 JOIN_GAP_S = 0.15       # silence between two sentence clips
 NARRATED_FORMATS = ("film", "brainrot", "clip")   # the script formats narrate.py accepts; a script with no format is a film
+ENGINES = ("kokoro", "silero", "say")
+FIRST_CHOICE = {"en": "kokoro", "ru": "silero"}   # the engine of each lang; check_script() is its only reader
+# The guard of a Russian narration (spec 4.4).
+SPOKEN_PUNCTUATION = ".,!?:;-–—…«»\"'()„“”‘’"   # rule 1 allows it; rules 1 and 2 strip it from a token's ends
+STRESSED_VOWELS = "аеёиоуыэюяАЕЁИОУЫЭЮЯ"        # rule 1 allows "+" directly before one of them
+CAPITALS = re.compile(r"[А-ЯЁ]")
+ONE_LETTER_ABBREVIATION = re.compile(r"[А-Юа-юЁё]\.")      # т. е. д. г. с.; "я." is the word "я"
+DOTTED_ABBREVIATION = re.compile(r"[А-Яа-яЁё]\.[А-Яа-яЁё]")   # т.е. т.д.
+LOWER_CASE_START = re.compile(r"[а-яё]")
+ABBREVIATION_LEADS = "«(\"„“‘'"     # rule 3 strips them from the start of a token and of the next sentence
+ABBREVIATION_TAILS = "»)\"”’',;:"   # rule 3 strips them from the end of a token
+MAX_SENTENCE = 900
 
 
 class NarrationError(Exception):
@@ -82,6 +111,14 @@ class NarrationError(Exception):
 
 class SynthError(Exception):
     """One engine failed to make one clip; the engine's failure() words it."""
+
+
+class ScriptError(Exception):
+    """A script that must not be narrated: main() prints each of .lines as 'narration: FAIL <line>' and exits 2."""
+
+    def __init__(self, lines):
+        super().__init__("\n".join(lines))
+        self.lines = lines
 
 
 def afinfo_output(wav):
@@ -491,22 +528,191 @@ def narrate(scenes, engine, audio_dir, speech=ENGLISH):
     return seconds
 
 
+def is_cyrillic(char):
+    """True for a letter of А–Я, а–я, Ё or ё."""
+    return "А" <= char <= "я" or char in "Ёё"
+
+
+def speakable(token, i):
+    """Rule 1 for token[i]: a Cyrillic letter, the allowed punctuation, or "+" directly before a Cyrillic vowel."""
+    if token[i] == "+":
+        return i + 1 < len(token) and token[i + 1] in STRESSED_VOWELS
+    return is_cyrillic(token[i]) or token[i] in SPOKEN_PUNCTUATION
+
+
+def code_point(token, first_bad):
+    """The ' (U+XXXX)' shown after a token of rule 1, or "".
+
+    It is the code point of the first offending character when that is not a letter or a digit
+    ("#", a misplaced "+", U+200B), else of the first other letter of a token that mixes a
+    Cyrillic letter with another letter (a look-alike, such as a Latin K in Kафка). A Latin
+    word or a number shows none.
+    """
+    if not first_bad.isalnum():
+        return f" (U+{ord(first_bad):04X})"
+    others = [char for char in token if char.isalpha() and not is_cyrillic(char)]
+    if others and any(is_cyrillic(char) for char in token):
+        return f" (U+{ord(others[0]):04X})"
+    return ""
+
+
+def unspoken_entry(sid, sentences, speech):
+    """Rules 1 and 2: '<sid>: "<t>", ...' for the spoken tokens of the scene a voice cannot read, or "".
+
+    A token is a word of the spoken sentence with the allowed punctuation stripped from its
+    ends. It breaks rule 1 when a character is not speakable, and rule 2 when it holds two or
+    more capital Cyrillic letters (СУБД, ОС). Each token shows once, in text order.
+    """
+    shown = []
+    for sentence in sentences:
+        for word in speech.spoken_sentence(sentence).split():
+            token = word.strip(SPOKEN_PUNCTUATION)
+            bad = [char for i, char in enumerate(token) if not speakable(token, i)]
+            if bad:
+                entry = f'"{token}"' + code_point(token, bad[0])
+            elif len(CAPITALS.findall(token)) >= 2:
+                entry = f'"{token}"'
+            else:
+                continue
+            if entry not in shown:
+                shown.append(entry)
+    return f"{sid}: " + ", ".join(shown) if shown else ""
+
+
+def abbreviation_entry(sid, sentences, speech):
+    """Rule 3: '<sid>: "<t>", ...' for the written tokens of the scene that are abbreviations, or "".
+
+    It reads the written sentences without backticks (a pronounce value must not hide the cut).
+    A token, with ABBREVIATION_LEADS and ABBREVIATION_TAILS stripped from its ends, is an
+    abbreviation when it is one Cyrillic letter but я then "."; or holds a "." between two
+    Cyrillic letters; or ends a sentence that is followed by one that starts, after its
+    ABBREVIATION_LEADS, with a lower-case Cyrillic letter (напр. in «напр. так»). Each token
+    shows once, stripped, in text order.
+    """
+    written = [sentence.replace("`", "") for sentence in sentences]
+    shown = []
+    for k, sentence in enumerate(written):
+        tokens = sentence.split()
+        following = written[k + 1].lstrip(ABBREVIATION_LEADS) if k + 1 < len(written) else ""
+        cut_inside = LOWER_CASE_START.match(following) is not None
+        for i, token in enumerate(tokens):
+            bare = token.lstrip(ABBREVIATION_LEADS).rstrip(ABBREVIATION_TAILS)
+            if (ONE_LETTER_ABBREVIATION.fullmatch(bare) or DOTTED_ABBREVIATION.search(bare)
+                    or (cut_inside and i == len(tokens) - 1)) and f'"{bare}"' not in shown:
+                shown.append(f'"{bare}"')
+    return f"{sid}: " + ", ".join(shown) if shown else ""
+
+
+def no_letter_entry(sid, sentences, speech):
+    """Rule 4: '<sid> sentence <k>, ...' for the spoken sentences whose only Cyrillic letters, if any, follow a "+", or ""."""
+    def has_letter(spoken):
+        return any(is_cyrillic(char) and (i == 0 or spoken[i - 1] != "+") for i, char in enumerate(spoken))
+    numbers = [str(k) for k, sentence in enumerate(sentences, 1) if not has_letter(speech.spoken_sentence(sentence))]
+    return f"{sid} sentence " + ", ".join(numbers) if numbers else ""
+
+
+def too_long_entry(sid, sentences, speech):
+    """Rule 5: '<sid> sentence <k> (<n> characters), ...' for the spoken sentences over MAX_SENTENCE, or ""."""
+    lengths = [(k, len(speech.spoken_sentence(sentence))) for k, sentence in enumerate(sentences, 1)]
+    long = [f"{k} ({n} characters)" for k, n in lengths if n > MAX_SENTENCE]
+    return f"{sid} sentence " + ", ".join(long) if long else ""
+
+
+GUARD_RULES = (   # (line head, the entry of one scene, line tail), in the order the lines print
+    ("unspoken text: ", unspoken_entry, " (add to pronounce)"),
+    ("abbreviation: ", abbreviation_entry, " (write the words out, as «то есть»)"),
+    ("no letter: ", no_letter_entry, ""),
+    ("too long: ", too_long_entry, f" (max {MAX_SENTENCE})"),
+)
+
+
+def guard_lines(scenes, speech):
+    """The guard's lines for the scenes of a Russian script (spec 4.4), in rule order; [] when it passes.
+
+    The sentences of a scene are those of split_sentences on its written narration. A line
+    lists the scenes that break its rule, in script order, separated by "; ".
+    """
+    narrations = [(scene["id"], split_sentences(scene["narration"])) for scene in scenes]
+    lines = []
+    for head, entry, tail in GUARD_RULES:
+        listed = [entry(sid, sentences, speech) for sid, sentences in narrations]
+        listed = [scene_entry for scene_entry in listed if scene_entry]
+        if listed:
+            lines.append(head + "; ".join(listed) + tail)
+    return lines
+
+
+def lang_causes(script):
+    """The causes of the lang and pronounce rules of build-timeline.mjs (checkLang, spec 3.2), in its order."""
+    lang = script.get("lang")
+    if "lang" in script and lang not in ("en", "ru"):
+        yield "lang must be en or ru"
+    if lang == "ru" and script.get("format", "film") == "brainrot":
+        yield "lang ru is for the film and clip formats only"
+    if "pronounce" not in script:
+        return
+    if lang != "ru":
+        yield "pronounce needs lang ru"
+    if not isinstance(script["pronounce"], dict):
+        yield "pronounce must be an object"
+        return
+    for key, value in script["pronounce"].items():
+        quoted = json.dumps(key, ensure_ascii=False)
+        if key == "":   # and only that line: "" in ".?!" is True
+            yield f"pronounce key {quoted} is empty"
+        else:
+            if any(char.isspace() for char in key):
+                yield f"pronounce key {quoted} holds whitespace"
+            if key[-1] in ".?!":
+                yield f"pronounce key {quoted} ends with {json.dumps(key[-1])}"
+        if not isinstance(value, str) or all(char.isspace() for char in value):
+            yield f"pronounce value of {quoted} must be a string with a non-space character"
+
+
 def load_script(path):
     """(scenes, speech) of a script: scenes are [{"id", "narration"}], speech is the Speech of its
     "lang" ("en" when it names none) and "pronounce"; the format is "film" when the script names none.
 
-    A format that is not in NARRATED_FORMATS (any type, null included) is refused: the line
-    'narration: FAIL script <path>: ...' and exit 2, before any clip is made.
+    A script that cannot be read, a format that is not in NARRATED_FORMATS (any type, null
+    included), or a lang or pronounce that breaks a rule of the validator raises ScriptError with
+    the one line 'script <path>: <cause>' (the first cause only), before any clip is made.
     """
     try:
         script = json.loads(Path(path).read_text(encoding="utf-8"))
         scenes = [{"id": scene["id"], "narration": scene["narration"]} for scene in script["scenes"]]
         if script.get("format", "film") not in NARRATED_FORMATS:
             raise ValueError("format must be film, brainrot or clip")
-        return scenes, Speech(script.get("lang", "en"), script.get("pronounce") or {})
+        cause = next(lang_causes(script), None)
+        if cause is not None:
+            raise ValueError(cause)
+        return scenes, Speech(script.get("lang", "en"), script.get("pronounce"))
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"narration: FAIL script {path}: {exc}")
-        sys.exit(2)
+        raise ScriptError([f"script {path}: {exc}"]) from exc
+
+
+def check_script(path, engine, speed):
+    """(scenes, speech, engine name) of a script that may be narrated by engine at speed, or ScriptError.
+
+    In order, each stopping the check alone: load_script; the engine must fit lang (say fits
+    both, else it must be FIRST_CHOICE[lang]; an engine of None becomes FIRST_CHOICE[lang]);
+    lang ru at a speed other than 1.0. Then a Russian script raises the lines of guard_lines, if any. Any
+    other exception is the one line 'script <path>: <message>', never a traceback.
+    """
+    try:
+        scenes, speech = load_script(path)
+        engine = engine or FIRST_CHOICE[speech.lang]
+        if engine not in ("say", FIRST_CHOICE[speech.lang]):
+            raise ScriptError([f"engine {engine} cannot narrate lang {speech.lang}"])
+        if speech.lang == "ru" and speed != DEFAULT_SPEED:
+            raise ScriptError(["lang ru narrates at speed 1.0 only"])
+        lines = guard_lines(scenes, speech) if speech.lang == "ru" else []
+        if lines:
+            raise ScriptError(lines)
+        return scenes, speech, engine
+    except ScriptError:
+        raise
+    except Exception as exc:   # an unexpected fault while checking is a script error, never a traceback
+        raise ScriptError([f"script {path}: {exc}"]) from exc
 
 
 def check_narrations(scenes):
@@ -521,27 +727,63 @@ def check_tools(engine_name):
             raise NarrationError(f"{tool} not found")
 
 
+USAGE = """narrate.py --check [--engine kokoro|silero|say] [--speed <d.d>] <script.json>
+       narrate.py --engine kokoro|silero|say [--models <dir>] [--fallback "<cause>"] [--speed <d.d>]
+                  <script.json> <audio-dir>"""
+
+
 def parse_args(argv):
-    parser = argparse.ArgumentParser(prog="narrate.py", add_help=False)
-    parser.add_argument("--engine", required=True, choices=("say", "kokoro"))
+    """The two command lines of USAGE; an argparse error (usage on stderr, exit 2) otherwise.
+
+    --check takes the script alone: no --models, --fallback or audio dir. A synthesis run needs
+    --engine and the audio dir, and --models for kokoro and silero.
+    """
+    parser = argparse.ArgumentParser(prog="narrate.py", usage=USAGE, add_help=False)
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--engine", choices=ENGINES)
     parser.add_argument("--models")
     parser.add_argument("--fallback")
     parser.add_argument("--speed", type=parse_speed, default=DEFAULT_SPEED)
     parser.add_argument("script")
-    parser.add_argument("audio_dir")
+    parser.add_argument("audio_dir", nargs="?")
     args = parser.parse_args(argv)
-    if args.engine == "kokoro" and not args.models:
-        parser.error("--engine kokoro needs --models <dir>")
+    if args.check:
+        given = (("--models", args.models), ("--fallback", args.fallback), ("<audio-dir>", args.audio_dir))
+        extra = [name for name, value in given if value is not None]
+        if extra:
+            parser.error(f"--check takes no {', '.join(extra)}")
+        return args
+    if args.engine is None or args.audio_dir is None:
+        parser.error("a synthesis run needs --engine and <audio-dir>")
+    if args.engine in ("kokoro", "silero") and not args.models:
+        parser.error(f"--engine {args.engine} needs --models <dir>")
     return args
+
+
+def make_engine(name, args, speech):
+    """The engine of a synthesis run. Each checks what it needs: its model files, or Milena for a Russian say."""
+    if name == "kokoro":
+        return KokoroEngine(args.models, args.speed)
+    if name == "silero":
+        return SileroEngine(args.models)
+    return SayEngine(args.speed, speech.lang)
 
 
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    scenes, speech = load_script(args.script)
+    try:
+        scenes, speech, engine_name = check_script(args.script, args.engine, args.speed)
+    except ScriptError as exc:
+        for line in exc.lines:
+            print(f"narration: FAIL {line}")
+        return 2
+    if args.check:
+        print(engine_name)
+        return 0
     try:
         check_narrations(scenes)
-        check_tools(args.engine)
-        engine = SayEngine(args.speed, speech.lang) if args.engine == "say" else KokoroEngine(args.models, args.speed)
+        check_tools(engine_name)
+        engine = make_engine(engine_name, args, speech)
         audio_dir = Path(args.audio_dir)
         seconds = narrate(scenes, engine, audio_dir, speech)
     except NarrationError as exc:

@@ -745,6 +745,21 @@ class SileroInProcess(unittest.TestCase):
              "model=v5_3_ru@" + self.sha[:12], "Один", "два."],
         )
 
+    def test_main_runs_silero_and_writes_voice_xenia(self):
+        """Mutation: main refuses --engine silero, or builds another engine for it, or
+        durations.json names another engine, voice or fallback."""
+        template = json.loads(FILM_TEMPLATE.read_text(encoding="utf-8"))
+        template.update(lang="ru", scenes=[{"id": "one", "narration": "Один два."}])
+        script, audio = self.tmp / "script.json", self.tmp / "audio"
+        script.write_text(json.dumps(template, ensure_ascii=False), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.narrate.main(["--engine", "silero", "--models", str(self.models), str(script), str(audio)])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(self.stub.texts, ["Один два."])
+        report = json.loads((audio / "durations.json").read_text(encoding="utf-8"))
+        self.assertEqual((report["engine"], report["voice"], report["fallback"]), ("silero", "xenia", None))
+
 
 if __name__ == "__main__":
     unittest.main()
