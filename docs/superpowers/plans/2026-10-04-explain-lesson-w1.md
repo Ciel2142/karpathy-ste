@@ -8,6 +8,9 @@
 
 **Tech Stack:** bash + Python `html.parser` (verify.sh), plain CSS/JS in a single HTML template, `unittest` with headless Chrome through `verify.sh`.
 
+Base: 8ca7735618c3106040223f0ddaa2ba643b9c6700
+Test runs: scoped per task; full suite once, final task.
+
 **Spec:** `docs/superpowers/specs/2026-10-04-explain-lesson-design.md` — this wave implements §3.2, §4.2 (markup, width), §4.3, §4.4, §6.3, the `page.md`/template items of §6.4, §7.2 and the template part of §7.3. Wave map: `docs/superpowers/waves/2026-10-04-explain-lesson.yaml`.
 
 ## Global Constraints
