@@ -25,12 +25,14 @@ window.onerror = function () { window.explainJsErrors += 1; };
 <style>
 /* Palette duplicated in sheet.html, video.html and video/src/theme.ts: change all four. */
 :root {
-  --ink: #1b2129;
-  --muted: #5b6570;
-  --line: #b8c0c9;
+  --bg: #faf9f5;
+  --fill: #f0eee6;
+  --ink: #1f1d1a;
+  --muted: #6b6a64;
+  --line: #d4d0c6;
+  --accent: #c2613f;
   --blue: #1d5fc2;
   --red: #c42f2a;
-  --fill: #eef1f4;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -53,7 +55,7 @@ figcaption code { font-size: 14px; }
    1440 px and as 14 px at 500 px (468 px of content). Never go below 18. */
 svg text { font-size: 18px; }
 
-html, body { margin: 0; padding: 0; background: #fff; }
+html, body { margin: 0; padding: 0; background: var(--bg); }
 /* Measure: about 72 ch on wide screens; 16 px side margins on narrow ones. */
 body {
   max-width: 72ch; margin: 0 auto; padding: 0 16px 32px; color: var(--ink);
@@ -63,7 +65,8 @@ h1, h2, h3, p, ul, ol, dl, dd, figure, pre { margin: 0; }
 h1, h2, h3 { line-height: 1.25; }
 code, kbd, pre { font-family: var(--mono); }
 :not(pre) > code { padding: 0 3px; background: var(--fill); }
-cite { font-family: var(--mono); font-style: normal; color: var(--blue); }
+a { color: var(--accent); }
+cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
 figcaption { color: var(--muted); }
 
 /* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
@@ -71,9 +74,9 @@ header { padding: 32px 0 16px; }
 .lead { margin-top: 10px; color: var(--muted); }
 nav#toc {
   position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 18px;
-  padding: 10px 0; background: #fff; border-bottom: 1.5px solid var(--ink);
+  padding: 10px 0; background: var(--bg); border-bottom: 1.5px solid var(--ink);
 }
-nav#toc a { color: var(--blue); font-weight: 600; text-decoration: none; }
+nav#toc a { color: var(--accent); font-weight: 600; text-decoration: none; }
 nav#toc a:hover { text-decoration: underline; }
 
 /* Clips (lesson rung) and the Play all button. A figure.clip breaks out of the 72ch
@@ -90,7 +93,7 @@ figure.clip {
 .clip video { display: block; width: 100%; background: #000; }
 .clip .part { font-weight: 600; margin-right: 8px; }
 .clip .part:empty { margin-right: 0; }   /* no run: the caption starts at the left edge */
-#play-all { margin-top: 14px; }   /* the rest of its look: the .player button rule */
+#play-all { margin-top: 14px; border-color: var(--accent); }   /* the rest of its look: the .player button rule */
 body:not(:has(figure.clip)) #play-all { display: none; }
 
 /* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav;
@@ -125,7 +128,7 @@ figure.diagram figcaption { margin-top: 6px; }
 .diagram .label { font-family: var(--mono); }
 .diagram .name { font-weight: 700; }
 .diagram rect { fill: var(--fill); stroke: var(--ink); stroke-width: 1.5; }
-.diagram rect.alt { fill: #fff; }
+.diagram rect.alt { fill: var(--bg); }
 .diagram line { stroke: var(--ink); stroke-width: 1.5; }
 .diagram line.life { stroke: var(--muted); stroke-dasharray: 6 5; }
 .diagram marker path { fill: var(--ink); stroke: none; }
@@ -134,7 +137,7 @@ figure.diagram figcaption { margin-top: 6px; }
 .player { padding: 12px; border: 1.5px solid var(--ink); }
 .player .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .player button, #play-all {
-  padding: 4px 14px; font-family: var(--sans); color: var(--ink); background: #fff;
+  padding: 4px 14px; font-family: var(--sans); color: var(--ink); background: var(--bg);
   border: 1.5px solid var(--ink); cursor: pointer;
 }
 .player button:disabled { color: var(--muted); border-color: var(--line); cursor: default; }
@@ -149,12 +152,12 @@ figure.diagram figcaption { margin-top: 6px; }
 }
 .track li {
   position: relative; padding: 4px 12px; font-family: var(--mono); font-size: 15px;
-  background: #fff; border: 1.5px solid var(--line);
+  background: var(--bg); border: 1.5px solid var(--line);
 }
 .track li + li::before {
   content: "\2192"; position: absolute; left: -21px; color: var(--muted); font-family: var(--sans);
 }
-.track li.on { color: #fff; background: var(--blue); border-color: var(--blue); }
+.track li.on { color: var(--bg); background: var(--blue); border-color: var(--blue); }
 
 /* Table: fits the column, or scrolls inside its wrapper. */
 .table-wrap { overflow-x: auto; }

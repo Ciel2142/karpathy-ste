@@ -30,6 +30,8 @@ SKILL = os.path.dirname(HERE)
 VERIFY = os.path.join(SKILL, "scripts", "verify.sh")
 TEMPLATE = os.path.join(SKILL, "templates", "page.html")
 SHEET = os.path.join(SKILL, "templates", "sheet.html")
+VIDEO = os.path.join(SKILL, "templates", "video.html")
+THEME = os.path.join(SKILL, "video", "src", "theme.ts")
 RENDER_OK = ["render 1440x900: ok", "render 500x844: ok"]
 OTHER_OK = ["citations: ok", "prose: ok"]
 
@@ -411,10 +413,23 @@ class PageGuardTest(unittest.TestCase):
 
     def test_palette_block_identical_to_sheet(self):
         page_block = root_block(self.template)
-        self.assertTrue(page_block.startswith(":root {\n  --ink:"), page_block)
+        self.assertTrue(page_block.startswith(":root {\n  --bg:"), page_block)
         self.assertEqual(page_block, root_block(read(SHEET)))
         broken = self.edit(self.template, "--blue: #1d5fc2;", "--blue: #1d5fc3;")
         self.assertNotEqual(root_block(broken), root_block(read(SHEET)))
+
+    def test_palette_is_the_warm_paper_in_all_four_copies(self):
+        """Red: one of page.html, sheet.html, video.html or video/src/theme.ts holds another value
+        for a colour token, or lacks the accent or the ground."""
+        expected = {"bg": "#faf9f5", "fill": "#f0eee6", "ink": "#1f1d1a", "muted": "#6b6a64",
+                    "line": "#d4d0c6", "accent": "#c2613f", "blue": "#1d5fc2", "red": "#c42f2a"}
+        for path in (TEMPLATE, SHEET, VIDEO):
+            css = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6});", root_block(read(path))))
+            self.assertEqual(css, expected, path)
+        ts = dict(re.findall(r'^  ([a-z]+): "(#[0-9a-f]{6})",', read(THEME), re.M))
+        self.assertEqual(ts, expected, THEME)
+        for path in (TEMPLATE, SHEET, VIDEO):
+            self.assertNotIn("#fff", read(path), path)
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)
