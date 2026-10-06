@@ -1,6 +1,7 @@
 # explain: BPMN subjects — the file's own diagram, readable cites, and sub-process coverage
 
 Date: 2026-10-06. Status: draft for user review. Coverage: not opted in.
+Amended 2026-10-06 for the branch `feat/explain-answer-first` (its spec, section 7): cites hide behind a Sources switch, so a label shows when the reader turns on Sources.
 
 ## 1. Problem
 
@@ -181,7 +182,7 @@ Markup, inside the cite after the `<code>`:
 
 The visible `basename:line` stays, so `cite_check.py` is unchanged. Two CSS rules in the page
 template: `.bpmn-label` in ink, at the body size, on its own line; `cite:has(.bpmn-label) > code`
-muted and smaller, never under 14 px. The label leads the eye; the raw line stays available.
+muted and smaller, never under 14 px. The label leads the eye when the reader turns on Sources; the raw line stays available.
 
 ### 2.4 Coverage check: `bpmn.py check`, and `verify.sh`
 
@@ -249,7 +250,7 @@ Out: DMN rendering (the decision table stays hand-written HTML); clips from DI; 
 between a cite and the diagram; translation of names; diagram files other than `.bpmn`.
 
 Acceptance: `/explain /Users/valukin/work/aos --as lesson` once more. The page shows the eleven
-planes; each stage section explains its inner sub-processes; every BPMN cite reads as a name;
+planes; each stage section explains its inner sub-processes; every BPMN cite reads as a name when the reader turns on Sources;
 `verify.sh` prints seven `ok` lines; a cold reviewer with the new check finds no sub-process
 without a paragraph. That run is the test case. Its findings feed a fold-back only when they are
 faults of the skill.

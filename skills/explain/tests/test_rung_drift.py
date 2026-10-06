@@ -31,6 +31,13 @@ pointer block) holds a title of one of the five shared sections (SHARED_TITLES) 
 other title of video.md and no section number; each shared title is one heading of video.md, and its
 section holds no film value; brainrot.md holds its own rules, among them the components table.
 
+PageRungCase pins the page-shape text of page.md: the file lints clean, the first-section rule of "Plan the
+sections" keeps the main flow, "Fill the template" names the answer box, the Sources switch and the two guard
+codes that go with them, and the self-check of "Verify and export" reads the reading view. It pins three
+more files to the same page shape, one sentence each: convention 2 of SKILL.md says that the page hides the
+cites, step 3 of "Plan the lesson" in lesson.md makes the main flow the first clip candidate, and check 2 of
+the gate-1 prompt review-page.md covers the answer box. The text of a check stays out of test_lesson_prompts.
+
 SkillMdCase ties SKILL.md to the rungs: step 2 of its Build procedure names the scene directory, and its
 bullets under Rung files describe the film in video.md, the components in brainrot.md and the clips and
 gates in lesson.md. It pins the texts that route `--as lesson` (the rung row, the bullet, the conventions
@@ -53,7 +60,9 @@ from test_format_limits import fill
 EXPLAIN = Path(__file__).resolve().parent.parent
 REPO = EXPLAIN.parent.parent
 VIDEO_MD = EXPLAIN / "rungs" / "video.md"
+PAGE_MD = EXPLAIN / "rungs" / "page.md"
 LESSON_MD = EXPLAIN / "rungs" / "lesson.md"
+REVIEW_PAGE_MD = EXPLAIN / "lesson" / "review-page.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
 README_MD = REPO / "README.md"
@@ -720,6 +729,96 @@ class BrainrotRungCase(unittest.TestCase):
         self.assertEqual([title for title in BRAINROT_TITLES if title not in level_two], [])
         components = section(self.text, "Components")
         self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
+
+
+class PageRungCase(unittest.TestCase):
+    """The page-shape rules of rungs/page.md: the text that teaches the answer box, the Sources switch and the
+    first section. Three sentences of SKILL.md, lesson.md and review-page.md follow it. The sections are read
+    as one line of words, because the rung wraps its lines."""
+
+    def words(self, title):
+        return " ".join(section(read(PAGE_MD), title).split())
+
+    # red: a rung line breaks the STE profile (a contraction such as "don't", a sentence of 26 words or more)
+    def test_page_md_lints_clean(self):
+        run = lint(PAGE_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+    # red: any of the five sentences of the first-section rule is reworded or gone: it goes back to "what the
+    # thing does, for whom, and from start to end", or the main flow is no longer the diagram of the first
+    # section, or "The main flow is the journey of one request, a pipeline or a BPMN process." is replaced (the
+    # BPMN plan quotes all five sentences as its anchor)
+    def test_first_section_rule_keeps_the_main_flow(self):
+        plan = self.words("Plan the sections")
+        for sentence in ("The first section says why the subject exists.",
+                         "One diagram in it carries the main idea.",
+                         "For a directory subject, that diagram is the main flow from start to end, named by "
+                         "its stages.",
+                         "The main flow is the journey of one request, a pipeline or a BPMN process.",
+                         "The mechanics follow in later sections."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(plan.count(sentence), 1)
+
+    # red: the rung leaves out the answer box, the switch or one of the two guard codes; either Keep sentence
+    # (the Sources switch in step 4, the switch as the last child of the nav in step 5) is gone or reworded (a
+    # word filter would pass the other one); or the cause of NOANSWER or NOSOURCES is no longer stated
+    def test_page_md_names_the_answer_box_and_switch(self):
+        fill = self.words("Fill the template")
+        self.assertEqual([name for name in ("div.answer", "show-sources", "NOANSWER", "NOSOURCES")
+                          if name not in fill], [])
+        for sentence in ("Keep the Sources switch, `label.sources` with `input#show-sources`.",
+                         "Keep the Sources switch as the last child of `nav#toc`.",
+                         "The guard reports `NOSOURCES` when the page has a cite block and the nav has no "
+                         "switch.",
+                         "It reports `NOANSWER` when the header has no answer box, or when the box has no text "
+                         "outside its cites."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(fill.count(sentence), 1)
+
+    # red: the tiles list "A section without its citation" again (the tiles show the reading view, where no
+    # cite shows), or the check that covers the page below the answer box is gone
+    def test_self_check_reads_the_reading_view(self):
+        verify = self.words("Verify and export")
+        self.assertNotIn("A section without its citation", verify)
+        self.assertIn("Does the box alone answer", verify)
+
+    # red: convention 2 loses the sentence (or the sentence moves to another convention), or the sentence
+    # drops its second half, so the sheet and the video transcript no longer show their cites; or SKILL.md
+    # breaks the STE profile
+    def test_skill_md_says_the_page_hides_cites(self):
+        run = lint(SKILL_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+        conventions = section(read(SKILL_MD), "Conventions")
+        two = re.search(r"^2\. .*?(?=^3\. )", conventions, re.M | re.S)
+        self.assertIsNotNone(two, "no convention 2")
+        self.assertEqual(" ".join(two.group(0).split()).count(
+            "The page and lesson templates hide the cite blocks until the reader turns on Sources. "
+            "The sheet and the video transcript show them."), 1)
+
+    # red: step 3 of "Plan the lesson" goes back to "The journey of the first section", or the sentence is
+    # gone, or it leaves the step (a sentence of the same words in another section does not count); or
+    # lesson.md breaks the STE profile
+    def test_lesson_md_first_candidate_is_the_main_flow(self):
+        run = lint(LESSON_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+        plan = " ".join(section(read(LESSON_MD), "Plan the lesson").split())
+        self.assertEqual(plan.count("The main flow of the first section is the first candidate."), 1)
+        self.assertNotIn("The journey of the first section", plan)
+
+    # red: check 2 goes back to "No two sections contradict each other." (or the clause moves to check 1 or
+    # 3), the Hunt section keeps the "<cite> at the end of a paragraph" sentence, or the block form is gone
+    def test_review_page_check_2_covers_the_answer_box(self):
+        text = read(REVIEW_PAGE_MD)
+        checks = section(text, "Checks")
+        two = re.search(r"^2\. .*?(?=^3\. )", checks, re.M | re.S)
+        self.assertIsNotNone(two, "no check 2")
+        self.assertEqual(" ".join(two.group(0).split()).count(
+            "No two sections contradict each other, and the answer box in the header agrees with each "
+            "section."), 1)
+        hunt = " ".join(section(text, "Hunt").split())
+        self.assertNotIn("A `<cite>` at the end of a paragraph", " ".join(text.split()))
+        self.assertEqual(hunt.count("The `div.cites` after a paragraph covers each sentence of that paragraph, "
+                                    "so read the whole paragraph against the cited lines."), 1)
 
 
 # The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.

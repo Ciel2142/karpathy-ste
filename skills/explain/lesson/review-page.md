@@ -36,16 +36,16 @@ answer and is expected for a correct artifact.
 Never report a finding you cannot back with a quoted source line.
 
 The author has already run the tools that check the mechanical facts: each cite resolves to a line, each
-snippet is on its line, and the prose passes the lint. Do not repeat that work. Read for meaning. A `<cite>`
-at the end of a paragraph covers each sentence of that paragraph, so read the whole paragraph against the
-cited line.
+snippet is on its line, and the prose passes the lint. Do not repeat that work. Read for meaning. The
+`div.cites` after a paragraph covers each sentence of that paragraph, so read the whole paragraph against the
+cited lines.
 
 ## Checks
 
 Make these checks, in this order.
 
 1. No sentence makes a claim that its cited lines, read from `{root}`, do not support.
-2. No two sections contradict each other.
+2. No two sections contradict each other, and the answer box in the header agrees with each section.
 3. The clip choices in `review/plan.md` are the sections where motion explains more than a still, and no
    section that clearly needs one is missing.
 

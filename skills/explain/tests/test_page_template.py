@@ -7,13 +7,20 @@ exactly once in the template: a template change cannot turn a case into the good
 case without notice. verify.sh must report the one status that the guard writes
 for that edit. verify.sh loads a page twice, 1440x900 and 500x844, both with
 #verify in the URL; there is no plain dump, so the cases for the fragment read the
-DOM state through a probe that wraps setAttribute on <html>. Twelve Chrome runs of
+DOM state through a probe that wraps setAttribute on <html>. Twenty-four Chrome runs of
 verify.sh (two dumps each): the good template, the 700 px block, the 13 px rule,
 the 15-unit SVG text, the throwing script, the probe, the probe with the hash
 test defeated; then four more for the clip rule: the hide rule deleted, a clip
 without the button, a clip with the button, a clip with a hidden button; then one
-for Play all: two clips and a probe that drives a run with synthetic events. The
-preset case stops in verify.sh before Chrome starts. The other cases are static.
+for Play all: two clips and a probe that drives a run with synthetic events; then
+seven for the Sources switch (spec 3, 4): a 12 px snippet, a 700 px span and a 12 px
+snippet in a fold, each in a cite that the reading view hides; the switch deleted;
+the switch moved from the nav into the header; a page with no cite and no switch; the
+probe with the switch on at parse time; then
+five for the answer box (spec 2, 4): the box deleted, its <p> blank, its <p> deleted,
+the box outside <header>, and the box and the switch both deleted. The preset case
+stops in verify.sh before Chrome starts. The other cases are static. The glossary case
+(spec 2 rule 7) is static too: the run of the good template lints the prose of its dt and dd.
 Each run gets a private TMPDIR, so every Chrome process carries that path and the
 cleanup can kill a stray one.
 """
@@ -59,6 +66,25 @@ CLIP_FIGURE = """<figure class="clip">
     <a href="clips/intro/index.html" data-ste="skip">transcript</a></figcaption>
 </figure>
 """
+# The Sources switch: the last child of nav#toc (spec 3). The cites hide behind it.
+SWITCH = '<label class="sources"><input type="checkbox" id="show-sources"> Sources</label>'
+# The answer box of the header (spec 2 rule 2): one <p> that starts with the label, then its cites.
+ANSWER = """  <div class="answer">
+    <p><strong>Short answer.</strong> Copy the template file, and write your answer in this box. Give each part of the answer one section, with a question as its title. Write all prose in STE-80. Then run <code>verify.sh</code> on the page.</p>
+    <div class="cites">
+      <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 <code>Simplified Technical English</code></cite>
+    </div>
+  </div>
+"""
+# The <p> of the answer box, cut from ANSWER.
+ANSWER_P = ANSWER[ANSWER.index("<p>"):ANSWER.index("</p>") + len("</p>")]
+# The last line of the first details.walk; a cite block for the fold case goes right after it.
+FOLD_TEXT = "measures all the text.</p>\n"
+# The cite block of the structure section: the 700 px span goes inside it. The answer box holds
+# a cite block too, and comes first, so the anchor starts at the list item that holds this one.
+CITES_OPEN = '<li>Write all prose in STE-80.\n      <div class="cites">\n'
+# A parse-time script: a reader's browser restored the switch as on, before "load".
+SWITCH_ON = '<script>document.getElementById("show-sources").checked = true;</script>\n'
 # The lead paragraph of the code section; the second clip of the Play all case goes after it.
 CODE_LEAD = ('  <p>Put each code block in a <code>figure.code</code> element. The caption gives '
              'the source as <code>name:line</code>, and the <code>pre</code> element contains '
@@ -80,8 +106,10 @@ PROBE = """<script>
       var steps = document.querySelectorAll(".step"), stacked = true;
       for (i = 0; i < steps.length; i++) if (steps[i].hasAttribute("hidden")) stacked = false;
       var same = document.title === initialTitle;
+      var sources = document.getElementById("show-sources");
       value += ";PROBE:" + (open ? "open" : "closed") + ":" + (stacked ? "stacked" : "single") +
-        ";TITLE:" + (same ? "same" : "changed");
+        ";TITLE:" + (same ? "same" : "changed") +
+        ";SOURCES:" + (sources && sources.checked ? "on" : "off");
     }
     return original.call(this, name, value);
   };
@@ -222,6 +250,24 @@ def html_start_tag(html):
     return match.group(0)
 
 
+def style_rules(html):
+    """(selector list, declarations) of each rule in <style>, comments cut. A rule inside an
+    @media block comes out with the block header as its selector."""
+    css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css)]
+
+
+def font_size_floor_names(html):
+    """The last word of each selector in a font-size rule of 14 px or more."""
+    names = set()
+    for selectors, body in style_rules(html):
+        match = re.search(r"font-size:\s*(\d+(?:\.\d+)?)px", body)
+        if match and float(match.group(1)) >= 14:
+            names.update(sel.split()[-1] for sel in selectors.split(",") if sel.strip())
+    return names
+
+
 def script_lines(html):
     """Lines between <script> and </script> over all blocks (the tag lines excluded)."""
     total = 0
@@ -279,6 +325,13 @@ class PageGuardTest(unittest.TestCase):
             'render 1440x900: FAIL data-verify="%s"' % status,
             'render 500x844: FAIL data-verify="%s"' % status,
         ], 1)
+
+    def cite_block(self):
+        """The cite block of the structure section, as it is written there (its comments cut).
+        The answer box holds one too, and comes first in the file, so the search starts below it."""
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)
+        section = re.search(r'<section id="structure">.*?</section>', markup, re.S).group(0)
+        return re.search(r'<div class="cites">.*?</div>\n', section, re.S).group(0)
 
     def with_probe(self, html):
         return self.edit(html, GUARD_2, PROBE + GUARD_2)
@@ -358,8 +411,85 @@ class PageGuardTest(unittest.TestCase):
 
     def test_13px_rule_reports_smalltext_13(self):
         html = self.edit(self.template, "</style>",
-                         "p.lead { font-size: 13px; }\n</style>")
+                         ".answer p { font-size: 13px; }\n</style>")
         self.assert_both_fail(html, "SMALLTEXT:13")
+
+    def test_hidden_cite_with_12px_snippet_reports_smalltext_12(self):
+        # red: the guard measures the reading view only. The cites are hidden there, so the
+        # 12 px snippet escapes (no layout box); the second measure, with Sources on, finds it.
+        html = self.edit(self.template, "</style>", ".cites code { font-size: 12px; }\n</style>")
+        self.assert_both_fail(html, "SMALLTEXT:12")
+
+    def test_hidden_cite_700px_wide_reports_hscroll_at_500_only(self):
+        # red: the guard measures the reading view only. With Sources on, the span makes the
+        # page wider than 500 px; at 1440 px it fits.
+        html = self.edit(self.template, CITES_OPEN, CITES_OPEN +
+                         '<span style="display:inline-block;width:700px;height:1px"></span>\n')
+        self.assert_renders(html, [
+            "render 1440x900: ok",
+            'render 500x844: FAIL data-verify="HSCROLL"',
+        ], 1)
+
+    def test_hidden_cite_in_a_fold_is_measured(self):
+        # red: the second measure runs before the guard opens the details, or skips closed ones:
+        # a cite block in a fold stays hidden, and its 12 px snippet escapes.
+        html = self.edit(self.template, FOLD_TEXT, FOLD_TEXT + self.cite_block())
+        html = self.edit(html, "</style>", "details.walk .cites code { font-size: 12px; }\n</style>")
+        self.assert_both_fail(html, "SMALLTEXT:12")
+
+    def test_switch_removed_reports_nosources(self):
+        # red: the guard does not look for the switch: the cites hide for good, and no code says so.
+        html = self.edit(self.template, "  " + SWITCH + "\n", "")
+        self.assert_both_fail(html, "NOSOURCES")
+
+    def test_switch_outside_the_nav_reports_nosources(self):
+        # red: the guard finds the switch by id anywhere. A switch in <header> scrolls away with the
+        # header, so the reader has no Sources switch in the sticky nav (spec 3).
+        html = self.edit(self.template, "  " + SWITCH + "\n", "")
+        html = self.edit(html, "</header>\n", "  " + SWITCH + "\n</header>\n")
+        self.assert_both_fail(html, "NOSOURCES")
+
+    def test_page_without_cites_needs_no_switch(self):
+        # red: NOSOURCES fires on a page with no cite block (a topic from model knowledge).
+        html, removed = re.subn(r'\s*<div class="cites">.*?</div>', "", self.template, flags=re.S)
+        self.assertGreaterEqual(removed, 1)
+        html = self.edit(html, "  " + SWITCH + "\n", "")
+        self.assert_renders(html, RENDER_OK, 0)
+
+    def test_guard_restores_a_checked_switch(self):
+        # red: the guard sets the switch back to off. A reader's browser restores it as on at
+        # "load", so the probe must see it on when the guard writes data-verify.
+        html = self.edit(self.with_probe(self.template), PROBE, SWITCH_ON + PROBE)
+        self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same;SOURCES:on")
+
+    def test_answer_box_removed_reports_noanswer(self):
+        # red: the guard does not look for the answer box: a page with no answer passes.
+        html = self.edit(self.template, ANSWER, "")
+        self.assert_both_fail(html, "NOANSWER")
+
+    def test_blank_answer_box_reports_noanswer(self):
+        # red: the guard checks that the box exists, not that it holds text: an empty box passes.
+        html = self.edit(self.template, ANSWER, ANSWER.replace(ANSWER_P, "<p> \n </p>"))
+        self.assert_both_fail(html, "NOANSWER")
+
+    def test_answer_box_with_only_cites_reports_noanswer(self):
+        # red: the guard reads all the text of the box, its cites too: a box of cites passes.
+        html = self.edit(self.template, ANSWER, ANSWER.replace(ANSWER_P + "\n", ""))
+        self.assert_both_fail(html, "NOANSWER")
+
+    def test_answer_box_outside_header_reports_noanswer(self):
+        # red: the guard looks for .answer in the whole page, not in <header>: a box that
+        # sits in the first section passes.
+        html = self.edit(self.template, ANSWER, "")
+        end = html.index("</h2>\n", html.index("<main>")) + len("</h2>\n")
+        html = html[:end] + ANSWER + html[end:]
+        self.assert_both_fail(html, "NOANSWER")
+
+    def test_missing_box_and_switch_report_in_order(self):
+        # red: NOANSWER is pushed after NOSOURCES, or one code hides the other.
+        html = self.edit(self.template, ANSWER, "")
+        html = self.edit(html, "  " + SWITCH + "\n", "")
+        self.assert_both_fail(html, "NOANSWER;NOSOURCES")
 
     def test_15unit_svg_text_reports_smalltext_at_500_only(self):
         # SVG text is in viewBox units; the guard scales it by rendered width / viewBox width.
@@ -381,7 +511,7 @@ class PageGuardTest(unittest.TestCase):
     def test_verify_fragment_opens_details_and_stacks_steps(self):
         # The runtime title half of case 7: TITLE:same here, TITLE:changed in the next case.
         html = self.with_probe(self.template)
-        self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same")
+        self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same;SOURCES:off")
 
     def test_without_verify_fragment_details_stay_closed_and_one_step_shows(self):
         # Defeating the hash test makes the guard take the normal-view branch. The same
@@ -390,7 +520,7 @@ class PageGuardTest(unittest.TestCase):
         html = self.edit(self.template, HASH_TEST, '"#never"')
         html = self.edit(html, LOAD_OPEN, LOAD_OPEN + '  document.title = "x";\n')
         html = self.with_probe(html)
-        self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:changed")
+        self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:changed;SOURCES:off")
 
     def test_data_verify_absent_in_source(self):
         # The static check reads the <html start tag only, the one place where a preset
@@ -443,6 +573,93 @@ class PageGuardTest(unittest.TestCase):
             self.assertRegex(text, r"^[^<\"]+ <code>[^<]+</code>$")
         blocks = re.findall(r'<div class="cites">(.*?)</div>', markup, re.S)
         self.assertEqual(sum(block.count("<cite") for block in blocks), len(cites))
+
+    def test_switch_is_in_the_nav_and_cites_hide_by_default(self):
+        """Red: the switch is missing, sits before a link, or is not in nav#toc; or the style lacks
+        the hide rule, the :has rule, or the print rule that shows the cites."""
+        self.assertEqual(self.template.count(SWITCH), 1)
+        nav = re.search(r'<nav id="toc">(.*?)</nav>', self.template, re.S).group(1)
+        self.assertIn(SWITCH, nav)
+        self.assertGreater(nav.index(SWITCH), nav.rindex("</a>"))
+        self.assertEqual(nav[nav.index(SWITCH) + len(SWITCH):].strip(), "")   # the last child
+        rules = dict(style_rules(self.template))
+        self.assertIn("display: none", rules[".cites"])
+        self.assertEqual(rules["body:has(#show-sources:checked) .cites"].strip(), "display: block;")
+        self.assertEqual(rules["@media print"].replace("\n", " ").split("{")[0].strip(), ".cites")
+        self.assertIn("display: block", rules["@media print"])
+
+    def test_label_and_input_have_explicit_font_sizes(self):
+        """Red: label or input is in no font-size rule of 14 px or more; Chrome would size an
+        input at 13.33 px, and a label in the nav would only inherit."""
+        names = font_size_floor_names(self.template)
+        self.assertIn("label", names)
+        self.assertIn("input", names)
+
+    def test_status_table_lists_nosources(self):
+        """Red: the status table of the template has no row for NOSOURCES."""
+        self.assertRegex(self.template, r"<tr><td><code>NOSOURCES</code></td><td>[^<]+</td></tr>")
+
+    def test_header_asks_and_answers(self):
+        """Red: the <h1> is not a question, or the <title> differs from it; the template still has
+        p.lead; the answer box is missing, twice, or outside <header>; its <p> lacks the label, is
+        not followed by its cites, has fewer than two sentences or more than four, or has more
+        than 70 words."""
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)   # a comment names <h1>
+        header = re.search(r"<header>(.*?)</header>", markup, re.S).group(1)
+        h1 = re.search(r"<h1>(.*?)</h1>", header, re.S).group(1)
+        self.assertTrue(h1.endswith("?"), h1)
+        self.assertEqual(re.search(r"<title>(.*?)</title>", markup, re.S).group(1), h1)
+        self.assertNotIn('class="lead"', markup)
+        self.assertEqual(self.template.count(ANSWER), 1)
+        self.assertIn(ANSWER, header)
+        self.assertTrue(ANSWER_P.startswith("<p><strong>Short answer.</strong>"), ANSWER_P)
+        self.assertRegex(ANSWER, r'</p>\s*<div class="cites">')
+        said = re.sub(r"<[^>]+>", "", ANSWER_P.replace("<strong>Short answer.</strong>", ""))
+        self.assertIn(len(re.findall(r"[.?!](?:\s|$)", said.strip())), (2, 3, 4), said)
+        self.assertLessEqual(len(re.sub(r"<[^>]+>", "", ANSWER_P).split()), 70)
+
+    def test_status_table_lists_noanswer(self):
+        """Red: the status table of the template has no row for NOANSWER, or the row comes after the
+        NOSOURCES row."""
+        row = r"<tr><td><code>%s</code></td><td>[^<]+</td></tr>"
+        found = re.search(row % "NOANSWER", self.template)
+        self.assertTrue(found)
+        self.assertLess(found.start(), re.search(row % "NOSOURCES", self.template).start())
+
+    def test_template_has_a_glossary_section(self):
+        """Red: section#terms is missing, twice, or after section#provenance-facet; it has no <h2>
+        question, no dl.terms, or fewer than two dt/dd pairs; a dd holds a cite block; no comment
+        above the dl names div.cites; the nav link to #terms is missing or after the provenance
+        link; the style has no .terms grid of max-content 1fr, no explicit 16 px bold .terms dt,
+        or no max-width media rule that sets one column."""
+        self.assertEqual(self.template.count('<section id="terms">'), 1)
+        # The comment above the dl gives the markup of a dd that has cites; read it before the cut.
+        comment = re.search(r'<section id="terms">(?:(?!</section>).)*?<!--((?:(?!-->).)*)-->\s*<dl class="terms">',
+                            self.template, re.S)
+        self.assertTrue(comment, "a comment must come right above the dl")
+        self.assertIn("div.cites", comment.group(1))
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)
+        section = re.search(r'<section id="terms">(.*?)</section>', markup, re.S).group(1)
+        self.assertLess(markup.index('<section id="terms">'),
+                        markup.index('<section id="provenance-facet">'))
+        self.assertRegex(section, r"<h2>What do the terms mean\?</h2>")
+        glossary = re.search(r'<dl class="terms">(.*?)</dl>', section, re.S).group(1)
+        pairs = re.findall(r"<dt>[^<]+</dt>\s*<dd>.*?</dd>", glossary, re.S)
+        self.assertGreaterEqual(len(pairs), 2)
+        self.assertEqual(glossary.count("<dt>"), len(pairs))
+        self.assertNotIn('class="cites"', section)   # the template holds no file cite
+        nav = re.search(r'<nav id="toc">(.*?)</nav>', self.template, re.S).group(1)
+        self.assertIn('<a href="#terms">Terms</a>', nav)
+        self.assertLess(nav.index('<a href="#terms">'), nav.index('<a href="#provenance-facet">'))
+        rules = dict(style_rules(self.template))
+        self.assertIn("display: grid", rules[".terms"])
+        self.assertIn("grid-template-columns: max-content 1fr", rules[".terms"])
+        dt = rules[".terms dt"]
+        self.assertRegex(dt, r"font-size:\s*16px")
+        self.assertRegex(dt, r"font-weight:\s*(700|bold)")
+        narrow = [body for sel, body in rules.items() if re.fullmatch(r"@media \(max-width: \d+px\)", sel)]
+        self.assertTrue(any(".terms" in body and "grid-template-columns: 1fr" in body
+                            for body in narrow), narrow)
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)

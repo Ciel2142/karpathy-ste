@@ -68,8 +68,8 @@ document.
 2. List the sections by the page rung rules: one facet, one `<h2>` question and one nav entry for
    each. Give each section an id. For a directory subject, the first section is the whole, start
    to end (the rule of `page.md` "Plan the sections"); the mechanics follow.
-3. Mark each section that gets a clip. Use the criterion of "When a lesson" above. The journey of
-   the first section is the first candidate: motion along a path is what a still cannot show.
+3. Mark each section that gets a clip. Use the criterion of "When a lesson" above. The main flow
+   of the first section is the first candidate. Motion along a path is what a still cannot show.
 4. Write `review/plan.md` in the output directory. Write one line for each section:
 
 ```

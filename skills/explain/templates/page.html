@@ -8,10 +8,11 @@ window.explainJsErrors = 0;
 window.onerror = function () { window.explainJsErrors += 1; };
 </script>
 <meta name="explain-rung" content="page">
-<title>The page template: a guided tour</title>
+<title>How do you build a page from this template?</title>
 <!--
   explain / rung page. Copy this file to out/<run>/index.html, then fill it.
-  - Put the page title in <title> and in the <h1>. Write one lead paragraph.
+  - Put the page title, a question, in <title> and in the <h1>. Then write the answer box:
+    one <p> of two to four sentences that starts with Short answer, and its cites.
   - One facet per <section>: a unique id, an <h2> with the question the section
     answers, and one <a href="#id"> in <nav id="toc">, in document order.
   - Code: <figure class="code"> with a name:line caption. Long proof: <details class="walk">.
@@ -46,8 +47,8 @@ h1 { font-size: 30px; }
 h2 { font-size: 22px; }
 h3 { font-size: 18px; }
 h1 code, h2 code { font-size: inherit; }
-.lead { font-size: 18px; }
-code, kbd, pre, button, nav a { font-size: 15px; }
+.answer p { font-size: 18px; }
+code, kbd, pre, button, input, nav a, nav label { font-size: 15px; }
 th, dt, small, sup, sub, cite, figcaption, .caption { font-size: 14px; }
 td { font-size: 15px; }
 figcaption code { font-size: 14px; }
@@ -69,22 +70,32 @@ a { color: var(--accent); }
 cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
 figcaption { color: var(--muted); }
 /* Cites: one block under the element it supports (a sibling of a p or a figcaption, the last
-   child of a li or a dd). name:line in the accent, the snippet as code. */
-.cites { margin-top: 6px; padding: 6px 10px; background: var(--fill); border-left: 3px solid var(--line); }
+   child of a li or a dd). name:line in the accent, the snippet as code. The reading view hides
+   them; the Sources switch in the nav shows them, and print shows them. */
+.cites {
+  display: none; margin-top: 6px; padding: 6px 10px; background: var(--fill);
+  border-left: 3px solid var(--line);
+}
 .cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
 .cites cite + cite { margin-top: 4px; }
 .cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono);
   font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+body:has(#show-sources:checked) .cites { display: block; }
+@media print { .cites { display: block; } }
 
 /* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
 header { padding: 32px 0 16px; }
-.lead { margin-top: 10px; color: var(--muted); }
+/* The answer box: the short answer to the title. Its cites sit on the page ground, so that the
+   block stands out from the fill. */
+.answer { margin-top: 16px; padding: 14px 16px; background: var(--fill); border-left: 4px solid var(--accent); }
+.answer .cites { background: var(--bg); }
 nav#toc {
   position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 18px;
   padding: 10px 0; background: var(--bg); border-bottom: 1.5px solid var(--ink);
 }
 nav#toc a { color: var(--accent); font-weight: 600; text-decoration: none; }
 nav#toc a:hover { text-decoration: underline; }
+nav#toc .sources { margin-left: auto; color: var(--muted); cursor: pointer; }
 
 /* Clips (lesson rung) and the Play all button. A figure.clip breaks out of the 72ch
    column: --clip-w = max(100%, min(960px, 100vw - 64px)), and the left margin is half
@@ -111,6 +122,15 @@ section > * + * { margin-top: 14px; }
 section > .cites { margin-top: 6px; }
 .rules { padding-left: 22px; }
 .rules li + li { margin-top: 4px; }
+/* Glossary: the term and its meaning side by side; one column on a narrow screen. dt is 14 px in
+   the base list, so the term sets its own size. */
+.terms { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; }
+.terms dt { font-size: 16px; font-weight: 700; }
+.terms dd { min-width: 0; }
+@media (max-width: 560px) {
+  .terms { grid-template-columns: 1fr; gap: 2px; }
+  .terms dd + dt { margin-top: 10px; }
+}
 
 /* Captioned code block. Long lines wrap inside the box, so no line hides off screen. */
 figure.code { border: 1px solid var(--line); }
@@ -194,12 +214,18 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
 </head>
 <body>
 <header>
-  <h1>The page template: a guided tour</h1>
-  <p class="lead">This page is the template for the page rung. It also shows each part of the template in use.</p>
+  <h1>How do you build a page from this template?</h1>
+  <div class="answer">
+    <p><strong>Short answer.</strong> Copy the template file, and write your answer in this box. Give each part of the answer one section, with a question as its title. Write all prose in STE-80. Then run <code>verify.sh</code> on the page.</p>
+    <div class="cites">
+      <cite data-path="https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf" data-line="1" data-snippet="Simplified Technical English">ASD-STE100 <code>Simplified Technical English</code></cite>
+    </div>
+  </div>
   <button id="play-all" type="button">Play all</button>
 </header>
 
-<!-- Navigation: one link per section, in document order. The lint skips <nav>. -->
+<!-- Navigation: one link per section, in document order, then the Sources switch (keep it
+     last: it shows the cites). The lint skips <nav>. -->
 <nav id="toc">
   <a href="#structure">Structure</a>
   <a href="#code">Code</a>
@@ -207,7 +233,9 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
   <a href="#diagrams">Diagrams</a>
   <a href="#steps">Steps</a>
   <a href="#guard">Guard</a>
+  <a href="#terms">Terms</a>
   <a href="#provenance-facet">Provenance</a>
+  <label class="sources"><input type="checkbox" id="show-sources"> Sources</label>
 </nav>
 
 <main>
@@ -409,12 +437,29 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
         <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
         <tr><td><code>SMALLTEXT:&lt;px&gt;</code></td><td>Some text is smaller than 14 px.</td></tr>
         <tr><td><code>PLAYALL</code></td><td>The Play all button shows on a page without a clip, or it does not show on a page with one.</td></tr>
+        <tr><td><code>NOANSWER</code></td><td>The header has no answer box, or the box has no text outside its cites.</td></tr>
+        <tr><td><code>NOSOURCES</code></td><td>The page has a cite block, and the nav has no Sources switch.</td></tr>
         <tr><td><code>JSERROR</code></td><td>A script error occurred.</td></tr>
         <tr><td><code>OK</code></td><td>No check failed.</td></tr>
       </tbody>
     </table>
   </div>
   <p>The guard writes the result into <code>data-verify</code> on the <code>html</code> element. <code>verify.sh</code> loads the page at 1440 px and at 500 px, and reads this attribute. The guard does not change the page title.</p>
+</section>
+
+<section id="terms">
+  <h2>What do the terms mean?</h2>
+  <!-- Glossary: one dt and one dd for each term that a newcomer does not know. A term from the
+       repo gets a cite: its dd ends with its div.cites, as the last child, in the citation
+       pattern of the structure section. The demo terms hold no cite: the template has no file cite. -->
+  <dl class="terms">
+    <dt>Facet</dt>
+    <dd>One question that the page answers. Each facet has one section.</dd>
+    <dt>Rung</dt>
+    <dd>A form of output. This template is the page rung. The sheet, the video and the lesson are other rungs.</dd>
+    <dt>Guard</dt>
+    <dd>A script in the page. It checks the page in Chrome. Then it writes the result into <code>data-verify</code>.</dd>
+  </dl>
 </section>
 
 <section id="provenance-facet">
@@ -565,24 +610,47 @@ window.addEventListener("load", function () {
   }
   var nav = document.getElementById("toc");   /* scroll-margin of sections = real nav height */
   if (nav) doc.style.setProperty("--nav-h", nav.offsetHeight + "px");
-  if (doc.scrollWidth > window.innerWidth) fails.push("HSCROLL");
-  var smallest = Infinity, all = document.body.getElementsByTagName("*");
-  for (var j = 0; j < all.length; j++) {
-    var el = all[j], own = false;
-    for (var n = el.firstChild; n && !own; n = n.nextSibling) {
-      own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+  /* HSCROLL and SMALLTEXT. An element with no layout box is skipped, so a hidden cite block
+     escapes one measure: measure the reading view, then the view with Sources on. */
+  function measure() {
+    var small = Infinity, all = document.body.getElementsByTagName("*");
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j], own = false;
+      for (var n = el.firstChild; n && !own; n = n.nextSibling) {
+        own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+      }
+      if (!own || !el.getClientRects().length) continue;
+      /* SVG text is in viewBox units: scale it by the rendered width over the viewBox width. */
+      var px = parseFloat(getComputedStyle(el).fontSize), svg = el.ownerSVGElement;
+      if (svg && svg.viewBox && svg.viewBox.baseVal.width) px *= svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+      small = Math.min(small, px);
     }
-    if (!own || !el.getClientRects().length) continue;
-    /* SVG text is in viewBox units: scale it by the rendered width over the viewBox width. */
-    var px = parseFloat(getComputedStyle(el).fontSize), svg = el.ownerSVGElement;
-    if (svg && svg.viewBox && svg.viewBox.baseVal.width) px *= svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
-    smallest = Math.min(smallest, px);
+    return { wide: doc.scrollWidth > window.innerWidth, small: small };
   }
-  if (smallest < MIN_PX) fails.push("SMALLTEXT:" + Math.round(smallest * 100) / 100);
+  var view = measure(), sources = document.getElementById("show-sources");
+  if (sources) {   /* a restored switch is on at "load": put it back as it was, not to off */
+    var was = sources.checked, shown;
+    sources.checked = true;
+    shown = measure();
+    sources.checked = was;
+    view = { wide: view.wide || shown.wide, small: Math.min(view.small, shown.small) };
+  }
+  if (view.wide) fails.push("HSCROLL");
+  if (view.small < MIN_PX) fails.push("SMALLTEXT:" + Math.round(view.small * 100) / 100);
   /* Play all: the button shows when the page has a clip, and only then. */
   var playAll = document.getElementById("play-all");
   var playShown = !!playAll && getComputedStyle(playAll).display !== "none";
   if ((document.querySelectorAll("figure.clip").length > 0) !== playShown) fails.push("PLAYALL");
+  /* Answer: the header holds the answer box, and the box has text outside its cites. */
+  var box = document.querySelector("header .answer"), said = false;
+  if (box) {
+    var rest = box.cloneNode(true), cut = rest.querySelectorAll(".cites");
+    for (var k = 0; k < cut.length; k++) cut[k].remove();
+    said = rest.textContent.trim() !== "";
+  }
+  if (!said) fails.push("NOANSWER");
+  /* Sources: a page with a cite block needs the switch in the nav, else the cites hide for good. */
+  if (document.querySelector(".cites") && !document.querySelector('nav#toc input#show-sources[type="checkbox"]')) fails.push("NOSOURCES");
   if (window.explainJsErrors > 0) fails.push("JSERROR");
   /* The tests wrap doc.setAttribute to read the DOM state: keep this one call. */
   doc.setAttribute("data-verify", fails.length ? fails.join(";") : "OK");
