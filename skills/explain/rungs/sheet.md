@@ -139,9 +139,10 @@ Write all prose in STE-80. These notes come from the lint of the `ste` skill.
 ## 6. Verify and export
 
 Do these steps in the output directory, in this order.
-1. Run `<skill-dir>/scripts/verify.sh index.html`. All five lines must show
-   `ok`: `self-contained`, `render 1920x1080`, `citations`, `prose` and `bpmn`. The `bpmn` line
-   can show `none` when the sheet has no BPMN diagram. Fix each cause that the detail lines name.
+1. Run `<skill-dir>/scripts/verify.sh index.html`. Each line must show `ok`, except that the
+   `bpmn` line shows `none` when the sheet cites no `.bpmn` file. The five lines are
+   `self-contained`, `render 1920x1080`, `citations`, `prose` and `bpmn`. Fix each cause that
+   the detail lines name.
 2. Run `<skill-dir>/scripts/snapshot.sh index.html sheet.png 1920 1080 2`. It writes
    `sheet.png` (3840x2160) and the tiles `review/sheet-01.png` to `review/sheet-04.png`.
    The output directory then holds `index.html`, `sheet.png` and `review/sheet-01..04.png`.

@@ -5,7 +5,7 @@ Each prompt is a template. The author fills it by plain text replacement of {nam
 placeholders of its gate and no other word in braces (PLACEHOLDERS; every {name} counts, name = letters and
 "_"). Each prompt has the six level-2 sections of SECTIONS, in that order. Each section holds the sentences
 that the spec gives it, word for word (a prompt may wrap a line; the tests compare text with runs of white
-space collapsed, squash), and the Checks section holds the numbered list of its gate: three checks for the
+space collapsed, squash), and the Checks section holds the numbered list of its gate: four checks for the
 page, two for the script, six for the render (CHECK_COUNT). The Inputs section of each prompt also closes the
 directory of the page and its parent directory to the reviewer (CLOSED_DIRS), so that the plants file and the
 reports of other reviewers are outside what it reads.
@@ -58,7 +58,7 @@ PLACEHOLDERS = {
     RENDER: SHARED | {"section", "changes"},
 }
 SECTIONS = ("Your task", "Inputs", "Hunt", "Checks", "Round 2", "Report")
-CHECK_COUNT = {PAGE: 3, SCRIPT: 2, RENDER: 6}
+CHECK_COUNT = {PAGE: 4, SCRIPT: 2, RENDER: 6}
 
 PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)\}")
 CHECK_LINE = re.compile(r"(\d+)\. ")
