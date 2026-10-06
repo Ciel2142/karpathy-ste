@@ -68,8 +68,10 @@ Put one primitive in each `.panel-body`.
   value wraps and never truncates. The guard reports `OVERFLOW:title` if the block overflows.
   Then make `--tb-height` larger in steps of 20 px. Panel F becomes shorter by the same
   height through `.over-title`.
-- Cite placement: in a non-prose primitive, put the `<cite>` in the `p.note` or `p.box`
-  below the primitive. Or put it in the caption, with a snippet of at most 4 words.
+- Cite placement: the cites of a paragraph go in one `div.cites` after it (inside a `<li>`, as
+  its last child). In a non-prose primitive, put the block after the `p.note` or `p.box` below
+  the primitive, with a snippet of at most 4 words. A sheet is dense: the block shows each cite
+  on one line.
 
 ## 4. Provenance recipe
 
@@ -99,17 +101,22 @@ git ls-files --error-unmatch <path>
 
 A citation has this form. `data-path` is the full path, relative to `data-root`. `data-line` is a
 1-based line number. The snippet has at most 12 words, copied verbatim from that one line. Escape
-`"`, `&` and `<` inside the attribute (`&quot;`, `&amp;`, `&lt;`). The visible text is
-`name:line "snippet"`, where `name` is the basename of `data-path`, or a longer tail if two cited
-files have that basename.
+`"`, `&` and `<` inside the attribute (`&quot;`, `&amp;`, `&lt;`).
+
+The visible text is `name:line` and the snippet in `<code>`, with no quotes. `name` is the
+basename of `data-path`, or a longer tail if two cited files have that basename. The cites of
+one paragraph collect in one `div.cites` after it; the prose keeps no cite.
 
 ```
-<cite data-path="src/app.py" data-line="12" data-snippet="def main(argv):">app.py:12 "def main(argv):"</cite>
+<p>The program starts in one function.</p>
+<div class="cites">
+  <cite data-path="src/app.py" data-line="12" data-snippet="def main(argv):">app.py:12 <code>def main(argv):</code></cite>
+</div>
 ```
 
 Run `git ls-files --error-unmatch <path>` from the repo root. `<path>` is the `data-path` value
 of the `<cite>`. If the command exits with a non-zero code, git does not track the file. Write
-the word `untracked` inside the `<cite>` text, after the snippet, in each `<cite>` for that file.
+the word `untracked` inside the `<cite>` text, after the `</code>`, in each `<cite>` for that file.
 
 ## 5. Write the prose
 

@@ -270,7 +270,7 @@ with the rung name `brainrot`).
 | Path | Contents |
 |---|---|
 | `script.json` | The script that you wrote. All other files come from it. |
-| `index.html` | The transcript: the narration, the text on the screen and the cites of each scene. Its provenance block has a `Format` row (`brainrot (1080×1920)`) and a `Background` row. The page keeps `<meta name="explain-rung" content="video">`, so `verify.sh` treats it as a video transcript. |
+| `index.html` | The transcript: the narration, the text on the screen and the cites of each scene in one `div.cites` block. Its provenance block has a `Format` row (`brainrot (1080×1920)`) and a `Background` row. The page keeps `<meta name="explain-rung" content="video">`, so `verify.sh` treats it as a video transcript. |
 | `video.mp4` | The narrated video. |
 | `narration.md` | The narration, one heading for each scene. |
 | `audio/` | For each scene, `<id>.<engine>.wav` and its sidecar `<id>.<engine>.txt`. Also `<id>.<engine>.words.json` for each scene, and `durations.json`. |
