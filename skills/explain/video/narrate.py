@@ -10,7 +10,8 @@ as its speed; say takes it as a rate of 175 wpm (say's default) times the speed,
 
 Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, say 22050 Hz),
 a sidecar <id>.<engine>.txt (engine, voice, speed, "mode=sentences", narration) and
-durations.json: { "engine", "fallback", "scenes": { "<id>": seconds } }. A script with
+durations.json: { "engine", "voice", "fallback", "scenes": { "<id>": seconds } }, where voice is
+the engine's voice: af_heart (Kokoro), say-default or Milena (say), xenia (Silero). A script with
 "lang": "ru" and a "pronounce" map { written term: spoken Russian } is read by the engine in
 its spoken form, and its sidecar holds "lang=ru", the engine's model when it has one, and the
 spoken form of each written token, one on each line, in place of the narration.
@@ -26,11 +27,14 @@ that has no "mode=sentences" line in its sidecar is made again.
 Exit 0 on success; 1 on a failed scene or a missing tool; 2 on a usage error or an
 unreadable script; 3 when Kokoro cannot run (models missing, or a clip failed), which
 narrate.sh turns into the say fallback. The say path is stdlib only; kokoro_onnx and
-soundfile are imported lazily by the Kokoro engine.
+soundfile are imported lazily by the Kokoro engine, and torch by the Silero engine (which reads
+a pinned model file and checks its size and sha256 before it loads it).
 """
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,6 +42,7 @@ import sys
 import tempfile
 import unicodedata
 import wave
+from array import array
 from pathlib import Path
 
 DEFAULT_SPEED = "1.0"
@@ -48,7 +53,16 @@ KOKORO_VOICE = "af_heart"
 KOKORO_RATE = 24000
 SAY_VOICE = "say-default"
 SAY_RATE = 22050
+SAY_RUSSIAN_VOICE = "Milena"
+SAY_RUSSIAN_LOCALE = "ru_RU"
+SAY_VOICE_LINE = re.compile(r"^(.+?)\s+([a-z]{2}_[A-Z]{2})\s+#")   # a line of `say -v ?`: name, locale, # sample
 MODEL_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
+SILERO_FILE = "v5_3_ru.pt"
+SILERO_SHA256 = "f036d3da1584899e5e24bdf2d5bd3bcf896e2d62505de39a02caca76014d7a1c"
+SILERO_SIZE = 145359640
+SILERO_VOICE = "xenia"
+SILERO_RATE = 48000
+PCM_PEAK = 32767
 RATE_LINE = re.compile(r"Data format:.*?(\d+) Hz")
 DURATION_LINE = re.compile(r"estimated duration:\s*([0-9.]+)")
 SENTENCE_END = ".?!"
@@ -237,7 +251,28 @@ def word_timings(sentences, spans, speech=ENGLISH):
     return words
 
 
-def synth_say(text, wav, speed):
+def say_voice_args(lang):
+    """say's -v option for a language: Milena for ru, none for en (say's default voice)."""
+    return ["-v", SAY_RUSSIAN_VOICE] if lang == "ru" else []
+
+
+def require_russian_say_voice():
+    """Raise NarrationError unless `say -v ?` lists Milena for ru_RU.
+
+    A line there is "<name>  <locale>  # <sample>" and a name can hold spaces, so the name is the
+    text before the locale column. "Milena (Enhanced)" is another voice. The check is needed:
+    `say -v <missing voice>` exits 0 and speaks with the default voice.
+    """
+    run = subprocess.run(["say", "-v", "?"], capture_output=True, encoding="utf-8", errors="replace",
+                         stdin=subprocess.DEVNULL)
+    for line in run.stdout.splitlines() if run.returncode == 0 else []:
+        found = SAY_VOICE_LINE.match(line)
+        if found and found.groups() == (SAY_RUSSIAN_VOICE, SAY_RUSSIAN_LOCALE):
+            return
+    raise NarrationError(f"say voice {SAY_RUSSIAN_VOICE} is not installed", 1)
+
+
+def synth_say(text, wav, speed, lang="en"):
     # The text goes through a file (-f), never as an argument: a narration that starts
     # with "-" would otherwise be parsed by say as an option.
     with tempfile.TemporaryDirectory() as scratch:
@@ -245,7 +280,7 @@ def synth_say(text, wav, speed):
         source.write_text(text, encoding="utf-8")
         run = subprocess.run(
             ["say", "--file-format=WAVE", f"--data-format=LEI16@{SAY_RATE}", *say_rate_args(speed),
-             "-o", str(wav), "-f", str(source)],
+             *say_voice_args(lang), "-o", str(wav), "-f", str(source)],
             capture_output=True, text=True, stdin=subprocess.DEVNULL,
         )
     if run.returncode != 0:
@@ -253,13 +288,17 @@ def synth_say(text, wav, speed):
 
 
 class SayEngine:
-    name, voice, rate, model = "say", SAY_VOICE, SAY_RATE, None
+    name, rate, model = "say", SAY_RATE, None
 
-    def __init__(self, speed):
+    def __init__(self, speed, lang="en"):
         self.speed = speed
+        self.lang = lang
+        self.voice = SAY_RUSSIAN_VOICE if lang == "ru" else SAY_VOICE
+        if lang == "ru":
+            require_russian_say_voice()
 
     def synth(self, text, wav):
-        synth_say(text, wav, self.speed)
+        synth_say(text, wav, self.speed, self.lang)
 
     def failure(self, sid, message):
         return NarrationError(f"scene {sid}: {message}", 1)
@@ -287,6 +326,55 @@ class KokoroEngine:
 
     def failure(self, sid, message):
         return NarrationError(f"kokoro clip failed: {sid}: {message}", 3)
+
+
+def silero_model_tag():
+    """The model's name and the first 12 hex digits of its pinned sha256, read at each call."""
+    return f"{Path(SILERO_FILE).stem}@{SILERO_SHA256[:12]}"
+
+
+def sha256_of(handle):
+    """The hex sha256 of what remains of an open binary file."""
+    digest = hashlib.sha256()
+    for block in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(block)
+    return digest.hexdigest()
+
+
+class SileroEngine:
+    name, voice, rate, speed = "silero", SILERO_VOICE, SILERO_RATE, DEFAULT_SPEED
+
+    def __init__(self, models):
+        path = Path(models) / SILERO_FILE
+        if not path.is_file():
+            raise NarrationError(f"models missing: {SILERO_FILE}", 3)
+        self.model = silero_model_tag()
+        # Loading the package runs code from the file, so the file is checked first, and the
+        # package is loaded from the very handle that was hashed: the bytes loaded are the bytes checked.
+        with open(path, "rb") as package:
+            if os.fstat(package.fileno()).st_size != SILERO_SIZE or sha256_of(package) != SILERO_SHA256:
+                raise NarrationError(f"model sha mismatch: {SILERO_FILE}", 3)
+            package.seek(0)
+            from torch.package import PackageImporter   # lazy: only a Silero run needs torch
+            self._tts = PackageImporter(package).load_pickle("tts_models", "model")
+
+    def synth(self, text, wav):
+        try:
+            audio = self._tts.apply_tts(text=text, speaker=SILERO_VOICE, sample_rate=SILERO_RATE).tolist()
+            # Clipped first: a peak above 1.0 would wrap to a loud click as int16.
+            pcm = array("h", (int(max(-1.0, min(1.0, sample)) * PCM_PEAK) for sample in audio))
+            if sys.byteorder == "big":
+                pcm.byteswap()   # WAV samples are little-endian
+            with wave.open(str(wav), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(SILERO_RATE)
+                out.writeframes(pcm.tobytes())
+        except Exception as exc:   # any engine fault is one failed clip, reported with its scene
+            raise SynthError(str(exc)) from exc
+
+    def failure(self, sid, message):
+        return NarrationError(f"silero clip failed: {sid}: {message}", 3)
 
 
 def clip_format(clip):
@@ -453,13 +541,13 @@ def main(argv=None):
     try:
         check_narrations(scenes)
         check_tools(args.engine)
-        engine = SayEngine(args.speed) if args.engine == "say" else KokoroEngine(args.models, args.speed)
+        engine = SayEngine(args.speed, speech.lang) if args.engine == "say" else KokoroEngine(args.models, args.speed)
         audio_dir = Path(args.audio_dir)
         seconds = narrate(scenes, engine, audio_dir, speech)
     except NarrationError as exc:
         print(f"narration: FAIL {exc}")
         return exc.code
-    report = {"engine": engine.name, "fallback": args.fallback, "scenes": seconds}
+    report = {"engine": engine.name, "voice": engine.voice, "fallback": args.fallback, "scenes": seconds}
     (audio_dir / "durations.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return 0
 
