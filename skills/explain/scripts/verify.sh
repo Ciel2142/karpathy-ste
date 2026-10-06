@@ -1,10 +1,10 @@
 #!/bin/bash
-# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5; video: three).
+# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5; lesson: five; video: three).
 #
 #   verify.sh <index.html>
 #   env VERIFY_TIMEOUT   seconds to wait for each Chrome DOM dump (default 60)
 #
-#   exit 0  all checks of the rung passed (sheet, page: four; video: three)
+#   exit 0  all checks of the rung passed (sheet, page: four; lesson: five; video: three)
 #   exit 1  at least one check failed
 #   exit 2  usage: no argument, unreadable file, no or unknown <meta name="explain-rung">
 #
@@ -18,7 +18,7 @@
 # Detail lines follow a failing check, indented by two spaces: each remote reference
 # as "<tag> <attr>=<value>" (for CSS: "<tag> style=<fragment>" for a style attribute,
 # "style css=<fragment>" for <style> text), each cite_check failure, each lint error.
-# A sheet has one render line (1920x1080); a page two (1440x900, 500x844); a video none.
+# A sheet has one render line (1920x1080); a page or a lesson two (1440x900, 500x844); a video none.
 # Every check runs even after an earlier one failed.
 #
 # Only the guard may write data-verify. If the source <html> start tag already carries
@@ -277,9 +277,10 @@ refs=$(printf '%s\n' "$scanned" | sed '1,2d')
 case "$rung_line" in
     rung=sheet) viewports="1920x1080" ;;
     rung=page) viewports="1440x900 500x844" ;;
+    rung=lesson) viewports="1440x900 500x844" ;;
     rung=video) viewports="" ;;   # a transcript: no viewport render, check 2 is skipped
     rung-missing) usage "no <meta name=\"explain-rung\"> in $input_abs" ;;
-    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page or video)" ;;
+    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video or lesson)" ;;
 esac
 
 # --- check 1: self-containment -------------------------------------------------
