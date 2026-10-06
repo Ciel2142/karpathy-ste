@@ -7,10 +7,11 @@ exactly once in the template: a template change cannot turn a case into the good
 case without notice. verify.sh must report the one status that the guard writes
 for that edit. verify.sh loads a page twice, 1440x900 and 500x844, both with
 #verify in the URL; there is no plain dump, so the cases for the fragment read the
-DOM state through a probe that wraps setAttribute on <html>. Seven Chrome runs of
+DOM state through a probe that wraps setAttribute on <html>. Eleven Chrome runs of
 verify.sh (two dumps each): the good template, the 700 px block, the 13 px rule,
 the 15-unit SVG text, the throwing script, the probe, the probe with the hash
-test defeated. The
+test defeated; then four more for the clip rule: the hide rule deleted, a clip
+without the button, a clip with the button, a clip with a hidden button. The
 preset case stops in verify.sh before Chrome starts. The other cases are static.
 Each run gets a private TMPDIR, so every Chrome process carries that path and the
 cleanup can kill a stray one.
@@ -40,6 +41,20 @@ FLOW_LAST_TEXT = '<text x="526" y="56" text-anchor="middle" class="label">verify
 LOAD_OPEN = 'window.addEventListener("load", function () {\n'
 LAST_SCRIPT_END = "</script>\n</body>"
 SCRIPT_BUDGET = 200
+# The lead paragraph of the first section; the clip figure goes right after it (spec 4.2).
+FIRST_LEAD = ('  <p>The page is one HTML file. It has no remote parts, thus it opens offline '
+              'from one file.</p>\n')
+# The Play all button, one line in <header>, and the rule that hides it on a page without clips.
+PLAY_ALL = '<button id="play-all" type="button">Play all</button>\n'
+HIDE_RULE = "body:not(:has(figure.clip)) #play-all { display: none; }"
+# The clip figure of spec 4.2, as in tests/fixtures/verify-lesson.html. Its paths are relative,
+# so check 1 passes; content="page" runs no media check, so the missing files do not matter.
+CLIP_FIGURE = """<figure class="clip">
+  <video controls preload="none" src="clips/intro/video.mp4" poster="clips/intro/poster.png"></video>
+  <figcaption><span class="part"></span>The parser reads one tag at a time.
+    <a href="clips/intro/index.html" data-ste="skip">transcript</a></figcaption>
+</figure>
+"""
 
 # Wraps setAttribute on <html>: when the guard writes data-verify, the probe appends
 # the DOM state at that moment, then calls the original. The title is captured when
@@ -145,6 +160,36 @@ class PageGuardTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout.splitlines(),
                          ["self-contained: ok"] + RENDER_OK + OTHER_OK)
+
+    def with_clip(self, html):
+        return self.edit(html, FIRST_LEAD, FIRST_LEAD + CLIP_FIGURE)
+
+    def test_template_hides_play_all_without_clips(self):
+        # The pass itself is test_template_passes_all_five_checks; this pins its two parts.
+        self.assertEqual(self.template.count(HIDE_RULE), 1)
+        self.assertEqual(self.template.count('id="play-all"'), 1)
+        self.assertNotIn('<figure class="clip"', self.template)   # no demo clip (spec 4.4)
+
+    def test_deleting_the_hide_rule_reports_playall(self):
+        # No clip, and the button shows: the guard reports PLAYALL.
+        html = self.edit(self.template, HIDE_RULE + "\n", "")
+        self.assert_both_fail(html, "PLAYALL")
+
+    def test_clip_without_button_reports_playall(self):
+        # A clip, and the author deleted the button: the control is gone, the guard says so.
+        html = self.edit(self.with_clip(self.template), PLAY_ALL, "")
+        self.assert_both_fail(html, "PLAYALL")
+
+    def test_clip_with_hidden_button_reports_playall(self):
+        # A clip, and the button is hidden: same status as a button that is gone.
+        html = self.edit(self.with_clip(self.template), PLAY_ALL,
+                         PLAY_ALL.replace('type="button"', 'type="button" style="display:none"'))
+        self.assert_both_fail(html, "PLAYALL")
+
+    def test_clip_with_button_passes(self):
+        # The two ok lines also mean: the clip text is 14 px or more, and the breakout
+        # width adds no horizontal overflow at 500 px.
+        self.assert_renders(self.with_clip(self.template), RENDER_OK, 0)
 
     def test_700px_block_reports_hscroll_at_500_only(self):
         html = self.edit(self.template, "<main>\n",
