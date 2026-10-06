@@ -89,10 +89,8 @@ figure.clip {
 }
 .clip video { display: block; width: 100%; background: #000; }
 .clip .part { font-weight: 600; margin-right: 8px; }
-#play-all {
-  margin-top: 14px; padding: 4px 14px; font-family: var(--sans); color: var(--ink);
-  background: #fff; border: 1.5px solid var(--ink); cursor: pointer;
-}
+.clip .part:empty { margin-right: 0; }   /* no run: the caption starts at the left edge */
+#play-all { margin-top: 14px; }   /* the rest of its look: the .player button rule */
 body:not(:has(figure.clip)) #play-all { display: none; }
 
 /* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav;
@@ -135,7 +133,7 @@ figure.diagram figcaption { margin-top: 6px; }
 /* Steps player: one .step visible at a time; .stacked (from #verify) shows all. */
 .player { padding: 12px; border: 1.5px solid var(--ink); }
 .player .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.player button {
+.player button, #play-all {
   padding: 4px 14px; font-family: var(--sans); color: var(--ink); background: #fff;
   border: 1.5px solid var(--ink); cursor: pointer;
 }
@@ -393,6 +391,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
       <tbody>
         <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
         <tr><td><code>SMALLTEXT:&lt;px&gt;</code></td><td>Some text is smaller than 14 px.</td></tr>
+        <tr><td><code>PLAYALL</code></td><td>The Play all button shows on a page without a clip, or it does not show on a page with one.</td></tr>
         <tr><td><code>JSERROR</code></td><td>A script error occurred.</td></tr>
         <tr><td><code>OK</code></td><td>No check failed.</td></tr>
       </tbody>
