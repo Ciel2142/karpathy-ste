@@ -122,6 +122,15 @@ section > * + * { margin-top: 14px; }
 section > .cites { margin-top: 6px; }
 .rules { padding-left: 22px; }
 .rules li + li { margin-top: 4px; }
+/* Glossary: the term and its meaning side by side; one column on a narrow screen. dt is 14 px in
+   the base list, so the term sets its own size. */
+.terms { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; }
+.terms dt { font-size: 16px; font-weight: 700; }
+.terms dd { min-width: 0; }
+@media (max-width: 560px) {
+  .terms { grid-template-columns: 1fr; gap: 2px; }
+  .terms dd + dt { margin-top: 10px; }
+}
 
 /* Captioned code block. Long lines wrap inside the box, so no line hides off screen. */
 figure.code { border: 1px solid var(--line); }
@@ -224,6 +233,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
   <a href="#diagrams">Diagrams</a>
   <a href="#steps">Steps</a>
   <a href="#guard">Guard</a>
+  <a href="#terms">Terms</a>
   <a href="#provenance-facet">Provenance</a>
   <label class="sources"><input type="checkbox" id="show-sources"> Sources</label>
 </nav>
@@ -435,6 +445,21 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
     </table>
   </div>
   <p>The guard writes the result into <code>data-verify</code> on the <code>html</code> element. <code>verify.sh</code> loads the page at 1440 px and at 500 px, and reads this attribute. The guard does not change the page title.</p>
+</section>
+
+<section id="terms">
+  <h2>What do the terms mean?</h2>
+  <!-- Glossary: one dt and one dd for each term that a newcomer does not know. A term from the
+       repo gets a cite: its dd ends with its div.cites, as the last child, in the citation
+       pattern of the structure section. The demo terms hold no cite: the template has no file cite. -->
+  <dl class="terms">
+    <dt>Facet</dt>
+    <dd>One question that the page answers. Each facet has one section.</dd>
+    <dt>Rung</dt>
+    <dd>A form of output. This template is the page rung. The sheet, the video and the lesson are other rungs.</dd>
+    <dt>Guard</dt>
+    <dd>A script in the page. It checks the page in Chrome. Then it writes the result into <code>data-verify</code>.</dd>
+  </dl>
 </section>
 
 <section id="provenance-facet">

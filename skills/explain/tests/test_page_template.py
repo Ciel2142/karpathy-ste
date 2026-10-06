@@ -18,7 +18,8 @@ snippet in a fold, each in a cite that the reading view hides; the switch delete
 a page with no cite and no switch; the probe with the switch on at parse time; then
 five for the answer box (spec 2, 4): the box deleted, its <p> blank, its <p> deleted,
 the box outside <header>, and the box and the switch both deleted. The preset case
-stops in verify.sh before Chrome starts. The other cases are static.
+stops in verify.sh before Chrome starts. The other cases are static. The glossary case
+(spec 2 rule 7) is static too: the run of the good template lints the prose of its dt and dd.
 Each run gets a private TMPDIR, so every Chrome process carries that path and the
 cleanup can kill a stray one.
 """
@@ -616,6 +617,41 @@ class PageGuardTest(unittest.TestCase):
         found = re.search(row % "NOANSWER", self.template)
         self.assertTrue(found)
         self.assertLess(found.start(), re.search(row % "NOSOURCES", self.template).start())
+
+    def test_template_has_a_glossary_section(self):
+        """Red: section#terms is missing, twice, or after section#provenance-facet; it has no <h2>
+        question, no dl.terms, or fewer than two dt/dd pairs; a dd holds a cite block; no comment
+        above the dl names div.cites; the nav link to #terms is missing or after the provenance
+        link; the style has no .terms grid of max-content 1fr, no explicit 16 px bold .terms dt,
+        or no max-width media rule that sets one column."""
+        self.assertEqual(self.template.count('<section id="terms">'), 1)
+        # The comment above the dl gives the markup of a dd that has cites; read it before the cut.
+        comment = re.search(r'<section id="terms">(?:(?!</section>).)*?<!--((?:(?!-->).)*)-->\s*<dl class="terms">',
+                            self.template, re.S)
+        self.assertTrue(comment, "a comment must come right above the dl")
+        self.assertIn("div.cites", comment.group(1))
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)
+        section = re.search(r'<section id="terms">(.*?)</section>', markup, re.S).group(1)
+        self.assertLess(markup.index('<section id="terms">'),
+                        markup.index('<section id="provenance-facet">'))
+        self.assertRegex(section, r"<h2>What do the terms mean\?</h2>")
+        glossary = re.search(r'<dl class="terms">(.*?)</dl>', section, re.S).group(1)
+        pairs = re.findall(r"<dt>[^<]+</dt>\s*<dd>.*?</dd>", glossary, re.S)
+        self.assertGreaterEqual(len(pairs), 2)
+        self.assertEqual(glossary.count("<dt>"), len(pairs))
+        self.assertNotIn('class="cites"', section)   # the template holds no file cite
+        nav = re.search(r'<nav id="toc">(.*?)</nav>', self.template, re.S).group(1)
+        self.assertIn('<a href="#terms">Terms</a>', nav)
+        self.assertLess(nav.index('<a href="#terms">'), nav.index('<a href="#provenance-facet">'))
+        rules = dict(style_rules(self.template))
+        self.assertIn("display: grid", rules[".terms"])
+        self.assertIn("grid-template-columns: max-content 1fr", rules[".terms"])
+        dt = rules[".terms dt"]
+        self.assertRegex(dt, r"font-size:\s*16px")
+        self.assertRegex(dt, r"font-weight:\s*(700|bold)")
+        narrow = [body for sel, body in rules.items() if re.fullmatch(r"@media \(max-width: \d+px\)", sel)]
+        self.assertTrue(any(".terms" in body and "grid-template-columns: 1fr" in body
+                            for body in narrow), narrow)
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)
