@@ -5,7 +5,7 @@ Usage: bpmn.py planes <file.bpmn>
        bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]
        bpmn.py label <index.html>
        bpmn.py check [--rung sheet|page|lesson] <index.html>
-Exit 0 on success, 1 on failures found, 2 on a usage or read error.
+Exit 0 on success, 1 on failures found, 2 on a usage or read error or an internal error.
 """
 
 import os
@@ -280,7 +280,15 @@ def main(argv):
         reconfigure(encoding="utf-8")
     if not argv or argv[0] not in COMMANDS:
         return _usage()
-    return COMMANDS[argv[0]](argv[1:])
+    try:
+        return COMMANDS[argv[0]](argv[1:])
+    except Exception as error:  # noqa: BLE001  (one line for verify.sh, not a traceback)
+        args = argv[1:]
+        if args[:1] == ["--rung"]:
+            args = args[2:]
+        name = args[0] if args else "-"
+        sys.stderr.write("bpmn.py: %s: internal error: %s: %s\n" % (name, type(error).__name__, error))
+        return 2
 
 
 if __name__ == "__main__":

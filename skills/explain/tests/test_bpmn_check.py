@@ -287,6 +287,14 @@ class CheckCase(unittest.TestCase):
         self.assertEqual(run(["check", "--rung", str(page)])[0], 2)
         self.assertEqual(run(["check", "--rung", "lesson", str(page)])[:2], (0, "bpmn: ok\n"))
 
+    def test_internal_error_is_one_line_and_exit_2(self):
+        """Red when an unexpected exception escapes main as a traceback, or exits with a code other than 2."""
+        page = bpmn_page(self.out)
+        with mock.patch.object(bpmn, "check_page", side_effect=RuntimeError("boom")):
+            code, out, err = run(["check", str(page)])
+        self.assertEqual((code, out), (2, ""))
+        self.assertEqual(err, "bpmn.py: %s: internal error: RuntimeError: boom\n" % page)
+
     def test_no_argument_or_no_data_root_is_usage(self):
         """Red when check runs without a page, or on a page with no data-root, and does not exit 2."""
         self.assertEqual(run(["check"])[0], 2)
