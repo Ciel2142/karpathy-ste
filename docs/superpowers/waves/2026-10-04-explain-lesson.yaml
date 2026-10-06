@@ -29,7 +29,7 @@ waves:
       covers three rows; the film-path cases for `render.sh` and `transcript.py` pass
       for a clip; the message asserts in the film and brainrot timeline tests and in
       `test_narrate_sentences.py` list three names; the unit suite and the film E2E pass.
-    status: pending
+    status: done   # 2026-10-06, ralph wave 2 (kp-7ft)
     depends_on: []
     owns:
       - skills/explain/video/formats.json
@@ -43,7 +43,7 @@ waves:
       - skills/explain/tests/test_format_limits.py (three rows)
       - skills/explain/tests/test_render.py, test_transcript.py, test_narrate_sentences.py (clip film-path cases, message asserts)
     risk: low
-    plan: null
+    plan: docs/superpowers/plans/2026-10-06-explain-lesson-w2.md
     acceptance:
       - cd skills/explain && python3 -B -m unittest discover -s tests
       - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film
@@ -64,7 +64,7 @@ waves:
       `FAIL source <id>: no cite on <path> inside <from>-<to>` and the `changed()` cases of
       `test_video_timeline_film.py` are fixed; the worked example, every fixture and the
       film E2E pass the source-cite check; the unit suite and the film E2E pass.
-    status: pending
+    status: done   # 2026-10-06, ralph wave 3 (kp-ipy)
     depends_on: [clip-format]
     owns:
       - skills/explain/video/src/FilmStage.tsx (minText from the timeline)
@@ -76,7 +76,7 @@ waves:
       - skills/explain/tests/test_video_timeline_film.py (source-cite and changed() cases)
       - skills/explain/tests/fixtures/ and video E2E scripts (source-cite fixes only)
     risk: low
-    plan: null
+    plan: docs/superpowers/plans/2026-10-06-explain-lesson-w3.md
     acceptance:
       - cd skills/explain && python3 -B -m unittest discover -s tests
       - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film
@@ -124,7 +124,7 @@ waves:
       quoted-source rule, verdict lines in each prompt); the gated `test_lesson_e2e.py`
       renders the fixture clip with eleven `ok` lines and the fixture page with six `ok`
       lines; `SKILL.md` lists six `--as` names and the `lesson` rung row.
-    status: pending
+    status: done   # 2026-10-06, ralph wave 4 (kp-qtb); finish session green, 809 explain + 117 ste tests
     depends_on: [clip-checks, lesson-page]
     owns:
       - skills/explain/rungs/lesson.md
@@ -137,7 +137,7 @@ waves:
       - skills/explain/tests/test_lesson_e2e.py
       - skills/explain/tests/fixtures/lesson-e2e/
     risk: low
-    plan: null
+    plan: docs/superpowers/plans/2026-10-06-explain-lesson-w4.md
     acceptance:
       - cd skills/explain && python3 -B -m unittest discover -s tests
       - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_lesson_e2e
