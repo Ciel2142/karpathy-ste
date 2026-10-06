@@ -628,16 +628,17 @@ class TestMono(EvaluatesJs):
         ])
 
     def test_line_spans_cut(self):
-        """Red: the text is not cut to the columns (4 columns give "abcdef"), a columns of 0 or less is
-        not an empty cut (-1 drops only the last letter, as slice does), or an empty text gives a
-        span of no text. Whatever the cut, the spans of a case join into exactly the cut text."""
+        """Red: the text is not cut to the columns (4 columns give "abcdef"), the mark takes no column
+        (4 columns give "abcd…", five code points), a columns of 0 or less is not an empty cut (-1
+        drops only the last letter, as slice does), or an empty text gives a span of no text. Whatever
+        the cut, the spans of a case join into exactly the cut text."""
         text = '"abcdef"'
         to_99 = "[%s]" % self.tint(2, 99)
         past = "[%s]" % self.tint(5, 9)
         cases = [
-            (self.spans(text, "[]", 4), "abcd"),
-            (self.spans(text, to_99, 4), "abcd"),
-            (self.spans(text, past, 4), "abcd"),
+            (self.spans(text, "[]", 4), "abc…"),
+            (self.spans(text, to_99, 4), "abc…"),
+            (self.spans(text, past, 4), "abc…"),
             (self.spans('""', "[]"), ""),
             (self.spans('""', to_99), ""),
             (self.spans(text, to_99, 0), ""),
@@ -646,14 +647,50 @@ class TestMono(EvaluatesJs):
         got = self.values([expression for expression, _ in cases])
         for (expression, cut), spans in zip(cases, got):
             self.assertEqual("".join(span["text"] for span in spans), cut, expression)
-        self.assertEqual(got[0], [{"text": "abcd"}])
-        self.assertEqual(got[1], [{"text": "ab"}, {"text": "cd", "color": A}])
-        self.assertEqual(got[2], [{"text": "abcd"}])
+        self.assertEqual(got[0], [{"text": "abc…"}])
+        self.assertEqual(got[1], [{"text": "ab"}, {"text": "c", "color": A}, {"text": "…"}])
+        self.assertEqual(got[2], [{"text": "abc…"}])
         self.assertEqual(got[3:], [[], [], [], []])
+
+    def test_line_spans_mark_a_cut(self):
+        """Red: a text that just fits gets a mark ("abcd" at 4 columns gives "abc…"), the mark goes after
+        the last column ("abcd…" for "abcde" at 4), a column of 1 keeps a letter before the mark, a
+        smiley counts as two columns (the cut keeps half of it), the mark takes the colour of the
+        tint before it (the last case gives one span of colour A, "abc…"), or the mark is left out
+        of a text that is cut."""
+        got = self.values([
+            self.spans('"abcd"', "[]", 4),
+            self.spans('"abcde"', "[]", 4),
+            self.spans('"abcde"', "[]", 1),
+            self.spans('"a\\u{1F600}bc"', "[]", 3),
+            self.spans('"abcdef"', "[%s]" % self.tint(0, 6), 4),
+        ])
+        self.assertEqual(got, [
+            [{"text": "abcd"}],
+            [{"text": "abc…"}],
+            [{"text": "…"}],
+            [{"text": "a\U0001F600…"}],
+            [{"text": "abc", "color": A}, {"text": "…"}],
+        ])
+
+    def test_the_largest_source_at_the_floor_fits_the_stage(self):
+        """Red: a row of formats.json gets more lines of source than its stage holds at its text floor
+        (a fold-back that raises the clip `sourceLines` to 23 gives a card of 731 px), or the card
+        height is worked out with another size than the row's `minText`."""
+        rows = json.loads((VIDEO / "formats.json").read_text(encoding="utf-8"))
+        names = ("film", "clip")
+        heights = self.values([
+            "cardHeight({ x: 0, y: 0, width: 600, size: %d }, %d)"
+            % (rows[name]["minText"], rows[name]["sourceLines"])
+            for name in names
+        ])
+        for name, height in zip(names, heights):
+            self.assertLessEqual(height, PALETTE["STAGE"]["height"], name)
 
     def test_line_spans_count_code_points(self):
         """Red: the text is split in UTF-16 units (`text.split("")`: the smiley is two, so the tint 1
-        to 2 colours half of it, and 2 columns cut it in half)."""
+        to 2 colours half of it and the tint 2 to 3 misses the b), or a cut to 2 columns gives "a😀"
+        (no mark) or keeps more than one code point before the mark."""
         text = '"a\\u{1F600}b"'
         smiley = "\U0001F600"
         got = self.values([
@@ -663,7 +700,7 @@ class TestMono(EvaluatesJs):
         ])
         self.assertEqual(got, [
             [{"text": "a"}, {"text": smiley, "color": A}, {"text": "b"}],
-            [{"text": "a" + smiley}],
+            [{"text": "a…"}],
             [{"text": "a" + smiley}, {"text": "b", "color": A}],
         ])
 
@@ -676,7 +713,7 @@ class TestMono(EvaluatesJs):
         ])
         self.assertEqual(got, [
             [{"text": "    "}, {"text": "x", "color": A}, {"text": " = 1"}],
-            [{"text": "  a"}],
+            [{"text": "  …"}],
         ])
 
     def test_require_line(self):
@@ -972,7 +1009,8 @@ class TestCodeCard(RendersKit):
     def test_line_numbers_and_lines(self):
         """Red: a number is not its line's own (they count from 1), is not right-aligned, is not at x
         164 or is off the baseline of its line; a line of code is not at x 188 or is off its baseline,
-        drops its leading spaces (line 51), or a line is missing."""
+        drops its leading spaces (line 51), or a line is missing; a line of 41 characters or fewer
+        gets a mark, or a longer one is cut to 41 characters and has no mark."""
         group = self.cards(plain="")["plain"]
         numbers = self.numbers(group)
         self.assertEqual([self.content(text) for text in numbers], [str(k) for k in range(47, 55)])
@@ -985,7 +1023,8 @@ class TestCodeCard(RendersKit):
                 continue
             text = codes[str(self.baseline(k))]
             self.assertEqual(text.get("x"), "188", "line %d" % k)
-            self.assertEqual(self.content(text), line[:41], "line %d" % k)
+            expected = line if len(line) <= 41 else line[:40] + "…"
+            self.assertEqual(self.content(text), expected, "line %d" % k)
         self.assertTrue(self.content(codes[str(self.baseline(51))]).startswith("    "))
 
     def test_lines_are_set_on_the_grid_like_mono(self):
@@ -1008,15 +1047,19 @@ class TestCodeCard(RendersKit):
             }
             self.assertEqual(attrs(text, expected), expected, self.content(text))
 
-    def test_a_long_line_is_cut_without_an_ellipsis(self):
+    def test_a_long_line_ends_in_a_cut_mark(self):
         """Red: a line of 60 characters is drawn whole (the card fits 41), is cut a column early or
-        late (40 or 42 characters), ends in an ellipsis (40 characters and "…"), or keeps the
-        textLength of the whole line (720, not 492)."""
+        late (39 or 41 characters before the mark), has no mark (41 characters, no "…"), has the mark
+        after the 41st character (42 columns: textLength 504, not 492), keeps the textLength of the
+        whole line (720), or another line gets a mark (a line that fits is cut)."""
         long = self.LINES[2]
         self.assertEqual(len(long), 60)
-        text = self.codes(self.cards(plain="")["plain"])[str(self.baseline(49))]
-        self.assertEqual(self.content(text), long[:41])
+        group = self.cards(plain="")["plain"]
+        text = self.codes(group)[str(self.baseline(49))]
+        self.assertEqual(self.content(text), long[:40] + "…")
         self.assertEqual(text.get("textLength"), "492")
+        drawn = [self.content(code) for code in self.codes(group).values()]
+        self.assertEqual([line for line in drawn if "…" in line], [long[:40] + "…"])
 
     def test_an_empty_line_draws_its_number_only(self):
         """Red: an empty line draws a text of no characters (16 texts: the check for an empty line is
@@ -1044,12 +1087,13 @@ class TestCodeCard(RendersKit):
 
     def test_a_tint_past_the_cut_is_clipped(self):
         """Red: the cut is wrong when a tint runs past it: it is 3 columns late (44 characters, and a
-        tspan of 6) or there is no cut (the whole line)."""
+        tspan of 6), there is no cut (the whole line), the mark takes the colour of the tint (it ends
+        up in the tspan, and the tail is empty), or the mark is left out."""
         tint = 'tints={[{ line: 49, from: 38, to: 60, color: "%s" }]}' % A
         text = self.codes(self.cards(tinted=tint)["tinted"])[str(self.baseline(49))]
         long = self.LINES[2]
         (tspan,) = list(text)
-        self.assertEqual((text.text, tspan.text, tspan.tail), (long[:38], long[38:41], None))
+        self.assertEqual((text.text, tspan.text, tspan.tail), (long[:38], long[38:40], "…"))
         self.assertEqual(text.get("textLength"), "492")
 
     def test_a_band_is_a_bar_behind_one_line(self):
@@ -1092,7 +1136,7 @@ class TestCodeCard(RendersKit):
         self.assertEqual({text.get("x") for text in self.numbers(group)}, {"98"})
         text = self.codes(group)["142"]
         self.assertEqual((text.get("x"), text.get("textLength")), ("134", "252"))
-        self.assertEqual(self.content(text), self.LINES[2][:14])
+        self.assertEqual(self.content(text), self.LINES[2][:13] + "…")
 
     def test_a_source_not_from_disk_is_refused(self):
         """Red: CodeCard draws a copy of a source (a spread, here), checks the source after the bands
