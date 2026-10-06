@@ -648,10 +648,13 @@ class SileroInProcess(unittest.TestCase):
         return self.narrate.SileroEngine(self.models)
 
     def assert_engine_fails(self, message):
-        with self.assertRaises(self.narrate.NarrationError) as caught:
-            self.engine()
+        """The engine refuses with message, code 3, before torch is imported. A None entry in
+        sys.modules makes "import torch" raise ImportError, so an import made before the refusal
+        (the package is then loaded too) ends the test with that error instead of NarrationError."""
+        with mock.patch.dict(sys.modules, {"torch": None, "torch.package": None}):
+            with self.assertRaises(self.narrate.NarrationError) as caught:
+                self.engine()
         self.assertEqual((str(caught.exception), caught.exception.code), (message, 3))
-        self.assertEqual(self.stub.imported, [], "the package is never loaded")
 
     def read_samples(self, wav):
         with wave.open(str(wav), "rb") as src:
@@ -675,12 +678,14 @@ class SileroInProcess(unittest.TestCase):
         self.assertEqual(self.read_samples(wav)[0], (32767, -32767, 16383))
 
     def test_sha_mismatch_never_loads(self):
-        """Mutation: the sha256 is compared after the package is loaded, or not at all."""
+        """Mutation: the sha256 is compared after the package is loaded, or not at all, or torch is
+        imported before the check."""
         self.patch("SILERO_SHA256", hashlib.sha256(b"another file").hexdigest())
         self.assert_engine_fails("model sha mismatch: v5_3_ru.pt")
 
     def test_size_mismatch_never_loads(self):
-        """Mutation: the size is not compared (a file of the right sha and the wrong size loads)."""
+        """Mutation: the size is not compared (a file of the right sha and the wrong size loads), or
+        torch is imported before the check."""
         self.patch("SILERO_SIZE", len(self.MODEL) + 1)
         self.assert_engine_fails("model sha mismatch: v5_3_ru.pt")
 
@@ -691,10 +696,12 @@ class SileroInProcess(unittest.TestCase):
 
     def test_the_hashed_handle_is_loaded(self):
         """Mutation: the package is loaded from a second open of the path (the bytes loaded are not
-        the bytes hashed), or the handle is not rewound after the hash (tell() is 3), or it is
-        closed before load_pickle (the stub refuses) or never closed."""
+        the bytes hashed), whether the hash is read by open() or by pathlib (read_bytes() and
+        Path.open() go through io.open, so that name is spied too), or the handle is not rewound
+        after the hash (tell() is 3), or it is closed before load_pickle (the stub refuses) or
+        never closed."""
         opened = []
-        real_open = builtins.open
+        real_open = builtins.open   # the same function as io.open
 
         def spy(file, *args, **kwargs):
             handle = real_open(file, *args, **kwargs)
@@ -702,7 +709,7 @@ class SileroInProcess(unittest.TestCase):
                 opened.append(handle)
             return handle
 
-        with mock.patch("builtins.open", spy):
+        with mock.patch("builtins.open", spy), mock.patch("io.open", spy):
             self.engine()
         self.assertEqual(len(opened), 1, "the model file is opened once")
         self.assertEqual(len(self.stub.imported), 1)
