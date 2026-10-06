@@ -3,7 +3,9 @@ text splitting and word timings, the per-sentence narration with its words.json,
 the clips. The shared doubles and the NarrateCase base live in test_narrate. Each test names
 the mutation that turns it red."""
 
+import contextlib
 import importlib.util
+import io
 import json
 import shutil
 import struct
@@ -103,6 +105,120 @@ class SentenceText(unittest.TestCase):
         narration = "Run `verify.sh`, then stop. Really?"
         words = self.narrate.word_timings(self.split(narration), [(0.0, 1.0), (1.15, 2.0)])
         self.assertEqual([w["text"] for w in words], narration.split())
+
+    def speak(self, text, pronounce=None):
+        """The spoken sentence of text for a Russian script with these pronounce entries."""
+        return self.narrate.Speech("ru", pronounce).spoken_sentence(text)
+
+    def test_spoken_ascii_space_joins_words(self):
+        """Mutation: the spoken sentence keeps the written whitespace (a tab, a no-break space), which
+        Silero reads as no gap at all ("в базе" as "вбазе")."""
+        self.assertEqual(self.speak("в базе\tданных."), "в базе данных.")
+        self.assertEqual(self.speak("в\u00a0базе\u202fданных."), "в базе данных.")
+
+    def test_spoken_value_whitespace_is_one_space(self):
+        """Mutation: a run of whitespace in a pronounce value is kept (two spaces, a tab) instead of
+        becoming one ASCII space."""
+        self.assertEqual(self.speak("DB.", {"DB": "база  данных"}), "база данных.")
+        self.assertEqual(self.speak("DB.", {"DB": "база\t\u00a0данных"}), "база данных.")
+
+    def test_spoken_longest_key_first(self):
+        """Mutation: the keys are tried in the order written, so the short key wins where the long one
+        also matches ("Spring" before "Spring-Boot": "спринг-Boot"), or the long key is lost."""
+        pronounce = {"Kafka": "кафка", "KafkaTemplate": "кафка темплейт"}
+        self.assertEqual(self.speak("KafkaTemplate", pronounce), "кафка темплейт")
+        pronounce = {"Spring": "спринг", "Spring-Boot": "спринг буд"}
+        self.assertEqual(self.speak("Spring-Boot", pronounce), "спринг буд")
+
+    def test_spoken_whole_token_boundaries(self):
+        """Mutation: a key matches at the end of a word (KafkaTemplate for "Template"), at the start
+        of one (KafkaTemplate for "Kafka", JSONом), or does not match beside a hyphen (JSON-файл)."""
+        self.assertEqual(self.speak("KafkaTemplate", {"Kafka": "кафка"}), "KafkaTemplate")
+        self.assertEqual(self.speak("KafkaTemplate", {"Template": "темплейт"}), "KafkaTemplate")
+        self.assertEqual(self.speak("JSONом", {"JSON": "джейсон"}), "JSONом")
+        self.assertEqual(self.speak("JSON-файл", {"JSON": "джейсон"}), "джейсон-файл")
+
+    def test_spoken_overlapping_keys_one_pass(self):
+        """Mutation: the keys are applied one after another, so the longer key "b-cd" takes its part
+        of "a-b-cd" first and "a-b" is lost ("a-игрек")."""
+        pronounce = {"a-b": "икс", "b-cd": "игрек"}
+        self.assertEqual(self.speak("a-b-cd", pronounce), "икс-cd")
+
+    def test_spoken_value_not_rescanned(self):
+        """Mutation: a replaced value is scanned again, so "A" becomes "B" and then "в"."""
+        self.assertEqual(self.speak("A", {"A": "B", "B": "в"}), "B")
+
+    def test_spoken_case_sensitive(self):
+        """Mutation: a key matches in any case, so "json" speaks the word "JSON"."""
+        self.assertEqual(self.speak("JSON", {"json": "джейсон"}), "JSON")
+
+    def test_spoken_cyrillic_key(self):
+        """Mutation: a token with a non-ASCII letter is not scanned for keys, so a Cyrillic key never matches."""
+        self.assertEqual(self.speak("СУБД.", {"СУБД": "эс-у-бэ-дэ"}), "эс-у-бэ-дэ.")
+
+    def test_spoken_nfc(self):
+        """Mutation: the spoken form is not normalised, so a decomposed "й" (two code points) goes to the engine."""
+        self.assertEqual(self.speak("\u0438\u0306"), "\u0439")
+        self.assertEqual(len(self.speak("\u0438\u0306")), 1)
+
+    def test_spoken_english_unchanged(self):
+        """Mutation: an English sentence is re-joined with one space (the double space is lost), or its
+        backticks are kept."""
+        self.assertEqual(self.narrate.Speech().spoken_sentence("Run `a`  now."), "Run a  now.")
+        self.assertEqual(self.narrate.ENGLISH.spoken_sentence("Run `a`  now."), "Run a  now.")
+
+    def test_mapped_token_keeps_its_punctuation(self):
+        """Mutation: a key matches only a bare token, so a code name in backticks, with a comma or
+        inside guillemets, is not spoken as its value, or the value drops the punctuation."""
+        pronounce = {"JSON": "джейсон", "Kafka": "кафка"}
+        self.assertEqual(self.speak("`JSON`, «Kafka»", pronounce), "джейсон, «кафка»")
+
+    def test_keys_with_regex_characters_match_literally(self):
+        """Mutation: a key is not escaped, so "C++" breaks the pattern and ".NET" matches "aNET"."""
+        pronounce = {"C++": "си плюс плюс", ".NET": "дот нет"}
+        self.assertEqual(self.speak("C++", pronounce), "си плюс плюс")
+        self.assertEqual(self.speak(".NET", pronounce), "дот нет")
+        self.assertEqual(self.speak("CXX", pronounce), "CXX")
+        self.assertEqual(self.speak("aNET", pronounce), "aNET")
+
+    def widths(self, sentence, span_end, speech):
+        """The span share of each word of one sentence that starts at 0.0."""
+        words = self.narrate.word_timings([sentence], [(0.0, span_end)], speech)
+        return [w["text"] for w in words], [w["to"] - w["from"] for w in words]
+
+    def test_russian_word_weights(self):
+        """Mutation: the weight is the length of the written token (404 weighs 3, not 16), or the
+        words file carries the spoken form instead of the written token."""
+        speech = self.narrate.Speech("ru", {"404": "четыреста четыре"})
+        texts, widths = self.widths("Код 404 готов.", 2.7, speech)   # weights 3, 16, 6 + 2
+        self.assertEqual(texts, ["Код", "404", "готов."])
+        for got, want in zip(widths, (0.3, 1.6, 0.8)):
+            self.assertAlmostEqual(got, want, places=9)
+
+    def test_comma_after_a_mapped_token_weighs_end_weight(self):
+        """Mutation: a mapped token weighs its value alone, so the comma and END_WEIGHT are lost
+        (16, not 17 + END_WEIGHT)."""
+        speech = self.narrate.Speech("ru", {"404": "четыреста четыре"})
+        texts, widths = self.widths("Код 404, готов.", 3.0, speech)   # weights 3, 17 + END_WEIGHT, 6 + 2
+        self.assertEqual(texts, ["Код", "404,", "готов."])
+        self.assertEqual(self.narrate.END_WEIGHT, 2)
+        for got, want in zip(widths, (0.3, 1.9, 0.8)):
+            self.assertAlmostEqual(got, want, places=9)
+
+    def test_stress_mark_does_not_weigh(self):
+        """Mutation: a "+" stress mark counts toward the weight (Kafka weighs 6, not 5)."""
+        speech = self.narrate.Speech("ru", {"Kafka": "к+афка"})
+        _, widths = self.widths("Это Kafka тут.", 1.4, speech)   # weights 3, 5, 4 + 2
+        for got, want in zip(widths, (0.3, 0.5, 0.6)):
+            self.assertAlmostEqual(got, want, places=9)
+
+    def test_english_weights_ignore_pronounce(self):
+        """Mutation: an English script gets the Russian weights (a "+" removed, a pronounce entry
+        applied, or the token made NFC so a decomposed e with an acute accent weighs 1, not 2)."""
+        speech = self.narrate.Speech("en", {"a+b": "x"})
+        _, widths = self.widths("a+b e\u0301", 0.7, speech)   # weights 3, 2 + 2: the "+" counts
+        for got, want in zip(widths, (0.3, 0.4)):
+            self.assertAlmostEqual(got, want, places=9)
 
 
 class Sentences(NarrateCase):
@@ -356,6 +472,114 @@ class Sentences(NarrateCase):
             (self.audio / "one.say.txt").read_text(encoding="utf-8"),
             f"engine=say\nvoice=say-default\nspeed=1.2\nmode=sentences\n{ONE} {TWO}",
         )
+
+
+class StubEngine:
+    """An engine with no process: each synth() records its text and writes 0.1 s of silence."""
+
+    name, voice, rate, speed = "stub", "v", 22050, "1.0"
+
+    def __init__(self, error, model=None):
+        self.error = error   # NarrationError of the module under test
+        self.model = model
+        self.texts = []
+
+    def synth(self, text, wav):
+        self.texts.append(text)
+        with wave.open(str(wav), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(self.rate)
+            out.writeframes(b"\x00\x00" * (self.rate // 10))
+
+    def failure(self, sid, message):
+        return self.error(f"scene {sid}: {message}")
+
+
+class RussianSidecar(unittest.TestCase):
+    """narrate() run in-process with a stub engine: what the engine reads, what the sidecar holds,
+    and when a clip is made again. The module is loaded by path, as in SentenceText."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("narrate_under_test_russian", NARRATE_PY)
+        cls.narrate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.narrate)
+
+    def setUp(self):
+        self.audio = Path(tempfile.mkdtemp(prefix="russian-sidecar-")) / "audio"
+        self.addCleanup(shutil.rmtree, self.audio.parent, ignore_errors=True)
+
+    def run_narrate(self, text, pronounce=None, lang="ru", engine=None):
+        """Narrate one scene "one"; return (engine, the printed line)."""
+        engine = engine or self.stub()
+        speech = self.narrate.Speech(lang, pronounce)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.narrate.narrate([{"id": "one", "narration": text}], engine, self.audio, speech)
+        return engine, out.getvalue().strip()
+
+    def stub(self, model=None):
+        return StubEngine(self.narrate.NarrationError, model)
+
+    def sidecar(self):
+        return (self.audio / "one.stub.txt").read_text(encoding="utf-8")
+
+    def test_russian_sidecar_lines(self):
+        """Mutation: the sidecar has no lang line, or still holds the written narration, or joins the
+        spoken tokens with spaces instead of one on each line."""
+        self.run_narrate("JSON готов.", {"JSON": "джейсон"})
+        self.assertEqual(
+            self.sidecar(), "engine=stub\nvoice=v\nspeed=1.0\nmode=sentences\nlang=ru\nджейсон\nготов.")
+
+    def test_model_line_follows_lang(self):
+        """Mutation: a Russian sidecar leaves out the engine's model line, or puts it before the lang
+        line, or an English sidecar gets it too (an English cache would no longer match)."""
+        self.run_narrate("JSON готов.", {"JSON": "джейсон"}, engine=self.stub("m@1"))
+        self.assertEqual(
+            self.sidecar(),
+            "engine=stub\nvoice=v\nspeed=1.0\nmode=sentences\nlang=ru\nmodel=m@1\nджейсон\nготов.")
+        shutil.rmtree(self.audio)
+        self.run_narrate("Hello there.", lang="en", engine=self.stub("m@1"))
+        self.assertEqual(self.sidecar(), "engine=stub\nvoice=v\nspeed=1.0\nmode=sentences\nHello there.")
+
+    def test_engine_reads_the_spoken_sentence(self):
+        """Mutation: the engine is given the written sentence, so it reads "JSON" as Latin letters."""
+        engine, _ = self.run_narrate("JSON готов.", {"JSON": "джейсон"})
+        self.assertEqual(engine.texts, ["джейсон готов."])
+
+    def test_pronounce_edit_resynthesises(self):
+        """Mutation: the sidecar holds the written narration, so an edit of a pronounce value reuses the old clip."""
+        self.run_narrate("JSON готов.", {"JSON": "джейсон"})
+        _, line = self.run_narrate("JSON готов.", {"JSON": "джей сон"})
+        self.assertIn("(synthesized)", line)
+
+    def test_moving_a_word_between_values_resynthesises(self):
+        """Mutation: the sidecar holds the spoken sentence joined with spaces, so moving a word from
+        one value to the next (same joined text, other word weights) reuses the clip."""
+        self.run_narrate("A B.", {"A": "икс игрек", "B": "зет"})
+        _, line = self.run_narrate("A B.", {"A": "икс", "B": "игрек зет"})
+        self.assertIn("(synthesized)", line)
+
+    def test_no_break_space_edit_reuses(self):
+        """Mutation: the sidecar or the words check holds the narration as written, so a no-break
+        space in place of a space (the same tokens) makes the clip again."""
+        _, first = self.run_narrate("Один два.")
+        self.assertIn("(synthesized)", first)
+        _, line = self.run_narrate("Один\u00a0два.")
+        self.assertIn("(reused)", line)
+
+    def test_a_script_loads_with_its_speech(self):
+        """Mutation: load_script drops lang or pronounce, or returns no Speech for a script with neither."""
+        script = self.audio.parent / "script.json"
+        scenes = [{"id": "one", "narration": "JSON готов."}]
+        script.write_text(json.dumps(
+            {"scenes": scenes, "lang": "ru", "pronounce": {"JSON": "джейсон"}}), encoding="utf-8")
+        got, speech = self.narrate.load_script(str(script))
+        self.assertEqual((got, speech.lang, speech.pronounce), (scenes, "ru", {"JSON": "джейсон"}))
+        script.write_text(json.dumps({"scenes": scenes}), encoding="utf-8")
+        got, speech = self.narrate.load_script(str(script))
+        self.assertEqual((got, speech.lang, speech.pronounce), (scenes, "en", {}))
 
 
 def wav_bytes(rate, frames, width=2, channels=1, extra_chunk=b"", claim_extra=0):

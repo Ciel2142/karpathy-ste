@@ -10,7 +10,10 @@ as its speed; say takes it as a rate of 175 wpm (say's default) times the speed,
 
 Writes <audio-dir>/<id>.<engine>.wav (16-bit PCM mono: Kokoro 24000 Hz, say 22050 Hz),
 a sidecar <id>.<engine>.txt (engine, voice, speed, "mode=sentences", narration) and
-durations.json: { "engine", "fallback", "scenes": { "<id>": seconds } }.
+durations.json: { "engine", "fallback", "scenes": { "<id>": seconds } }. A script with
+"lang": "ru" and a "pronounce" map { written term: spoken Russian } is read by the engine in
+its spoken form, and its sidecar holds "lang=ru", the engine's model when it has one, and the
+spoken form of each written token, one on each line, in place of the narration.
 
 Every scene is narrated one sentence at a time: each sentence is synthesised alone, the clips
 are joined with 0.15 s of silence between them, and <id>.<engine>.words.json gets the exact
@@ -33,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import wave
 from pathlib import Path
 
@@ -102,16 +106,75 @@ def say_rate_args(speed):
     return ["-r", str(round(SAY_DEFAULT_WPM * float(speed)))]
 
 
-def sidecar_text(engine, text):
-    """The sidecar: engine, voice, speed, mode=sentences, then the narration."""
-    return f"engine={engine.name}\nvoice={engine.voice}\nspeed={engine.speed}\nmode=sentences\n{text}"
+class Speech:
+    """The language of a script and how its written tokens are spoken.
+
+    English: a token is spoken without its backticks, and a sentence keeps its whitespace.
+    Russian: each token also has the keys of pronounce replaced, in one pass, and is made NFC;
+    a sentence is its spoken tokens joined with one ASCII space (Silero joins words across any
+    other whitespace). A key lies inside one token, so every written token has its own spoken form.
+    """
+
+    def __init__(self, lang="en", pronounce=None):
+        self.lang = lang
+        self.pronounce = dict(pronounce or {})
+        self._values = {key: re.sub(r"\s+", " ", value) for key, value in self.pronounce.items()}
+        self._keys = None   # one pass, longest key first (the sort keeps equal lengths in order), whole tokens only
+        if lang == "ru" and self.pronounce:
+            keys = sorted(self.pronounce, key=len, reverse=True)
+            self._keys = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(key) for key in keys) + r")(?!\w)")
+
+    def _spoken_token(self, token):
+        token = token.replace("`", "")
+        if self.lang != "ru":
+            return token
+        if self._keys:
+            token = self._keys.sub(lambda found: self._values[found.group(0)], token)
+        return unicodedata.normalize("NFC", token)
+
+    def spoken_tokens(self, text):
+        """The spoken form of each token of text.split()."""
+        return [self._spoken_token(token) for token in text.split()]
+
+    def spoken_sentence(self, sentence):
+        """The text an engine reads for one sentence."""
+        if self.lang != "ru":
+            return sentence.replace("`", "")
+        return " ".join(self.spoken_tokens(sentence))
+
+    def token_lengths(self, sentence):
+        """The weight of each written token of sentence, before END_WEIGHT: the length of its spoken form.
+
+        In Russian a "+" (a stress mark of the spoken form) is not a letter and does not weigh.
+        """
+        spoken = self.spoken_tokens(sentence)
+        if self.lang == "ru":
+            spoken = [token.replace("+", "") for token in spoken]
+        return [len(token) for token in spoken]
 
 
-def sidecar_matches(sidecar, engine, text):
+ENGLISH = Speech()
+
+
+def sidecar_text(engine, text, speech=ENGLISH):
+    """The sidecar: engine, voice, speed, mode=sentences, then the narration.
+
+    A Russian sidecar has, after mode=sentences, the line lang=ru, the line model=<engine.model>
+    when the engine has a model, and in place of the narration the spoken form of each written
+    token, one on each line.
+    """
+    head = f"engine={engine.name}\nvoice={engine.voice}\nspeed={engine.speed}\nmode=sentences\n"
+    if speech.lang != "ru":
+        return head + text
+    model = f"model={engine.model}\n" if engine.model else ""
+    return f"{head}lang=ru\n{model}" + "\n".join(speech.spoken_tokens(text))
+
+
+def sidecar_matches(sidecar, engine, text, speech=ENGLISH):
     """True when the sidecar exists and every field equals what this run would write."""
     if not sidecar.is_file():
         return False
-    return sidecar.read_bytes().decode("utf-8") == sidecar_text(engine, text)
+    return sidecar.read_bytes().decode("utf-8") == sidecar_text(engine, text, speech)
 
 
 def words_match(words_path, text):
@@ -121,11 +184,6 @@ def words_match(words_path, text):
         return [word["text"] for word in words] == text.split()
     except (OSError, ValueError, KeyError, TypeError):   # missing, unreadable, not JSON, or the wrong shape
         return False
-
-
-def spoken(text):
-    """The text the engine reads: a code name in backticks is spoken as plain text."""
-    return text.replace("`", "")
 
 
 def split_sentences(text):
@@ -149,14 +207,16 @@ def split_sentences(text):
     return [s.strip() for s in sentences if s.strip()]
 
 
-def word_timings(sentences, spans):
+def word_timings(sentences, spans, speech=ENGLISH):
     """[{"text", "from", "to"}] for every word of every sentence, in order.
 
     spans[k] is the (start, end) in seconds of sentences[k]; its words share that span in
-    proportion to a weight: the word's length without backticks, plus END_WEIGHT when it ends
-    in a comma, semicolon or colon or is the last word of the sentence. The first word of a
-    sentence starts at exactly the span's start and the last ends at exactly its end, and each
-    word starts at the previous word's end, so the words tile the span with no gap.
+    proportion to a weight: the length of the word's spoken form (speech.token_lengths: the word
+    without backticks in English), plus END_WEIGHT when the written word ends in a comma,
+    semicolon or colon or is the last word of the sentence. The word text stays the written
+    token. The first word of a sentence starts at exactly the span's start and the last ends at
+    exactly its end, and each word starts at the previous word's end, so the words tile the span
+    with no gap.
     """
     if len(sentences) != len(spans):
         raise ValueError(f"{len(sentences)} sentences but {len(spans)} spans")
@@ -165,8 +225,8 @@ def word_timings(sentences, spans):
         tokens = sentence.split()
         last = len(tokens) - 1
         weights = [
-            len(t.replace("`", "")) + (END_WEIGHT if i == last or t[-1] in CLAUSE_END else 0)
-            for i, t in enumerate(tokens)
+            length + (END_WEIGHT if i == last or t[-1] in CLAUSE_END else 0)
+            for i, (t, length) in enumerate(zip(tokens, speech.token_lengths(sentence)))
         ]
         total, before, edge = sum(weights), 0, start
         for i, (token, weight) in enumerate(zip(tokens, weights)):
@@ -182,7 +242,7 @@ def synth_say(text, wav, speed):
     # with "-" would otherwise be parsed by say as an option.
     with tempfile.TemporaryDirectory() as scratch:
         source = Path(scratch) / "narration.txt"
-        source.write_text(spoken(text), encoding="utf-8")
+        source.write_text(text, encoding="utf-8")
         run = subprocess.run(
             ["say", "--file-format=WAVE", f"--data-format=LEI16@{SAY_RATE}", *say_rate_args(speed),
              "-o", str(wav), "-f", str(source)],
@@ -193,7 +253,7 @@ def synth_say(text, wav, speed):
 
 
 class SayEngine:
-    name, voice, rate = "say", SAY_VOICE, SAY_RATE
+    name, voice, rate, model = "say", SAY_VOICE, SAY_RATE, None
 
     def __init__(self, speed):
         self.speed = speed
@@ -206,7 +266,7 @@ class SayEngine:
 
 
 class KokoroEngine:
-    name, voice, rate = "kokoro", KOKORO_VOICE, KOKORO_RATE
+    name, voice, rate, model = "kokoro", KOKORO_VOICE, KOKORO_RATE, None
 
     def __init__(self, models, speed):
         self.speed = speed
@@ -220,7 +280,7 @@ class KokoroEngine:
 
     def synth(self, text, wav):
         try:
-            samples, rate = self._kokoro.create(spoken(text), voice=KOKORO_VOICE, speed=float(self.speed), lang="en-us")
+            samples, rate = self._kokoro.create(text, voice=KOKORO_VOICE, speed=float(self.speed), lang="en-us")
             self._soundfile.write(str(wav), samples, rate, subtype="PCM_16")
         except Exception as exc:   # any engine fault is one failed clip, reported with its scene
             raise SynthError(str(exc)) from exc
@@ -278,19 +338,20 @@ def join_clips(clips, out, gap_s):
     return rate, spans
 
 
-def synth_sentences(engine, text, wav):
+def synth_sentences(engine, text, wav, speech=ENGLISH):
     """Synthesise text one sentence at a time, join the clips into wav, and return the words.json payload.
 
-    Each sentence goes through engine.synth() into a scratch WAV. Sentence and word times are
-    seconds from the start of wav, computed from the exact join frames and rounded to 6 places
-    (a sentence's start and its first word's start come from the same float, so they stay equal).
+    Each sentence goes through engine.synth() as its spoken sentence (speech.spoken_sentence)
+    into a scratch WAV. Sentence and word times are seconds from the start of wav, computed from
+    the exact join frames and rounded to 6 places (a sentence's start and its first word's start
+    come from the same float, so they stay equal).
     """
     sentences = split_sentences(text)
     with tempfile.TemporaryDirectory() as scratch:
         clips = []
         for index, sentence in enumerate(sentences):
             clip = Path(scratch) / f"sentence-{index}.wav"
-            engine.synth(sentence, clip)
+            engine.synth(speech.spoken_sentence(sentence), clip)
             clips.append(clip)
         rate, frames = join_clips(clips, wav, JOIN_GAP_S)
     spans = [(start / rate, end / rate) for start, end in frames]
@@ -298,17 +359,17 @@ def synth_sentences(engine, text, wav):
         "sentences": [{"from": round(a, 6), "to": round(b, 6)} for a, b in spans],
         "words": [
             {"text": w["text"], "from": round(w["from"], 6), "to": round(w["to"], 6)}
-            for w in word_timings(sentences, spans)
+            for w in word_timings(sentences, spans, speech)
         ],
     }
 
 
-def narrate(scenes, engine, audio_dir):
+def narrate(scenes, engine, audio_dir, speech=ENGLISH):
     """Make or reuse one WAV per scene; return { id: seconds } after the sample-rate check.
 
     Every scene is narrated one sentence at a time, with a words.json next to the WAV. A clip is
     reused when its WAV exists, its sidecar matches (a sidecar of an earlier run, with no mode
-    line, does not), and its words.json exists, parses, and holds exactly the words of the
+    line, does not), and its words.json exists, parses, and holds exactly the written words of the
     narration, because sentence spans cannot be recovered from a joined WAV (a clip that fails
     this is re-made whole, never patched). Before a clip is re-made its sidecar and words.json
     are removed; the files are written WAV, words.json, then the sidecar last (after the rate
@@ -321,12 +382,12 @@ def narrate(scenes, engine, audio_dir):
         sid, text = scene["id"], scene["narration"]
         wav = audio_dir / f"{sid}.{engine.name}.wav"
         sidecar, words_path = wav.with_suffix(".txt"), wav.with_suffix(".words.json")
-        reused = wav.is_file() and sidecar_matches(sidecar, engine, text) and words_match(words_path, text)
+        reused = wav.is_file() and sidecar_matches(sidecar, engine, text, speech) and words_match(words_path, text)
         if not reused:
             sidecar.unlink(missing_ok=True)       # a half-made clip must never look current
             words_path.unlink(missing_ok=True)    # nor pair a new WAV with old timings
             try:
-                words = synth_sentences(engine, text, wav)
+                words = synth_sentences(engine, text, wav, speech)
                 words_path.write_text(json.dumps(words, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             except SynthError as exc:
                 wav.unlink(missing_ok=True)
@@ -336,14 +397,15 @@ def narrate(scenes, engine, audio_dir):
         if rate != engine.rate:
             raise NarrationError(f"scene {sid}: {wav} is {rate} Hz (expected {engine.rate})")
         if not reused:
-            sidecar.write_bytes(sidecar_text(engine, text).encode("utf-8"))
+            sidecar.write_bytes(sidecar_text(engine, text, speech).encode("utf-8"))
         seconds[sid] = afinfo_seconds(wav)
         print(f"narration: {sid} {engine.name} {seconds[sid]:.3f} s ({'reused' if reused else 'synthesized'})")
     return seconds
 
 
 def load_script(path):
-    """The scenes of a script, [{"id", "narration"}]; the format is "film" when the script names none.
+    """(scenes, speech) of a script: scenes are [{"id", "narration"}], speech is the Speech of its
+    "lang" ("en" when it names none) and "pronounce"; the format is "film" when the script names none.
 
     A format that is not in NARRATED_FORMATS (any type, null included) is refused: the line
     'narration: FAIL script <path>: ...' and exit 2, before any clip is made.
@@ -353,7 +415,7 @@ def load_script(path):
         scenes = [{"id": scene["id"], "narration": scene["narration"]} for scene in script["scenes"]]
         if script.get("format", "film") not in NARRATED_FORMATS:
             raise ValueError("format must be film, brainrot or clip")
-        return scenes
+        return scenes, Speech(script.get("lang", "en"), script.get("pronounce") or {})
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"narration: FAIL script {path}: {exc}")
         sys.exit(2)
@@ -387,13 +449,13 @@ def parse_args(argv):
 
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    scenes = load_script(args.script)
+    scenes, speech = load_script(args.script)
     try:
         check_narrations(scenes)
         check_tools(args.engine)
         engine = SayEngine(args.speed) if args.engine == "say" else KokoroEngine(args.models, args.speed)
         audio_dir = Path(args.audio_dir)
-        seconds = narrate(scenes, engine, audio_dir)
+        seconds = narrate(scenes, engine, audio_dir, speech)
     except NarrationError as exc:
         print(f"narration: FAIL {exc}")
         return exc.code
