@@ -5,11 +5,11 @@ Usage: transcript.py <script.json> <output-dir> [--narrator "<text>"] [--backgro
 
 Writes <output-dir>/index.html (from templates/video.html) and <output-dir>/narration.md.
 A script whose "format" is "brainrot" gets a Format row, a Background row (the --background
-text, default "pending") and a portrait video player. Every other script is a film, a script
-without a "format" key among them. A film has scenes with no component and no props: each
-section of its page is the scene id as the heading, the narration and the cites (none for a
-scene with no "cites" key); the nav link and the narration.md heading are the id too. A film
-page has none of the three, and ignores --background.
+text, default "pending") and a portrait video player. Every other script is a film page: a
+clip and a script without a "format" key are among them. A film has scenes with no component
+and no props: each section of its page is the scene id as the heading, the narration and the
+cites (none for a scene with no "cites" key); the nav link and the narration.md heading are
+the id too. A film page has none of the three, and ignores --background.
 Exit 0 on success; exit 2 with one line on stderr for a usage error, an unreadable or
 invalid script, or a code source that cannot be read. Stdlib only.
 """

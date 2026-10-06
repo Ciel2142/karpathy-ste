@@ -869,8 +869,8 @@ class BrainrotRouteCase(unittest.TestCase):
 
     # red: stage_script leaves fmt at its start value, so a brainrot script gets the film's speed and
     # no background stage; or its format read has another default than film for a script with no
-    # format key; or transcript.py reads a script without the key as another format, so the script
-    # stage fails
+    # format key; or its format read folds a clip into film (fmt=film); or transcript.py reads a script
+    # without the key as another format, so the script stage fails
     def test_stage_script_reads_the_format_from_the_script(self):
         brainrot = json.loads(BRAINROT_TEMPLATE.read_text(encoding="utf-8"))
         brainrot["provenance"]["root"] = str(EXPLAIN)
@@ -883,6 +883,12 @@ class BrainrotRouteCase(unittest.TestCase):
         run = self.stage_script_format(film)
         self.assertEqual((run.returncode, run.stdout.splitlines()),
                          (0, ["script: ok (8 scenes)", "fmt=film"]), run.stdout + run.stderr)
+        clip = json.loads((EXPLAIN / "templates" / "video-script.json").read_text(encoding="utf-8"))
+        clip["provenance"]["root"] = str(EXPLAIN.parent.parent)
+        clip["format"] = "clip"
+        run = self.stage_script_format(clip)
+        self.assertEqual((run.returncode, run.stdout.splitlines()),
+                         (0, ["script: ok (8 scenes)", "fmt=clip"]), run.stdout + run.stderr)
 
 
 class E2EHelperCase(unittest.TestCase):

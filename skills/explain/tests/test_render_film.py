@@ -242,8 +242,8 @@ class FilmFunctionCase(unittest.TestCase):
         remotion.chmod(0o755)
         return remotion
 
-    # red: the composition is the literal Explain (the film case), or Film for every format
-    # (the brainrot case)
+    # red: the composition is the literal Explain (the film and clip cases), Film for every format
+    # (the brainrot case), or Film for the format film alone (the clip case)
     def test_a_film_renders_composition_film(self):
         (self.out / "audio").mkdir()
         (self.out / "audio" / "s1.say.wav").write_bytes(b"clip")
@@ -251,7 +251,7 @@ class FilmFunctionCase(unittest.TestCase):
             json.dumps({"scenes": [{"audio": "audio/s1.say.wav"}]}), encoding="utf-8")
         calls = self.tmp / "calls.json"
         remotion = self.fake_remotion(calls)
-        for fmt, composition in (("film", "Film"), ("brainrot", "Explain")):
+        for fmt, composition in (("film", "Film"), ("clip", "Film"), ("brainrot", "Explain")):
             with self.subTest(fmt=fmt):
                 calls.unlink(missing_ok=True)
                 run = run_functions(
@@ -360,6 +360,18 @@ class SceneStageCase(unittest.TestCase):
             "film": {"Film.tsx": (scene / "Film.tsx").read_text(encoding="utf-8"),
                      "Part.tsx": (scene / "Part.tsx").read_text(encoding="utf-8"),
                      "script.gen.ts": generated}}])
+
+    # red: the stage runs for the format "film" only (a clip prints nothing and runs no tsc)
+    def test_a_clip_has_the_scene_stage(self):
+        script = template_script()
+        script["format"] = "clip"
+        (self.out / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        done = self.stage("clip")
+        self.assertEqual((done.returncode, done.stdout), (0, "scene: ok (2 files)\n"), done.stderr)
+        self.assertEqual(len(self.tsc_calls()), 1)
+        ids = " | ".join('"%s"' % scene["id"] for scene in script["scenes"])
+        generated = (self.film / "script.gen.ts").read_text(encoding="utf-8")
+        self.assertEqual(generated.splitlines()[2:3], ["export type SceneId = %s;" % ids])
 
     # red: a pattern that no file matches (*.ts, for a scene with no script.gen.ts of the author's and no
     # other .ts file) is copied as it is: "scene: FAIL cannot copy the scene to <run>/src/film"
@@ -696,6 +708,20 @@ class SceneRunCase(RunHarness, unittest.TestCase):
         self.assertEqual([line for line in stage_lines(run.stdout) if line.startswith("guard")], [],
                          run.stdout)
         self.assertEqual(len(self.cli_calls()), 1, run.stdout)
+
+    # red: a clip takes the brainrot path in one place: no scene stage (ten lines, no tsc), no guard
+    # stage (ten lines, one CLI call), or composition Explain in the render
+    def test_a_clip_run_prints_eleven_stage_lines(self):
+        run = self.finish(self.start("clip"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        lines = stage_lines(run.stdout)
+        self.assertEqual([STAGE_LINE.match(line).group(1) for line in lines],
+                         ["script", "workspace", "scene", "narration", "timeline", "guard", "render",
+                          "container", "sync", "stills", "transcript"], run.stdout)
+        self.assertEqual(lines[2], "scene: ok (2 files)")
+        self.assertEqual(lines[5], "guard (2 frames): ok")
+        self.assertEqual([call["argv"][:2] for call in self.cli_calls()],
+                         [["render", "Film"], ["render", "Film"]], run.stdout)
 
     # red: STAGES holds the name of a stage that only a film run has (scene, and guard). The gated
     # BrainrotRenderCase makes this same comparison of a real brainrot run with STAGES; here it is
