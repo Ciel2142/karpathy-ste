@@ -16,6 +16,11 @@ on a page, write one step for each beat of the story.
 
 - One facet is one `<section>`, one `<h2>` question and one nav entry. Write a short noun
   as the nav label. Write the question in the `<h2>`.
+- For a directory subject, the first section says what the thing does, for whom, and from
+  start to end. For a service, that is the journey of one request through its main flow, named
+  by its stages. The main flow is a BPMN process, a pipeline or a request path. The mechanics
+  follow in later sections: message handling, delegates, decision tables, deployment. Read the main flow
+  first, in full, before you plan the mechanics.
 - Six to ten sections is the usual range. There is no cap. If a page has more than about
   twelve sections, merge facets into fewer sections, or ask the user to split the subject.
   Do not make a second output directory.

@@ -92,7 +92,9 @@ does not change. The new values:
 | `blue` | `#1d5fc2` | `#1d5fc2` | the chosen step, the current node (unchanged) |
 | `red` | `#c42f2a` | `#c42f2a` | unchanged |
 
-`html, body { background: #fff }` becomes `var(--bg)`. Links and `nav#toc a` use the accent;
+`html, body { background: #fff }` becomes `var(--bg)`, as does every white ground and chip text
+in the templates. The panel of a brainrot short is drawn from `theme.ts` and takes the warm
+ground with it (its still test reads the value from the file). Links and `nav#toc a` use the accent;
 `cite` text and `name:line` use the accent; the blue stays the colour of a chosen state in a
 diagram and a player, so a reader never confuses a link with a state. The contrast of ink on
 the ground is 15:1 and of the accent on the ground 4.6:1 (AA for normal text). The PNG export

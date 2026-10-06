@@ -85,8 +85,8 @@ Otherwise `{previous}` is the absolute path of the report of the last round on t
 block that the author appended: for each finding, `fixed` with what changed, or `not fixed` with why. Read the
 report first. The word of the author is not a ruling.
 
-If the name of `{previous}` ends in `-round-2.md`, this is a verification read: rule its findings and hunt for
-nothing new. The Hunt section does not apply to a verification read.
+If the name of `{previous}` ends in `-round-2.md` or `-round-3.md`, this is a verification read: rule its
+findings and hunt for nothing new. The Hunt section does not apply to a verification read.
 
 Before you hunt, rule each finding of that report `resolved` or `open`, and quote the current source line.
 Look at the stills as they are now: the clip was rendered again. A finding is `resolved` when the still no
