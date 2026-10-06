@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.43.1" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.17.0">
+  <bpmn:error id="Error_1" name="CheckFailed" errorCode="CHECK_FAILED" />
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="Заказчик" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" name="Основной процесс" isExecutable="true">
+    <bpmn:startEvent id="Start_1" name="Заявка принята">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:subProcess id="STAGE_A"
+        name="Первичная проверка">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+      <bpmn:startEvent id="StageStart_1" name="Проверка начата">
+        <bpmn:outgoing>Flow_a1</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="Task_svc" name="Проверить паспорт клиента" camunda:delegateExpression="${checkPassportDelegate}">
+        <bpmn:incoming>Flow_a1</bpmn:incoming>
+        <bpmn:outgoing>Flow_a2</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:boundaryEvent id="Timer_1" name="Через час" cancelActivity="false" attachedToRef="Task_svc">
+        <bpmn:outgoing>Flow_a5</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TimerEventDefinition_1">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT1H</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+      <bpmn:receiveTask id="Task_recv" name="Получить ответ">
+        <bpmn:incoming>Flow_a2</bpmn:incoming>
+        <bpmn:outgoing>Flow_a3</bpmn:outgoing>
+      </bpmn:receiveTask>
+      <bpmn:sendTask id="Task_send" name="Отправить &quot;отчёт&quot;&#10;клиенту">
+        <bpmn:incoming>Flow_a3</bpmn:incoming>
+        <bpmn:incoming>Flow_a5</bpmn:incoming>
+        <bpmn:outgoing>Flow_a4</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:endEvent id="End_term" name="Проверка закрыта">
+        <bpmn:incoming>Flow_a4</bpmn:incoming>
+        <bpmn:terminateEventDefinition id="TerminateEventDefinition_1" />
+      </bpmn:endEvent>
+      <bpmn:textAnnotation id="Annotation_1">
+        <bpmn:text>Паспорт проверяется во внешнем сервисе</bpmn:text>
+      </bpmn:textAnnotation>
+      <bpmn:association id="Association_1" associationDirection="None" sourceRef="Task_svc" targetRef="Annotation_1" />
+      <bpmn:sequenceFlow id="Flow_a1" sourceRef="StageStart_1" targetRef="Task_svc" />
+      <bpmn:sequenceFlow id="Flow_a2" sourceRef="Task_svc" targetRef="Task_recv" />
+      <bpmn:sequenceFlow id="Flow_a3" sourceRef="Task_recv" targetRef="Task_send" />
+      <bpmn:sequenceFlow id="Flow_a4" sourceRef="Task_send" targetRef="End_term" />
+      <bpmn:sequenceFlow id="Flow_a5" sourceRef="Timer_1" targetRef="Task_send" />
+    </bpmn:subProcess>
+
+    <!-- Развилка после первичной проверки -->
+    <bpmn:exclusiveGateway id="Gateway_1" default="Flow_default">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_yes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_no</bpmn:outgoing>
+      <bpmn:outgoing>Flow_default</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_1" name="Заявка одобрена">
+      <bpmn:incoming>Flow_yes</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_2" name="Заявка отклонена">
+      <bpmn:incoming>Flow_no</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorEventDefinition_1" errorRef="Error_1" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_3" name="Передано оператору">
+      <bpmn:incoming>Flow_default</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:subProcess id="EventSub_1" name="Ошибка в процессе" triggeredByEvent="true">
+      <bpmn:startEvent id="StartTimer_1" name="Таймаут">
+        <bpmn:outgoing>Flow_e1</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TimerEventDefinition_2">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:startEvent>
+      <bpmn:endEvent id="End_sub_1" name="Процесс остановлен">
+        <bpmn:incoming>Flow_e1</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_e1" sourceRef="StartTimer_1" targetRef="End_sub_1" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_1" targetRef="STAGE_A" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="STAGE_A" targetRef="Gateway_1" />
+    <bpmn:sequenceFlow id="Flow_yes" name="Да" sourceRef="Gateway_1" targetRef="End_1">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${approved}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_no" name="Нет" sourceRef="Gateway_1" targetRef="End_2" />
+    <bpmn:sequenceFlow id="Flow_default" sourceRef="Gateway_1" targetRef="End_3" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true">
+        <dc:Bounds x="160" y="80" width="560" height="500" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1">
+        <dc:Bounds x="232" y="262" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="212" y="305" width="76" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="STAGE_A_di" bpmnElement="STAGE_A" isExpanded="false">
+        <dc:Bounds x="320" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1_di" bpmnElement="Gateway_1" isMarkerVisible="true">
+        <dc:Bounds x="480" y="255" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_1_di" bpmnElement="End_1">
+        <dc:Bounds x="592" y="152" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="570" y="195" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_2_di" bpmnElement="End_2">
+        <dc:Bounds x="592" y="262" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="570" y="305" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_3_di" bpmnElement="End_3">
+        <dc:Bounds x="592" y="352" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="570" y="395" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EventSub_1_di" bpmnElement="EventSub_1" isExpanded="true">
+        <dc:Bounds x="300" y="450" width="350" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartTimer_1_di" bpmnElement="StartTimer_1">
+        <dc:Bounds x="332" y="492" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="327" y="535" width="46" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_sub_1_di" bpmnElement="End_sub_1">
+        <dc:Bounds x="572" y="492" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="550" y="535" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="268" y="280" />
+        <di:waypoint x="320" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="420" y="280" />
+        <di:waypoint x="480" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_yes_di" bpmnElement="Flow_yes">
+        <di:waypoint x="505" y="255" />
+        <di:waypoint x="505" y="170" />
+        <di:waypoint x="592" y="170" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="540" y="152" width="20" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_no_di" bpmnElement="Flow_no">
+        <di:waypoint x="530" y="280" />
+        <di:waypoint x="592" y="280" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="550" y="262" width="26" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_default_di" bpmnElement="Flow_default">
+        <di:waypoint x="505" y="305" />
+        <di:waypoint x="505" y="370" />
+        <di:waypoint x="592" y="370" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_e1_di" bpmnElement="Flow_e1">
+        <di:waypoint x="368" y="510" />
+        <di:waypoint x="572" y="510" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_2">
+    <bpmndi:BPMNPlane id="BPMNPlane_2" bpmnElement="STAGE_A">
+      <bpmndi:BPMNShape id="StageStart_1_di" bpmnElement="StageStart_1">
+        <dc:Bounds x="152" y="162" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="130" y="205" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_svc_di" bpmnElement="Task_svc">
+        <dc:Bounds x="240" y="140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recv_di" bpmnElement="Task_recv">
+        <dc:Bounds x="400" y="140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_send_di" bpmnElement="Task_send">
+        <dc:Bounds x="560" y="140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_term_di" bpmnElement="End_term">
+        <dc:Bounds x="722" y="162" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="700" y="205" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_1_di" bpmnElement="Annotation_1">
+        <dc:Bounds x="240" y="40" width="200" height="40" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Timer_1_di" bpmnElement="Timer_1">
+        <dc:Bounds x="272" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="320" y="245" width="60" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_a1_di" bpmnElement="Flow_a1">
+        <di:waypoint x="188" y="180" />
+        <di:waypoint x="240" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a2_di" bpmnElement="Flow_a2">
+        <di:waypoint x="340" y="180" />
+        <di:waypoint x="400" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a3_di" bpmnElement="Flow_a3">
+        <di:waypoint x="500" y="180" />
+        <di:waypoint x="560" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a4_di" bpmnElement="Flow_a4">
+        <di:waypoint x="660" y="180" />
+        <di:waypoint x="722" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a5_di" bpmnElement="Flow_a5">
+        <di:waypoint x="290" y="238" />
+        <di:waypoint x="290" y="280" />
+        <di:waypoint x="610" y="280" />
+        <di:waypoint x="610" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_1_di" bpmnElement="Association_1">
+        <di:waypoint x="290" y="140" />
+        <di:waypoint x="290" y="80" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
