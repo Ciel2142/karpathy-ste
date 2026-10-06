@@ -47,7 +47,7 @@ h2 { font-size: 22px; }
 h3 { font-size: 18px; }
 h1 code, h2 code { font-size: inherit; }
 .lead { font-size: 18px; }
-code, kbd, pre, button, nav a { font-size: 15px; }
+code, kbd, pre, button, input, nav a, nav label { font-size: 15px; }
 th, dt, small, sup, sub, cite, figcaption, .caption { font-size: 14px; }
 td { font-size: 15px; }
 figcaption code { font-size: 14px; }
@@ -69,12 +69,18 @@ a { color: var(--accent); }
 cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
 figcaption { color: var(--muted); }
 /* Cites: one block under the element it supports (a sibling of a p or a figcaption, the last
-   child of a li or a dd). name:line in the accent, the snippet as code. */
-.cites { margin-top: 6px; padding: 6px 10px; background: var(--fill); border-left: 3px solid var(--line); }
+   child of a li or a dd). name:line in the accent, the snippet as code. The reading view hides
+   them; the Sources switch in the nav shows them, and print shows them. */
+.cites {
+  display: none; margin-top: 6px; padding: 6px 10px; background: var(--fill);
+  border-left: 3px solid var(--line);
+}
 .cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
 .cites cite + cite { margin-top: 4px; }
 .cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono);
   font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+body:has(#show-sources:checked) .cites { display: block; }
+@media print { .cites { display: block; } }
 
 /* Header and the sticky section navigation. The nav wraps; it never scrolls sideways. */
 header { padding: 32px 0 16px; }
@@ -85,6 +91,7 @@ nav#toc {
 }
 nav#toc a { color: var(--accent); font-weight: 600; text-decoration: none; }
 nav#toc a:hover { text-decoration: underline; }
+nav#toc .sources { margin-left: auto; color: var(--muted); cursor: pointer; }
 
 /* Clips (lesson rung) and the Play all button. A figure.clip breaks out of the 72ch
    column: --clip-w = max(100%, min(960px, 100vw - 64px)), and the left margin is half
@@ -199,7 +206,8 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
   <button id="play-all" type="button">Play all</button>
 </header>
 
-<!-- Navigation: one link per section, in document order. The lint skips <nav>. -->
+<!-- Navigation: one link per section, in document order, then the Sources switch (keep it
+     last: it shows the cites). The lint skips <nav>. -->
 <nav id="toc">
   <a href="#structure">Structure</a>
   <a href="#code">Code</a>
@@ -208,6 +216,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
   <a href="#steps">Steps</a>
   <a href="#guard">Guard</a>
   <a href="#provenance-facet">Provenance</a>
+  <label class="sources"><input type="checkbox" id="show-sources"> Sources</label>
 </nav>
 
 <main>
@@ -409,6 +418,7 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
         <tr><td><code>HSCROLL</code></td><td>The page is wider than the window.</td></tr>
         <tr><td><code>SMALLTEXT:&lt;px&gt;</code></td><td>Some text is smaller than 14 px.</td></tr>
         <tr><td><code>PLAYALL</code></td><td>The Play all button shows on a page without a clip, or it does not show on a page with one.</td></tr>
+        <tr><td><code>NOSOURCES</code></td><td>The page has a cite block, and the nav has no Sources switch.</td></tr>
         <tr><td><code>JSERROR</code></td><td>A script error occurred.</td></tr>
         <tr><td><code>OK</code></td><td>No check failed.</td></tr>
       </tbody>
@@ -565,24 +575,39 @@ window.addEventListener("load", function () {
   }
   var nav = document.getElementById("toc");   /* scroll-margin of sections = real nav height */
   if (nav) doc.style.setProperty("--nav-h", nav.offsetHeight + "px");
-  if (doc.scrollWidth > window.innerWidth) fails.push("HSCROLL");
-  var smallest = Infinity, all = document.body.getElementsByTagName("*");
-  for (var j = 0; j < all.length; j++) {
-    var el = all[j], own = false;
-    for (var n = el.firstChild; n && !own; n = n.nextSibling) {
-      own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+  /* HSCROLL and SMALLTEXT. An element with no layout box is skipped, so a hidden cite block
+     escapes one measure: measure the reading view, then the view with Sources on. */
+  function measure() {
+    var small = Infinity, all = document.body.getElementsByTagName("*");
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j], own = false;
+      for (var n = el.firstChild; n && !own; n = n.nextSibling) {
+        own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+      }
+      if (!own || !el.getClientRects().length) continue;
+      /* SVG text is in viewBox units: scale it by the rendered width over the viewBox width. */
+      var px = parseFloat(getComputedStyle(el).fontSize), svg = el.ownerSVGElement;
+      if (svg && svg.viewBox && svg.viewBox.baseVal.width) px *= svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+      small = Math.min(small, px);
     }
-    if (!own || !el.getClientRects().length) continue;
-    /* SVG text is in viewBox units: scale it by the rendered width over the viewBox width. */
-    var px = parseFloat(getComputedStyle(el).fontSize), svg = el.ownerSVGElement;
-    if (svg && svg.viewBox && svg.viewBox.baseVal.width) px *= svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
-    smallest = Math.min(smallest, px);
+    return { wide: doc.scrollWidth > window.innerWidth, small: small };
   }
-  if (smallest < MIN_PX) fails.push("SMALLTEXT:" + Math.round(smallest * 100) / 100);
+  var view = measure(), sources = document.getElementById("show-sources");
+  if (sources) {   /* a restored switch is on at "load": put it back as it was, not to off */
+    var was = sources.checked, shown;
+    sources.checked = true;
+    shown = measure();
+    sources.checked = was;
+    view = { wide: view.wide || shown.wide, small: Math.min(view.small, shown.small) };
+  }
+  if (view.wide) fails.push("HSCROLL");
+  if (view.small < MIN_PX) fails.push("SMALLTEXT:" + Math.round(view.small * 100) / 100);
   /* Play all: the button shows when the page has a clip, and only then. */
   var playAll = document.getElementById("play-all");
   var playShown = !!playAll && getComputedStyle(playAll).display !== "none";
   if ((document.querySelectorAll("figure.clip").length > 0) !== playShown) fails.push("PLAYALL");
+  /* Sources: a page with a cite block needs the switch in the nav, else the cites hide for good. */
+  if (document.querySelector(".cites") && !document.querySelector('nav#toc input#show-sources[type="checkbox"]')) fails.push("NOSOURCES");
   if (window.explainJsErrors > 0) fails.push("JSERROR");
   /* The tests wrap doc.setAttribute to read the DOM state: keep this one call. */
   doc.setAttribute("data-verify", fails.length ? fails.join(";") : "OK");

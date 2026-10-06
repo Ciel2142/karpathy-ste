@@ -7,12 +7,15 @@ exactly once in the template: a template change cannot turn a case into the good
 case without notice. verify.sh must report the one status that the guard writes
 for that edit. verify.sh loads a page twice, 1440x900 and 500x844, both with
 #verify in the URL; there is no plain dump, so the cases for the fragment read the
-DOM state through a probe that wraps setAttribute on <html>. Twelve Chrome runs of
+DOM state through a probe that wraps setAttribute on <html>. Eighteen Chrome runs of
 verify.sh (two dumps each): the good template, the 700 px block, the 13 px rule,
 the 15-unit SVG text, the throwing script, the probe, the probe with the hash
 test defeated; then four more for the clip rule: the hide rule deleted, a clip
 without the button, a clip with the button, a clip with a hidden button; then one
-for Play all: two clips and a probe that drives a run with synthetic events. The
+for Play all: two clips and a probe that drives a run with synthetic events; then
+six for the Sources switch (spec 3, 4): a 12 px snippet, a 700 px span and a 12 px
+snippet in a fold, each in a cite that the reading view hides; the switch deleted;
+a page with no cite and no switch; the probe with the switch on at parse time. The
 preset case stops in verify.sh before Chrome starts. The other cases are static.
 Each run gets a private TMPDIR, so every Chrome process carries that path and the
 cleanup can kill a stray one.
@@ -59,6 +62,14 @@ CLIP_FIGURE = """<figure class="clip">
     <a href="clips/intro/index.html" data-ste="skip">transcript</a></figcaption>
 </figure>
 """
+# The Sources switch: the last child of nav#toc (spec 3). The cites hide behind it.
+SWITCH = '<label class="sources"><input type="checkbox" id="show-sources"> Sources</label>'
+# The last line of the first details.walk; a cite block for the fold case goes right after it.
+FOLD_TEXT = "measures all the text.</p>\n"
+# The one cite block of the template: the 700 px span goes inside it.
+CITES_OPEN = '<div class="cites">\n'
+# A parse-time script: a reader's browser restored the switch as on, before "load".
+SWITCH_ON = '<script>document.getElementById("show-sources").checked = true;</script>\n'
 # The lead paragraph of the code section; the second clip of the Play all case goes after it.
 CODE_LEAD = ('  <p>Put each code block in a <code>figure.code</code> element. The caption gives '
              'the source as <code>name:line</code>, and the <code>pre</code> element contains '
@@ -80,8 +91,10 @@ PROBE = """<script>
       var steps = document.querySelectorAll(".step"), stacked = true;
       for (i = 0; i < steps.length; i++) if (steps[i].hasAttribute("hidden")) stacked = false;
       var same = document.title === initialTitle;
+      var sources = document.getElementById("show-sources");
       value += ";PROBE:" + (open ? "open" : "closed") + ":" + (stacked ? "stacked" : "single") +
-        ";TITLE:" + (same ? "same" : "changed");
+        ";TITLE:" + (same ? "same" : "changed") +
+        ";SOURCES:" + (sources && sources.checked ? "on" : "off");
     }
     return original.call(this, name, value);
   };
@@ -222,6 +235,24 @@ def html_start_tag(html):
     return match.group(0)
 
 
+def style_rules(html):
+    """(selector list, declarations) of each rule in <style>, comments cut. A rule inside an
+    @media block comes out with the block header as its selector."""
+    css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css)]
+
+
+def font_size_floor_names(html):
+    """The last word of each selector in a font-size rule of 14 px or more."""
+    names = set()
+    for selectors, body in style_rules(html):
+        match = re.search(r"font-size:\s*(\d+(?:\.\d+)?)px", body)
+        if match and float(match.group(1)) >= 14:
+            names.update(sel.split()[-1] for sel in selectors.split(",") if sel.strip())
+    return names
+
+
 def script_lines(html):
     """Lines between <script> and </script> over all blocks (the tag lines excluded)."""
     total = 0
@@ -279,6 +310,11 @@ class PageGuardTest(unittest.TestCase):
             'render 1440x900: FAIL data-verify="%s"' % status,
             'render 500x844: FAIL data-verify="%s"' % status,
         ], 1)
+
+    def cite_block(self):
+        """The one cite block of the template, as it is written there (its comments cut)."""
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)
+        return re.search(r'<div class="cites">.*?</div>\n', markup, re.S).group(0)
 
     def with_probe(self, html):
         return self.edit(html, GUARD_2, PROBE + GUARD_2)
@@ -361,6 +397,47 @@ class PageGuardTest(unittest.TestCase):
                          "p.lead { font-size: 13px; }\n</style>")
         self.assert_both_fail(html, "SMALLTEXT:13")
 
+    def test_hidden_cite_with_12px_snippet_reports_smalltext_12(self):
+        # red: the guard measures the reading view only. The cites are hidden there, so the
+        # 12 px snippet escapes (no layout box); the second measure, with Sources on, finds it.
+        html = self.edit(self.template, "</style>", ".cites code { font-size: 12px; }\n</style>")
+        self.assert_both_fail(html, "SMALLTEXT:12")
+
+    def test_hidden_cite_700px_wide_reports_hscroll_at_500_only(self):
+        # red: the guard measures the reading view only. With Sources on, the span makes the
+        # page wider than 500 px; at 1440 px it fits.
+        html = self.edit(self.template, CITES_OPEN, CITES_OPEN +
+                         '<span style="display:inline-block;width:700px;height:1px"></span>\n')
+        self.assert_renders(html, [
+            "render 1440x900: ok",
+            'render 500x844: FAIL data-verify="HSCROLL"',
+        ], 1)
+
+    def test_hidden_cite_in_a_fold_is_measured(self):
+        # red: the second measure runs before the guard opens the details, or skips closed ones:
+        # a cite block in a fold stays hidden, and its 12 px snippet escapes.
+        html = self.edit(self.template, FOLD_TEXT, FOLD_TEXT + self.cite_block())
+        html = self.edit(html, "</style>", "details.walk .cites code { font-size: 12px; }\n</style>")
+        self.assert_both_fail(html, "SMALLTEXT:12")
+
+    def test_switch_removed_reports_nosources(self):
+        # red: the guard does not look for the switch: the cites hide for good, and no code says so.
+        html = self.edit(self.template, "  " + SWITCH + "\n", "")
+        self.assert_both_fail(html, "NOSOURCES")
+
+    def test_page_without_cites_needs_no_switch(self):
+        # red: NOSOURCES fires on a page with no cite block (a topic from model knowledge).
+        html, removed = re.subn(r'\s*<div class="cites">.*?</div>', "", self.template, flags=re.S)
+        self.assertGreaterEqual(removed, 1)
+        html = self.edit(html, "  " + SWITCH + "\n", "")
+        self.assert_renders(html, RENDER_OK, 0)
+
+    def test_guard_restores_a_checked_switch(self):
+        # red: the guard sets the switch back to off. A reader's browser restores it as on at
+        # "load", so the probe must see it on when the guard writes data-verify.
+        html = self.edit(self.with_probe(self.template), PROBE, SWITCH_ON + PROBE)
+        self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same;SOURCES:on")
+
     def test_15unit_svg_text_reports_smalltext_at_500_only(self):
         # SVG text is in viewBox units; the guard scales it by rendered width / viewBox width.
         # 1440: the SVG renders at its 600 px cap, so 15 units = 15 px >= 14: ok.
@@ -381,7 +458,7 @@ class PageGuardTest(unittest.TestCase):
     def test_verify_fragment_opens_details_and_stacks_steps(self):
         # The runtime title half of case 7: TITLE:same here, TITLE:changed in the next case.
         html = self.with_probe(self.template)
-        self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same")
+        self.assert_both_fail(html, "OK;PROBE:open:stacked;TITLE:same;SOURCES:off")
 
     def test_without_verify_fragment_details_stay_closed_and_one_step_shows(self):
         # Defeating the hash test makes the guard take the normal-view branch. The same
@@ -390,7 +467,7 @@ class PageGuardTest(unittest.TestCase):
         html = self.edit(self.template, HASH_TEST, '"#never"')
         html = self.edit(html, LOAD_OPEN, LOAD_OPEN + '  document.title = "x";\n')
         html = self.with_probe(html)
-        self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:changed")
+        self.assert_both_fail(html, "OK;PROBE:closed:single;TITLE:changed;SOURCES:off")
 
     def test_data_verify_absent_in_source(self):
         # The static check reads the <html start tag only, the one place where a preset
@@ -443,6 +520,31 @@ class PageGuardTest(unittest.TestCase):
             self.assertRegex(text, r"^[^<\"]+ <code>[^<]+</code>$")
         blocks = re.findall(r'<div class="cites">(.*?)</div>', markup, re.S)
         self.assertEqual(sum(block.count("<cite") for block in blocks), len(cites))
+
+    def test_switch_is_in_the_nav_and_cites_hide_by_default(self):
+        """Red: the switch is missing, sits before a link, or is not in nav#toc; or the style lacks
+        the hide rule, the :has rule, or the print rule that shows the cites."""
+        self.assertEqual(self.template.count(SWITCH), 1)
+        nav = re.search(r'<nav id="toc">(.*?)</nav>', self.template, re.S).group(1)
+        self.assertIn(SWITCH, nav)
+        self.assertGreater(nav.index(SWITCH), nav.rindex("</a>"))
+        self.assertEqual(nav[nav.index(SWITCH) + len(SWITCH):].strip(), "")   # the last child
+        rules = dict(style_rules(self.template))
+        self.assertIn("display: none", rules[".cites"])
+        self.assertEqual(rules["body:has(#show-sources:checked) .cites"].strip(), "display: block;")
+        self.assertEqual(rules["@media print"].replace("\n", " ").split("{")[0].strip(), ".cites")
+        self.assertIn("display: block", rules["@media print"])
+
+    def test_label_and_input_have_explicit_font_sizes(self):
+        """Red: label or input is in no font-size rule of 14 px or more; Chrome would size an
+        input at 13.33 px, and a label in the nav would only inherit."""
+        names = font_size_floor_names(self.template)
+        self.assertIn("label", names)
+        self.assertIn("input", names)
+
+    def test_status_table_lists_nosources(self):
+        """Red: the status table of the template has no row for NOSOURCES."""
+        self.assertRegex(self.template, r"<tr><td><code>NOSOURCES</code></td><td>[^<]+</td></tr>")
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)
