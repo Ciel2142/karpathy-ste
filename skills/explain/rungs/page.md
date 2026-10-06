@@ -160,9 +160,10 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
 ## 7. Verify and export
 
 Do these steps in the output directory, in this order.
-1. Run `<skill-dir>/scripts/verify.sh index.html`. All five lines must show `ok`:
-   `self-contained`, `render 1440x900`, `render 500x844`, `citations` and `prose`. Fix each cause
-   that the detail lines name.
+1. Run `<skill-dir>/scripts/verify.sh index.html`. All six lines must show `ok`:
+   `self-contained`, `render 1440x900`, `render 500x844`, `citations`, `prose` and `bpmn`. The
+   `bpmn` line can show `none` when the page has no BPMN diagram. Fix each cause that the detail
+   lines name.
 2. Run `SNAPSHOT_FRAGMENT=verify <skill-dir>/scripts/snapshot.sh index.html page.png 1440 6000 1`.
    It writes `page.png` and the tiles `review/page-01.png` and up. A page of 6000 px has six tiles.
    Tiles below the footer are blank. Find the tile that shows the footer. If no tile shows it, run

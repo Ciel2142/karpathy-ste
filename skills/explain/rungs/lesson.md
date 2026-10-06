@@ -405,8 +405,9 @@ A clip that the plan unmarks before any render is a plan change, not a drop. An 
 1. Copy the poster of each clip that stays: copy its `-end` still to `clips/<id>/poster.png`. For
    example, `cp clips/<id>/review/still-NN-<scene>-end.png clips/<id>/poster.png`. Do it after
    the last render of the clip.
-2. Run `<skill-dir>/scripts/verify.sh index.html` in the output directory. A lesson has six
-   lines, one more than a page. All six must show `ok`:
+2. Run `<skill-dir>/scripts/verify.sh index.html` in the output directory. A lesson has seven
+   lines, one more than a page. All seven must show `ok`. The `bpmn` line can show `none` when the
+   page has no BPMN diagram:
 
 ```
 self-contained: ok
@@ -415,6 +416,7 @@ render 500x844: ok
 citations: ok
 prose: ok
 media: ok
+bpmn: ok
 ```
 
 3. Do steps 2 to 4 of "Verify and export" in `page.md`: the snapshots, and the read of the tiles.

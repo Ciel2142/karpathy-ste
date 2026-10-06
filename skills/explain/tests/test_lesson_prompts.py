@@ -22,7 +22,7 @@ headed "| Limit | clip |" is the clip row of video/formats.json (FILM_CELLS, fil
 sentence of section "Write the page and the clips" gives that row's minText and the 22 px of C.muted; no other
 sentence of the rung gives a limit of that row as a number ("60 s long at most"). The one
 fenced html block is CLIP_MARKUP, the markup of spec section 4.2, and the fenced block of section "Finish and
-handoff" is the six lines of verify.sh for a lesson (LESSON_PASS and the media line). Each text of LESSON_TEXTS
+handoff" is the seven lines of verify.sh for a lesson (LESSON_PASS, the media line and the bpmn line). Each text of LESSON_TEXTS
 occurs in the rung, and the rule for a long scene of gate 2 (LONG_SCENE) is the same in the rung and in
 review-render.md. The {name} set of the rung is the union of PLACEHOLDERS, and the prompt files that it
 names are the keys of PLACEHOLDERS, each in LESSON_DIR. Section 1 gives the two languages of the rung
@@ -417,11 +417,11 @@ class LessonRungCase(unittest.TestCase):
         self.assertEqual(len(html), 1)
         self.assertEqual("\n".join(html[0]), CLIP_MARKUP)
 
-    # red: the media line left out of the block, or a line of the five reworded
-    def test_lesson_quotes_the_six_verify_lines(self):
+    # red: the media or the bpmn line left out of the block, or a line of the five reworded
+    def test_lesson_quotes_the_seven_verify_lines(self):
         found = [[line.strip() for line in lines]
                  for _, lines in fenced_blocks(section(self.text, "Finish and handoff"))]
-        self.assertIn(LESSON_PASS.splitlines() + ["media: ok"], found)
+        self.assertIn(LESSON_PASS.splitlines() + ["media: ok", "bpmn: ok"], found)
 
     # red: a report name in the old form (review/gate2-<id>-round-<k>.md), a name of an exact text left out, the
     # word `none` of round 1 changed in a {previous} row (`n/a`), the container bullet without its action, the

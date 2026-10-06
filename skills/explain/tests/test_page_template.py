@@ -43,7 +43,7 @@ SHEET = os.path.join(SKILL, "templates", "sheet.html")
 VIDEO = os.path.join(SKILL, "templates", "video.html")
 THEME = os.path.join(SKILL, "video", "src", "theme.ts")
 RENDER_OK = ["render 1440x900: ok", "render 500x844: ok"]
-OTHER_OK = ["citations: ok", "prose: ok"]
+OTHER_OK = ["citations: ok", "prose: ok", "bpmn: none"]
 
 # Guard part 1 closes the first <script>; the throwing script goes right after it.
 AFTER_GUARD_1 = "window.onerror = function () { window.explainJsErrors += 1; };\n</script>\n"
@@ -317,7 +317,7 @@ class PageGuardTest(unittest.TestCase):
         return self.verify(path)
 
     def assert_renders(self, html, renders, code):
-        """verify.sh prints self-contained, the two render lines, citations, prose."""
+        """verify.sh prints self-contained, the two render lines, citations, prose, bpmn."""
         proc = self.run_derived(html)
         self.assertEqual(proc.returncode, code, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout.splitlines(),

@@ -18,18 +18,25 @@ import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from bpmn_page import bpmn_page  # noqa: E402
+
 SCRIPT = os.path.join(os.path.dirname(HERE), "scripts", "verify.sh")
 FIXTURES = os.path.join(HERE, "fixtures")
 HANG = os.path.join(FIXTURES, "snap-hang.html")
 SOURCE = "The parser reads each tag and keeps the attributes.\n"
-CHECKS = ("self-contained:", "render 1920x1080:", "citations:", "prose:")
+CHECKS = ("self-contained:", "render 1920x1080:", "citations:", "prose:", "bpmn:")
+BPMN_NONE = "bpmn: none\n"
 GOOD_OUT = (
     "self-contained: ok\n"
     "render 1920x1080: ok\n"
     "citations: ok\n"
     "prose: ok\n"
+    + BPMN_NONE
 )
-# The five lines of a page or a lesson that passes; a lesson adds `media: ok` after them.
+# The first five lines of a page or a lesson that passes. A page adds the bpmn line after them;
+# a lesson adds `media: ok` and then the bpmn line.
 LESSON_PASS = (
     "self-contained: ok\n"
     "render 1440x900: ok\n"
@@ -120,7 +127,7 @@ class VerifyTest(unittest.TestCase):
 
     # --- the all-good fixture ------------------------------------------------
 
-    def test_good_fixture_passes_all_four_checks(self):
+    def test_good_fixture_passes_all_five_checks(self):
         proc, _ = self.verify_fixture("verify-good.html")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, GOOD_OUT)
@@ -128,7 +135,7 @@ class VerifyTest(unittest.TestCase):
 
     # --- check 1: self-containment ---------------------------------------------
 
-    def test_remote_script_and_stylesheet_fail_check_1_and_all_four_lines_print(self):
+    def test_remote_script_and_stylesheet_fail_check_1_and_all_five_lines_print(self):
         # The .invalid host fails DNS at once and "load" still fires: no network use.
         proc, _ = self.verify_fixture("verify-remote.html", timeout=20)
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
@@ -136,10 +143,10 @@ class VerifyTest(unittest.TestCase):
         self.assertIn("  script src=https://example.invalid/x.js\n", proc.stdout)
         self.assertIn("  link href=https://example.invalid/x.css\n", proc.stdout)
         lines = self.check_lines(proc.stdout)
-        self.assertEqual(len(lines), 4, proc.stdout)
+        self.assertEqual(len(lines), 5, proc.stdout)
         for line, prefix in zip(lines, CHECKS):
             self.assertTrue(line.startswith(prefix), (line, prefix))
-        self.assertEqual(lines[2:], ["citations: ok", "prose: ok"])
+        self.assertEqual(lines[2:], ["citations: ok", "prose: ok", "bpmn: none"])
         self.assert_no_chrome_left()
 
     def test_escaped_code_samples_do_not_trip_self_containment(self):
@@ -193,7 +200,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(
             self.check_lines(proc.stdout),
             ["self-contained: ok", 'render 1920x1080: FAIL data-verify="OVERFLOW:C"',
-             "citations: ok", "prose: ok"],
+             "citations: ok", "prose: ok", "bpmn: none"],
         )
         self.assert_no_chrome_left()
 
@@ -224,7 +231,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(
             proc.stdout,
             "self-contained: ok\nrender 1440x900: ok\nrender 500x844: ok\n"
-            "citations: ok\nprose: ok\n",
+            "citations: ok\nprose: ok\nbpmn: none\n",
         )
         self.assert_no_chrome_left()
 
@@ -241,7 +248,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(
             self.check_lines(proc.stdout),
             ["self-contained: ok", "render 1920x1080: FAIL data-verify preset in source",
-             "citations: ok", "prose: ok"],
+             "citations: ok", "prose: ok", "bpmn: none"],
         )
         self.assert_no_chrome_left()
 
@@ -251,7 +258,7 @@ class VerifyTest(unittest.TestCase):
         proc, elapsed = self.run_verify(self.write_index(html), timeout=1)
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("render 1920x1080: FAIL timeout\n", proc.stdout)
-        self.assertEqual(len(self.check_lines(proc.stdout)), 4, proc.stdout)
+        self.assertEqual(len(self.check_lines(proc.stdout)), 5, proc.stdout)
         self.assertLess(elapsed, 8)
         self.assert_no_chrome_left()
 
@@ -272,7 +279,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("prose: FAIL 1 error(s)\n", proc.stdout)
         self.assertRegex(proc.stdout, r"\n  \d+:\d+  E LENGTH  sentence has 26 words")
-        self.assertTrue(proc.stdout.endswith("(max 25)\n"), proc.stdout)
+        self.assertTrue(proc.stdout.endswith("(max 25)\n" + BPMN_NONE), proc.stdout)
         self.assert_no_chrome_left()
 
     def test_lint_usage_error_is_reported_apart_from_lint_errors(self):
@@ -358,13 +365,13 @@ class VerifyTest(unittest.TestCase):
 
     # --- lesson rung: the media check (spec 6.3) ---------------------------------------
 
-    def test_lesson_with_media_prints_six_ok_lines(self):
+    def test_lesson_with_media_prints_seven_ok_lines(self):
         """Red on the old script: five lines, no `media: ok`. Red when a check is skipped
-        or its line moves: the six lines compare in order."""
+        or its line moves: the seven lines compare in order."""
         self.write_clip("video.mp4", "poster.png", "index.html")
         proc, _ = self.verify_fixture("verify-lesson.html")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n" + BPMN_NONE)
         self.assert_no_chrome_left()
 
     def test_lesson_missing_poster_fails_media_with_a_detail_line(self):
@@ -377,7 +384,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(
             proc.stdout,
             LESSON_PASS
-            + "media: FAIL 1 missing\n  video poster=clips/intro/poster.png\n",
+            + "media: FAIL 1 missing\n  video poster=clips/intro/poster.png\n" + BPMN_NONE,
         )
         self.assert_no_chrome_left()
 
@@ -399,7 +406,7 @@ class VerifyTest(unittest.TestCase):
             LESSON_PASS + "media: FAIL 3 missing\n"
             "  video src=clips/intro/video.mp4\n"
             "  video poster=clips/intro/video.mp4\n"
-            "  a href=clips/intro/video.mp4\n",
+            "  a href=clips/intro/video.mp4\n" + BPMN_NONE,
         )
         self.assert_no_chrome_left()
 
@@ -416,7 +423,7 @@ class VerifyTest(unittest.TestCase):
                 'poster="clips/intro/poster.png"', 'poster="clips/intro/poster%20a.png"'),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n" + BPMN_NONE)
         self.assert_no_chrome_left()
 
     def test_lesson_media_strips_a_query_without_a_fragment(self):
@@ -429,7 +436,7 @@ class VerifyTest(unittest.TestCase):
                 'href="clips/intro/index.html?v=2"'),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n" + BPMN_NONE)
         self.assert_no_chrome_left()
 
     def test_lesson_media_strips_dot_slash_and_rejects_a_directory(self):
@@ -444,7 +451,8 @@ class VerifyTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertEqual(
-            proc.stdout, LESSON_PASS + "media: FAIL 1 missing\n  a href=./clips/intro/\n")
+            proc.stdout,
+            LESSON_PASS + "media: FAIL 1 missing\n  a href=./clips/intro/\n" + BPMN_NONE)
         self.assert_no_chrome_left()
 
     def test_lesson_media_outside_the_directory_counts_as_missing(self):
@@ -469,7 +477,7 @@ class VerifyTest(unittest.TestCase):
             proc.stdout,
             LESSON_PASS + "media: FAIL 2 missing\n"
             "  video src=clips/../../outside.mp4\n"
-            "  video poster=%s\n" % poster,
+            "  video poster=%s\n" % poster + BPMN_NONE,
         )
         self.assert_no_chrome_left()
 
@@ -484,7 +492,7 @@ class VerifyTest(unittest.TestCase):
             edit=lambda html: replace_once(self, html, "</section>", links + "</section>"),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n" + BPMN_NONE)
         self.assert_no_chrome_left()
 
     def test_lesson_without_clips_passes_media(self):
@@ -497,7 +505,7 @@ class VerifyTest(unittest.TestCase):
             return stripped
         proc, _ = self.verify_fixture("verify-lesson.html", edit=edit)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n")
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n" + BPMN_NONE)
         self.assert_no_chrome_left()
 
     def test_lesson_remote_video_src_counts_once(self):
@@ -515,7 +523,7 @@ class VerifyTest(unittest.TestCase):
             LESSON_PASS.replace(
                 "self-contained: ok\n",
                 "self-contained: FAIL 1 remote reference(s)\n  video src=https://x.test/v.mp4\n")
-            + "media: ok\n",
+            + "media: ok\n" + BPMN_NONE,
         )
         self.assert_no_chrome_left()
 
@@ -526,7 +534,7 @@ class VerifyTest(unittest.TestCase):
             edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="page"'),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS)
+        self.assertEqual(proc.stdout, LESSON_PASS + BPMN_NONE)
         self.assertNotIn("media", proc.stdout)
         self.assert_no_chrome_left()
 
@@ -538,8 +546,65 @@ class VerifyTest(unittest.TestCase):
             edit=lambda html: replace_once(self, html, 'content="lesson"', 'content="page"'),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, LESSON_PASS)
+        self.assertEqual(proc.stdout, LESSON_PASS + BPMN_NONE)
         self.assert_no_chrome_left()
+
+    # --- the bpmn line (the BPMN coverage check, last) ---------------------------------
+
+    def test_page_without_bpmn_prints_bpmn_none_last(self):
+        """Red when the line is missing, or prints `ok` for a page with no diagram (the
+        summary `bpmn: none` is not passed on), or sits before prose."""
+        proc, _ = self.verify_fixture(
+            "verify-good.html",
+            edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="page"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[-1], "bpmn: none")
+        self.assertEqual(proc.stdout, LESSON_PASS + BPMN_NONE)
+        self.assert_no_chrome_left()
+
+    def test_bpmn_fixture_page_prints_bpmn_ok(self):
+        """Red when the line is `none` for a page with a diagram, or when the check never
+        reads the page (the exit code or the summary is dropped)."""
+        page = bpmn_page(os.path.join(self.root, "bpmn"))
+        proc, _ = self.run_verify(str(page))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "bpmn: ok\n")
+        self.assert_no_chrome_left()
+
+    def test_bpmn_failure_prints_count_and_details(self):
+        """Red when the exit 1 of the check does not fail the run, when the count is not
+        taken from the detail lines, or when the details are not indented by two spaces."""
+        section = fixture("bpmn-section.html")
+        figure = re.compile(r'<figure class="bpmn">(?:(?!</figure>).)*data-plane="STAGE_A".*?</figure>\n',
+                            re.DOTALL)
+        edited = figure.sub("", section, count=1)
+        self.assertNotEqual(edited, section)
+        page = bpmn_page(os.path.join(self.root, "bpmn"), edited)
+        proc, _ = self.run_verify(str(page))
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS + "bpmn: FAIL 1 failure(s)\n"
+            "  page | plane | STAGE_A (Первичная проверка) has no svg.bpmn"
+            " and is not in Not covered\n",
+        )
+        self.assert_no_chrome_left()
+
+    def test_lesson_prints_bpmn_after_media(self):
+        """Red when the bpmn line comes before media, or a lesson prints no bpmn line."""
+        self.write_clip("video.mp4", "poster.png", "index.html")
+        proc, _ = self.verify_fixture("verify-lesson.html")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[-2:], ["media: ok", "bpmn: none"])
+        self.assert_no_chrome_left()
+
+    def test_video_prints_no_bpmn_line(self):
+        """Red when the bpmn line prints for every rung: the transcript keeps three lines."""
+        proc, _ = self.run_verify(self.video_transcript())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, "self-contained: ok\ncitations: ok\nprose: ok\n")
+        self.assertNotIn("bpmn", proc.stdout)
 
     # --- usage -------------------------------------------------------------------
 
