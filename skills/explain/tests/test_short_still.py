@@ -11,6 +11,7 @@ project, <tmp>/runs/still, made as render.sh makes a run directory: a copy of th
 video_e2e.workspace(): $EXPLAIN_VIDEO_WORKSPACE, default ~/karpathy/video-workspace."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -77,6 +78,13 @@ def lit_pixels(path, y0, y1):
 
 
 @unittest.skipUnless(E2E, E2E_REASON)
+
+def theme_bg():
+    """The ground of video/src/theme.ts as an RGB tuple: the panel of a short is a page."""
+    text = (EXPLAIN / "video" / "src" / "theme.ts").read_text(encoding="utf-8")
+    value = re.search(r'^  bg: "#([0-9a-f]{6})",', text, re.M).group(1)
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
 class ShortStillCase(unittest.TestCase):
     """One workspace check, one project, one narrate and one build, shared by the tests; stills are
     drawn on demand and kept."""
@@ -178,21 +186,22 @@ class ShortStillCase(unittest.TestCase):
         frame = self.first_word_frame + 2
         self.assertGreater(yellow_pixels(self.still(frame), SEAM - 100, SEAM + 100), 200)
 
-    # red: the panel div missing, not 1080 x 960, or not white, so the black frame or the background
-    # shows above the seam. Each row guards one thing:
+    # red: the panel div missing, not 1080 x 960, or not the paper ground of theme.ts (the short's
+    # panel is a page: it follows the shared palette), so the black frame or the background shows
+    # above the seam. Each row guards one thing:
     #   row 20  the panel's top and width: the div missing, off the frame's top, or narrower than 1080.
     #           The scene title starts 48 px down, so the row is margin only.
-    #   row 900 the panel's height: a panel shorter than 901 px (a 1080 x 500 panel keeps row 20 white).
+    #   row 900 the panel's height: a panel shorter than 901 px (a 1080 x 500 panel keeps row 20 paper).
     #           The row is below the panel content (it ends at or above y 840) and above a one-line
     #           caption (its top is about y 914), so it is margin only too.
     # A panel taller than 960 px is caught by test_background_moves, which then sees no background.
-    def test_panel_is_white_above_the_seam(self):
+    def test_panel_is_the_paper_ground_above_the_seam(self):
         _, channels, rows = read_png(self.still(20), 901)
         for y in (20, 900):
             with self.subTest(row=y):
-                off_white = [x for x in range(WIDTH)
-                             if tuple(rows[y][x * channels:x * channels + 3]) != (255, 255, 255)]
-                self.assertEqual(off_white, [])
+                off_paper = [x for x in range(WIDTH)
+                             if tuple(rows[y][x * channels:x * channels + 3]) != theme_bg()]
+                self.assertEqual(off_paper, [])
 
     # red: Short renders an empty bottom half instead of throwing when the timeline has no background
     def test_missing_background_fails_loudly(self):

@@ -3,7 +3,11 @@
 Date: 2026-10-04
 Status: approved 2026-10-04 after three cold reviews; amended 2026-10-06 to target the film
 (`2026-10-05-explain-film-design.md`, its D4 and section 11): a clip is a short film, not an
-explainer. The amendment is marked "A1" where it changes a rule; it is pending user review.
+explainer. The amendment is marked "A1" where it changes a rule; it was approved with the merge
+of `feat/explain-lesson` (683eeef). A second amendment, "A2", folds back the first live run
+(`docs/superpowers/spikes/2026-10-06-explain-lesson-live-run.md`): a verification read at gate 1,
+one more read for a regression of the author's last fix, the "whole first" plan rule for a
+directory subject, and measured costs. A2 is applied to the rung with this edit.
 
 ## 1. Purpose
 
@@ -148,6 +152,14 @@ not limited to flows: a structure that builds up step by step, a before and afte
 along code, a comparison whose terms change over time. The author writes one line of reason per
 clip in `review/plan.md`; the page reviewer of gate 1 judges the choice, and gate 2 check 6
 judges from the stills whether each scene's picture moved as its narration says.
+
+A2, the whole first. For a directory subject, the first section says what the thing does, for
+whom, and from start to end: for a service, the journey of one request or one case through its
+main flow (a BPMN process, a pipeline, a request path), named by its stages. The mechanics
+(message handling, delegates, decision tables, deployment) follow in later sections. That
+journey is the first candidate for a clip: motion along a path is what a still cannot show. The
+first live run explained the mechanics of an account-opening service and never said what the
+service does for the applicant (user, 2026-10-06).
 
 A1. The usual range is 2 to 3 clips of 20 to 40 s per lesson; the hard cap is 60 s per clip,
 and there is no cap on the count. The film live runs (2026-10-05) measured about 7 lines of
@@ -319,10 +331,20 @@ rounds.
 
 After round 2 (or after round 1 when everything is `ok`):
 
+- **Verification read (A2).** A finding first made in round 2 that the author fixes gets one
+  verification read, as at gate 2: a fresh reviewer with the same prompt, the round-2 report
+  (with its `## Author` block) as `{previous}` and the current page or script. It rules the
+  finding `resolved` or `open` and hunts for nothing new; report `review/gate1-<id>-round-3.md`.
+  A finding that no read rules after the fix is `open`. The first live run dropped a correct
+  clip for two missing cites and removed four page claims that a one-line edit had fixed,
+  because nobody read the fix.
+- **Regression read (A2).** When a verification read re-opens a finding because the author's
+  fix moved the fault (a regression of that fix, not a new fault), one more verification read
+  follows the next fix: report `round-4`. One such read at most; it also rules only.
 - **Removal rule (page).** A page claim under an `open` finding is removed from the page, never
   shipped. If the removal empties a facet, the facet goes to `Not covered`. The author then greps
-  every clip narration for the removed claim; a clip that carries it is edited and goes through a
-  gate 1 round again, or is dropped.
+  every clip narration for the removed claim; a clip that carries it is dropped: an edit of the
+  narration needs a review round, and none remains.
 - **Drop rule, gate 1 (clip).** A clip under an `open` finding is dropped (5.4) now, before any
   render time is spent on it.
 - **Disputed findings.** An `open` finding whose `## Author` says `not fixed` is removed or
@@ -389,6 +411,10 @@ After round 2 (or after round 1 when everything is `ok`):
    the resolved/open ruling first. At most two hunting rounds. A finding first made in round 2
    that the author fixes gets one verification read: a fresh reviewer with the round-2 report and
    the re-rendered stills of that scene rules it `resolved` or `open`, and hunts for nothing new.
+   A2: when that read re-opens the finding because the fix moved the fault (a regression of the
+   author's last fix), one more verification read follows the next render, `round-4`, one at
+   most. The first live run lost a clip to such a regression (a later card swap lit a band
+   under the wrong line) with no read left to rule the one-line fix.
 7. **Drop rule, gate 2.** A clip under an `open` finding after the last read, or with a round-2
    finding that the author disputes, is dropped.
 

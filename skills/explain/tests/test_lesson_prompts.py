@@ -112,9 +112,9 @@ LESSON_TEXTS = (
     # row of gate 2 also tells the author to hand a verification read the round-2 report (its name ends in
     # -round-2.md), which VERIFY_READ takes as the sign of a verification read
     "| `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report, with your "
-    "`## Author` block. |",
+    "`## Author` block. For a verification read: the report of the round before it. |",
     "| `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report of the same part. "
-    "For a verification read: the round-2 report of the part. |",
+    "For a verification read: the report of the round before it, of the same part. |",
     "and for it `{previous}` is `none`.",
     # the author reads what the named sections point to: sheet.md by title, the conventions of SKILL.md, the
     # templates and the prompts
@@ -136,10 +136,12 @@ LESSON_TEXTS = (
     # an environment FAIL has an action, as each other FAIL class has
     "A `container` `FAIL` is a fault of the environment: the mp4 has a wrong size or a wrong frame rate. Print "
     "the stage line, tell the user and stop the lesson. Drop nothing for it.",
-    # a finding first made in round 2 is never ruled, and a clip with a removed claim is dropped: no gate 1
+    # a finding first made in round 2 gets one verification read at gate 1 too (A2), one more when the fix
+    # regressed, and is `open` when no read ruled the fix; a clip with a removed claim is dropped: no gate 1
     # round remains for an edit of it
-    "A finding that a round-2 reviewer makes first. Nobody rules it after your fix. It counts as `open`, "
-    "whatever your `## Author` block says.",
+    "A finding that a round-2 reviewer makes first, and that you fix, gets one verification read.",
+    "Its report is `review/gate1-<id>-round-3.md`.",
+    "A finding that no read rules after your fix is `open`, whatever your `## Author` block says.",
     "Drop each clip that has it. An edit of the narration needs a review round, and no round remains.",
 )
 
@@ -164,10 +166,10 @@ SKIP_CHECK_5 = "If `{changes}` is `nothing`, the two scripts are the same: skip 
 ROUND_1 = "If `{previous}` is `none`, this is round 1: skip this section."
 RULE_FIRST = ("Before you hunt, rule each finding of that report `resolved` or `open`, and quote the current "
               "source line.")
-VERIFY_READ = ("If the name of `{previous}` ends in `-round-2.md`, this is a verification read: rule its "
-               "findings and hunt for nothing new.")
-# What a round 2 reviewer does after its rulings. A gate 1 prompt always hunts; the render prompt hunts unless
-# the read is a verification read, and then the verdict follows the rulings alone.
+VERIFY_READ = ("If the name of `{previous}` ends in `-round-2.md` or `-round-3.md`, this is a verification "
+               "read: rule its findings and hunt for nothing new.")
+# What a round 2 reviewer does after its rulings: each prompt hunts unless the read is a verification read,
+# and then the verdict follows the rulings alone (A2: gate 1 has verification reads too).
 HUNT_AFTER = "Then hunt, as the Hunt section says, and number each new finding after the old ones."
 HUNT_UNLESS = ("Then, unless this is a verification read, hunt as the Hunt section says, and number each new "
                "finding after the old ones.")
@@ -235,31 +237,25 @@ class LessonPromptCase(unittest.TestCase):
                 self.assertEqual(starts, ["%d" % number for number in range(1, count + 1)])
 
     # red: the `none` sentence left out of one prompt, or the rule-before-hunt sentence; the verification read
-    # left out of the render prompt, or put into a prompt of gate 1
+    # left out of a prompt, or keyed on -round-2.md alone (a regression read hands the round-3 report)
     def test_round_2_rules_before_it_hunts(self):
         for name in PLACEHOLDERS:
             with self.subTest(prompt=name):
-                self.assertEqual(held(name, "Round 2", (ROUND_1, RULE_FIRST)), [])
-        self.assertEqual(held(RENDER, "Round 2", (VERIFY_READ,)), [])
-        for name in (PAGE, SCRIPT):
-            with self.subTest(prompt=name, verification=False):
-                self.assertNotIn(squash(VERIFY_READ), squash(prompt(name)))
+                self.assertEqual(held(name, "Round 2", (ROUND_1, RULE_FIRST, VERIFY_READ)), [])
 
-    # red: the render prompt tells a verification read to hunt with no condition ("Then hunt, as the Hunt
-    # section says", the first version), or leaves out its verdict rule, or the condition is left out of its
-    # hunt sentence; a gate 1 prompt loses its hunt after the rulings, or gets the verification condition
+    # red: a prompt tells a verification read to hunt with no condition ("Then hunt, as the Hunt section
+    # says", the first version), or leaves out its verdict rule, or the condition is left out of its hunt
+    # sentence
     def test_a_verification_read_does_not_hunt(self):
-        render = squash(section(prompt(RENDER), "Round 2"))
-        self.assertEqual(held(RENDER, "Round 2", (HUNT_UNLESS, VERIFY_VERDICT)), [])
-        self.assertNotIn(squash(HUNT_AFTER), render)
-        # each sentence that sends the reader to the Hunt section says when it does not
-        sends = [sentence for sentence in re.split(r"(?<=\.) ", render) if "as the Hunt section says" in sentence]
-        self.assertEqual([sentence for sentence in sends if "unless this is a verification read" not in sentence],
-                         [])
-        for name in (PAGE, SCRIPT):
+        for name in PLACEHOLDERS:
             with self.subTest(prompt=name):
-                self.assertEqual(held(name, "Round 2", (HUNT_AFTER,)), [])
-                self.assertNotIn("verification", squash(section(prompt(name), "Round 2")))
+                text = squash(section(prompt(name), "Round 2"))
+                self.assertEqual(held(name, "Round 2", (HUNT_UNLESS, VERIFY_VERDICT)), [])
+                self.assertNotIn(squash(HUNT_AFTER), text)
+                # each sentence that sends the reader to the Hunt section says when it does not
+                sends = [sentence for sentence in re.split(r"(?<=\.) ", text) if "as the Hunt section says" in sentence]
+                self.assertEqual([sentence for sentence in sends
+                                  if "unless this is a verification read" not in sentence], [])
 
     # red: the sentence left out of the Inputs section of one prompt
     def test_the_reviewer_reads_only_its_inputs(self):

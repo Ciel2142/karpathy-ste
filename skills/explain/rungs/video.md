@@ -570,7 +570,7 @@ the stage moved or changed its size, read all the stills again.
 |---|---|
 | `script.json` | The script that you wrote. |
 | `scene/` | The picture that you wrote. The run never changes this directory. It ignores a `script.gen.ts` in it, and writes its own `script.gen.ts` in the run directory. |
-| `index.html` | The transcript: the narration and the cites of each scene, under a heading that is the scene id. |
+| `index.html` | The transcript: the narration and the cites of each scene (one `div.cites` block, none for a scene without cites), under a heading that is the scene id. |
 | `video.mp4` | The narrated video. |
 | `narration.md` | The narration, one heading for each scene. |
 | `audio/` | For each scene, `<id>.<engine>.wav`, its sidecar `<id>.<engine>.txt` and `<id>.<engine>.words.json`. Also `durations.json`. |

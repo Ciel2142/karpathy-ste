@@ -1,6 +1,6 @@
 # explain: cited source lines as a code block, and a warm paper palette
 
-Date: 2026-10-06. Status: draft for approval. Coverage: waived (user decision, a layout change
+Date: 2026-10-06. Status: approved 2026-10-06; built on `feat/explain-cite-block`. Coverage: waived (user decision, a layout change
 with its existing checks).
 
 ## 1. Problem
@@ -31,9 +31,10 @@ A sync message on a version 2 process gets its reply at once, from the result va
 </div>
 ```
 
-- `div.cites` follows the element it supports: a `<p>`, a `<li>`, a `figcaption`, or a `<dd>`.
-  One block for each such element at most. The block covers each sentence of that element,
-  as the trailing `<cite>` did before.
+- `div.cites` follows the element it supports: a sibling after a `<p>` or a `figcaption`, and
+  the last child of a `<li>` or a `<dd>` (a `div` between list items is not valid HTML). One
+  block for each such element at most. The block covers each sentence of that element, as the
+  trailing `<cite>` did before.
 - Each `<cite>` keeps its three data attributes unchanged. Its visible text is `name:line`, a
   space, and the snippet inside `<code>`. The quotes around the snippet go: the `<code>`
   marks it. `name` keeps its rule (the basename, or a longer tail when two cited files share
@@ -51,7 +52,9 @@ A sync message on a version 2 process gets its reply at once, from the result va
 .cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 ```
 
-The sheet keeps its own floor (12 px for `cite`; `code` 12 px). The page rule
+The sheet keeps its own floor (12 px for `cite`; `code` 12 px) and shows each cite on one line
+(`code` inline, 3 px padding): a sheet panel is dense, and the block form at the page's spacing
+overflowed panel F of the template. A scene of a transcript with no cites gets no block. The page rule
 `section > * + * { margin-top: 14px }` yields to `p + .cites`, `li + .cites`, `figcaption + .cites`
 and `dd + .cites` at 6 px. The transcript's `ul.cites` list becomes the same `div.cites`.
 
@@ -89,7 +92,9 @@ does not change. The new values:
 | `blue` | `#1d5fc2` | `#1d5fc2` | the chosen step, the current node (unchanged) |
 | `red` | `#c42f2a` | `#c42f2a` | unchanged |
 
-`html, body { background: #fff }` becomes `var(--bg)`. Links and `nav#toc a` use the accent;
+`html, body { background: #fff }` becomes `var(--bg)`, as does every white ground and chip text
+in the templates. The panel of a brainrot short is drawn from `theme.ts` and takes the warm
+ground with it (its still test reads the value from the file). Links and `nav#toc a` use the accent;
 `cite` text and `name:line` use the accent; the blue stays the colour of a chosen state in a
 diagram and a player, so a reader never confuses a link with a state. The contrast of ink on
 the ground is 15:1 and of the accent on the ground 4.6:1 (AA for normal text). The PNG export

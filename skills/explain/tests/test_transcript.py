@@ -255,14 +255,31 @@ class CitesTest(TranscriptCase):
         page = parse(self.generate(small_script([title_scene(cites=cites)], repo, kind="file")))
         self.assertEqual(
             [text for _, text in self.cite_names(page)],
-            ['kept.py:1 "one"', 'loose.py:1 "two" untracked'],
+            ["kept.py:1 one", "loose.py:1 two untracked"],
         )
+
+    def test_cite_block_sets_the_snippet_in_code(self):
+        """Red: the snippet is quoted in the running text, the cites sit in a ul, or the untracked
+        mark lands inside the code element."""
+        repo = self.dir / "repo2"
+        repo.mkdir()
+        (repo / "loose.py").write_text("two\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True, capture_output=True)
+        cites = [{"path": "loose.py", "line": 1, "snippet": "two"},
+                 {"path": "https://example.com/d", "snippet": "a quote"}]
+        text = self.generate(small_script([title_scene(cites=cites)], repo, kind="file"))
+        self.assertNotIn("<ul", text)
+        self.assertIn('<cite data-path="loose.py" data-line="1" data-snippet="two">loose.py:1 '
+                      "<code>two</code> untracked</cite>", text)
+        self.assertIn('<cite data-path="https://example.com/d" data-snippet="a quote">example.com '
+                      "<code>a quote</code></cite>", text)
+        self.assertRegex(text, r'<div class="cites" data-ste="skip">\s*<cite')
 
     def test_no_git_directory_marks_nothing(self):
         """Red: every cite marked untracked when the root has no .git."""
         cites = [{"path": "src/big.txt", "line": 1, "snippet": "line 1"}]
         page = parse(self.generate(small_script([title_scene(cites=cites)], self.dir, kind="file")))
-        self.assertEqual([text for _, text in self.cite_names(page)], ['big.txt:1 "line 1"'])
+        self.assertEqual([text for _, text in self.cite_names(page)], ["big.txt:1 line 1"])
 
     def test_url_cite_without_line(self):
         """Red: a URL cite gets data-line, or the host is missing from the visible text."""
@@ -272,7 +289,7 @@ class CitesTest(TranscriptCase):
         self.assertNotIn("data-line", cite["attrs"])
         self.assertEqual(cite["attrs"]["data-path"], "https://example.com/docs/a")
         self.assertEqual(cite["attrs"]["data-snippet"], "a short quote")
-        self.assertEqual(" ".join(cite["text"].split()), 'example.com "a short quote"')
+        self.assertEqual(" ".join(cite["text"].split()), "example.com a short quote")
 
     def test_cite_check_passes_on_generated_transcript(self):
         """Red: a scene section emitted without its cites (cite_check: "section N: no
@@ -486,7 +503,7 @@ class FilmTest(TranscriptCase):
                      for c in section["cites"]]
             self.assertEqual(cites, [("src/big.txt", "3", "alpha beta")], section["id"])
         self.assertNotIn("<figure", text)
-        self.assertEqual(re.findall(r"<ul[^>]*>", text), ['<ul class="cites" data-ste="skip">'] * 3)
+        self.assertEqual(re.findall(r'<div class="cites"[^>]*>', text), ['<div class="cites" data-ste="skip">'] * 3)
 
     def test_film_nav_and_narration_md_use_the_id(self):
         """Red: props["title"] read for a film in the nav or in narration.md (KeyError, exit 2),
@@ -561,7 +578,7 @@ class FilmTest(TranscriptCase):
         text = self.generate(script)
         page = parse(text)
         self.assertEqual([len(s["cites"]) for s in page.sections], [1, 0, 1])
-        self.assertEqual(text.count('<ul class="cites" data-ste="skip"></ul>'), 1)
+        self.assertEqual(text.count('<div class="cites"'), 2)   # the scene without cites has no block
 
     def test_film_scene_without_narration_exits_two(self):
         """Red: narration or id read with a default (scene.get) at every place a film scene is

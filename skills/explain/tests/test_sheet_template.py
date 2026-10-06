@@ -11,6 +11,7 @@ one.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -93,6 +94,19 @@ class SheetGuardTest(unittest.TestCase):
         html = self.edit(self.template, AFTER_SHEET, AFTER_SHEET.replace(
             "</div>\n<script>", '</div>\n<div style="height: 1200px"></div>\n<script>'))
         self.assert_render_fails(html, "CANVAS")
+
+    def test_cites_collect_in_a_block_under_the_prose(self):
+        """Red: a template lacks the .cites rules, shows a cite inline in the prose, or quotes the
+        snippet instead of setting it in <code>."""
+        for rule in (".cites {", ".cites cite {", ".cites cite + cite {", ".cites code {"):
+            self.assertIn(rule, self.template, rule)
+        markup = re.sub(r"<!--.*?-->", "", self.template, flags=re.S)
+        cites = re.findall(r"<cite\b[^>]*>(.*?)</cite>", markup, re.S)
+        self.assertTrue(cites)
+        for text in cites:
+            self.assertRegex(text, r"^[^<\"]+ <code>[^<]+</code>$")
+        blocks = re.findall(r'<div class="cites">(.*?)</div>', markup, re.S)
+        self.assertEqual(sum(block.count("<cite") for block in blocks), len(cites))
 
     def test_throwing_inline_script_reports_jserror(self):
         html = self.edit(self.template, AFTER_SHEET, AFTER_SHEET.replace(

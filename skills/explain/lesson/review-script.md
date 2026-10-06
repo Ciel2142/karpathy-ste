@@ -60,14 +60,20 @@ Otherwise `{previous}` is the absolute path of the report of the last round. It 
 the author appended: for each finding, `fixed` with what changed, or `not fixed` with why. Read the report
 first. The word of the author is not a ruling.
 
+If the name of `{previous}` ends in `-round-2.md` or `-round-3.md`, this is a verification read: rule its
+findings and hunt for nothing new. The Hunt section does not apply to a verification read.
+
 Before you hunt, rule each finding of that report `resolved` or `open`, and quote the current source line.
 Read `script.json` and the section as they are now. A finding is `resolved` when the narration no longer
 makes the claim that the finding quoted, or when the cited lines now support it, or when the narration and
 the section now agree. Otherwise it is `open`.
 
 Write the rulings at the top of your report, one for each finding: its number, `resolved` or `open`, and the
-quoted line. Then hunt, as the Hunt section says, and number each new finding after the old ones. An `open`
-finding counts as a finding of this report.
+quoted line. Then, unless this is a verification read, hunt as the Hunt section says, and number each new
+finding after the old ones. An `open` finding counts as a finding of this report.
+
+In a verification read, write `verdict: ok` when each finding is `resolved`, and `verdict: fix` when one is
+`open`.
 
 ## Report
 

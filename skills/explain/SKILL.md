@@ -86,11 +86,13 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
 
 1. Prose: follow the STE profile. The final `index.html` passes `ste_lint.py --html` with 0 errors.
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
-   `<cite data-path="…" data-line="…" data-snippet="…">name:line "snippet"</cite>`. The snippet
-   has at most 12 words, copied verbatim from that line. `data-path` holds the full path relative
-   to `data-root`. `name` is its basename, or a longer tail if two cited files have that
-   basename. A path citation fails `cite_check.py` if its visible text does not hold
-   `basename:line`, or the provenance element has no `data-root`. Never copy a password, a token
+   `<cite data-path="…" data-line="…" data-snippet="…">name:line <code>snippet</code></cite>`.
+   The snippet has at most 12 words, copied verbatim from that line, set in `<code>` with no
+   quotes. The prose holds no cite: the cites of a paragraph collect in one `<div class="cites">`
+   after the `<p>` (or as the last child of the `<li>` or `<dd>`). One block for each paragraph at
+   most. `data-path` holds the full path relative to `data-root`. `name` is its basename, or a
+   longer tail if two cited files have that basename. A path citation fails `cite_check.py` if
+   its visible text does not hold `basename:line`, or the provenance element has no `data-root`. Never copy a password, a token
    or a key into a snippet or the prose. End the snippet before it, or cite a line near it. For a
    file or a directory subject, each panel or section (a `<section>` element) holds at least one
    `<cite>`. Mark a cited file that git does not track (in a repository, `git ls-files

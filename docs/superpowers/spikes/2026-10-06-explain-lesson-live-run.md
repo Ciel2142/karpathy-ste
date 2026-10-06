@@ -1,4 +1,4 @@
-# explain lesson: the first live run (draft, fold-back pending)
+# explain lesson: the first live run
 
 Subject: `/explain /Users/valukin/work/aos --as lesson` (a Java/Camunda account-opening service,
 446 files). Output: `out/2026-10-06-123735-lesson-aos/`. Rung: `skills/explain/rungs/lesson.md` as
@@ -44,7 +44,7 @@ Eight sections, three clips planned (`inbound`, `delegates`, `pdcheck`), one shi
 - Reviewer accuracy: 0 findings the author would dispute across 24 reviewer runs; one
   reviewer note was out of scope (the dim boundary box) and was not filed as a finding.
 
-## Fold-back items (spec amendment A2, not yet applied)
+## Fold-back items (spec amendment A2, applied on `feat/explain-cite-block`)
 
 1. Gate 1 has no verification read: a round-2 first finding is open by rule, which dropped a
    correct clip for two missing cites and removed four page claims that a one-line edit fixed.
@@ -65,8 +65,11 @@ Eight sections, three clips planned (`inbound`, `delegates`, `pdcheck`), one shi
 6. Costs to put in the rung: about 115k subagent tokens per reviewer run; a 5-scene clip takes
    3 to 4 reviewers per gate-2 round; a clip of 38 s took 7 renders.
 
-## Next
+## Applied
 
-Build the cite-block/palette feature, apply A2 and items 1-4 to the rung and the spec, then
-rebuild the lesson (`/explain /Users/valukin/work/aos --as lesson`) with the journey as
-section 1.
+Items 1, 2, 4 and 6: `rungs/lesson.md` (a gate-1 verification read, `round-3`; a regression read
+at both gates, `round-4`; the whole first in the plan; the measured costs), `rungs/page.md` (the
+whole first for a directory subject) and the three prompts (a verification read is keyed on
+`-round-2.md` or `-round-3.md`). Item 3: the lesson spec carries A2 and marks A1 approved. Item
+5: the cite-block spec, built on the same branch. Next: rebuild the lesson
+(`/explain /Users/valukin/work/aos --as lesson`) with the journey as section 1.

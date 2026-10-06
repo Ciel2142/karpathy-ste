@@ -66,8 +66,10 @@ document.
 
 1. Resolve the subject by the rules of `SKILL.md`. Print the rung line.
 2. List the sections by the page rung rules: one facet, one `<h2>` question and one nav entry for
-   each. Give each section an id.
-3. Mark each section that gets a clip. Use the criterion of "When a lesson" above.
+   each. Give each section an id. For a directory subject, the first section is the whole, start
+   to end (the rule of `page.md` "Plan the sections"); the mechanics follow.
+3. Mark each section that gets a clip. Use the criterion of "When a lesson" above. The journey of
+   the first section is the first candidate: motion along a path is what a still cannot show.
 4. Write `review/plan.md` in the output directory. Write one line for each section:
 
 ```
@@ -83,11 +85,10 @@ The usual range is 2 to 3 clips in a lesson. A usual clip is 20 to 40 s long. Th
 length" of the table in "Write the page and the clips" gives the longest clip. There is no cap on
 the number of clips.
 
-Count the cost before you mark a clip. The film runs measured about 7 lines of scene code for
-each second of film. They measured 15 to 25 s of author time for each second, over 3 to 6 render
-runs. Thus a clip of 30 s is about 200 lines of scene code and 10 minutes, with your own reads of
-the stills. Two review rounds make it about twice that time. Review caused half of the time in
-the film runs, and 3 of the 3 to 6 runs.
+Count the cost before you mark a clip. The first lesson run measured about 5 lines of scene code
+for each second of clip (the film runs: 7). A clip of 38 s took 2 to 7 render runs. Three clips
+took about 30 minutes of author time. A reviewer run costs about 115k subagent tokens; a clip of
+5 scenes takes 3 to 4 reviewers in each gate-2 round. The gates took 22 minutes of a 2 h 30 run.
 
 ## 4. Write the page and the clips
 
@@ -241,7 +242,7 @@ result to the subagent as its prompt. Fill the names like this:
 | `{files}` | The files that the reviewer reads, as absolute paths, one on each line. The page reviewer gets `index.html` and `review/plan.md`. The script reviewer gets these two files and `clips/<id>/script.json`. |
 | `{section}` | In the prompt of a script reviewer: the id of the section of the clip. The page prompt has no such name. |
 | `{report}` | The absolute path that the reviewer writes its report to. The names are below. |
-| `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report, with your `## Author` block. |
+| `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report, with your `## Author` block. For a verification read: the report of the round before it. |
 
 The prompt tells the reviewer to read only these files and the repo. It also closes the output
 directory and its parent directory, except the files that you list and the report of `{previous}`.
@@ -269,12 +270,20 @@ each round-1 finding `resolved` or `open`, and quotes the current source line. T
 new faults.
 
 A clip that you add after round 1 gets its script review in the round-2 dispatch, and for it
-`{previous}` is `none`. There are two rounds at most.
+`{previous}` is `none`. There are two hunting rounds at most.
 
-After round 2, or after round 1 when each verdict is `ok`, apply these rules before any render:
+A finding that a round-2 reviewer makes first, and that you fix, gets one verification read.
+Start a fresh reviewer with the same prompt, with the round-2 report (with your `## Author`
+block) as `{previous}` and the current page or script. It rules the finding `resolved` or
+`open`, and it hunts for nothing new. Its report is `review/gate1-<id>-round-3.md`.
 
-- A finding that a round-2 reviewer makes first. Nobody rules it after your fix. It counts as
-  `open`, whatever your `## Author` block says. The rules below then apply to it.
+That read can re-open the finding, or a finding that an earlier round ruled `resolved`, because
+your fix moved the fault. That is a regression of your last fix, not a new fault. Then one more
+verification read follows your next fix: `round-4`, one at most. A finding that no read rules
+after your fix is `open`, whatever your `## Author` block says.
+
+After the last read, apply these rules before any render:
+
 - Removal rule, for the page. Remove from the page each claim that has an `open` finding. Never
   ship it. If the removal empties a facet, write the facet in `Not covered`. Then search the
   narration of each clip for the removed claim. Drop each clip that has it. An edit of the
@@ -346,7 +355,7 @@ Fill the names of the prompt like this. `{subject}`, `{root}` and `{section}` ar
 | `{files}` | Absolute paths, one on each line: `clips/<id>/script.json`; `review/gate1-<id>.script.json`; the stills of the part; the transcript `clips/<id>/index.html`; `index.html`; the gate-1 reports of the clip, each with its `## Author` block. |
 | `{report}` | `review/gate2-<id>-<part>-round-<k>.md`, as an absolute path. `<part>` counts from 1. `<k>` is the number of the read. |
 | `{changes}` | What changed in the script since gate 1, in plain words, or `nothing` when `script.json` and the gate-1 copy are the same. The reviewer compares the two files itself. |
-| `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report of the same part. For a verification read: the round-2 report of the part. |
+| `{previous}` | `none` in round 1. In round 2: the absolute path of the round-1 report of the same part. For a verification read: the report of the round before it, of the same part. |
 
 The reviewer reads each still with the Read tool, and writes its report to `{report}`. The report
 has the same shape as at gate 1. The last line is `verdict: ok` or `verdict: fix`. You append
@@ -360,6 +369,11 @@ A finding that a round-2 reviewer makes first, and that you fix, gets one verifi
 a fresh reviewer with the prompt `review-render.md`, with the round-2 report as `{previous}`
 and the new stills of that scene. It rules the finding `resolved` or `open`, and it hunts for
 nothing new. Its report is `review/gate2-<id>-<part>-round-3.md`.
+
+That read can re-open the finding, or a finding that an earlier round ruled `resolved`, because
+your fix moved the fault. That is a regression of your last fix, not a new fault. Then one more
+verification read follows your next render: `round-4`, one at most. It rules those findings
+only.
 
 Drop rule, for gate 2. Drop a clip that has an `open` finding after the last read. Drop a clip
 that has a round-2 finding that you dispute, and keep the pair (the finding, your reason) for the

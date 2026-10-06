@@ -111,11 +111,11 @@ class Cites:
         snippet = cite["snippet"]
         if is_url(path):
             host = urlsplit(path).netloc or path
-            return '<cite data-path="%s" data-snippet="%s">%s "%s"</cite>' % (
+            return '<cite data-path="%s" data-snippet="%s">%s <code>%s</code></cite>' % (
                 esc(path), esc(snippet), esc(host), esc(snippet))
         line = cite["line"]
         mark = " untracked" if self.untracked(path) else ""
-        return '<cite data-path="%s" data-line="%s" data-snippet="%s">%s:%s "%s"%s</cite>' % (
+        return '<cite data-path="%s" data-line="%s" data-snippet="%s">%s:%s <code>%s</code>%s</cite>' % (
             esc(path), esc(line), esc(snippet), esc(self.labels[path]), esc(line), esc(snippet), mark)
 
 
@@ -195,13 +195,13 @@ def scene_blocks(script, scene, ctx):
 
 def render_scene(script, scene, ctx):
     blocks, extra = scene_blocks(script, scene, ctx)
-    cites = "".join("<li>%s</li>" % ctx["cites"].render(c) for c in extra + scene_cites(script, scene))
+    cites = "".join("\n  %s" % ctx["cites"].render(c) for c in extra + scene_cites(script, scene))
+    block = ['<div class="cites" data-ste="skip">%s\n</div>' % cites] if cites else []
     return "\n".join(
         ['<section id="%s">' % esc(scene["id"]),
          "<h2>%s</h2>" % esc(scene_heading(script, scene)),
          "<p>%s</p>" % inline(scene["narration"])]
-        + blocks
-        + ['<ul class="cites" data-ste="skip">%s</ul>' % cites, "</section>"]
+        + blocks + block + ["</section>"]
     )
 
 

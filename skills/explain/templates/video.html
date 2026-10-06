@@ -20,12 +20,14 @@
 <style>
 /* Palette duplicated in page.html, sheet.html and video/src/theme.ts: change all four. */
 :root {
-  --ink: #1b2129;
-  --muted: #5b6570;
-  --line: #b8c0c9;
+  --bg: #faf9f5;
+  --fill: #f0eee6;
+  --ink: #1f1d1a;
+  --muted: #6b6a64;
+  --line: #d4d0c6;
+  --accent: #c2613f;
   --blue: #1d5fc2;
   --red: #c42f2a;
-  --fill: #eef1f4;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -38,7 +40,7 @@ code, pre, nav a { font-size: 15px; }
 dt, cite, figcaption { font-size: 14px; }
 figcaption code { font-size: 14px; }
 
-html, body { margin: 0; padding: 0; background: #fff; }
+html, body { margin: 0; padding: 0; background: var(--bg); }
 body {
   max-width: 72ch; margin: 0 auto; padding: 0 16px 32px; color: var(--ink);
   font-family: var(--sans); line-height: 1.5; overflow-wrap: break-word;
@@ -47,17 +49,25 @@ h1, h2, h3, p, ul, ol, dl, dd, figure, pre { margin: 0; }
 h1, h2, h3 { line-height: 1.25; }
 code, pre { font-family: var(--mono); }
 :not(pre) > code { padding: 0 3px; background: var(--fill); }
-cite { font-family: var(--mono); font-style: normal; color: var(--blue); }
+a { color: var(--accent); }
+cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
 figcaption { color: var(--muted); }
+/* Cites: one block under the element it supports (a sibling of a p or a figcaption, the last
+   child of a li or a dd). name:line in the accent, the snippet as code. */
+.cites { margin-top: 6px; padding: 6px 10px; background: var(--fill); border-left: 3px solid var(--line); }
+.cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
+.cites cite + cite { margin-top: 4px; }
+.cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono);
+  font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 header { padding: 32px 0 16px; }
 video { display: block; width: 100%; max-width: 1280px; aspect-ratio: 16 / 9; background: var(--ink); }
 video.portrait { aspect-ratio: 9 / 16; max-width: 405px; }
 nav#toc {
   position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 18px;
-  margin-top: 16px; padding: 10px 0; background: #fff; border-bottom: 1.5px solid var(--ink);
+  margin-top: 16px; padding: 10px 0; background: var(--bg); border-bottom: 1.5px solid var(--ink);
 }
-nav#toc a { color: var(--blue); font-weight: 600; text-decoration: none; }
+nav#toc a { color: var(--accent); font-weight: 600; text-decoration: none; }
 nav#toc a:hover { text-decoration: underline; }
 
 /* One section for each scene. */
@@ -66,8 +76,7 @@ section + section { border-top: 1px solid var(--line); }
 section > * + * { margin-top: 14px; }
 section ul { padding-left: 22px; }
 section li + li { margin-top: 4px; }
-ul.cites { list-style: none; padding: 0; }
-ul.cites li + li { margin-top: 2px; }
+section > .cites { margin-top: 6px; }
 .before-after { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .before-after > div { padding: 8px 12px; background: var(--fill); border: 1px solid var(--line); }
 

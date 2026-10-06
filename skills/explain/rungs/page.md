@@ -16,6 +16,11 @@ on a page, write one step for each beat of the story.
 
 - One facet is one `<section>`, one `<h2>` question and one nav entry. Write a short noun
   as the nav label. Write the question in the `<h2>`.
+- For a directory subject, the first section says what the thing does, for whom, and from
+  start to end. For a service, that is the journey of one request through its main flow, named
+  by its stages. The main flow is a BPMN process, a pipeline or a request path. The mechanics
+  follow in later sections: message handling, delegates, decision tables, deployment. Read the main flow
+  first, in full, before you plan the mechanics.
 - Six to ten sections is the usual range. There is no cap. If a page has more than about
   twelve sections, merge facets into fewer sections, or ask the user to split the subject.
   Do not make a second output directory.
@@ -91,8 +96,8 @@ one or two STE sentences. Without `#verify` in the URL, one step shows. With it,
 Put the player after the first paragraph of its section. Number `data-step` from 1 to N. The script
 sets the counter text. A step diagram is an `ol.track` or an SVG.
 
-A section that is only a diagram or a player holds its `<cite>` in a `<p>` or in the `figcaption`,
-outside the `svg`.
+A section that is only a diagram or a player holds its cites in a `div.cites`. The block comes
+after a `<p>` or after the `figcaption`, outside the `svg`.
 
 ## 5. Provenance
 
@@ -110,10 +115,19 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
 - The `figcaption` of a code figure holds `name:line` in `<code>`, not in a `<cite>`, thus neither
   the lint nor `cite_check.py` reads it.
 - A sentence of 26 words or more is an error in any place.
-- Cite each claim one time. When several sentences of one paragraph come from one source line,
-  one `<cite>` at the end of the paragraph covers them. A sentence from another line gets its own
-  `<cite>`. Keep a snippet near 6 words. The visible text is `name:line "snippet"`, where `name` is
-  the basename or a unique longer tail, and `data-path` keeps the full path relative to `data-root`.
+- Cite each claim one time. The cites of a paragraph collect in one `div.cites` after the `<p>`
+  (the last child of a `<li>` or a `<dd>`); the prose holds no cite. When several sentences of
+  one paragraph come from one source line, one `<cite>` in that block covers them. A sentence
+  from another line gets its own `<cite>` in the same block. Keep a snippet near 6 words. The
+  visible text is `name:line <code>snippet</code>`, where `name` is the basename or a unique
+  longer tail, and `data-path` keeps the full path relative to `data-root`:
+
+  ```
+  <p>The handler correlates the message to the instance.</p>
+  <div class="cites">
+    <cite data-path="src/Handler.java" data-line="53" data-snippet="runtimeService.createMessageCorrelation(name)">Handler.java:53 <code>runtimeService.createMessageCorrelation(name)</code></cite>
+  </div>
+  ```
 
 ## 7. Verify and export
 
