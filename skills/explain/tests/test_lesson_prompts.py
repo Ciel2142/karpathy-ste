@@ -58,6 +58,13 @@ RULE_FIRST = ("Before you hunt, rule each finding of that report `resolved` or `
               "source line.")
 VERIFY_READ = ("If the name of `{previous}` ends in `-round-2.md`, this is a verification read: rule its "
                "findings and hunt for nothing new.")
+# What a round 2 reviewer does after its rulings. A gate 1 prompt always hunts; the render prompt hunts unless
+# the read is a verification read, and then the verdict follows the rulings alone.
+HUNT_AFTER = "Then hunt, as the Hunt section says, and number each new finding after the old ones."
+HUNT_UNLESS = ("Then, unless this is a verification read, hunt as the Hunt section says, and number each new "
+               "finding after the old ones.")
+VERIFY_VERDICT = ("In a verification read, write `verdict: ok` when each finding is `resolved`, and "
+                  "`verdict: fix` when one is `open`.")
 REPORT_RULES = ("A finding without a quoted source line is not a finding.",
                 "The last line of your text is `verdict: ok` or `verdict: fix`.",
                 "Write `verdict: fix` when the report has at least one finding.")
@@ -129,6 +136,22 @@ class LessonPromptCase(unittest.TestCase):
         for name in (PAGE, SCRIPT):
             with self.subTest(prompt=name, verification=False):
                 self.assertNotIn(squash(VERIFY_READ), squash(prompt(name)))
+
+    # red: the render prompt tells a verification read to hunt with no condition ("Then hunt, as the Hunt
+    # section says", the first version), or leaves out its verdict rule, or the condition is left out of its
+    # hunt sentence; a gate 1 prompt loses its hunt after the rulings, or gets the verification condition
+    def test_a_verification_read_does_not_hunt(self):
+        render = squash(section(prompt(RENDER), "Round 2"))
+        self.assertEqual(held(RENDER, "Round 2", (HUNT_UNLESS, VERIFY_VERDICT)), [])
+        self.assertNotIn(squash(HUNT_AFTER), render)
+        # each sentence that sends the reader to the Hunt section says when it does not
+        sends = [sentence for sentence in re.split(r"(?<=\.) ", render) if "as the Hunt section says" in sentence]
+        self.assertEqual([sentence for sentence in sends if "unless this is a verification read" not in sentence],
+                         [])
+        for name in (PAGE, SCRIPT):
+            with self.subTest(prompt=name):
+                self.assertEqual(held(name, "Round 2", (HUNT_AFTER,)), [])
+                self.assertNotIn("verification", squash(section(prompt(name), "Round 2")))
 
     # red: the sentence left out of the Inputs section of one prompt
     def test_the_reviewer_reads_only_its_inputs(self):

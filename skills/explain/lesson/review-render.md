@@ -88,8 +88,11 @@ Look at the stills as they are now: the clip was rendered again. A finding is `r
 longer gives the false picture that the finding quoted. Otherwise it is `open`.
 
 Write the rulings at the top of your report, one for each finding: its number, `resolved` or `open`, and the
-quoted line. Then hunt, as the Hunt section says, and number each new finding after the old ones. An `open`
-finding counts as a finding of this report.
+quoted line. Then, unless this is a verification read, hunt as the Hunt section says, and number each new
+finding after the old ones. An `open` finding counts as a finding of this report.
+
+In a verification read, write `verdict: ok` when each finding is `resolved`, and `verdict: fix` when one is
+`open`.
 
 ## Report
 
