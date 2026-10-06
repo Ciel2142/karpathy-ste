@@ -16,11 +16,24 @@ on a page, write one step for each beat of the story.
 
 - One facet is one `<section>`, one `<h2>` question and one nav entry. Write a short noun
   as the nav label. Write the question in the `<h2>`.
-- For a directory subject, the first section says what the thing does, for whom, and from
-  start to end. For a service, that is the journey of one request through its main flow, named
-  by its stages. The main flow is a BPMN process, a pipeline or a request path. The mechanics
-  follow in later sections: message handling, delegates, decision tables, deployment. Read the main flow
-  first, in full, before you plan the mechanics.
+- The first section says why the subject exists. One diagram in it carries the main idea. For a
+  directory subject, that diagram is the main flow from start to end, named by its stages. The
+  main flow is the journey of one request, a pipeline or a BPMN process. The mechanics follow in
+  later sections.
+- The diagram shows the reason that the answer gives, not a list of the parts of the subject. Test
+  it: cover the prose. Does the diagram alone support the answer?
+- Each section expands one sentence of the answer. Content that expands no sentence goes into a
+  `details.walk` of a reference section, into the glossary, or out of the page into `Not covered`.
+- Put exact rules into `details.walk` elements in a reference section: limits, fault codes and
+  the rules for each item. Write one sentence above them that tells when to open them.
+- Define each term of the subject in the sentence of its first use. If the page uses a term that
+  a newcomer to the subject does not know, add a glossary section at the end. It has
+  `<section id="terms">`, an `<h2>` question, a nav entry and a `dl.terms`. Each `<dd>` ends with
+  its `div.cites`. The glossary is for looking up. The reference section and the glossary count in
+  the six to ten.
+- If the subject uses the key term of the question for two things, write one note in the first
+  section that names the other one. The other one gets no section.
+- A paragraph that states a rule or a check also says why the rule or the check exists.
 - Six to ten sections is the usual range. There is no cap. If a page has more than about
   twelve sections, merge facets into fewer sections, or ask the user to split the subject.
   Do not make a second output directory.
@@ -37,19 +50,29 @@ on a page, write one step for each beat of the story.
 ## 3. Fill the template
 
 1. Copy `<skill-dir>/templates/page.html` to `<output-dir>/index.html`.
-2. Write the page title in `<title>` and in `<h1>`.
-3. Copy the pattern that you need before you delete the demo content. Then delete the demo
+2. Write the page title in `<title>` and in `<h1>`. The title is the question. For a topic, it is
+   the question of the user, in full words. For a file or a directory, it asks what the subject
+   does and why it exists.
+3. Write the answer box in `header > div.answer`. It holds one `<p>` of two to four sentences, at
+   most 70 words. The `<p>` starts with `<strong>Short answer.</strong>`. Then the box holds its
+   own `div.cites`. The box answers the `<h1>`. It never describes the page.
+4. Copy the pattern that you need before you delete the demo content. Then delete the demo
    content and the HTML comments. Keep the CSS and script comments. Keep
    `<meta name="explain-rung" content="page">`: without it, `verify.sh` exits with code 2. Keep the
    `<style>` block and all three script blocks (blocks 1 and 3: the guard; block 2: `explainPlayer`
    (the steps player) and Play all). A plain page keeps the `Play all` button; CSS hides it when
    the page has no `figure.clip`. The guard reports `PLAYALL` when a page with no `figure.clip`
    shows the button. It also reports `PLAYALL` when a page with a `figure.clip` hides the button or
-   has no button.
-4. Rebuild `nav#toc`: one `<a href="#id">` for each section, in document order.
+   has no button. Keep the Sources switch, `label.sources` with `input#show-sources`. The template
+   hides each `div.cites` until the reader turns the switch on. The guard reports `NOSOURCES` when
+   the page has a cite block and the nav has no switch. It reports `NOANSWER` when the header has no
+   answer box, or when the box has no text outside its cites.
+5. Rebuild `nav#toc`: one `<a href="#id">` for each section, in document order. Keep the Sources
+   switch as the last child of `nav#toc`.
 
 | Primitive | Markup | Use it for |
 |---|---|---|
+| answer box | `header > div.answer`: one `p` that starts `<strong>Short answer.</strong>`, then its `div.cites` | The short answer, under the `<h1>`. |
 | captioned code | `figure.code > figcaption > code` (`name:line`), then `pre > code` | Source lines. |
 | walkthrough | `details.walk > summary`, then `p` | A long proof or a second example. |
 | diagram | `figure.diagram.flow`, `.sequence` or `.layers`, with a `<figcaption>` | A flow, an exchange, a stack. |
@@ -57,10 +80,13 @@ on a page, write one step for each beat of the story.
 | clip (lesson rung only) | `figure.clip > video[controls][preload=none]` + `figcaption > span.part`, one sentence, `a[data-ste=skip]` "transcript" | A narrated clip of this section; markup in `rungs/lesson.md`. |
 | table | `.table-wrap > table` | Rows and columns. |
 | track list | `ol.track` with one `li.on` | The position in a sequence. |
+| Sources switch | `nav#toc > label.sources > input#show-sources` | Show or hide each `div.cites`. It is the last child of the nav. |
+| glossary | `section#terms > dl.terms`, with `dt` and `dd` | Look up a term. The nav has an entry for it. |
 | provenance | `#provenance` in the `<footer>` | Section 5. |
 
 - Each `figure.step` has its own diagram and one `<figcaption>`.
-- Prose for the lint: `summary`, `figcaption` text, `p`, `li` and `dd` that has no skip.
+- Prose for the lint: `summary`, `figcaption` text, `p`, `li`, `dt` and `dd` that has no skip. The
+  `<p>` of the answer box is prose too.
 - Put `data-ste="skip"` on the non-prose parts: each SVG, `ol.track` and the provenance `<dl>`.
 - The font floor is 14 px. Never add a rule that sets a smaller size. The guard reports
   `SMALLTEXT:<px>` if some text is smaller.
@@ -111,7 +137,8 @@ content that you cut. Write `none` only when the page explains every facet.
 
 Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to a page.
 
-- The lint does not read `nav`. It reads each `summary` and each step caption.
+- The lint does not read `nav`. It reads each `summary`, each `dt` and each step caption.
+- The template hides the cite blocks until the reader turns on Sources.
 - The `figcaption` of a code figure holds `name:line` in `<code>`, not in a `<cite>`, thus neither
   the lint nor `cite_check.py` reads it.
 - A sentence of 26 words or more is an error in any place.
@@ -149,9 +176,13 @@ Do these steps in the output directory, in this order.
    these parts.
 4. Read the tiles with the Read tool. Never read the full PNGs. Look for these faults. Clipped or
    overflowing text. A nav that overflows. A diagram that does not fit at 500 px, or that has
-   unreadable text. A player whose steps did not stack. A section without its citation. An empty
-   section. Text that gives a false picture of the subject. There is no separate 1440x900 render: it
-   is tile 1 of the tall page.
+   unreadable text. A player whose steps did not stack. An empty section. Text that gives a false
+   picture of the subject. There is no separate 1440x900 render: it is tile 1 of the tall page. The
+   tiles show the reading view, where the page hides the cite blocks. Then do three more checks.
+   Read `index.html`, not the tiles: each section holds a `div.cites`. `cite_check.py` checks this
+   for a file or a directory subject only. Cover the page below the answer box. Does the box alone
+   answer the `<h1>`? Cover the prose of the first section. Does its diagram alone support the
+   answer?
 5. Fix each fault. Run steps 1 to 4 again. Repeat until all are clean.
 6. Do the handoff from `SKILL.md` convention 6. Never run `open` inside a subagent.
 

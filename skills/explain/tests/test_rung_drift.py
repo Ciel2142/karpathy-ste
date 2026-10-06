@@ -31,6 +31,10 @@ pointer block) holds a title of one of the five shared sections (SHARED_TITLES) 
 other title of video.md and no section number; each shared title is one heading of video.md, and its
 section holds no film value; brainrot.md holds its own rules, among them the components table.
 
+PageRungCase pins the page-shape text of page.md: the file lints clean, the first-section rule of "Plan the
+sections" keeps the main flow, "Fill the template" names the answer box, the Sources switch and the two guard
+codes that go with them, and the self-check of "Verify and export" reads the reading view.
+
 SkillMdCase ties SKILL.md to the rungs: step 2 of its Build procedure names the scene directory, and its
 bullets under Rung files describe the film in video.md, the components in brainrot.md and the clips and
 gates in lesson.md. It pins the texts that route `--as lesson` (the rung row, the bullet, the conventions
@@ -53,6 +57,7 @@ from test_format_limits import fill
 EXPLAIN = Path(__file__).resolve().parent.parent
 REPO = EXPLAIN.parent.parent
 VIDEO_MD = EXPLAIN / "rungs" / "video.md"
+PAGE_MD = EXPLAIN / "rungs" / "page.md"
 LESSON_MD = EXPLAIN / "rungs" / "lesson.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
@@ -720,6 +725,45 @@ class BrainrotRungCase(unittest.TestCase):
         self.assertEqual([title for title in BRAINROT_TITLES if title not in level_two], [])
         components = section(self.text, "Components")
         self.assertEqual([name for name in BRAINROT_COMPONENTS if "`%s`" % name not in components], [])
+
+
+class PageRungCase(unittest.TestCase):
+    """The page-shape rules of rungs/page.md: the text that teaches the answer box, the Sources switch and the
+    first section. The sections are read as one line of words, because the rung wraps its lines."""
+
+    def words(self, title):
+        return " ".join(section(read(PAGE_MD), title).split())
+
+    # red: a rung line breaks the STE profile (a contraction such as "don't", a sentence of 26 words or more)
+    def test_page_md_lints_clean(self):
+        run = lint(PAGE_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+    # red: the first-section rule goes back to "what the thing does, for whom, and from start to end", or the
+    # main flow of a directory subject is no longer the diagram of the first section
+    def test_first_section_rule_keeps_the_main_flow(self):
+        plan = self.words("Plan the sections")
+        for sentence in ("The first section says why the subject exists.",
+                         "For a directory subject, that diagram is the main flow from start to end"):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(plan.count(sentence), 1)
+
+    # red: the rung leaves out the answer box, the switch or one of the two guard codes, or the sentence that
+    # tells the author to keep the switch is gone
+    def test_page_md_names_the_answer_box_and_switch(self):
+        fill = self.words("Fill the template")
+        self.assertEqual([name for name in ("div.answer", "show-sources", "NOANSWER", "NOSOURCES")
+                          if name not in fill], [])
+        keep = [sentence for sentence in re.split(r"(?<=\.)\s+", fill)
+                if "Keep" in sentence and "Sources switch" in sentence]
+        self.assertTrue(keep, "no Keep sentence names the Sources switch")
+
+    # red: the tiles list "A section without its citation" again (the tiles show the reading view, where no
+    # cite shows), or the check that covers the page below the answer box is gone
+    def test_self_check_reads_the_reading_view(self):
+        verify = self.words("Verify and export")
+        self.assertNotIn("A section without its citation", verify)
+        self.assertIn("Does the box alone answer", verify)
 
 
 # The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.
