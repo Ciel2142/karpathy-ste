@@ -1,0 +1,51 @@
+{
+  "format": "clip",
+  "title": "How does explain check an artifact?",
+  "subject": {
+    "text": "skills/explain",
+    "kind": "directory"
+  },
+  "provenance": {
+    "root": ".",
+    "commit": "f9c509c",
+    "dirty": "no",
+    "date": "2026-10-05",
+    "source": "skills/explain/scripts/verify.sh",
+    "not_covered": "none"
+  },
+  "scenes": [
+    {
+      "id": "subject",
+      "narration": "The prompt `/explain` takes a subject. It makes an artifact that must pass four checks before handoff.",
+      "cites": [
+        {
+          "path": "skills/explain/scripts/verify.sh",
+          "line": 2,
+          "snippet": "the four checks an explain artifact must pass before handoff"
+        }
+      ]
+    },
+    {
+      "id": "gates",
+      "narration": "It prints one line for each check, in order. First comes self-contained, then render, citations and prose.",
+      "cites": [
+        {
+          "path": "skills/explain/scripts/verify.sh",
+          "line": 11,
+          "snippet": "stdout carries one line per check, in this order"
+        }
+      ]
+    },
+    {
+      "id": "handoff",
+      "narration": "Every check runs, even after a failure. When all checks pass, the artifact is ready.",
+      "cites": [
+        {
+          "path": "skills/explain/scripts/verify.sh",
+          "line": 24,
+          "snippet": "Every check runs even after an earlier one failed."
+        }
+      ]
+    }
+  ]
+}
