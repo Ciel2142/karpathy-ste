@@ -255,7 +255,7 @@ waves:
       `build-timeline.mjs`, `check_budgets.py` and `render.sh` refuse the name; no test renders
       or validates an explainer script; the unit suites pass, and the film and brainrot
       end-to-end tests pass (eleven and ten lines). kp-5a2 is closed as superseded.
-    status: pending
+    status: done
     depends_on: [film-live-run]
     owns:
       - skills/explain/video/narrate.py, build-timeline.mjs, check_budgets.py, check_render.sh
@@ -281,7 +281,7 @@ waves:
       The four conditions of spec §10 hold: both greps print nothing, `narrate.py` has one
       narration mode, the unit suites pass, and the film and brainrot end-to-end tests pass
       (eleven and ten lines).
-    status: pending
+    status: done
     depends_on: [explainer-default]
     owns:
       - skills/explain/video/transcript.py, skills/explain/tests/test_transcript.py (ports and cuts)
