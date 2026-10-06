@@ -33,9 +33,10 @@
 //   a film scene has no component or props    one line, for either key or both
 //   pause <v> must be an integer from 12 to 90    <v> as JSON text; 12.0 parses as the integer 12
 // and the "FAIL source" lines of "sources", below.
-// The lines of a film come in this order: the header, the sources, the scene count, then for each scene
-// the duplicate id line and the scene's own lines (must be an object; missing id, narration; the
-// component line; unexpected keys; the id rules; the narration rules; the cites rules; the pause line).
+// The lines of a film come in this order: the header, the sources (the own lines of every source, then the
+// cite lines), the scene count, then for each scene the duplicate id line and the scene's own lines (must
+// be an object; missing id, narration; the component line; unexpected keys; the id rules; the narration
+// rules; the cites rules; the pause line).
 // "sources" is absent or an array (absent and [] mean the same) of { id, path, from, to }, all required:
 // a range of at most limits.sourceLines lines that exists in the file at <data-root>/<path>. Each broken
 // rule is one line, "FAIL source <id>: " (or "FAIL source #<n>: " when the id is not a valid one):
@@ -51,6 +52,13 @@
 //   path <path> cannot be read under the data root       missing, a directory, unreadable
 //   <path> has a NUL byte                                anywhere in the file
 //   to <to> is outside <path> (<n> lines)
+// and, after the own lines of every source, one cite line for each entry that broke no rule above (an entry
+// that did has no cite line), in entry order:
+//   no cite on <path> inside <from>-<to>                 no scene cites <path> at a line from <from> to <to>
+// A cite counts when it is an object, its path is the source's path (the same string, so ./src/app.py is
+// not src/app.py) and its line is an integer from <from> to <to>, both ends included. Any other value (a
+// scene that is not an object, cites that are not an array, a cite that is not an object, a URL cite, a
+// line that is not an integer) counts as no cite. Build mode does not run the cite check.
 // The declared lines are split as a code scene's are (no "\r", no entry for a final newline), tabs kept.
 // One leading U+FEFF (a UTF-8 byte order mark, as Windows editors write one) is not part of line 1: it is
 // dropped from the file text before the split, since the kit draws one column per code point. The source
@@ -588,6 +596,20 @@ const checkSources = (sources, root, limits, tag, report) => {
   return sources.map((entry, i) => checkSource(entry, i, ids, root, limits, tag, report));
 };
 
+// The cite rule of a film's `sources`: each entry that broke no rule needs a cite on its path, inside its
+// range, in any scene. `declared` is the result of checkSources; `scenes` is script.scenes, of any type.
+// Each entry without one is one `report("source <id>", cause)`, in entry order. Returns nothing.
+const checkSourceCites = (sources, declared, scenes, report) => {
+  const cited = (scene) => (isObject(scene) && Array.isArray(scene.cites) ? scene.cites : []);
+  const cites = Array.isArray(scenes) ? scenes.flatMap(cited) : [];
+  declared.forEach((lines, i) => {
+    if (lines === undefined) return;
+    const { path: file, from, to } = sources[i];
+    const holds = cites.some((c) => isObject(c) && c.path === file && isInt(c.line) && c.line >= from && c.line <= to);
+    if (!holds) report(itemWhere("source", sources[i], i), `no cite on ${file} inside ${from}-${to}`);
+  });
+};
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = (s) => {
   const d = new Date(s);
@@ -628,7 +650,10 @@ const validate = (script, root) => {
   const isFilm = filmRules(format);
   const limits = rowOf(format);
   const tag = tagOf(format);
-  if (isFilm && has(script, "sources")) checkSources(script.sources, root, limits, tag, report);
+  if (isFilm && has(script, "sources")) {
+    const declared = checkSources(script.sources, root, limits, tag, report);
+    checkSourceCites(script.sources, declared, script.scenes, report);
+  }
   if (!Array.isArray(script.scenes)) {
     report("script", "scenes must be an array");
     return lines;

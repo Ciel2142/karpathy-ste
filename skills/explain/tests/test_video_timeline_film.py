@@ -47,7 +47,7 @@ def film_script():
             {
                 "id": "type",
                 "narration": "The router picks a handler. The handler replies.",
-                "cites": [cite()],
+                "cites": [cite(line=3, snippet="line 3")],
             },
             {
                 "id": "forms",
@@ -203,6 +203,7 @@ class TestFilmCheck(VideoCase):
         self.assertFails(self.check(script), "FAIL scene type: no cites (subject kind file)")
         script = film_script()
         script["subject"]["kind"] = "topic"
+        del script["sources"]  # a source needs a cite, and this script has none
         for scene in script["scenes"]:
             del scene["cites"]
         result = self.check(script)
@@ -303,12 +304,14 @@ class TestFilmSources(VideoCase):
     def assertPasses(self, result):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
-    def with_sources(self, sources):
+    def with_sources(self, sources, cites=()):
+        """The check of film_script() with these sources; `cites` are added to the cites of scene `type`."""
         script = film_script()
         script["sources"] = sources
+        script["scenes"][0]["cites"].extend(cites)
         return self.check(script)
 
-    def changed(self, **changes):
+    def changed(self, cites=(), **changes):
         """The one source of film_script() with these keys set (a value of `...` removes the key)."""
         source = film_script()["sources"][0]
         for key, value in changes.items():
@@ -316,7 +319,7 @@ class TestFilmSources(VideoCase):
                 del source[key]
             else:
                 source[key] = value
-        return self.with_sources([source])
+        return self.with_sources([source], cites)
 
     def test_sources_absent_and_empty_pass(self):
         """Red: an empty `sources` array is refused, or an absent key is read as a fault."""
@@ -445,13 +448,15 @@ class TestFilmSources(VideoCase):
         """Red: a file with no newline after its last line loses that line (the splitter drops the
         last entry whether or not it is empty)."""
         self.write("src/three.py", "one\ntwo\nthree")
-        self.assertPasses(self.changed(path="src/three.py", **{"from": 3, "to": 3}))
+        three = cite(path="src/three.py", line=3, snippet="three")
+        self.assertPasses(self.changed([three], path="src/three.py", **{"from": 3, "to": 3}))
 
     def test_source_with_crlf_line_ends(self):
         """Red: a carriage return is a line end of its own (a three-line CRLF file reads as six), or
         the empty entry after the final CRLF counts as a line."""
         self.write("src/crlf.py", "one\r\ntwo\r\nthree\r\n")
-        self.assertPasses(self.changed(path="src/crlf.py", **{"from": 3, "to": 3}))
+        three = cite(path="src/crlf.py", line=3, snippet="three")
+        self.assertPasses(self.changed([three], path="src/crlf.py", **{"from": 3, "to": 3}))
         self.assertFails(
             self.changed(path="src/crlf.py", **{"from": 4, "to": 4}),
             "FAIL source app: to 4 is outside src/crlf.py (3 lines)",
@@ -506,6 +511,127 @@ class TestFilmSources(VideoCase):
         script = brainrot_script()
         script["sources"] = 5
         self.assertFails(self.check(script), 'FAIL script: unexpected key "sources"')
+
+
+NO_CITE = "FAIL source app: no cite on src/app.py inside 3-10"
+
+
+class TestFilmSourceCites(VideoCase):
+    """The cite rule of a film's `sources`: a source range needs a cite on its path, inside the range."""
+
+    def cited_at(self, line, path="src/app.py"):
+        """film_script() with every cite at line 1, except the first cite of scene `type`: `path`, `line`."""
+        script = film_script()
+        for scene in script["scenes"]:
+            for c in scene["cites"]:
+                c["line"] = 1
+        script["scenes"][0]["cites"][0].update(path=path, line=line)
+        return script
+
+    def with_source(self, **changes):
+        """film_script() whose one source has these keys set."""
+        script = film_script()
+        script["sources"][0].update(changes)
+        return script
+
+    def test_a_source_with_no_cite_inside_fails(self):
+        """Red: the check is skipped, so a source whose range holds no cited line passes (every cite of
+        the fixture is at line 1, outside 3-10)."""
+        self.assertFails(self.check(self.cited_at(1)), NO_CITE)
+
+    def test_the_range_ends_count(self):
+        """Red: `from` or `to` reads as outside the range (a strict comparison), or the line one before
+        `from` or one after `to` reads as inside it."""
+        for line in (3, 10):
+            with self.subTest(line=line):
+                result = self.check(self.cited_at(line))
+                self.assertEqual((result.returncode, result.stdout), (0, ""))
+        for line in (2, 11):
+            with self.subTest(line=line):
+                self.assertFails(self.check(self.cited_at(line)), NO_CITE)
+
+    def test_a_cite_on_another_path_does_not_count(self):
+        """Red: any cite in the range counts whatever its path, or the paths are compared after
+        normalizing (`./src/app.py` is `src/app.py`)."""
+        for path in ("src/other.py", "./src/app.py"):
+            with self.subTest(path=path):
+                script = film_script()
+                for scene in script["scenes"]:
+                    for c in scene["cites"]:
+                        if c["line"] == 3:
+                            c["path"] = path
+                self.assertFails(self.check(script), NO_CITE)
+
+    def test_a_cite_in_any_scene_counts(self):
+        """Red: only the first scene's cites are read, or only the last scene's."""
+        for scene in ("type", "forms", "ends"):
+            with self.subTest(scene=scene):
+                script = film_script()
+                for item in script["scenes"]:
+                    for c in item["cites"]:
+                        c["line"] = 3 if item["id"] == scene else 1
+                result = self.check(script)
+                self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_each_source_needs_its_own_cite(self):
+        """Red: one cite inside any source's range clears every source, or the check stops after the
+        first source that holds a cite."""
+        script = film_script()
+        script["sources"].append({"id": "late", "path": "src/app.py", "from": 20, "to": 25})
+        self.assertFails(self.check(script), "FAIL source late: no cite on src/app.py inside 20-25")
+        script["scenes"][1]["cites"].append(cite(line=22, snippet="line 22"))
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+    def test_a_broken_source_gets_no_cite_line(self):
+        """Red: an entry that broke a source rule also gets the cite line (a missing file here, a range
+        over the limit there, with every cite at line 30), or the check reads its undefined lines."""
+        self.assertFails(
+            self.check(self.with_source(path="src/missing.py")),
+            "FAIL source app: path src/missing.py cannot be read under the data root",
+        )
+        script = self.with_source(**{"from": 1, "to": 21})
+        for scene in script["scenes"]:
+            for c in scene["cites"]:
+                c["line"] = 30
+        self.assertFails(self.check(script), "FAIL source app: range 1-21 is 21 lines (max 20, film)")
+
+    def test_cite_lines_follow_the_sources(self):
+        """Red: the cite lines come before the own lines of a later source, or after the scene count. The
+        first source holds no cite, the second is outside its file."""
+        script = film_script()
+        script["sources"] = [
+            {"id": "late", "path": "src/app.py", "from": 20, "to": 25},
+            {"id": "app", "path": "src/app.py", "from": 70, "to": 73},
+        ]
+        script["scenes"] = script["scenes"][:2]
+        self.assertFails(
+            self.check(script),
+            "FAIL source app: to 73 is outside src/app.py (72 lines)",
+            "FAIL source late: no cite on src/app.py inside 20-25",
+            "FAIL script: 2 scenes (needs 3 to 30, film)",
+        )
+
+    def test_odd_cites_and_scenes_do_not_crash(self):
+        """Red: the check reads a key of a null scene or cite, and Node throws (a stack on stderr), or
+        an odd cite (a URL, a line given as a string, a null) counts as a cite on the path."""
+        script = film_script()
+        script["scenes"][0]["cites"] += [
+            {"path": "https://example.com/a", "snippet": "a"},
+            {"path": "src/app.py", "line": "3", "snippet": "line 3"},
+            None,
+        ]
+        script["scenes"].append(None)
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stderr), (1, ""))
+        self.assertFalse([t for t in result.stdout.splitlines() if t.startswith("FAIL source")], result.stdout)
+        for scene in script["scenes"][:3]:
+            for c in scene["cites"]:
+                if isinstance(c, dict) and c.get("line") == 3:
+                    c["line"] = 1
+        result = self.check(script)
+        self.assertEqual((result.returncode, result.stderr), (1, ""))
+        self.assertIn(NO_CITE, result.stdout.splitlines())
 
 
 def js_round(value):
@@ -777,6 +903,7 @@ class TestFilmBuild(FilmBuildCase):
         self.write("src/" + name, text)
         script = film_script()
         script["sources"] = [dict({"id": "app", "path": "src/" + name, "from": 1, "to": 3}, **changes)]
+        script["scenes"][0]["cites"].append(cite(path="src/" + name, line=1, snippet="one"))
         return script
 
     def test_film_sources_lines(self):

@@ -43,6 +43,15 @@ class TestClipCheck(VideoCase):
         script["sources"][0]["to"] = 15
         self.assertFails(self.check(script), "FAIL source app: range 3-15 is 13 lines (max 12, clip)")
 
+    def test_a_clip_source_needs_a_cite(self):
+        """Red: the cite rule runs for the film format only (a clip with a source and no cite inside
+        its range passes)."""
+        script = clip_script()
+        for scene in script["scenes"]:
+            for c in scene["cites"]:
+                c["line"] = 1
+        self.assertFails(self.check(script), "FAIL source app: no cite on src/app.py inside 3-10")
+
     def test_clip_scene_count(self):
         """Red: the count line of a clip carries the film tag (`tagOf` gives ", film" for a clip),
         or the range is exclusive at an end (30 scenes fail), or a clip has no scene range."""
