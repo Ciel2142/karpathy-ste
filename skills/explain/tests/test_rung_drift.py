@@ -20,10 +20,11 @@ The helpers (read, quoted_lines, line_pattern, code_lines, headings, section, bl
 FILM_ORDER and SHARED_TITLES serve the tests of the other rung files too.
 
 FilmRungCase ties the rest of video.md to its sources: the level-2 titles (FILM_TITLES), the one table
-headed "| Limit | film |" to the film row of video/formats.json and to MIN_TEXT of kit/palette.ts
-(FILM_CELLS, filled by fill of test_format_limits.py), the export lines of the ts blocks of section "Write
-the scene" to the exports of kit/index.ts, and section "Write the script" to templates/video-script.json.
-Each test names the mutation that turns it red.
+headed "| Limit | film |" to the film row of video/formats.json (FILM_CELLS, filled by fill of
+test_format_limits.py; the minText of that row is MIN_TEXT of kit/palette.ts), the two sentences that give
+the text floor per format, in sections "Write the scene" and "Build and check", to the minText of the film
+and clip rows, the export lines of the ts blocks of section "Write the scene" to the exports of kit/index.ts,
+and section "Write the script" to templates/video-script.json. Each test names the mutation that turns it red.
 
 BrainrotRungCase ties brainrot.md to video.md by title: each block of brainrot.md that names video.md (a
 pointer block) holds a title of one of the five shared sections (SHARED_TITLES) in double quotes, and no
@@ -231,8 +232,8 @@ PALETTE_TS = EXPLAIN / "video" / "src" / "kit" / "palette.ts"
 KIT_INDEX = EXPLAIN / "video" / "src" / "kit" / "index.ts"
 FILM_TEMPLATE = EXPLAIN / "templates" / "video-script.json"
 FILM_TABLE_HEADER = "| Limit | film |"
-# (row label, template), in the order of the rows; fill() makes the cell from the film row of formats.json
-# with the key minText added.
+# (row label, template), in the order of the rows; fill() makes the cell from the film row of formats.json,
+# its own minText included.
 FILM_CELLS: tuple[tuple[str, str], ...] = (
     ("canvas", "{width}×{height}"),
     ("scenes", "{minScenes}–{maxScenes}"),
@@ -601,11 +602,26 @@ class FilmRungCase(unittest.TestCase):
         self.assertEqual(found, ["## %d. %s" % (number, title) for number, title in enumerate(FILM_TITLES, 1)])
         self.assertEqual([title for level, title in headings(read(VIDEO_MD)) if level == 2], list(FILM_TITLES))
 
-    # red: a value changed in formats.json or palette.ts and not in the rung, or a row on one side only
+    # red: a value changed in formats.json and not in the rung, a row on one side only, or the film minText of
+    # formats.json and MIN_TEXT of palette.ts differ
     def test_film_limits_table_matches_formats(self):
-        row = dict(json.loads(read(FORMATS_JSON))["film"], minText=min_text())
+        row = json.loads(read(FORMATS_JSON))["film"]
+        self.assertEqual(row["minText"], min_text())
         expected = [(label, fill(template, row)) for label, template in FILM_CELLS]
         self.assertEqual(list(film_limits_table().items()), expected)
+
+    # red: the minText of the film or the clip row changes and the rung keeps the old number, or a floor
+    # sentence is gone or is in the wrong section, or the guard section loses the floor per format
+    def test_the_floor_per_format_matches_formats(self):
+        rows = json.loads(read(FORMATS_JSON))
+        film, clip = rows["film"]["minText"], rows["clip"]["minText"]
+        draw = ("Draw each text at the floor of the format or more on the canvas: %d px for a film (`MIN_TEXT`) "
+                "and %d px for a clip." % (film, clip))
+        fault = "less than the floor of the format: %d px for a film and %d px for a clip." % (film, clip)
+        # the rung wraps its lines, so each section is read as one line of words
+        scene = " ".join(section(read(VIDEO_MD), "Write the scene").split())
+        build = " ".join(section(read(VIDEO_MD), "Build and check").split())
+        self.assertEqual((scene.count(draw), build.count(fault)), (1, 1))
 
     # red: a kit export missing from the rung, or a rung name that the kit does not export (MonoRun, makeAt)
     def test_the_kit_block_is_the_kit_index(self):

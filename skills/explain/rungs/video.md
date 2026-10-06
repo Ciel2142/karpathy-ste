@@ -91,6 +91,9 @@ text.
 - Write the `path` relative to `provenance.root`. The file must be under the root.
 - `from` and `to` are line numbers of the file, from 1. The range is in the file, and it has no
   more lines than the source limit of the table below.
+- The range holds the `line` of at least one cite that has the same `path`. The cite can be in any
+  scene. The `line` is in the range when it is `from`, `to`, or a number between them. If the range
+  holds no such cite, the cause is `no cite on <path> inside <from>-<to>`.
 - The run replaces each tab with 4 spaces. A file with a NUL byte fails.
 
 | Limit | film |
@@ -235,7 +238,8 @@ export type FilmProps<S extends string, R extends string> = { at: At<S>; sources
 - A band is a tinted bar behind one line. A tint draws the columns `from` (included) to `to`
   (excluded) of a line in a colour, in the same text element. The columns count code points, and
   the first column is 0. Mark words of a line with a tint.
-- The card cuts a line, with no ellipsis, to the characters that fit `card.width`.
+- The card cuts a line to the characters that fit `card.width`. A cut line ends in `…`, which takes
+  the last column.
 - The kit owns the inner geometry of the card. Get a position in the card only from `colX` and
   `lineY`. `colX(card, index)` is the x of column `index` of the code, from 0.
   `lineY(card, source, line)` is the baseline of a line.
@@ -307,9 +311,10 @@ stage stops, and `build/render.log` holds the `MARK scene` line.
   text get smaller, and the characters move off `colX` by up to approximately 14 px. Thus, keep
   a code card and a `Mono` text to characters of one column.
 - A `Sans` text has no fixed width. Leave space around it.
-- Draw each text at `MIN_TEXT` px or more on the canvas. The size on the canvas is the font size
-  times the scale of each group around the text.
-- `MIN_TEXT` is the limit of the guard, not a good size. In the two live runs, a reader could not
+- Draw each text at the floor of the format or more on the canvas: 14 px for a film (`MIN_TEXT`) and
+  19 px for a clip. The size on the canvas is the font size times the scale of each group around the
+  text.
+- The floor is the limit of the guard, not a good size. In the two live runs, a reader could not
   read grey text of 13 to 15 px quickly. Draw a caption in a dim colour at 16 px or more.
 
 ### Imports and tokens
@@ -350,9 +355,9 @@ and the last frame of each scene. At each check frame, it measures each text tha
 character other than white space and has an opacity of 0.1 or more. That opacity is the product
 of the opacity of the text and of each group around it.
 
-The guard finds three faults: a text off the canvas, a text under `MIN_TEXT`, and two texts on
-each other. Section 5 gives their lines. No fault is exempt. Fix the picture with one of the three
-honest fixes:
+The guard finds three faults: a text off the canvas, a text under the floor of the format, and two
+texts on each other. Section 5 gives their lines. No fault is exempt. Fix the picture with one of
+the three honest fixes:
 
 1. Mark words with a tint or a box, not with a second text on top of them.
 2. Bring an object in with a fade, or from inside the canvas.
@@ -458,14 +463,14 @@ Its log is `build/guard.log`.
 | `guard: FAIL frame <f> (scene <id>): <fault>[; <fault> ...]` | At frame `<f>` of scene `<id>`, a text breaks a rule of the guard. The line gives at most five faults, then the number of the others. Fix the picture with one of the three honest fixes of section 4. |
 | `guard: FAIL mark: scene <id>: <cause>` | At a check frame, the scene code asks the kit for a mark of scene `<id>`, and the kit refuses it. `<cause>` gives the reason, for example a scene that does not exist, a word that the narration does not say, a sentence after the last one, or a mark with both a sentence and a word. Fix the mark. |
 | `guard: FAIL remotion render exit <n> (log <path>)` | The guard pass stopped for a different cause, for example no browser, an error in the bundle, or a clip that it cannot get. The last 40 lines of the log follow, indented. Read the log: the error line is near its top. |
-| `guard: FAIL cannot read <out>/build/timeline.json` | The timeline is absent or not JSON, or it has no check frames. The guard pass does not start. Run `render.sh` again. |
+| `guard: FAIL cannot read <out>/build/timeline.json` | The timeline is absent or not JSON, or it has no check frames or no text floor. The guard pass does not start. Run `render.sh` again. |
 | `guard: FAIL cannot copy <out>/<clip>` | The run cannot copy a narration clip into its run directory. The guard pass does not start. Make sure that the clip is in `audio/` and that the disk has free space. |
 
 Each fault of the frame line is one of these. `<t>` is the first 24 characters of the text.
 
 - `OFFCANVAS "<t>"`: the box of the text goes more than 1 px past an edge of the canvas.
-- `SMALLTEXT <px> px "<t>"`: the size of the text on the canvas is less than the floor of
-  section 3.
+- `SMALLTEXT <px> px "<t>"`: the size on the canvas is less than the floor of the format: 14 px for
+  a film and 19 px for a clip.
 - `OVERLAP "<a>" | "<b>"`: the boxes of two texts overlap by more than 2 px on both axes.
 
 The `render` stage renders all frames of the film into `video.mp4`.
