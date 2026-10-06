@@ -90,7 +90,8 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
    The snippet has at most 12 words, copied verbatim from that line, set in `<code>` with no
    quotes. The prose holds no cite: the cites of a paragraph collect in one `<div class="cites">`
    after the `<p>` (or as the last child of the `<li>` or `<dd>`). One block for each paragraph at
-   most. `data-path` holds the full path relative to `data-root`. `name` is its basename, or a
+   most. The page and lesson templates hide the cite blocks until the reader turns on Sources. The
+   sheet and the video transcript show them. `data-path` holds the full path relative to `data-root`. `name` is its basename, or a
    longer tail if two cited files have that basename. A path citation fails `cite_check.py` if
    its visible text does not hold `basename:line`, or the provenance element has no `data-root`. Never copy a password, a token
    or a key into a snippet or the prose. End the snippet before it, or cite a line near it. For a
