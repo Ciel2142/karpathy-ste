@@ -6,10 +6,13 @@ test names the mutation that turns it red."""
 
 import hashlib
 import os
+import re
 import shutil
+import signal
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -17,6 +20,8 @@ EXPLAIN = Path(__file__).resolve().parent.parent
 WORKSPACE_SH = EXPLAIN / "scripts" / "video-workspace.sh"
 KOKORO_SHA = "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a"
 VOICES_SHA = "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+SILERO_SHA = "f036d3da1584899e5e24bdf2d5bd3bcf896e2d62505de39a02caca76014d7a1c"
+SILERO_URL = "https://models.silero.ai/models/tts/ru/v5_3_ru.pt"
 WRONG_BYTES = b"not a model\n"
 
 # npm ci as the real one does it: remove node_modules, then install, which puts the remotion
@@ -46,6 +51,42 @@ while [ $# -gt 0 ]; do
   esac
 done
 printf 'not a model\n' > "$out"
+"""
+# curl for the two-fetch test: writes half of WRONG_BYTES to <file>, marks that it has started
+# in the FAKE_BARRIER directory, waits (10 s at most) until a second curl has marked too, then
+# writes the rest. Two fetches that share one part file mix the halves; one part file each
+# gives both the whole bytes.
+FAKE_CURL_BARRIER = r"""#!/bin/sh
+echo "curl $*" >> "$FAKE_LOG"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf 'not a ' > "$out"
+: > "$FAKE_BARRIER/started.$$"
+tries=0
+while :; do
+  set -- "$FAKE_BARRIER"/started.*
+  [ $# -ge 2 ] && break
+  tries=$((tries + 1))
+  [ "$tries" -le 200 ] || exit 1
+  sleep 0.05
+done
+printf 'model\n' >> "$out"
+"""
+# curl for the stop test: writes half of WRONG_BYTES to <file>, then hangs.
+FAKE_CURL_STALL = r"""#!/bin/sh
+echo "curl $*" >> "$FAKE_LOG"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf 'not a ' > "$out"
+sleep 30
 """
 # cp: appends its arguments to FAKE_CP_LOG, one call a line, tab-separated, then runs the
 # real /bin/cp with them. Its own log, so FAKE_LOG keeps only npm, curl and remotion.
@@ -110,6 +151,24 @@ class WorkspaceCase(unittest.TestCase):
             ignore=shutil.ignore_patterns("node_modules", "__pycache__", "public", "build"),
         )
         return skill
+
+    def pinned_script(self, *shas):
+        """A copy of the script with each pinned sha256 replaced by the sha of WRONG_BYTES, so
+        the fake curl's file is a match."""
+        skill = self.copy_skill()
+        script = skill / "scripts" / WORKSPACE_SH.name
+        text = script.read_text(encoding="utf-8")
+        for sha in shas:
+            self.assertEqual(text.count(sha), 1)
+            text = text.replace(sha, hashlib.sha256(WRONG_BYTES).hexdigest())
+        script.write_text(text, encoding="utf-8")
+        return script
+
+    def install_curl(self, body):
+        """Put another fake curl in front of the default one."""
+        path = self.tmp / "bin" / "curl"
+        path.write_text(body, encoding="utf-8")
+        path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
 class PackageFiles(WorkspaceCase):
@@ -330,11 +389,173 @@ class Models(WorkspaceCase):
             self.assertEqual(lines.count(done), 1, run.stdout)
             self.assertEqual(lines.index(done), curl + 1, run.stdout)
 
+    def test_silero_cost_line_url_and_part_file(self):
+        """Mutation: no cost line for the Silero file, the Kokoro base is kept for its URL,
+        or the download goes to the shared <name>.part."""
+        run = self.run_ws("--engine", "silero")
+
+        curls = self.calls("curl")
+        self.assertEqual(len(curls), 1, run.stdout + run.stderr)
+        lines = run.stdout.splitlines()
+        cost = "workspace: download v5_3_ru.pt (145 MB)"
+        self.assertEqual(lines.count(cost), 1, run.stdout)
+        marker = next(line for line in lines if line.startswith("FAKE curl"))
+        self.assertLess(lines.index(cost), lines.index(marker), run.stdout)
+        argv = curls[0].split()[1:]
+        self.assertEqual(argv[-1], SILERO_URL)
+        self.assertRegex(
+            argv[argv.index("-o") + 1],
+            "^" + re.escape(f"{self.ws}/models/v5_3_ru.pt.") + r"\d+\.part$",
+        )
+
+    def test_silero_checksum_mismatch_deletes_part_and_fails(self):
+        """Mutation: the Silero file is moved into place without the check, or the .part file
+        is kept after the mismatch."""
+        run = self.run_ws("--engine", "silero")
+
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        got = hashlib.sha256(WRONG_BYTES).hexdigest()
+        self.assertEqual(
+            run.stdout.splitlines()[-1],
+            f"workspace: FAIL checksum v5_3_ru.pt expected {SILERO_SHA} got {got}",
+        )
+        self.assertNotIn("workspace: downloaded", run.stdout)
+        self.assertEqual(sorted(p.name for p in (self.ws / "models").iterdir()), [])
+
+    def test_silero_downloaded_line(self):
+        """Mutation: no "workspace: downloaded v5_3_ru.pt" line once the file is in place, or
+        it comes before the check."""
+        script = self.pinned_script(SILERO_SHA)
+
+        run = self.run_ws("--engine", "silero", script=script)
+
+        self.assert_ok(run)
+        lines = run.stdout.splitlines()
+        curl = next(i for i, line in enumerate(lines) if line.startswith("FAKE curl"))
+        done = "workspace: downloaded v5_3_ru.pt"
+        self.assertEqual(lines.count(done), 1, run.stdout)
+        self.assertEqual(lines.index(done), curl + 1, run.stdout)
+        self.assertEqual((self.ws / "models" / "v5_3_ru.pt").read_bytes(), WRONG_BYTES)
+
+    def test_silero_in_place_mismatch_is_fetched_again(self):
+        """Mutation: a Silero file in place is left alone whatever its bytes (every Russian
+        run then falls back), or the old bytes are kept after the fetch."""
+        script = self.pinned_script(SILERO_SHA)
+        (self.ws / "models").mkdir(parents=True)
+        (self.ws / "models" / "v5_3_ru.pt").write_bytes(b"a bad file\n")
+
+        run = self.run_ws("--engine", "silero", script=script)
+
+        self.assert_ok(run)
+        self.assertEqual(len(self.calls("curl")), 1)
+        self.assertEqual((self.ws / "models" / "v5_3_ru.pt").read_bytes(), WRONG_BYTES)
+
+    def test_silero_in_place_match_is_not_fetched(self):
+        """Mutation: a Silero file in place is fetched again on every run (no hash check)."""
+        script = self.pinned_script(SILERO_SHA)
+        (self.ws / "models").mkdir(parents=True)
+        (self.ws / "models" / "v5_3_ru.pt").write_bytes(WRONG_BYTES)
+
+        run = self.run_ws("--engine", "silero", script=script)
+
+        self.assert_ok(run)
+        self.assertEqual(self.calls("curl"), [])
+        self.assertNotIn("workspace: download", run.stdout)
+
+    def test_kokoro_in_place_is_left_alone(self):
+        """Mutation: the Kokoro file in place is hashed and fetched again too (recheck for
+        every engine)."""
+        (self.ws / "models").mkdir(parents=True)
+        (self.ws / "models" / "kokoro-v1.0.onnx").write_bytes(b"any bytes\n")
+
+        run = self.run_ws("--engine", "kokoro")
+
+        self.assertEqual(
+            [call.split()[-1].rsplit("/", 1)[-1] for call in self.calls("curl")],
+            ["voices-v1.0.bin"], run.stdout + run.stderr,
+        )
+        self.assertNotIn("workspace: download kokoro-v1.0.onnx", run.stdout)
+        self.assertEqual(
+            (self.ws / "models" / "kokoro-v1.0.onnx").read_bytes(), b"any bytes\n"
+        )
+
+    def test_kokoro_fetch_has_its_own_part_file(self):
+        """Mutation: the Kokoro download goes to the shared <name>.part."""
+        self.run_ws("--engine", "kokoro")
+
+        argv = self.calls("curl")[0].split()[1:]
+        self.assertRegex(
+            argv[argv.index("-o") + 1],
+            "^" + re.escape(f"{self.ws}/models/kokoro-v1.0.onnx.") + r"\d+\.part$",
+        )
+        self.assertTrue(argv[-1].endswith("/model-files-v1.1/kokoro-v1.0.onnx"), argv)
+
     def test_say_engine_skips_models(self):
         """Mutation: models are fetched whatever the engine."""
         self.assert_ok(self.run_ws("--engine", "say"))
         self.assertEqual(self.calls("curl"), [])
         self.assertEqual(list((self.ws / "models").iterdir()), [])
+
+
+class ConcurrentFetches(WorkspaceCase):
+    def kill_group(self, proc):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+    def test_two_fetches_at_once_both_succeed(self):
+        """Mutation: both fetches write the shared <name>.part (the halves mix, or the first
+        mv takes the file from under the second)."""
+        script = self.pinned_script(SILERO_SHA)
+        self.assert_ok(self.run_ws("--engine", "say", script=script))
+        barrier = self.tmp / "barrier"
+        barrier.mkdir()
+        self.install_curl(FAKE_CURL_BARRIER)
+        env = dict(self.env, FAKE_BARRIER=str(barrier))
+        outs = [self.tmp / "run-a.txt", self.tmp / "run-b.txt"]
+        procs = []
+        for out in outs:
+            with open(out, "wb") as stdout:
+                procs.append(subprocess.Popen(
+                    ["/bin/bash", str(script), "--engine", "silero"],
+                    stdout=stdout, stderr=subprocess.STDOUT, env=env, start_new_session=True,
+                ))
+            self.addCleanup(self.kill_group, procs[-1])
+        codes = [proc.wait(timeout=60) for proc in procs]
+
+        shown = "\n".join(out.read_text(encoding="utf-8") for out in outs)
+        self.assertEqual(codes, [0, 0], shown)
+        for out in outs:
+            self.assertEqual(
+                out.read_text(encoding="utf-8").splitlines()[-1], f"workspace: ok {self.ws}"
+            )
+        self.assertEqual(len(self.calls("curl")), 2, "the fetches did not overlap")
+        self.assertEqual([p.name for p in (self.ws / "models").iterdir()], ["v5_3_ru.pt"])
+        self.assertEqual((self.ws / "models" / "v5_3_ru.pt").read_bytes(), WRONG_BYTES)
+
+    def test_a_stopped_fetch_leaves_no_part(self):
+        """Mutation: no trap removes the part file (a TERM to the process group leaves it), or
+        only EXIT is trapped, so the TERM ends the shell before it can clean up."""
+        self.install_curl(FAKE_CURL_STALL)
+        models = self.ws / "models"
+        with open(self.out, "wb") as stdout:
+            proc = subprocess.Popen(
+                ["/bin/bash", str(WORKSPACE_SH), "--engine", "silero"],
+                stdout=stdout, stderr=subprocess.STDOUT, env=self.env, start_new_session=True,
+            )
+        self.addCleanup(self.kill_group, proc)
+        deadline = time.monotonic() + 20
+        while not any(part.stat().st_size > 0 for part in models.glob("*.part")):
+            self.assertIsNone(proc.poll(), self.out.read_text(encoding="utf-8"))
+            self.assertLess(time.monotonic(), deadline, "the fake curl wrote no part")
+            time.sleep(0.05)
+
+        os.killpg(proc.pid, signal.SIGTERM)
+        code = proc.wait(timeout=20)
+
+        self.assertEqual(code, 1, self.out.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(p.name for p in models.iterdir()), [])
 
 
 if __name__ == "__main__":
