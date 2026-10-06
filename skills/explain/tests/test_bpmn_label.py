@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import bpmn  # noqa: E402
+import bpmn_label  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "two_planes.bpmn"
 FIXTURE_LINES = FIXTURE.read_text(encoding="utf-8").split("\n")
@@ -99,7 +100,7 @@ class LabelOfFixture(unittest.TestCase):
     def test_sub_process_kind_is_two_words(self):
         """Red when a camel-case kind is lowercased without splitting it."""
         self.assertEqual(bpmn.label_of(self.model, self.model.by_id["EventSub_1"]), "Ошибка в процессе")
-        self.assertEqual(bpmn._kind_words("subProcess"), "sub process")
+        self.assertEqual(bpmn_label._kind_words("subProcess"), "sub process")
 
     def test_sequence_flow_line(self):
         """Red when a flow shows ids instead of the names of its source and target."""

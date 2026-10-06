@@ -10,6 +10,8 @@ import math
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from bpmn_label import clean
+
 if TYPE_CHECKING:
     from bpmn import Model, Plane
 
@@ -228,7 +230,7 @@ def _annotations(model):
     found = {}
     for node in root.iter("{%s}textAnnotation" % NS_MODEL):
         text = node.find("{%s}text" % NS_MODEL)
-        found[node.get("id")] = " ".join((text.text or "").split()) if text is not None else ""
+        found[node.get("id")] = clean(text.text) if text is not None else ""
     return found
 
 
@@ -350,7 +352,7 @@ def render(model: Model, plane: Plane, highlight: frozenset[str], prefix: str) -
             warnings.append("skipped %s: no model element with this id" % (ident or di.attrs.get("id")))
             continue
         node = model.nodes[model.by_id[ident]]
-        name = " ".join((node.attrs.get("name") or "").split())
+        name = clean(node.attrs.get("name"))
         label = _bounds(model, _child(model, di, "BPMNLabel"))
         if di.tag == "BPMNEdge":
             points = _waypoints(model, di)
@@ -391,6 +393,6 @@ def render(model: Model, plane: Plane, highlight: frozenset[str], prefix: str) -
             'width="%s" height="%s" xmlns="http://www.w3.org/2000/svg">' % (
                 esc(plane.id), f(x0), f(y0), f(w), f(h), f(w), f(h)))
     title = '<title id="%s-title">%s</title>' % (
-        esc(prefix), esc(" ".join((plane.name or plane.id).split())))
+        esc(prefix), esc(clean(plane.name or plane.id)))
     out = [head, title, _defs(prefix)] + pools + shapes + edges + labels + ["</svg>"]
     return "\n".join(out) + "\n", warnings
