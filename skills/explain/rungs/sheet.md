@@ -139,18 +139,21 @@ Write all prose in STE-80. These notes come from the lint of the `ste` skill.
 ## 6. Verify and export
 
 Do these steps in the output directory, in this order.
-1. Run `<skill-dir>/scripts/verify.sh index.html`. All four lines must show
-   `ok`: `self-contained`, `render 1920x1080`, `citations` and `prose`. Fix each cause that
+1. If the sheet cites a `.bpmn` file, run `python3 <skill-dir>/scripts/bpmn.py label index.html`.
+   It writes a readable name into each of these cites. Never type a label.
+2. Run `<skill-dir>/scripts/verify.sh index.html`. Each line must show `ok`, except that the
+   `bpmn` line shows `none` when the sheet cites no `.bpmn` file. The five lines are
+   `self-contained`, `render 1920x1080`, `citations`, `prose` and `bpmn`. Fix each cause that
    the detail lines name.
-2. Run `<skill-dir>/scripts/snapshot.sh index.html sheet.png 1920 1080 2`. It writes
+3. Run `<skill-dir>/scripts/snapshot.sh index.html sheet.png 1920 1080 2`. It writes
    `sheet.png` (3840x2160) and the tiles `review/sheet-01.png` to `review/sheet-04.png`.
    The output directory then holds `index.html`, `sheet.png` and `review/sheet-01..04.png`.
-3. Read the four tiles with the Read tool. Never read `sheet.png`.
-4. Look for these faults. Clipped text. An empty panel. A red ribbon (`OVERFLOW:<letter>`).
+4. Read the four tiles with the Read tool. Never read `sheet.png`.
+5. Look for these faults. Clipped text. An empty panel. A red ribbon (`OVERFLOW:<letter>`).
    A bar without its `max N` label. A hierarchy that the reader cannot see. Text that gives
    a false picture of the subject.
-5. Fix each fault. Run steps 1 to 4 again. Repeat until both scripts and the tiles are clean.
-6. Do the handoff from `SKILL.md` convention 6: print the path. Run `open index.html` only
+6. Fix each fault. Run steps 1 to 5 again. Repeat until both scripts and the tiles are clean.
+7. Do the handoff from `SKILL.md` convention 6: print the path. Run `open index.html` only
    when you run for the user directly. Never run `open` inside a subagent.
 
 ## 7. Shared palette

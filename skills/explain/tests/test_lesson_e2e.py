@@ -19,7 +19,7 @@ LessonRenderCase (EXPLAIN_VIDEO_E2E=1 only) renders the clip through scripts/ren
 process (render_lesson(), cached as render_film() of test_render_film.py), then does step 8 of the author:
 it copies the -end still of the last scene to poster.png. It holds the eleven stage lines, the clip row of
 formats.json, a picture that changes in every scene and the poster, and it runs verify.sh on the page with
-the clip and on the page with the clip dropped: six ok lines each. Each test names the mutation that turns
+the clip and on the page with the clip dropped: seven ok lines each. Each test names the mutation that turns
 it red."""
 
 import atexit
@@ -41,7 +41,7 @@ from test_render import stage_lines
 from test_render_brainrot import video_size
 from test_render_film import CHANGED_PIXELS, ORDER, render_output, split_sentences
 from test_rung_drift import FORMATS_JSON
-from test_verify import CLIP_FIGURE, LESSON_PASS
+from test_verify import BPMN_NONE, CLIP_FIGURE, LESSON_PASS
 from test_video_timeline import TOOL
 from video_e2e import E2E, E2E_REASON, EXPLAIN
 
@@ -251,11 +251,11 @@ class LessonRenderCase(unittest.TestCase):
         self.assertEqual((clip / "poster.png").read_bytes(), (clip / "review" / last_end_still()).read_bytes())
 
     # red: the transcript link names clips/check/ (media: FAIL 1 missing), or the page keeps the meta of a
-    # page (five lines, no media line)
-    def test_the_page_prints_six_ok_lines(self):
+    # page (six lines, no media line)
+    def test_the_page_prints_seven_ok_lines(self):
         out, _ = self.rendered()
         run = verify(lesson_page(out))
-        self.assertEqual((run.returncode, run.stdout), (0, LESSON_PASS + "media: ok\n"), run.stderr)
+        self.assertEqual((run.returncode, run.stdout), (0, LESSON_PASS + "media: ok\n" + BPMN_NONE), run.stderr)
 
     # red: the template's rule body:not(:has(figure.clip)) #play-all deleted (the button shows, the guard
     # reports PLAYALL, the render lines FAIL), or a page with no clip fails the media check
@@ -263,7 +263,7 @@ class LessonRenderCase(unittest.TestCase):
         out, _ = self.rendered()
         page = lesson_page(out, clip=False)
         run = verify(page)
-        self.assertEqual((run.returncode, run.stdout), (0, LESSON_PASS + "media: ok\n"), run.stderr)
+        self.assertEqual((run.returncode, run.stdout), (0, LESSON_PASS + "media: ok\n" + BPMN_NONE), run.stderr)
         text = page.read_text(encoding="utf-8")
         self.assertNotIn('<figure class="clip">', text)
         self.assertIn("<dd>%s — %s</dd>" % (CLIP_ID, DROP_REASON), text)

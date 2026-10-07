@@ -1,0 +1,78 @@
+<section id="stage-a">
+  <h2>What does the stage Первичная проверка do?</h2>
+  <figure class="bpmn">
+<svg class="bpmn" role="img" data-ste="skip" data-plane="Collaboration_1" viewBox="140 60 600 540" width="600" height="540" xmlns="http://www.w3.org/2000/svg">
+<title id="Collaboration_1-title">Collaboration_1</title>
+<defs><marker id="Collaboration_1-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="bpmn-text" d="M0 0L10 5L0 10Z"/></marker><marker id="Collaboration_1-open" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="bpmn-flow" fill="none" d="M1 1L10 5L1 9"/></marker></defs>
+<g data-id="Participant_1"><rect class="bpmn-shape" x="160" y="80" width="560" height="500"/><path class="bpmn-flow" fill="none" d="M190 80L190 580"/><text class="bpmn-text" font-size="14" text-anchor="middle" transform="rotate(-90 175 330)"><tspan x="175" y="335.6">Заказчик</tspan></text></g>
+<g data-id="Start_1"><circle class="bpmn-shape" cx="250" cy="280" r="18" stroke-width="1.5"/></g>
+<g data-id="STAGE_A" class="hl"><rect class="bpmn-shape" x="320" y="240" width="100" height="80" rx="10"/><rect class="bpmn-shape" x="363" y="302" width="14" height="14"/><text class="bpmn-text" font-size="14" text-anchor="middle" dominant-baseline="central" transform="translate(370 309) scale(1)">+</text><text class="bpmn-text" font-size="14" text-anchor="middle"><tspan x="370" y="268.2">Первичная</tspan><tspan x="370" y="285">проверка</tspan></text></g>
+<g data-id="Gateway_1"><path class="bpmn-shape" d="M505 255L530 280L505 305L480 280Z"/><text class="bpmn-text" font-size="14" text-anchor="middle" dominant-baseline="central" transform="translate(505 280) scale(2)">×</text></g>
+<g data-id="End_1"><circle class="bpmn-shape" cx="610" cy="170" r="16.5" stroke-width="4"/></g>
+<g data-id="End_2"><circle class="bpmn-shape" cx="610" cy="280" r="16.5" stroke-width="4"/><path class="bpmn-text" d="M601 289.9L606.4 270.1L612.16 281.8L619 270.1L613.6 289.9L607.84 278.2Z"/></g>
+<g data-id="End_3"><circle class="bpmn-shape" cx="610" cy="370" r="16.5" stroke-width="4"/></g>
+<g data-id="EventSub_1" class="hl"><rect class="bpmn-shape" x="300" y="450" width="350" height="110" rx="10" stroke-dasharray="2 3"/><text class="bpmn-text" font-size="14" text-anchor="start"><tspan x="308" y="468">Ошибка в процессе</tspan></text></g>
+<g data-id="StartTimer_1"><circle class="bpmn-shape" cx="350" cy="510" r="18" stroke-width="1.5"/><circle class="bpmn-shape" cx="350" cy="510" r="10.8"/><path class="bpmn-flow" fill="none" d="M350 501.9L350 510L355.4 510"/></g>
+<g data-id="End_sub_1"><circle class="bpmn-shape" cx="590" cy="510" r="16.5" stroke-width="4"/></g>
+<g data-id="Flow_1"><polyline class="bpmn-flow" fill="none" points="268,280 320,280" marker-end="url(#Collaboration_1-arrow)"/></g>
+<g data-id="Flow_2"><polyline class="bpmn-flow" fill="none" points="420,280 480,280" marker-end="url(#Collaboration_1-arrow)"/></g>
+<g data-id="Flow_yes"><polyline class="bpmn-flow" fill="none" points="505,255 505,170 592,170" marker-end="url(#Collaboration_1-arrow)"/></g>
+<g data-id="Flow_no"><polyline class="bpmn-flow" fill="none" points="530,280 592,280" marker-end="url(#Collaboration_1-arrow)"/></g>
+<g data-id="Flow_default"><polyline class="bpmn-flow" fill="none" points="505,305 505,370 592,370" marker-end="url(#Collaboration_1-arrow)"/><line class="bpmn-flow" x1="511" y1="313.4" x2="499" y2="320.6"/></g>
+<g data-id="Flow_e1"><polyline class="bpmn-flow" fill="none" points="368,510 572,510" marker-end="url(#Collaboration_1-arrow)"/></g>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="Start_1"><tspan x="250" y="315.7">Заявка</tspan><tspan x="250" y="332.5">принята</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="End_1"><tspan x="610" y="205.7">Заявка</tspan><tspan x="610" y="222.5">одобрена</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="End_2"><tspan x="610" y="315.7">Заявка</tspan><tspan x="610" y="332.5">отклонена</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="End_3"><tspan x="610" y="405.7">Передано</tspan><tspan x="610" y="422.5">оператору</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="StartTimer_1"><tspan x="350" y="547.6">Таймаут</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="End_sub_1"><tspan x="590" y="539.2">Процесс</tspan><tspan x="590" y="556">остановлен</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="Flow_yes"><tspan x="550" y="164.6">Да</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="Flow_no"><tspan x="563" y="274.6">Нет</tspan></text>
+</svg>
+    <figcaption>The main process. The two sub-processes have a highlight.</figcaption>
+  </figure>
+  <p>The main process starts the stage <q>Первичная проверка</q> after it gets a request. The stage is a sub-process with its own diagram.</p>
+  <div class="cites">
+    <cite data-path="two_planes.bpmn" data-line="11" data-snippet="&lt;bpmn:subProcess id=&quot;STAGE_A&quot;">two_planes.bpmn:11 <code>&lt;bpmn:subProcess id=&quot;STAGE_A&quot;</code><span class="bpmn-label">Первичная проверка</span></cite>
+    <cite data-path="two_planes.bpmn" data-line="12" data-snippet="name=&quot;Первичная проверка&quot;&gt;">two_planes.bpmn:12 <code>name=&quot;Первичная проверка&quot;&gt;</code><span class="bpmn-label">Первичная проверка</span></cite>
+  </div>
+  <figure class="bpmn">
+<svg class="bpmn" role="img" data-ste="skip" data-plane="STAGE_A" viewBox="110 20 690 280" width="690" height="280" xmlns="http://www.w3.org/2000/svg">
+<title id="STAGE_A-title">Первичная проверка</title>
+<defs><marker id="STAGE_A-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="bpmn-text" d="M0 0L10 5L0 10Z"/></marker><marker id="STAGE_A-open" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="bpmn-flow" fill="none" d="M1 1L10 5L1 9"/></marker></defs>
+<g data-id="StageStart_1"><circle class="bpmn-shape" cx="170" cy="180" r="18" stroke-width="1.5"/></g>
+<g data-id="Task_svc" class="hl"><rect class="bpmn-shape" x="240" y="140" width="100" height="80" rx="10"/><text class="bpmn-text" font-size="14" x="246" y="158">service</text><text class="bpmn-text" font-size="14" text-anchor="middle"><tspan x="290" y="176.8">Проверить</tspan><tspan x="290" y="193.6">паспорт</tspan><tspan x="290" y="210.4">клиента</tspan></text></g>
+<g data-id="Task_recv"><rect class="bpmn-shape" x="400" y="140" width="100" height="80" rx="10"/><text class="bpmn-text" font-size="14" x="406" y="158">receive</text><text class="bpmn-text" font-size="14" text-anchor="middle"><tspan x="450" y="185.2">Получить</tspan><tspan x="450" y="202">ответ</tspan></text></g>
+<g data-id="Task_send" class="hl"><rect class="bpmn-shape" x="560" y="140" width="100" height="80" rx="10"/><text class="bpmn-text" font-size="14" x="566" y="158">send</text><text class="bpmn-text" font-size="14" text-anchor="middle"><tspan x="610" y="176.8">Отправить</tspan><tspan x="610" y="193.6">&quot;отчёт&quot;</tspan><tspan x="610" y="210.4">клиенту</tspan></text></g>
+<g data-id="End_term"><circle class="bpmn-shape" cx="740" cy="180" r="16.5" stroke-width="4"/><circle class="bpmn-text" cx="740" cy="180" r="10.8"/></g>
+<g data-id="Annotation_1"><path class="bpmn-flow" fill="none" d="M250 40L240 40L240 80L250 80"/><text class="bpmn-text" font-size="14" text-anchor="start"><tspan x="245" y="58">Паспорт проверяется во</tspan><tspan x="245" y="74.8">внешнем сервисе</tspan></text></g>
+<g data-id="Timer_1" class="hl"><circle class="bpmn-shape" cx="290" cy="220" r="18" stroke-dasharray="4 3"/><circle class="bpmn-shape" cx="290" cy="220" r="15" stroke-dasharray="4 3"/><circle class="bpmn-shape" cx="290" cy="220" r="10.8"/><path class="bpmn-flow" fill="none" d="M290 211.9L290 220L295.4 220"/></g>
+<g data-id="Flow_a1"><polyline class="bpmn-flow" fill="none" points="188,180 240,180" marker-end="url(#STAGE_A-arrow)"/></g>
+<g data-id="Flow_a2"><polyline class="bpmn-flow" fill="none" points="340,180 400,180" marker-end="url(#STAGE_A-arrow)"/></g>
+<g data-id="Flow_a3"><polyline class="bpmn-flow" fill="none" points="500,180 560,180" marker-end="url(#STAGE_A-arrow)"/></g>
+<g data-id="Flow_a4"><polyline class="bpmn-flow" fill="none" points="660,180 722,180" marker-end="url(#STAGE_A-arrow)"/></g>
+<g data-id="Flow_a5"><polyline class="bpmn-flow" fill="none" points="290,238 290,280 610,280 610,220" marker-end="url(#STAGE_A-arrow)"/></g>
+<g data-id="Association_1"><polyline class="bpmn-flow" fill="none" points="290,140 290,80" stroke-dasharray="2 3"/></g>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="StageStart_1"><tspan x="170" y="209.2">Проверка</tspan><tspan x="170" y="226">начата</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="End_term"><tspan x="740" y="215.7">Проверка</tspan><tspan x="740" y="232.5">закрыта</tspan></text>
+<text class="bpmn-text" font-size="14" text-anchor="middle" data-for="Timer_1"><tspan x="350" y="257.6">Через час</tspan></text>
+</svg>
+    <figcaption>The stage Первичная проверка. The tasks of the text below have a highlight.</figcaption>
+  </figure>
+  <p>The stage sends the passport of the client to an external service. Then the stage waits for the answer.</p>
+  <div class="cites">
+    <cite data-path="two_planes.bpmn" data-line="18" data-snippet="id=&quot;Task_svc&quot; name=&quot;Проверить паспорт клиента&quot;">two_planes.bpmn:18 <code>id=&quot;Task_svc&quot; name=&quot;Проверить паспорт клиента&quot;</code><span class="bpmn-label">Проверить паспорт клиента</span></cite>
+    <cite data-path="two_planes.bpmn" data-line="28" data-snippet="id=&quot;Task_recv&quot; name=&quot;Получить ответ&quot;">two_planes.bpmn:28 <code>id=&quot;Task_recv&quot; name=&quot;Получить ответ&quot;</code><span class="bpmn-label">Получить ответ</span></cite>
+  </div>
+  <p>If the service does not answer in one hour, a timer starts a second path. The timer does not stop the check. Each path goes to the task that sends the report to the client.</p>
+  <div class="cites">
+    <cite data-path="two_planes.bpmn" data-line="22" data-snippet="cancelActivity=&quot;false&quot; attachedToRef=&quot;Task_svc&quot;">two_planes.bpmn:22 <code>cancelActivity=&quot;false&quot; attachedToRef=&quot;Task_svc&quot;</code><span class="bpmn-label">Через час</span></cite>
+    <cite data-path="two_planes.bpmn" data-line="25" data-snippet="PT1H">two_planes.bpmn:25 <code>PT1H</code><span class="bpmn-label">Через час</span></cite>
+    <cite data-path="two_planes.bpmn" data-line="32" data-snippet="&lt;bpmn:sendTask id=&quot;Task_send&quot;">two_planes.bpmn:32 <code>&lt;bpmn:sendTask id=&quot;Task_send&quot;</code><span class="bpmn-label">Отправить &quot;отчёт&quot; клиенту</span></cite>
+  </div>
+  <p>The event sub-process <q>Ошибка в процессе</q> starts after 24 hours. It stops the process.</p>
+  <div class="cites">
+    <cite data-path="two_planes.bpmn" data-line="69" data-snippet="id=&quot;EventSub_1&quot; name=&quot;Ошибка в процессе&quot;">two_planes.bpmn:69 <code>id=&quot;EventSub_1&quot; name=&quot;Ошибка в процессе&quot;</code><span class="bpmn-label">Ошибка в процессе</span></cite>
+    <cite data-path="two_planes.bpmn" data-line="73" data-snippet="PT24H">two_planes.bpmn:73 <code>PT24H</code><span class="bpmn-label">Таймаут</span></cite>
+  </div>
+</section>

@@ -48,6 +48,9 @@ Make these checks, in this order.
 2. No two sections contradict each other, and the answer box in the header agrees with each section.
 3. The clip choices in `review/plan.md` are the sections where motion explains more than a still, and no
    section that clearly needs one is missing.
+4. For each sub-process, gateway and user task in the section's diagram, a paragraph explains it; the names in
+   the prose match the diagram. A section without a BPMN diagram passes this check. A collapsed sub-process
+   that has its own section or figure counts as explained.
 
 ## Round 2
 

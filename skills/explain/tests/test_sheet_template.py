@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
 VERIFY = os.path.join(SKILL, "scripts", "verify.sh")
 TEMPLATE = os.path.join(SKILL, "templates", "sheet.html")
-OK_LINES = ["self-contained: ok", "citations: ok", "prose: ok"]
+OK_LINES = ["self-contained: ok", "citations: ok", "prose: ok", "bpmn: none"]
 
 # After the closing tag of .sheet, before guard part 2.
 AFTER_SHEET = "</div>\n</div>\n<script>\n/* Guard, part 2 of 2"
@@ -74,7 +74,7 @@ class SheetGuardTest(unittest.TestCase):
                          proc.stdout)
         self.assertEqual([lines[0]] + lines[2:], OK_LINES, proc.stdout)
 
-    def test_template_passes_all_four_checks(self):
+    def test_template_passes_all_five_checks(self):
         proc = self.verify(TEMPLATE)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout.splitlines(),

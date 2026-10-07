@@ -25,7 +25,7 @@
       "id": "forms",
       "narration": "The artifact is a sheet, a page or a video. We follow a page through the checks.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "of the rung passed (sheet, page: four; lesson: five; video: three)" }
+        { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "(sheet: five lines; page: six; lesson: seven; video: three)" }
       ]
     },
     {

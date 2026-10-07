@@ -24,6 +24,36 @@ on a page, write one step for each beat of the story.
   of the subject. Test it: cover the prose. Does the diagram alone support the answer?
 - Each section expands one sentence of the answer. Content that expands no sentence goes into a
   `details.walk` of a reference section, into the glossary, or out of the page into `Not covered`.
+- For a directory subject whose main flow is a BPMN file, plan the sections from its planes. A
+  plane is one diagram of the file: the main process, or one collapsed sub-process. Run
+  `python3 <skill-dir>/scripts/bpmn.py planes <file>`. It prints one line for each plane: the id,
+  the name or `-`, and the line. Then apply these rules:
+  - The first section (the whole, start to end) carries the main plane, with the stages
+    highlighted. The main plane is the plane of the process or of the collaboration. A stage is a
+    collapsed sub-process that the main plane reaches. Give the ids of the stages to `--highlight`.
+  - Then write one section per stage, in process order. The section opens with the plane diagram
+    of that stage and a lead paragraph. Then write one paragraph, with its cites, for each of these
+    parts of the plane:
+    - each sub-process in it, expanded or a nested collapsed one;
+    - each gateway, with its branches named;
+    - each user task;
+    - each boundary timer or error event that changes the path.
+  - A nested collapsed sub-process has its own plane inside a stage, like `AOS_BASIC_PD_CHECK`
+    inside `QUESTIONNAIRE`. It gets its own diagram too. Put a second `figure.bpmn` in the stage
+    section when the plane is small. Give it its own section when it carries several decisions.
+    Every plane renders somewhere.
+  - Siblings of the same shape, like the three SMEV checks, get one paragraph for the pattern:
+    send, wait, timeout, code. Then write one sentence for each sibling with what differs: the
+    service, the message, the code variable.
+  - For a BPMN main flow, the answer names the stages in process order. Thus each stage section
+    expands one sentence of the answer. The answer box holds at most four sentences, thus one
+    sentence can name several stages in process order. Each of those stages still gets its own
+    section. A plane that the answer does not name still gets a section
+    or a figure, because a merge may not drop a plane.
+  - The mechanics sections follow the stage sections: handlers, delegates, decision tables and
+    deployment.
+  - The section count follows the planes. `Not covered` lists each plane or sub-process that the
+    page does not explain, by its name verbatim.
 - Put exact rules into `details.walk` elements in a reference section: limits, fault codes and
   the rules for each item. Write one sentence above them that tells when to open them.
 - Define each term of the subject in the sentence of its first use. If the page uses a term that
@@ -36,7 +66,8 @@ on a page, write one step for each beat of the story.
 - A paragraph that states a rule or a check also says why the rule or the check exists.
 - Six to ten sections is the usual range. There is no cap. If a page has more than about
   twelve sections, merge facets into fewer sections, or ask the user to split the subject.
-  Do not make a second output directory.
+  Do not make a second output directory. A BPMN subject is the exception: do not merge stages to
+  get to twelve, because its section count follows the planes.
 - For a file or a directory subject, put at least one `<cite>` in every section.
 - Decide which section holds the steps player. One player for each page is the norm.
 - Decide which diagram pattern each flow uses (section 4).
@@ -116,6 +147,23 @@ geometry.
 - Layers: stacked bands from top to bottom. Use it for a stack or a hierarchy. To add a band, put
   it 70 units below the last. Add 70 to the `viewBox` height. Use `class="alt"` on every second band.
   Write the band title as a `text` with `class="name"`.
+- BPMN plane: one plane of a `.bpmn` file. A flow that lives in a `.bpmn` file is never drawn by
+  hand with the flow pattern. The flow, sequence and layers patterns stay for code paths. Run
+  `python3 <skill-dir>/scripts/bpmn.py svg <file> --plane <id> --highlight <ids>`. `<ids>` is a
+  list of element ids, with commas and no spaces: the elements that the paragraphs of the section
+  cite. In this block, replace the comment and the `svg` line with the output, without change:
+
+  ```html
+  <figure class="bpmn">
+    <!-- output of: bpmn.py svg <file> --plane <id> --highlight <ids the paragraphs cite> -->
+    <svg class="bpmn" …>…</svg>
+    <figcaption>One STE sentence: what this plane is.</figcaption>
+  </figure>
+  ```
+
+  The rules above for the units, the `viewBox` and the marker ids do not apply to a BPMN plane.
+  The SVG keeps the size of the file, and a wide plane scrolls inside its figure. To draw one plane
+  two times in one page, for example in the steps of a player, give each copy its own `--prefix`.
 
 Steps player: write one `figure.step` for each state. The diagram changes in each step. The caption is
 one or two STE sentences. Without `#verify` in the URL, one step shows. With it, all steps stack.
@@ -157,12 +205,34 @@ Read `rungs/sheet.md` section 5 for the lint notes. These facts are specific to 
   </div>
   ```
 
+- A cite of a `.bpmn` file names the line that carries the fact. That is the opening-tag line of
+  the element (its id line), its `name=` line, or the sequence flow or its condition line. Do not
+  look for the line that reads best: `bpmn.py label` writes a readable name into each of these
+  cites (section 7). Never cite a blank line or a comment line.
+
 ## 7. Verify and export
 
-Do these steps in the output directory, in this order.
-1. Run `<skill-dir>/scripts/verify.sh index.html`. All five lines must show `ok`:
-   `self-contained`, `render 1440x900`, `render 500x844`, `citations` and `prose`. Fix each cause
-   that the detail lines name.
+Do these steps in the output directory, in this order. If the page cites a `.bpmn` file, do two
+BPMN steps before step 1:
+
+- While you write, run `python3 <skill-dir>/scripts/bpmn.py svg <file> --plane <id> --highlight <ids>`
+  for each plane. Put each output into its `figure.bpmn` (section 4).
+- After you write all the cites, run `python3 <skill-dir>/scripts/bpmn.py label index.html`. It
+  writes a `span.bpmn-label` with a readable name into each cite of a `.bpmn` file. If it exits
+  with code 1, each line of its output names one fault:
+  - `<section> | <path>:<line> | no element`: no element owns that line, for example a blank line
+    or a comment line. Move that cite to a line that carries a fact.
+  - `<section> | <path> | <message>`: the cited `.bpmn` file does not exist, or `label` cannot read
+    it. Fix the `data-path` of the cite, or the `data-root` of the provenance.
+
+  Then run `label` again. Also run it again after each change to a BPMN cite. Never type a label:
+  the `bpmn` line of step 1 fails on a label that `label` did not write.
+
+1. Run `<skill-dir>/scripts/verify.sh index.html`. Each line must show `ok`, except that the
+   `bpmn` line shows `none` when the page cites no `.bpmn` file. The six lines are
+   `self-contained`, `render 1440x900`, `render 500x844`, `citations`, `prose` and `bpmn`. The
+   `bpmn` line fails for a plane without a `figure.bpmn`, or a sub-process without a cite of its
+   own lines. Fix each cause that the detail lines name.
 2. Run `SNAPSHOT_FRAGMENT=verify <skill-dir>/scripts/snapshot.sh index.html page.png 1440 6000 1`.
    It writes `page.png` and the tiles `review/page-01.png` and up. A page of 6000 px has six tiles.
    Tiles below the footer are blank. Find the tile that shows the footer. If no tile shows it, run

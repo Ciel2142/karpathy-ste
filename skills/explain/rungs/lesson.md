@@ -70,7 +70,9 @@ document.
 1. Resolve the subject by the rules of `SKILL.md`. Print the rung line.
 2. List the sections by the page rung rules: one facet, one `<h2>` question and one nav entry for
    each. Give each section an id. For a directory subject, the first section is the whole, start
-   to end (the rule of `page.md` "Plan the sections"); the mechanics follow.
+   to end (the rule of `page.md` "Plan the sections"); the mechanics follow. For a BPMN main flow,
+   run `python3 <skill-dir>/scripts/bpmn.py planes <file>`. The planes are the section candidates:
+   one section for each stage, in process order, by the BPMN rules of "Plan the sections".
 3. Mark each section that gets a clip. Use the criterion of "When a lesson" above. The main flow
    of the first section is the first candidate. Motion along a path is what a still cannot show.
 4. Write `review/plan.md` in the output directory. Write one line for each section:
@@ -221,8 +223,26 @@ checks one `script.json` against the limits of its format. The fourth writes the
 clip. The fifth runs `verify.sh` on that transcript. It checks the cites of the scenes and the
 lint of the narration.
 
-Thus a wrong snippet, a dead line and a lint fault all show here. Fix each fault, and run the
-commands again until all are clean. The reviewers then spend their attention on meaning.
+If the page cites a `.bpmn` file, also run these two commands in the output directory, in this
+order, before the commands above:
+
+```
+python3 <skill-dir>/scripts/bpmn.py label index.html
+python3 <skill-dir>/scripts/bpmn.py check index.html
+```
+
+The first writes a readable label into each BPMN cite, as "Verify and export" in `page.md` says.
+Thus the reviewers of gate 1 read names, not raw XML. The second checks that each plane has its
+`figure.bpmn` and each sub-process has a cite of its own lines. It also checks that each label is
+current.
+
+For each failure of `check`, fix the section: add the figure, or the paragraph with its cite.
+Name a plane or a sub-process in `Not covered` only when the page does not explain it. Write its
+name verbatim. Run `label` again after each change to a BPMN cite.
+
+Thus a wrong snippet, a dead line, a lint fault and a gap in the BPMN coverage all show here. Fix
+each fault, and run the commands again until all are clean. The reviewers then spend their
+attention on meaning.
 
 ## 6. Gate 1: read before the render
 
@@ -405,8 +425,9 @@ A clip that the plan unmarks before any render is a plan change, not a drop. An 
 1. Copy the poster of each clip that stays: copy its `-end` still to `clips/<id>/poster.png`. For
    example, `cp clips/<id>/review/still-NN-<scene>-end.png clips/<id>/poster.png`. Do it after
    the last render of the clip.
-2. Run `<skill-dir>/scripts/verify.sh index.html` in the output directory. A lesson has six
-   lines, one more than a page. All six must show `ok`:
+2. Run `<skill-dir>/scripts/verify.sh index.html` in the output directory. A lesson has seven
+   lines, one more than a page. Each line must show `ok`, except that the `bpmn` line shows `none`
+   when the page cites no `.bpmn` file:
 
 ```
 self-contained: ok
@@ -415,6 +436,7 @@ render 500x844: ok
 citations: ok
 prose: ok
 media: ok
+bpmn: ok
 ```
 
 3. Do steps 2 to 4 of "Verify and export" in `page.md`: the snapshots, and the read of the tiles.

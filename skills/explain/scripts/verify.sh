@@ -1,10 +1,10 @@
 #!/bin/bash
-# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5; lesson: five; video: three).
+# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5), plus bpmn and, for a lesson, media.
 #
 #   verify.sh <index.html>
 #   env VERIFY_TIMEOUT   seconds to wait for each Chrome DOM dump (default 60)
 #
-#   exit 0  all checks of the rung passed (sheet, page: four; lesson: five; video: three)
+#   exit 0  all checks of the rung passed (sheet: five lines; page: six; lesson: seven; video: three)
 #   exit 1  at least one check failed
 #   exit 2  usage: no argument, unreadable file, no or unknown <meta name="explain-rung">
 #
@@ -16,10 +16,10 @@
 #   citations: ok | FAIL <n> failure(s) | FAIL cite_check exit <code>
 #   prose: ok | FAIL <n> error(s) | FAIL lint usage error (exit 2) | FAIL lint exit <code>
 #   media: ok | FAIL <n> missing   (a lesson only; after prose)
-# Detail lines follow a failing check, indented by two spaces: each remote reference
-# as "<tag> <attr>=<value>" (for CSS: "<tag> style=<fragment>" for a style attribute,
-# "style css=<fragment>" for <style> text), each cite_check failure, each lint error,
-# each missing media reference as "<tag> <attr>=<value>" (the value as written).
+#   bpmn: ok | none | FAIL <n> failure(s) | FAIL bpmn exit <code>   (not a video; the last line; a sheet skips conditions 1, 2)
+# Detail lines follow a failing check, indented by two spaces: each remote reference as "<tag> <attr>=<value>" (for CSS:
+# "<tag> style=<fragment>" for a style attribute, "style css=<fragment>" for <style> text), each cite_check failure, each
+# lint error, each missing media reference as "<tag> <attr>=<value>" (the value as written), each bpmn.py check failure.
 # A sheet has one render line (1920x1080); a page or a lesson two (1440x900, 500x844); a video none.
 # Every check runs even after an earlier one failed.
 #
@@ -399,6 +399,34 @@ if [ "$rung_line" = "rung=lesson" ]; then
         printf '%s\n' "$media_missing" | indent
         failed=1
     fi
+fi
+
+# --- check 6: bpmn (not a video) ------------------------------------------------
+
+if [ "$rung_line" != "rung=video" ]; then
+    bpmn_out=$(python3 "$SCRIPTS/bpmn.py" check --rung "${rung_line#rung=}" "$input_abs" 2>&1)
+    bpmn_status=$?
+    # The last stdout line is the summary: "bpmn: ok", "bpmn: none" or "bpmn: <n> failures".
+    bpmn_details=$(printf '%s\n' "$bpmn_out" | grep -Ev '^bpmn: (ok|none|[0-9]+ failures)$')
+    case "$bpmn_status" in
+        0)
+            if [ "$(printf '%s\n' "$bpmn_out" | tail -n 1)" = "bpmn: none" ]; then
+                echo "bpmn: none"
+            else
+                echo "bpmn: ok"
+            fi
+            ;;
+        1)
+            echo "bpmn: FAIL $(printf '%s\n' "$bpmn_details" | wc -l | tr -d ' ') failure(s)"
+            printf '%s\n' "$bpmn_details" | indent
+            failed=1
+            ;;
+        *)
+            echo "bpmn: FAIL bpmn exit $bpmn_status"
+            [ -n "$bpmn_out" ] && printf '%s\n' "$bpmn_out" | indent
+            failed=1
+            ;;
+    esac
 fi
 
 exit "$failed"

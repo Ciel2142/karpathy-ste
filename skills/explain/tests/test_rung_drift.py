@@ -868,6 +868,79 @@ class PageRungCase(unittest.TestCase):
                                     "so read the whole paragraph against the cited lines."), 1)
 
 
+class BpmnRungCase(unittest.TestCase):
+    """The BPMN rules of the rung files (spec 2.2): one section per stage, a figure.bpmn per plane, the three
+    commands before the verify, the planes as lesson candidates and check 4 of gate 1. The sections are read
+    as one line of words, because the rung wraps its lines."""
+
+    def words(self, path, title):
+        return " ".join(section(read(path), title).split())
+
+    def test_page_md_names_the_three_bpmn_commands_in_order(self):
+        """Red when "Verify and export" loses `bpmn.py svg` or `bpmn.py label`, or puts them after verify.sh."""
+        verify = self.words(PAGE_MD, "Verify and export")
+        places = [verify.find(name) for name in ("bpmn.py svg", "bpmn.py label", "verify.sh")]
+        self.assertNotIn(-1, places, verify)
+        self.assertEqual(places, sorted(places))
+        self.assertIn("--plane <id> --highlight <ids>", verify)
+
+    def test_sheet_md_labels_before_verify(self):
+        """Red when "Verify and export" of sheet.md loses `bpmn.py label index.html`, puts it after verify.sh,
+        or breaks the STE profile."""
+        verify = self.words(SHEET_MD, "Verify and export")
+        places = [verify.find(name) for name in ("bpmn.py label index.html", "verify.sh index.html")]
+        self.assertNotIn(-1, places, verify)
+        self.assertLess(places[0], places[1])
+        run = lint(SHEET_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+    def test_page_md_has_the_bpmn_plane_pattern(self):
+        """Red when "Diagram patterns" loses the figure.bpmn block or the rule against a flow drawn by hand."""
+        patterns = self.words(PAGE_MD, "Diagram patterns")
+        for phrase in ('<figure class="bpmn">', "never drawn by hand", "bpmn.py svg <file> --plane <id>"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, patterns)
+
+    def test_page_md_plans_one_section_per_stage(self):
+        """Red when "Plan the sections" loses a stage section, the plane rule or the answer link, or when the
+        answer-first rule "Each section expands one sentence of the answer" is gone."""
+        plan = self.words(PAGE_MD, "Plan the sections")
+        for phrase in ("one section per stage", "a merge may not drop a plane",
+                       "names the stages in process order", "Each section expands one sentence of the answer"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, plan)
+
+    def test_lesson_md_reads_the_planes_as_candidates(self):
+        """Red when "Plan the lesson" no longer names `bpmn.py planes` for the section candidates."""
+        self.assertIn("bpmn.py planes", self.words(LESSON_MD, "Plan the lesson"))
+
+    def test_lesson_md_labels_and_checks_before_gate_1(self):
+        """Red when "Check before the review" no longer runs `bpmn.py label` and then `bpmn.py check`, so gate 1
+        reads raw BPMN cites and a missing plane shows only after the renders."""
+        checks = self.words(LESSON_MD, "Check before the review")
+        places = [checks.find(name) for name in ("bpmn.py label index.html", "bpmn.py check index.html")]
+        self.assertNotIn(-1, places, checks)
+        self.assertLess(places[0], places[1])
+        self.assertIn("Not covered", checks)
+
+    def test_review_page_has_the_bpmn_check(self):
+        """Red when gate 1 has no check 4, a fifth check, or check 4 lost the rule that names match the
+        diagram or the rule that a collapsed sub-process with its own section or figure is explained."""
+        checks = section(read(REVIEW_PAGE_MD), "Checks")
+        numbers = re.findall(r"^(\d+)\. ", checks, re.M)
+        self.assertEqual(numbers, ["1", "2", "3", "4"])
+        four = " ".join(re.search(r"^4\. .*", checks, re.M | re.S).group(0).split())
+        self.assertIn("the names in the prose match the diagram", four)
+        self.assertIn("A collapsed sub-process that has its own section or figure counts as explained.", four)
+
+    def test_page_md_and_lesson_md_lint_clean(self):
+        """Red when a BPMN rule breaks the STE profile in page.md or lesson.md."""
+        for path in (PAGE_MD, LESSON_MD):
+            with self.subTest(file=path.name):
+                run = lint(path)
+                self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+
 # The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.
 LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections "
               "carry short narrated clips where motion explains better than a still | A subsystem with two to "

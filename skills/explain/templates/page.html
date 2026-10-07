@@ -114,6 +114,29 @@ figure.clip {
 #play-all { margin-top: 14px; border-color: var(--accent); }   /* the rest of its look: the .player button rule */
 body:not(:has(figure.clip)) #play-all { display: none; }
 
+/* BPMN planes (spec 2.1). A figure.bpmn breaks out of the 72ch column the way figure.clip
+   does: --bpmn-w = max(100%, min(1040px, 100vw - 64px)), so at 1440 px it is 1040 px and the
+   988 px main plane of aos fits with no scroll. At 500 px it is the column. The SVG is never
+   scaled down, so a plane wider than the figure scrolls inside the figure, not the page. The
+   template's svg text rule says 18 px and wins over the font-size attribute of the renderer,
+   so svg.bpmn text sets 14 px, the floor. The label sits in a cite that the reading view
+   hides: the guard measures it with Sources on. The .hl class is on the group, thus the
+   highlight rules take the descendant. No class sets stroke-width on a shape; the renderer
+   writes the thick strokes as attributes. A label outside its shape (text[data-for]) gets a
+   halo in the page colour, so a flow line that crosses it does not cut the text. */
+figure.bpmn { --bpmn-w: max(100%, min(1040px, 100vw - 64px)); width: var(--bpmn-w); margin: 16px 0 16px calc((100% - var(--bpmn-w)) / 2); overflow-x: auto; }
+figure.bpmn svg { display: block; max-width: none; }
+svg.bpmn text { font-size: 14px; }
+svg.bpmn { stroke-width: 1.5; }
+.bpmn-shape { fill: var(--bg); stroke: var(--ink); }
+.bpmn-flow { fill: none; stroke: var(--ink); }
+.bpmn-text { fill: var(--ink); stroke: none; font-family: var(--sans); }
+svg.bpmn text[data-for] { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.hl .bpmn-shape { fill: color-mix(in srgb, var(--accent) 14%, var(--bg)); stroke: var(--accent); }
+.hl .bpmn-flow { stroke: var(--accent); }
+.bpmn-label { display: block; color: var(--ink); font-family: var(--sans); font-size: 16px; }
+cite:has(.bpmn-label) > code { color: var(--muted); font-size: 14px; }
+
 /* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav;
    the guard sets --nav-h to the real nav height in "load". */
 section { padding: 28px 0 8px; scroll-margin-top: var(--nav-h, 64px); }
