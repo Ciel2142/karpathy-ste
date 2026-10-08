@@ -38,8 +38,10 @@ Use the first rule that applies.
    topic is about its code, read that code first. Use CodeGraph when `.codegraph/` exists. Read
    with the Read tool each file that CodeGraph flags as changed or omits. Cite only lines that
    you read from disk. Then convention 2 applies. If the topic is not about that code, use your
-   own knowledge. Use web lookups only if the user says yes. Provenance states "model knowledge"
-   or lists the URLs. Never claim that you read a source that you did not read.
+   own knowledge. You can search the web without permission. Search for current facts,
+   versions, or details that you are not sure about. Provenance states "model knowledge" if you
+   read no web source, or lists the URLs that you read. Never claim that you read a source that
+   you did not read.
 
 ## Rung selection
 
