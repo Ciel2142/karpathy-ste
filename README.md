@@ -6,13 +6,14 @@ into `~/.claude/skills/`:
 - **`/ste`** — rewrite text, or answer a request, in STE-80: a fixed profile of ASD-STE100
   Simplified Technical English (Issue 9). Ships a lint (`ste_lint.py`) that checks markdown
   or HTML prose against the deterministic rules.
-- **`/explain <subject> [--as ste|sheet|page|video|brainrot|lesson]`** — explain a file, a
+- **`/explain <subject> [--as ste|sheet|page|video|brainrot|lesson] [--review]`** — explain a file, a
   directory, `this` (the last thing in the conversation) or a topic, in the smallest form that
   fits: chat text, a one-page sheet (HTML + PNG), an interactive single-file page, a narrated
   film (`--as video`: one continuous picture, written for the subject and timed to the
   narration, with a cited transcript), a vertical 1080×1920 brainrot short (`--as brainrot`: a
   looping background and word-by-word captions), or a lesson (`--as lesson`: a page whose
-  sections carry short narrated clips, with two review gates). Every artifact is grounded: each
+  sections carry short narrated clips; `--review` adds two gates of cold reads by fresh subagents,
+  off by default because they cost the most tokens of a run). Every artifact is grounded: each
   claim carries a `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails
   the build when a cite does not match the file, the page does not render, or the prose breaks
   the STE profile.

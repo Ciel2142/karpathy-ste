@@ -1032,14 +1032,23 @@ class SkillMdCase(unittest.TestCase):
         self.assertEqual([name for name, body in (("convention 1", one), ("Build step 1", step))
                           if "convention 7" not in body], [])
 
+    # red: the Contract without the `--review` step, the step that keeps `--review` in the subject, or a
+    # rung other than lesson that stops on `--review` instead of printing the no-effect line
+    def test_skill_md_parses_the_review_flag(self):
+        contract = " ".join(section(read(SKILL_MD), "Contract").split())
+        for sentence in ("Remove each `--review` from `$ARGUMENTS`.",
+                         "If you removed one, the review is on. Else it is off.",
+                         "print `--review: no effect on <rung>` after the rung line"):
+            self.assertIn(sentence, contract)
+
     # red: the README list of `--as` rungs left at five names (or in another order than the hint of SKILL.md),
     # the Requirements row of `lesson` missing or reworded, the layout line without lesson.md or lesson/, or
     # the tests block without the line of tests.test_lesson_e2e
     def test_readme_names_the_lesson_rung(self):
         readme = read(README_MD)
-        hint = re.search(r'^argument-hint: "<subject> \[--as ([^\]]*)\]"$', read(SKILL_MD), re.M)
+        hint = re.search(r'^argument-hint: "<subject> \[--as ([^\]]*)\] \[--review\]"$', read(SKILL_MD), re.M)
         self.assertIsNotNone(hint, "no argument-hint line")
-        self.assertEqual(re.findall(r"/explain <subject> \[--as ([^\]]*)\]", readme), [hint.group(1)])
+        self.assertEqual(re.findall(r"/explain <subject> \[--as ([^\]]*)\] \[--review\]", readme), [hint.group(1)])
         rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
         self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
         self.assertIn("rungs/{sheet,page,video,brainrot,lesson}.md", readme)

@@ -117,6 +117,10 @@ LESSON_TEXTS = (
     '<div class="wide"><dt>Dropped clips</dt><dd>none</dd></div>',
     "<id> — <reason>",
     "disputed findings: none",
+    # the gates are opt-in: `--review` turns them on, and the page and the handoff say when they did not run
+    "Gates 1 and 2 run only under `--review`",
+    '<div class="wide"><dt>Cold review</dt><dd>none</dd></div>',
+    "review: off",
     # the author fills {previous} with `none` in round 1, and a prompt takes that word as its round-1 exit; the
     # row of gate 2 also tells the author to hand a verification read the round-2 report (its name ends in
     # -round-2.md), which VERIFY_READ takes as the sign of a verification read
@@ -430,6 +434,14 @@ class LessonRungCase(unittest.TestCase):
     def test_lesson_holds_its_rules(self):
         text = squash(self.text)
         self.assertEqual([want for want in LESSON_TEXTS if squash(want) not in text], [])
+
+    # red: the skip rule left out of gate 1 or gate 2, or gate 2 without `--review` skipping step 1 (the
+    # author's own read of the stills) too
+    def test_each_gate_runs_only_under_review(self):
+        one = squash(section(self.text, "Gate 1: read before the render"))
+        two = squash(section(self.text, "Gate 2: read the stills"))
+        self.assertIn("Without `--review`, skip this section.", one)
+        self.assertIn("Without `--review`, do step 1 only, and skip the rest of this section.", two)
 
     # red: the long-scene rule left out of lesson.md or of the render prompt, worded differently in the two, or
     # the threshold back to a count of sentences ("more than four sentences")
