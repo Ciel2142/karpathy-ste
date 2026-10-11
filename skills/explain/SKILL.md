@@ -2,7 +2,7 @@
 name: explain
 description: Use when the user invokes /explain — explain a subject (file, directory, `this`, or topic) in the best rung, from chat text to a one-page sheet, an interactive page, or a narrated video.
 disable-model-invocation: true
-argument-hint: "<subject> [--as ste|sheet|page|video|brainrot|lesson]"
+argument-hint: "<subject> [--as ste|sheet|page|video|brainrot|lesson] [--review]"
 ---
 
 # explain
@@ -13,14 +13,18 @@ this skill, printed when it starts; the `ste` skill is its sibling `<skill-dir>/
 
 ## Contract
 
-Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson]`. The arguments
-arrive in `$ARGUMENTS`.
+Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson] [--review]`. The
+arguments arrive in `$ARGUMENTS`.
 
 1. If `$ARGUMENTS` is empty, stop with a usage error. Print the `argument-hint`.
-2. Find the last `--as <rung>` pair in `$ARGUMENTS`. The last pair wins. Remove it.
-3. If `--as` is present and its value is not `ste`, `sheet`, `page`, `video`, `brainrot` or
+2. Remove each `--review` from `$ARGUMENTS`. If you removed one, the review is on. Else it is
+   off. The review is a cold read by fresh subagents, and it costs the most tokens of a run. Only
+   the `lesson` rung has a review. For another rung, print `--review: no effect on <rung>` after
+   the rung line, and continue.
+3. Find the last `--as <rung>` pair in `$ARGUMENTS`. The last pair wins. Remove it.
+4. If `--as` is present and its value is not `ste`, `sheet`, `page`, `video`, `brainrot` or
    `lesson`, stop with an error. List these six names in the error.
-4. Trim the rest. The result is the subject.
+5. Trim the rest. The result is the subject.
 
 ## Subject resolution
 

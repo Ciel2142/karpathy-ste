@@ -41,6 +41,15 @@ The sections below follow the order of the build: plan, write, check, gate 1, re
 drop, finish. The two gates are reviews by fresh subagents. They are the only subagents of a
 lesson. You are the author.
 
+Gates 1 and 2 run only under `--review` (`SKILL.md`, "Contract"). Without it, a lesson starts no
+subagent. Print `review: on` or `review: off` after the rung line. The gates cost the most of a
+lesson ("Plan the lesson" gives the numbers), so they are off by default.
+
+Without `--review`, these rules still apply: the commands of "Check before the review", the rules
+of "Render the clips", step 1 of "Gate 2: read the stills" (your own read of the stills) and the
+drop for `render: FAIL <cause>`. The rules that need a finding of a reviewer do not apply. These
+are the removal rule, the drop rules of the gates and the disputed findings.
+
 ## 2. What to read
 
 Read the STE profile, `<skill-dir>/../ste/SKILL.md`, by path. Write all prose under it. For a
@@ -92,8 +101,9 @@ the page and the clips" gives the longest clip. There is no cap on the number of
 
 Count the cost before you mark a clip. The first lesson run measured about 5 lines of scene code
 for each second of clip (the film runs: 7). A clip of 38 s took 2 to 7 render runs. Three clips
-took about 30 minutes of author time. A reviewer run costs about 115k subagent tokens; a clip of
-5 scenes takes 3 to 4 reviewers in each gate-2 round. The gates took 22 minutes of a 2 h 30 run.
+took about 30 minutes of author time. Under `--review`, a reviewer run costs about 115k subagent
+tokens; a clip of 5 scenes takes 3 to 4 reviewers in each gate-2 round. The gates took 22 minutes
+of a 2 h 30 run, and two lessons of three clips took 27 and 37 reviewer runs.
 
 ## 4. Write the page and the clips
 
@@ -160,12 +170,16 @@ The template gives the `Play all` button and its code. You write no code for it.
 
 Keep the button and the three script blocks, as "Fill the template" in `page.md` says.
 
-Add this row to the `<dl>` of the provenance. The row is always present. Write `none` until you
-drop a clip ("Drop a clip" below):
+Add these two rows to the `<dl>` of the provenance. The rows are always present. In the first row,
+write `none` until you drop a clip ("Drop a clip" below):
 
 ```
 <div class="wide"><dt>Dropped clips</dt><dd>none</dd></div>
+<div class="wide"><dt>Cold review</dt><dd>none</dd></div>
 ```
+
+In the second row, write `none` without `--review`. Under `--review`, write `gates 1 and 2`. Thus
+the reader can see if fresh reviewers read the lesson.
 
 ### The clips
 
@@ -245,6 +259,8 @@ each fault, and run the commands again until all are clean. The reviewers then s
 attention on meaning.
 
 ## 6. Gate 1: read before the render
+
+Without `--review`, skip this section.
 
 Gate 1 is a cold read of the page and of each script before any render. Start fresh general-purpose
 subagents, in parallel. Never start a fork: a fork has your context and your blind spots. Start:
@@ -352,7 +368,8 @@ Each run must end with its eleven `ok` lines, as "Build and check" in `video.md`
 
 ## 8. Gate 2: read the stills
 
-Gate 2 is a cold read of the stills of each clip that rendered.
+Gate 2 is a cold read of the stills of each clip that rendered. Without `--review`, do step 1 only,
+and skip the rest of this section.
 
 1. Read every still of each clip yourself first, as "Read the stills" in `video.md` says. Fix each
    fault, and render the clip again.
@@ -456,6 +473,12 @@ Then print the list of disputed findings, one line for each pair, or this line:
 disputed findings: none
 ```
 
+Without `--review`, there are no findings. Print this line instead:
+
+```
+review: off
+```
+
 ## 11. Output directory
 
 The directory is `~/karpathy/out/YYYY-MM-DD-HHMMSS-lesson-<slug>/` (`SKILL.md` convention 5, with
@@ -469,10 +492,10 @@ the directory.
 | `page.png`, `narrow.png`, `narrow-tall.png`, `review/page-NN.png`, `review/narrow-*.png` | The renders and the tiles of the page rung. |
 | `review/plan.md` | The section list and the clip choices. |
 | `review/plants.md` | The planted faults of a live run that measures the gates. No reviewer reads it. A normal run has no such file. |
-| `review/gate1-page-round-<k>.md` | The report of the page reviewer for round `<k>`, then your answer. |
-| `review/gate1-<id>-round-<k>.md` | The report of the script reviewer for the clip `<id>`, round `<k>`, then your answer. |
-| `review/gate1-<id>.script.json` | The copy of `script.json` that the last gate 1 dispatch of the clip gave to its reviewer. |
-| `review/gate2-<id>-<part>-round-<k>.md` | The report of the render reviewer for the clip `<id>`, its part `<part>` and read `<k>`, then your answer. |
+| `review/gate1-page-round-<k>.md` | Under `--review` only. The report of the page reviewer for round `<k>`, then your answer. |
+| `review/gate1-<id>-round-<k>.md` | Under `--review` only. The report of the script reviewer for the clip `<id>`, round `<k>`, then your answer. |
+| `review/gate1-<id>.script.json` | Under `--review` only. The copy of `script.json` that the last gate 1 dispatch of the clip gave to its reviewer. |
+| `review/gate2-<id>-<part>-round-<k>.md` | Under `--review` only. The report of the render reviewer for the clip `<id>`, its part `<part>` and read `<k>`, then your answer. |
 | `clips/<id>/` | One complete film output for each clip: `script.json` and `scene/`, which you write, and all that "Output directory" in `video.md` lists. It also holds `poster.png`. |
 
 `<id>` is the id of the section that the clip belongs to. `snapshot.sh` deletes only
