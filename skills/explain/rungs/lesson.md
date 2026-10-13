@@ -39,7 +39,8 @@ workspace, the narrator and `tsc` make the clips. `README.md` lists them.
 
 The sections below follow the order of the build: plan, write, check, gate 1, render, gate 2,
 drop, finish. The two gates are reviews by fresh subagents. They are the only subagents of a
-lesson. You are the author.
+lesson. You are the author. In OpenCode, start each subagent with the `task` tool and the
+`general` agent. It uses the model of your session.
 
 Gates 1 and 2 run only under `--review` (`SKILL.md`, "Contract"). Without it, a lesson starts no
 subagent. Print `review: on` or `review: off` after the rung line. The gates cost the most of a

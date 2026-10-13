@@ -1036,10 +1036,19 @@ class SkillMdCase(unittest.TestCase):
     # rung other than lesson that stops on `--review` instead of printing the no-effect line
     def test_skill_md_parses_the_review_flag(self):
         contract = " ".join(section(read(SKILL_MD), "Contract").split())
-        for sentence in ("Remove each `--review` from `$ARGUMENTS`.",
+        for sentence in ("Remove each `--review` from the arguments.",
                          "If you removed one, the review is on. Else it is off.",
                          "print `--review: no effect on <rung>` after the rung line"):
             self.assertIn(sentence, contract)
+
+    # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
+    # `$ARGUMENTS` with the typed arguments and shows the model nothing else of the command line, so a rule
+    # such as "If `$ARGUMENTS` is empty" turns into "If `install.sh --as ste` is empty" and the model takes the
+    # run for one without a subject. Claude Code replaces it the same way.
+    def test_skill_md_names_the_arguments_once(self):
+        text = read(SKILL_MD)
+        self.assertEqual(text.count("$ARGUMENTS"), 1)
+        self.assertIn("\nThe arguments of this run: `$ARGUMENTS`\n", section(text, "Contract"))
 
     # red: the README list of `--as` rungs left at five names (or in another order than the hint of SKILL.md),
     # the Requirements row of `lesson` missing or reworded, the layout line without lesson.md or lesson/, or

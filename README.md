@@ -1,7 +1,7 @@
 # karpathy-ste
 
-Two [Claude Code](https://claude.com/claude-code) skills, kept in one repository and linked
-into `~/.claude/skills/`:
+Two skills for [Claude Code](https://claude.com/claude-code) and [OpenCode](https://opencode.ai),
+kept in one repository and linked into each tool's skills directory:
 
 - **`/ste`** — rewrite text, or answer a request, in STE-80: a fixed profile of ASD-STE100
   Simplified Technical English (Issue 9). Ships a lint (`ste_lint.py`) that checks markdown
@@ -24,13 +24,27 @@ Both skills are user-invoked only (`disable-model-invocation: true`).
 
 ```sh
 git clone https://github.com/Ciel2142/karpathy-ste.git ~/karpathy
-mkdir -p ~/.claude/skills
-ln -s ~/karpathy/skills/ste     ~/.claude/skills/ste
-ln -s ~/karpathy/skills/explain ~/.claude/skills/explain
+~/karpathy/install.sh --claude --opencode   # or only one of the two flags
 ```
+
+`install.sh` symlinks `skills/ste` and `skills/explain` into `~/.claude/skills/` (`--claude`)
+and `${XDG_CONFIG_HOME:-~/.config}/opencode/skills/` (`--opencode`). It never replaces an
+existing entry, and a second run changes nothing. OpenCode also reads `~/.claude/skills/`, so
+with both flags it links each skill once, under `~/.claude/skills/`.
 
 The scripts resolve their own directory through the symlink, so the clone location is yours
 to choose; the artifacts land under `<clone>/out/` (gitignored).
+
+### OpenCode
+
+OpenCode (proven on 1.19.0) runs each skill as a slash command: `/ste <text>`,
+`/explain <subject> --as page`. The text after the command arrives in `$ARGUMENTS`, the
+same as in Claude Code. From a script, pass the arguments as separate words after `--`
+(`opencode run --command explain -- src/app.py --as page`); one quoted string arrives with its
+quotes. The `--review` gates of a lesson start their reviewers with the
+`task` tool and the built-in `general` agent, which runs on the model of your session; any
+provider works, a local one included. Rungs that search the web need a provider that
+offers OpenCode's web search tool.
 
 ## Requirements
 
@@ -71,12 +85,14 @@ skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brai
                    scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
                    scripts/cite_check.py, video/ (Remotion app + pipeline; video/src/kit/ is
                    the film kit, video/src/film/ the worked example), tests/
+install.sh         links the skills into Claude Code and/or OpenCode; tests/ tests it
 docs/superpowers/  the spec, wave map, plans and live-run notes behind the skills
 ```
 
 ## Tests
 
 ```sh
+python3 -B -m unittest discover -s tests   # install.sh, from the repo root
 cd skills/ste     && python3 -B -m unittest discover -s tests
 cd skills/explain && python3 -B -m unittest discover -s tests
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render tests.test_check_render  # renders once, needs the workspace
