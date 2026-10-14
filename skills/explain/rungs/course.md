@@ -96,27 +96,38 @@ its lesson, and stop. The state of the course is on disk, so a resume continues.
 
 Discovery finds the other sources that the flow goes through. Do one round of discovery only.
 
-1. Read the section `Other systems` of each map. Do not read the other sections now.
-2. Collect the handles of each system: the names in backticks. Examples are queue names, endpoints and
-   artifact ids.
-3. List the candidates. A candidate is a directory in the parent directory of a source, and it is not a
-   source.
-4. Search each candidate for the handles with one `grep` command, as below. Never read a whole
-   repository. Read no file of a candidate.
-5. Drop each handle that matches more than 5 candidates. Such a handle is too general to find one system.
-6. A candidate with a match of a handle that remains is a new source, with `found: discovered`. Give it a
-   `why`: one sentence that names the handle that it holds.
-7. Keep 8 discovered sources at most. Keep the candidates that hold the most handles. Write each other
-   candidate in `not_covered`, with the reason `more than 8 discovered sources`.
-8. Map each new source as "Map the sources" says. Start their map subagents at the same time.
-9. Do not search again from the maps of the new sources.
-
-Use this command for one candidate, once for each handle. The command prints the name of the first
-file that holds the handle. Thus you can count the candidates that each handle matches:
+1. Run the discovery script once. Give the parent directory of each source once. Give each source with
+   `--source`:
 
 ```
-grep -rl -m 1 -F -e '<handle>' --include='*.java' --include='*.kt' --include='*.xml' --include='*.yml' --include='*.yaml' --include='*.properties' --include='*.json' --include='*.md' --include='*.proto' --include='*.sql' --include='*.xsl' --include='*.xslt' --include='*.go' --include='*.ts' --include='*.py' --include='*.cs' --include='*.conf' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target --exclude-dir=build <candidate> | head -n 1
+python3 <skill-dir>/scripts/course_discover.py <course-dir> <parent-dir> [<parent-dir>…] --source <source-path> [--source <source-path>…]
 ```
+
+2. Read the lines that it prints. If it exits with 2, print its error line, and continue with no
+   discovered source.
+3. Each line `candidate: <dir> <name-match|-> <n> handles: <handle> …` is a new source, with
+   `found: discovered`. Give it a `why`: one sentence that names a handle that it holds, or the system that
+   has its name.
+4. For each line `cut: <dir> more than 8 discovered sources`, write the directory in `not_covered`, with the
+   reason `more than 8 discovered sources`. The other `cut:` lines need no action.
+5. Print each line `note: map <file> has no Other systems section`. That map gave no handles.
+6. Map each new source as "Map the sources" says. Start their map subagents at the same time.
+7. Do not search again from the maps of the new sources.
+
+The script does the search, so you read no file of a candidate. Never read a whole repository. The script
+applies these rules:
+
+- The handles of a system are the names in backticks in the section `Other systems` of each map. Examples
+  are queue names, endpoints and artifact ids. The cites of a map line give no handles.
+- A candidate is a directory in the parent directory of a source, and it is not a source.
+- One `grep` command searches each candidate for all the handles.
+- Drop each handle that matches more than 5 candidates. Such a handle is too general to find one system.
+- First come the candidates whose name is the name of a system of `Other systems`. Case and punctuation
+  have no effect: `cryptoproservice` is the system `CryptoProService`. Then come the candidates that hold
+  the most handles. Equal candidates go in the order of their names.
+- Keep 8 discovered sources at most.
+
+The script writes the same lines to `discover/result.txt`.
 
 ## 5. Plan the course
 
@@ -175,7 +186,8 @@ Write the fields by these rules:
   `code` or `docs` hop has at least one cite. An `inferred` hop has no cite, and its `what` says what the
   inference comes from.
 - `cites`: a `path` relative to `root`, a `line` and a `snippet`. The snippet has at most 12 words, copied
-  verbatim from that line. The maps give the cites with the same root.
+  verbatim from that line. The maps give the cites with the same root. Copy each cite from the map lines.
+  Never type a cite again from memory.
 - `blocks`: in the order of the flow. Each block has at least one lesson.
 - `lessons`: a lesson holds one subsystem with two to four moving parts, usually one to three hops. A hop
   that needs more gets more lessons. There is no limit on the number of lessons. Each hop is in at least
@@ -381,6 +393,7 @@ The directory is `~/karpathy/out/YYYY-MM-DD-HHMMSS-course-<slug>/`. A course com
 |---|---|
 | `course.json` | The plan and the state. The one source of truth for a resume. |
 | `map/<source-id>.md` | The map of one source, from a map subagent. |
+| `discover/` | The files of the discovery script: `result.txt` (its lines), `handles.txt`, `candidates.txt` and `matches.tsv`. |
 | `lessons/<id>/` | One complete lesson output directory (`rungs/lesson.md` "Output directory"), or a page output for a lesson with no clip. |
 | `lessons/<id>.stale-<n>/` | An earlier build of the lesson `<id>`, moved aside before a new build. |
 | `index.html` | The hub. It has the meta `<meta name="explain-rung" content="course">`. |

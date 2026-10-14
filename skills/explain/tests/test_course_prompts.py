@@ -113,7 +113,16 @@ FINAL_TEXTS = (
     "It sets each `failed` lesson and each `building` lesson to `pending`",
     "`check` sets `state` to `planned`, also for a `done` course, and `approve` then approves the new shape.",
     "Else it sets `state` to `approved`.",
+    # I2: discovery is a script; a name match of a system ranks first; the cites come from the maps
+    "First come the candidates whose name is the name of a system of `Other systems`.",
+    "Equal candidates go in the order of their names.",
+    "One `grep` command searches each candidate for all the handles.",
+    "Copy each cite from the map lines. Never type a cite again from memory.",
+    "`cut: <dir> more than 8 discovered sources`",
+    "| `discover/` |",
 )
+DISCOVER_COMMAND = ("python3 <skill-dir>/scripts/course_discover.py <course-dir> <parent-dir> [<parent-dir>…] "
+                    "--source <source-path> [--source <source-path>…]")
 INCLUDES = ("java", "kt", "xml", "yml", "yaml", "properties", "json", "md", "proto", "sql", "xsl", "xslt", "go",
             "ts", "py", "cs", "conf")
 # M9: the two commands of the Sources row, and the untracked mark per source.
@@ -252,12 +261,20 @@ class CourseRungCase(unittest.TestCase):
         source = read(EXPLAIN / "scripts" / "course.py")
         self.assertIn('"mark: %s: %s -> %s not allowed"', source)
 
-    # red (M6): a text type of the sources left out of the discovery command
-    def test_discovery_searches_the_text_types(self):
+    # red (M6, final I2): a text type of the sources left out of the discovery script, or the rung back to a grep
+    # loop of its own instead of the one command of the script
+    def test_discovery_runs_the_script_over_the_text_types(self):
         commands = [line for _, lines in fenced_blocks(section(self.text, "Discover")) for line in lines]
-        self.assertEqual(len(commands), 1)
-        found = re.findall(r"--include='\*\.(\w+)'", commands[0])
-        self.assertEqual(sorted(found), sorted(INCLUDES))
+        self.assertEqual(commands, [DISCOVER_COMMAND])
+        self.assertNotIn("grep -r", self.text)
+        import course_discover
+        self.assertEqual(sorted(course_discover.INCLUDES), sorted(INCLUDES))
+        self.assertEqual(course_discover.DROP_OVER, 5)
+        self.assertEqual(course_discover.KEEP, 8)
+        for line in ("candidate: <dir> <name-match|-> <n> handles: <handle> …",
+                     "cut: <dir> more than 8 discovered sources", "note: map <file> has no Other systems section"):
+            with self.subTest(line=line):
+                self.assertIn(line, self.text)
 
     # red: the resume or the build left out of the rung, or the steps out of the order of spec section 9
     def test_rung_sections_follow_the_build(self):
