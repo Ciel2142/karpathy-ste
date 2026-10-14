@@ -40,7 +40,8 @@ Rung: course (forced) — <reason> — subject: <source> <source> (topic)
 Each name resolves by the first rule that applies. Run rules 1 and 2 for all the names first. Then run
 rule 3 for the names that remain. Thus the order of the names has no effect.
 
-1. Path: a path candidate by the rule of `SKILL.md`. It must exist, as a directory or a file.
+1. Path: a path candidate by the rule of `SKILL.md`. It must exist, as a directory or a file. A path
+   candidate that does not exist is an error: stop, and build nothing.
 2. qmd: a qmd collection of that exact name. Run `qmd collection show <name>`. Its line
    `Path:     <abs path>` gives the path. For a missing collection, the command fails, and the rule does
    not apply.
@@ -49,7 +50,7 @@ rule 3 for the names that remain. Thus the order of the names has no effect.
 If no rule applies to a name, stop with an error. Name the source and the three rules. Build nothing.
 
 Give each source an id. Make the id from the basename of its path by the slug rule of convention 5 of
-`SKILL.md`. If two sources get the same id, add `-2` to the second id.
+`SKILL.md`. If two or more sources get the same id, add `-2` to the second id, `-3` to the third id, and so on.
 
 Print one line for each source, after the line `review: on|off`. `<rule>` is `path`, `qmd` or `beside`:
 
@@ -85,8 +86,11 @@ subagent as its prompt. Fill the names like this:
 Each subagent writes `map/<source-id>.md` in `<course-dir>`. It returns one line:
 `map: done <source-id> <n> facts` or `map: failed <reason>`. Wait for all the map subagents.
 
-Print each `map: failed` line. A source without a map gets no hop. Write it in `not_covered`, with the
-reason.
+A `map: done` line with no readable `map/<source-id>.md` counts as `map: failed`. Print each
+`map: failed` line. A source without a map gets no hop. Write it in `not_covered`, with the reason.
+
+A map subagent or a lesson subagent that does not return stops the run. Print the id of its source or
+its lesson, and stop. The state of the course is on disk, so a resume continues.
 
 ## 4. Discover
 
@@ -99,16 +103,19 @@ Discovery finds the other sources that the flow goes through. Do one round of di
    source.
 4. Search each candidate for the handles with one `grep` command, as below. Never read a whole
    repository. Read no file of a candidate.
-5. A candidate with a match is a new source, with `found: discovered`. Give it a `why`: one sentence that
-   names the handle that it holds.
-6. Map each new source as "Map the sources" says. Start their map subagents at the same time.
-7. Do not search again from the maps of the new sources.
+5. Drop each handle that matches more than 5 candidates. Such a handle is too general to find one system.
+6. A candidate with a match of a handle that remains is a new source, with `found: discovered`. Give it a
+   `why`: one sentence that names the handle that it holds.
+7. Keep 8 discovered sources at most. Keep the candidates that hold the most handles. Write each other
+   candidate in `not_covered`, with the reason `more than 8 discovered sources`.
+8. Map each new source as "Map the sources" says. Start their map subagents at the same time.
+9. Do not search again from the maps of the new sources.
 
-Use this command for one candidate. Give each handle with its own `-e`. The command prints the name of
-each file that holds a handle:
+Use this command for one candidate, once for each handle. The command prints the name of the first
+file that holds the handle. Thus you can count the candidates that each handle matches:
 
 ```
-grep -rl -m 1 -F -e '<handle>' -e '<handle>' --include='*.java' --include='*.kt' --include='*.xml' --include='*.yml' --include='*.yaml' --include='*.properties' --include='*.json' --include='*.md' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target --exclude-dir=build <candidate>
+grep -rl -m 1 -F -e '<handle>' --include='*.java' --include='*.kt' --include='*.xml' --include='*.yml' --include='*.yaml' --include='*.properties' --include='*.json' --include='*.md' --include='*.proto' --include='*.sql' --include='*.xsl' --include='*.xslt' --include='*.go' --include='*.ts' --include='*.py' --include='*.cs' --include='*.conf' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target --exclude-dir=build <candidate> | head -n 1
 ```
 
 ## 5. Plan the course
@@ -185,7 +192,8 @@ Write the fields by these rules:
 python3 <skill-dir>/scripts/course.py check <course-dir>
 ```
 
-2. Fix `course.json` for each failure line. Then run `check` again. Repeat until it prints `course: ok`.
+2. Fix `course.json` for each failure line. Then run `check` again. Repeat until it prints `course: ok`,
+   or until the stop rule below applies.
 3. Run `python3 <skill-dir>/scripts/course.py summary <course-dir>`. Print its output verbatim.
 4. Stop. Ask the user to approve the plan, or to say what to change. Build nothing.
 
@@ -195,12 +203,26 @@ The prefix of a failure line tells where the fault is:
 |---|---|
 | `schema:` | The field that the line names. |
 | `id:` | Give the second item a new id. |
-| `lesson <id>:` | The hops or the sources of that lesson. |
+| `lesson <id>:` | The hops or the sources of that lesson. For `lesson <id>: done but lessons/<id>/index.html missing`, run `course.py mark <course-dir> <id> pending`. |
 | `hop <id>:` | The lessons that cover the hop, its `branch`, or its evidence and its cites. |
 | `source <id>:` | The `path` of that source. |
 | `cite <hop>#<n>:` | Cite number `<n>` of that hop: its path, its line or its snippet. |
 | `prose:` | The prose field that the line names. |
 | `state:` | The line is `state: plan changed after approval; run summary and approve again`. Go to step 3. |
+| `course: cannot read` | `course.json` is not valid JSON. Write it again. `check` exits with 2. |
+
+### The stop rule
+
+Some faults are not in `course.json`, and an edit of `course.json` cannot fix them. Examples:
+
+- `source <id>: path missing: <abs>` for a source that moved on the disk;
+- a `schema:` failure for an empty `hops` list, because each map failed;
+- a fault of the hub layout that `course_hub.py` makes, which needs a change of the code.
+
+Stop a fix loop after 3 rounds in which the same failure lines come back. Also stop it at once for a fault
+that is not in `course.json`. This rule applies to each fix loop of this file: `check`, `approve` and the
+hub. Then print each line that remains, and what it means. Stop the run. Do not change the state of the
+course: a resume continues from it.
 
 ## 7. Revise
 
@@ -212,14 +234,26 @@ For each change that the user asks for, do these steps:
 4. Ask the user again.
 
 When the user approves the plan, run `python3 <skill-dir>/scripts/course.py approve <course-dir>`. It runs
-`check`, and then it sets `state` to `approved`. If it prints failures, fix them and run it again.
+`check`, and then it sets `state` to `approved`. If it prints failures, fix them and run it again, by the
+stop rule of "Check and stop".
 
 Drop a lesson only when the user asks for it. Run `course.py mark <course-dir> <id> dropped --reason
-"<reason>"`, with the words of the user as the reason.
+'<reason>'`, with the words of the user as the reason. Remove each `'` from the reason.
 
 ## 8. Build the lessons
 
 At most 3 lesson subagents run at the same time. The renders and the narration share one computer.
+
+The lessons share one video workspace, and a first install must not run two times. Thus, before the
+loop, set up the workspace once yourself. The engine follows the `lang` of the course, as in `video.md`:
+`kokoro` for `en`, and `silero` for `ru`. Run this command:
+
+```
+<skill-dir>/scripts/video-workspace.sh --engine <engine>
+```
+
+Its last line is `workspace: ok <ws>` or `workspace: FAIL <step> …`. On a `workspace: FAIL` line, print
+that line and stop the course. This is a fault of the environment. Mark no lesson. A resume continues.
 
 Do this loop:
 
@@ -236,13 +270,18 @@ Do this loop:
 8. When a lesson subagent returns, read only its last line. Run
    `<skill-dir>/scripts/verify.sh <course-dir>/lessons/<id>/index.html` yourself.
 9. If `verify.sh` exits with 0, run `course.py mark <course-dir> <id> done`.
-10. Else, run `course.py mark <course-dir> <id> failed --reason "<line>"`. `<line>` is the first `FAIL`
-    line of the output. If no line holds `FAIL`, it is the first line of the output.
+10. Else, run `course.py mark <course-dir> <id> failed --reason '<line>'`. `<line>` is the first `FAIL`
+    line of the output, with each `'` removed. If no line holds `FAIL`, it is the first line of the output.
+    Never put `<line>` in double quotes: a `FAIL` line can hold `"`.
 11. Go to step 1. Stop the loop when `next` prints nothing and no lesson subagent runs.
 
 The result line of a lesson subagent is `lesson: done <rung> <n> clips` or `lesson: failed <reason>`. Trust
 `verify.sh`, not the result line. A failed lesson does not stop the course. Do not build it again in this
 run.
+
+A fault of the environment is different. If a result line names a `workspace`, `narration` or `container`
+`FAIL`, the next lessons fail too. Let the lessons that run now finish, and start no new lesson. Then
+print the line and stop the run. A resume continues.
 
 The prompt `lesson-task.md` is a template, as `map-task.md` is. Fill its names like this:
 
@@ -254,7 +293,7 @@ The prompt `lesson-task.md` is a template, as `map-task.md` is. Fill its names l
 | `{lesson_json}` | The object of the lesson in `course.json`, as JSON. |
 | `{hops_json}` | The objects of the hops of the lesson, in the order of the flow, as a JSON list. |
 | `{map_paths}` | The absolute path of `map/<source-id>.md` for each source of the lesson, one on each line. |
-| `{other_lessons}` | Each other lesson of the course as `<id>: <question>`, one on each line. |
+| `{other_lessons}` | Each other lesson of the course as `<id>: <question> (hops: <hop>, <hop>)`, one on each line. |
 | `{root}` | The absolute path of the root. If `root` in `course.json` is relative, it is relative to `<course-dir>`. |
 | `{lang}` | The `lang` of `course.json`. |
 | `{review}` | `on` when `review` in `course.json` is `true`, else `off`. |
@@ -264,7 +303,8 @@ The prompt `lesson-task.md` is a template, as `map-task.md` is. Fill its names l
 1. Run `python3 <skill-dir>/scripts/course.py hub <course-dir>`. It writes `index.html` from
    `course.json`, and it prints `hub: wrote <path>`.
 2. Before it writes, `hub` runs `check`. If `check` finds failures, `hub` prints them and writes nothing.
-   Fix the prose and the cites of `course.json`, and run `hub` again.
+   Fix the prose and the cites of `course.json`, and run `hub` again, by the stop rule of "Check and
+   stop".
 3. A change of shape needs a new approval. The shape is the hops, the blocks, the lessons, and the hops
    and the sources of each lesson. After a change of shape, go to "Check and stop".
 4. Run `<skill-dir>/scripts/verify.sh index.html` in `<course-dir>`. Each line must show `ok`, except that
@@ -280,10 +320,22 @@ media: ok
 bpmn: ok
 ```
 
-5. Do steps 2 to 4 of "Verify and export" in `<skill-dir>/rungs/page.md`: the snapshots, and the read of
-   the tiles.
-6. Fix each fault in `course.json`. Never edit `index.html`: `hub` writes it again. Then do steps 1 to 5
-   again. Repeat until all are clean.
+5. Run the snapshots of steps 2 and 3 of "Verify and export" in `<skill-dir>/rungs/page.md`. Read the
+   tiles with the Read tool. Never read the full PNGs.
+6. In the tiles, look for these faults:
+   - text that overflows its box, or that the page cuts;
+   - a nav that overflows;
+   - a flow diagram that does not fit at 500 px;
+   - text that you cannot read;
+   - text that gives a false picture of the flow.
+7. Run `grep -o 'href="lessons/[^"]*"' index.html`. Look for one more fault: a link to a lesson that is
+   not `done`.
+8. Fix each fault in `course.json`. Never edit `index.html`: `hub` writes it again. Then do steps 1 to 7
+   again. Repeat until all are clean, by the stop rule of "Check and stop". A fault that an edit of
+   `course.json` cannot fix stops the run.
+
+The other checks of step 4 of "Verify and export" do not apply to a hub. A block section of the hub holds
+no `div.cites`: the cites of the hub are on the hops of the flow section.
 
 The `media` check of a hub counts each link into `lessons/` that names no file. `hub` sets `state` to
 `done` when no lesson is `pending` or `building`.

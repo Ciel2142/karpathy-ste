@@ -63,14 +63,25 @@ Add a `Sources` row to the `<dl>` of the provenance, after the `Source` row:
 <div class="wide"><dt>Sources</dt><dd><source-id> <commit> <dirty>; <source-id> <commit> <dirty></dd></div>
 ```
 
-Write one entry for each source of the lesson. Run the commands of the provenance recipe of `sheet.md` in
-the directory of each source, not in `{root}`. `<commit>` is the short hash, or `none` outside git.
-`<dirty>` is `dirty` or `no`, as the recipe says.
+Write one entry for each source of the lesson. `<dir>` is the directory of the source under `{root}`. Run
+these two commands for each source:
+
+```
+git -C <dir> rev-parse --short HEAD
+git -C <dir> status --porcelain
+```
+
+`<commit>` is the short hash, or `none` outside git. `<dirty>` is `dirty` when the second command prints
+something, else `no`. Do not use `git rev-parse --show-toplevel`: `data-root` is `{root}`.
+
+The `untracked` mark of convention 2 applies to each cited file. Run `git -C <dir> ls-files
+--error-unmatch <path>`, with `<path>` relative to `<dir>`. If it fails inside a repository, mark the
+file `untracked`.
 
 ### Scope
 
-Cover only the hops of your lesson. These are the other lessons of the course, with their ids and their
-questions:
+Cover only the hops of your lesson. These are the other lessons of the course, with their ids, their
+questions and their hops:
 
 {other_lessons}
 

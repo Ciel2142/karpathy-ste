@@ -17,6 +17,11 @@ and the {name} set of the rung is the union of PLACEHOLDERS (its fill table). Th
 the seven verify.sh lines of a lesson (LESSON_PASS, the media line and the bpmn line): a hub prints the same
 seven lines. Each text of RUNG_TEXTS occurs in the rung. The three files pass the STE lint.
 
+Fix round 1 of the review adds: the video workspace is set up once, before the build loop, with the engine of
+the course language (WORKSPACE_COMMAND); each fix loop has the stop rule (STOP_RULE); the hub read names its
+own checks; discovery is bounded and searches INCLUDES; the Sources row names its two git commands
+(SOURCES_COMMANDS). FIX_TEXTS holds the sentences of that round.
+
 This module imports helpers from test_rung_drift.py and test_lesson_prompts.py, and LESSON_PASS from
 test_verify.py; no module imports this one. Each test names the mutation that turns it red."""
 
@@ -80,6 +85,36 @@ RUNG_TEXTS = (
     "Build nothing before the user approves the plan.",
     "`--review` has no effect on a resume",
 )
+# Fix round 1 of the review (task-6-review.md I1-I3, M1-M3, M6, M9): rules of the rung that keep a live run on
+# a large directory bounded and give each fix loop an exit.
+STOP_RULE = "Stop a fix loop after 3 rounds in which the same failure lines come back."
+FIX_TEXTS = (
+    STOP_RULE,
+    # I3: the hub has no cite in a block section, so the per-section cite rule of page.md does not apply
+    "The other checks of step 4 of \"Verify and export\" do not apply to a hub. A block section of the hub holds "
+    "no `div.cites`: the cites of the hub are on the hops of the flow section.",
+    # M1: a map that is not there failed; a subagent that never returns stops the run
+    "A `map: done` line with no readable `map/<source-id>.md` counts as `map: failed`.",
+    "A map subagent or a lesson subagent that does not return stops the run.",
+    # M6: discovery stays bounded
+    "Drop each handle that matches more than 5 candidates.",
+    "Keep 8 discovered sources at most.",
+    "`more than 8 discovered sources`",
+    # M3: the neighbour lesson of a hop can be named
+    "`<id>: <question> (hops: <hop>, <hop>)`",
+    # M2: a FAIL line can hold a double quote
+    "--reason '<line>'",
+)
+# M6: the text types of the sources that discovery searches.
+INCLUDES = ("java", "kt", "xml", "yml", "yaml", "properties", "json", "md", "proto", "sql", "xsl", "xslt", "go",
+            "ts", "py", "cs", "conf")
+# M9: the two commands of the Sources row, and the untracked mark per source.
+SOURCES_COMMANDS = ("git -C <dir> rev-parse --short HEAD", "git -C <dir> status --porcelain",
+                    "Do not use `git rev-parse --show-toplevel`: `data-root` is `{root}`.",
+                    "`git -C <dir> ls-files --error-unmatch <path>`")
+WORKSPACE_SH = EXPLAIN / "scripts" / "video-workspace.sh"
+WORKSPACE_COMMAND = "<skill-dir>/scripts/video-workspace.sh --engine <engine>"
+WORKSPACE_LINES = ("workspace: ok <ws>", "workspace: FAIL <step>")
 SEVEN_LINES = LESSON_PASS.splitlines() + ["media: ok", "bpmn: ok"]
 OPTIONS = ("--limit", "--reason")
 
@@ -122,6 +157,12 @@ class CoursePromptCase(unittest.TestCase):
         skeletons = [[line[3:] for line in lines if line.startswith("## ")]
                      for _, lines in fenced_blocks(prompt(MAP))]
         self.assertIn(list(MAP_SECTIONS), skeletons)
+
+    # red: the Sources row back to "the commands of the provenance recipe" (four commands, --show-toplevel among
+    # them), or the untracked mark without its per-source command
+    def test_lesson_task_names_the_sources_commands(self):
+        text = squash(prompt(LESSON))
+        self.assertEqual([want for want in SOURCES_COMMANDS if squash(want) not in text], [])
 
     # red: a sentence of 26 words, a contraction or a word of the substitution table in a prompt
     def test_prompts_lint_clean(self):
@@ -170,6 +211,37 @@ class CourseRungCase(unittest.TestCase):
     def test_rung_holds_its_rules(self):
         text = squash(self.text)
         self.assertEqual([want for want in RUNG_TEXTS if squash(want) not in text], [])
+
+    # red (I1): the workspace set up by each lesson in parallel (the command left out of the build, or after the
+    # loop), the engine not tied to the course language, or a workspace line that the script never prints
+    def test_workspace_is_set_up_once_before_the_build_loop(self):
+        build = section(self.text, "Build the lessons")
+        self.assertIn(WORKSPACE_COMMAND, build)
+        self.assertLess(build.index(WORKSPACE_COMMAND), build.index("Do this loop:"))
+        self.assertIn(squash("`kokoro` for `en`, and `silero` for `ru`"), squash(build))
+        header = read(WORKSPACE_SH)
+        for line in WORKSPACE_LINES:
+            with self.subTest(line=line):
+                self.assertIn(line, build)
+                self.assertIn(line, header)
+
+    # red (I2, I3, M1-M3, M6): a fix loop without the stop rule, the hub step back to "steps 2 to 4" of page.md,
+    # discovery unbounded, a reason in double quotes, or {other_lessons} without the hops
+    def test_rung_holds_the_fixes_of_the_review(self):
+        text = squash(self.text)
+        self.assertEqual([want for want in FIX_TEXTS if squash(want) not in text], [])
+        for title in ("Revise", "Write the hub"):
+            with self.subTest(section=title):
+                self.assertIn("by the stop rule of", squash(section(self.text, title)))
+        self.assertNotIn("Do steps 2 to 4", text)
+        self.assertNotIn('--reason "', text)
+
+    # red (M6): a text type of the sources left out of the discovery command
+    def test_discovery_searches_the_text_types(self):
+        commands = [line for _, lines in fenced_blocks(section(self.text, "Discover")) for line in lines]
+        self.assertEqual(len(commands), 1)
+        found = re.findall(r"--include='\*\.(\w+)'", commands[0])
+        self.assertEqual(sorted(found), sorted(INCLUDES))
 
     # red: the resume or the build left out of the rung, or the steps out of the order of spec section 9
     def test_rung_sections_follow_the_build(self):
