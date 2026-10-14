@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Course plan for `explain --as course`: reads, writes and checks `course.json`.
 
-Usage: see USAGE below (check, summary, approve, next, mark, reopen).
+Usage: see USAGE below (check, summary, approve, next, mark, reopen, hub).
 Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error.
 
 `<dir>` is the course output directory; it holds `course.json` and `lessons/<id>/`.
@@ -35,10 +35,13 @@ USAGE = (
     "       course.py mark <dir> <lesson-id> pending|building|done|failed|dropped"
     " [--reason TEXT]\n"
     "       course.py reopen <dir>\n"
+    "       course.py hub <dir>\n"
 )
 STATE_CHANGED = "state: plan changed after approval; run summary and approve again"
 STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 COURSE_FILE = "course.json"
+HUB_FILE = "index.html"
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "page.html")
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 STATES = ("planned", "approved", "done")
 SOURCE_KINDS = ("code", "docs")
@@ -614,6 +617,36 @@ def summary(course_dir, course):
     return lines
 
 
+# --- hub ------------------------------------------------------------------------------
+
+
+def render_hub(course_dir, course, template):
+    """The hub HTML (spec section 7) in the chrome of `template`, the text of page.html.
+
+    The rendering lives in course_hub.py; it raises ValueError on a template without its
+    anchors. The import is here, not at the top: course_hub imports this module."""
+    import course_hub
+
+    return course_hub.render_hub(course_dir, course, template)
+
+
+def _write_atomic(path, text):
+    """Write `text` to `path` through a temporary file in the same directory."""
+    fd, temp = tempfile.mkstemp(prefix=".hub.", suffix=".tmp", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    except BaseException:
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        raise
+
+
 # --- command line ---------------------------------------------------------------------
 
 
@@ -758,6 +791,29 @@ def _command_reopen(args):
     return 0
 
 
+def _command_hub(args):
+    if len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(args[0])
+    if course is None:
+        return 2
+    path = os.path.join(args[0], HUB_FILE)
+    try:
+        with open(TEMPLATE, encoding="utf-8") as handle:
+            template = handle.read()
+        _write_atomic(path, render_hub(args[0], course, template))
+    except (OSError, ValueError) as error:
+        sys.stderr.write("course: hub: %s\n" % " ".join(str(error).split()))
+        return 2
+    # approved -> done only when no lesson is open (spec 5.1); a planned course stays planned
+    if course.get("state") == "approved" and not next_lessons(course, None):
+        course["state"] = "done"
+        save(args[0], course)
+    sys.stdout.write("hub: wrote %s\n" % path)
+    return 0
+
+
 COMMANDS = {
     "check": _command_check,
     "summary": _command_summary,
@@ -765,6 +821,7 @@ COMMANDS = {
     "next": _command_next,
     "mark": _command_mark,
     "reopen": _command_reopen,
+    "hub": _command_hub,
 }
 
 

@@ -645,7 +645,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
         self.assertIn("poster", proc.stderr)
-        self.assertIn("(expected sheet, page, video or lesson)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson or course)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_unknown_rung_message_lists_lesson(self):
@@ -656,7 +656,7 @@ class VerifyTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
-        self.assertIn("(expected sheet, page, video or lesson)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson or course)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_no_argument_or_unreadable_file_is_a_usage_error(self):
