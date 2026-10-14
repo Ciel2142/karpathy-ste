@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Course plan for `explain --as course`: reads, writes and checks `course.json`.
 
-Usage: see USAGE below (check, approve, next, mark, reopen).
+Usage: see USAGE below (check, summary, approve, next, mark, reopen).
 Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error.
 
 `<dir>` is the course output directory; it holds `course.json` and `lessons/<id>/`.
@@ -23,11 +23,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 
 import cite_check
 
 USAGE = (
     "usage: course.py check <dir>\n"
+    "       course.py summary <dir>\n"
     "       course.py approve <dir>\n"
     "       course.py next <dir> [--limit N]\n"
     "       course.py mark <dir> <lesson-id> pending|building|done|failed|dropped"
@@ -476,6 +478,142 @@ def _find_lesson(course, ident):
     return next((lesson for lesson in _lessons(course) if lesson.get("id") == ident), None)
 
 
+# --- summary --------------------------------------------------------------------------
+
+WIDTH = 100
+SLOTS = 3  # lessons built at once
+MINUTES_PER_LESSON = 30
+
+
+def source_dir(course_dir, course, source):
+    """The absolute directory to run git in for `source`: its path under the course `root`,
+    or the parent directory when that path is a file."""
+    root = resolve_root(course_dir, course.get("root") if isinstance(course.get("root"), str)
+                        else "")
+    path = os.path.normpath(os.path.join(root, source.get("path") or ""))
+    return os.path.dirname(path) if os.path.isfile(path) else path
+
+
+def git_state(directory):
+    """`(short commit, dirty)` of the repository that holds `directory`.
+
+    Outside git, or when git is missing or `directory` does not exist, it is `("none", False)`.
+    Dirty means `git status --porcelain` printed something (SKILL.md, convention 2)."""
+    def run(*args):
+        return subprocess.run(
+            ["git", "-C", directory, *args], capture_output=True, text=True, timeout=30
+        )
+
+    try:
+        head = run("rev-parse", "--short", "HEAD")
+        if head.returncode != 0 or not head.stdout.strip():
+            return "none", False
+        status = run("status", "--porcelain")
+    except (OSError, subprocess.SubprocessError):
+        return "none", False
+    return head.stdout.strip(), status.returncode == 0 and bool(status.stdout.strip())
+
+
+def moved(recorded_commit, recorded_dirty, state):
+    """`moved:` text when the current `(commit, dirty)` differs from the record, else None."""
+    commit, dirty = state
+    if commit != recorded_commit:
+        return "moved: %s -> %s" % (recorded_commit, commit)
+    if dirty != bool(recorded_dirty):
+        return "moved: dirty"
+    return None
+
+
+def build_estimate(remaining):
+    """Hours to build `remaining` lessons `SLOTS` at once, rounded up to a half hour."""
+    half_hours = -(-remaining * MINUTES_PER_LESSON // (SLOTS * 30))
+    return "%g" % (half_hours / 2)
+
+
+def _wrap(text, indent, hang=None):
+    return textwrap.wrap(
+        text, width=WIDTH, initial_indent=" " * indent,
+        subsequent_indent=" " * (indent + 4 if hang is None else hang),
+        break_long_words=False, break_on_hyphens=False,
+    ) or [" " * indent]
+
+
+def _summary_sources(course_dir, course):
+    lines = ["Sources"]
+    for source in _objects(course.get("sources")):
+        head = "%s  %s  %s" % (source.get("id"), source.get("kind"), source.get("found"))
+        lines += _wrap(head, 2)
+        if source.get("why"):
+            lines += _wrap(source["why"], 4, 4)
+        note = moved(source.get("commit"), source.get("dirty"),
+                     git_state(source_dir(course_dir, course, source)))
+        if note:
+            lines += _wrap(note, 4, 4)
+    return lines
+
+
+def _summary_hops(course):
+    hops = _objects(course.get("hops"))
+    ids = {hop.get("id") for hop in hops}
+    children = {}
+    for hop in hops:
+        if isinstance(hop.get("branch"), str) and hop["branch"] in ids:
+            children.setdefault(hop["branch"], []).append(hop)
+    lines, seen = ["Main path"], set()
+
+    def show(hop, depth):
+        if id(hop) in seen:
+            return
+        seen.add(id(hop))
+        evidence = hop.get("evidence")
+        if depth:
+            evidence = "%s, fails at %s" % (evidence, hop.get("branch"))
+        text = "%s  %s \u2192 %s  (%s)" % (hop.get("id"), hop.get("from"), hop.get("to"), evidence)
+        lines.extend(_wrap(text, 2 + 4 * depth))
+        for child in children.get(hop.get("id"), []):
+            show(child, depth + 1)
+
+    for hop in hops:
+        if not (isinstance(hop.get("branch"), str) and hop["branch"] in ids):
+            show(hop, 0)
+    for hop in hops:  # a branch loop that no main-path hop reaches: still listed
+        show(hop, 1)
+    return lines
+
+
+def _summary_blocks(course):
+    lines = ["Blocks and lessons"]
+    for block in _objects(course.get("blocks")):
+        lines += _wrap("%s: %s" % (block.get("id"), block.get("title")), 2)
+        for lesson in _objects(block.get("lessons")):
+            text = "%s  %s  [%s]  %s" % (
+                lesson.get("id"), lesson.get("question"), ", ".join(_names(lesson.get("hops"))),
+                lesson.get("status"),
+            )
+            if lesson.get("reason"):
+                text += " (%s)" % lesson["reason"]
+            lines += _wrap(text, 4)
+    return lines
+
+
+def summary(course_dir, course):
+    """The plan as plain text lines for the approval stop. Changes no state."""
+    lessons = _lessons(course)
+    remaining = sum(1 for lesson in lessons if lesson.get("status") not in ("done", "dropped"))
+    lines = _wrap(str(course.get("title")), 0, 2) + _wrap(str(course.get("question")), 0, 2)
+    for part in (
+        _summary_sources(course_dir, course),
+        _summary_hops(course),
+        _summary_blocks(course),
+    ):
+        lines += [""] + part
+    lines += ["", "lessons: %d (%d to build), about %s h at %d at once"
+              % (len(lessons), remaining, build_estimate(remaining), SLOTS)]
+    for text in course.get("not_covered") if isinstance(course.get("not_covered"), list) else []:
+        lines += _wrap("not covered: %s" % text, 0, 4)
+    return lines
+
+
 # --- command line ---------------------------------------------------------------------
 
 
@@ -516,6 +654,17 @@ def _command_check(args):
         course["state"] = "planned"
         save(args[0], course)
     return _report(failures)
+
+
+def _command_summary(args):
+    if len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(args[0])
+    if course is None:
+        return 2
+    sys.stdout.write("\n".join(summary(args[0], course)) + "\n")
+    return 0
 
 
 def _command_approve(args):
@@ -611,6 +760,7 @@ def _command_reopen(args):
 
 COMMANDS = {
     "check": _command_check,
+    "summary": _command_summary,
     "approve": _command_approve,
     "next": _command_next,
     "mark": _command_mark,

@@ -645,5 +645,164 @@ class StateCase(CourseCase):
         self.assertEqual(course.load(self.dir)["state"], "approved")
 
 
+class SummaryCase(CourseCase):
+    """`course.py summary`: the plan as the user reads it at the approval stop."""
+
+    def summary(self):
+        code, out, err = run_cli("summary", self.dir)
+        self.assertEqual((code, err), (0, ""))
+        return out
+
+    def git(self, *args, cwd=None):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        import subprocess
+
+        return subprocess.run(
+            ["git", "-C", cwd or self.root, *args], check=True, env=env,
+            capture_output=True, text=True,
+        ).stdout.strip()
+
+    def make_repo(self):
+        """Turn the fake root into a git repository with one commit; return its short hash."""
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "init")
+        return self.git("rev-parse", "--short", "HEAD")
+
+    def test_summary_lists_every_lesson_and_hop(self):
+        out = self.summary()
+        for hop in self.course["hops"]:
+            self.assertIn(hop["from"] + " \u2192 " + hop["to"], out)
+        for lesson in (l for b in self.course["blocks"] for l in b["lessons"]):
+            self.assertIn(lesson["id"], out)
+            self.assertIn(lesson["question"], out)
+        self.assertIn(self.course["title"], out)
+        self.assertIn(self.course["question"], out)
+        self.assertIn("svc-a  code  named", out)
+        self.assertIn("docs-b  docs  discovered", out)
+        self.assertIn("This service takes the message and checks it.", out)
+        self.assertIn("not covered: The admin screen", out)
+        self.assertNotIn("moved:", out)
+        self.assertNotIn("\x1b", out)
+        for line in out.splitlines():
+            self.assertLessEqual(len(line), 100, line)
+
+    def test_summary_lesson_line_has_id_question_hops_status(self):
+        out = self.summary()
+        self.assertIn(
+            "entry-receive  How does the service take a message?  [receive, validate]  done", out
+        )
+        self.assertIn("entry-reject  What happens to a bad message?  [reject]  pending", out)
+
+    def test_summary_indents_a_failure_hop_under_its_branch_hop(self):
+        lines = self.summary().splitlines()
+        by_hop = {}
+        for line in lines:
+            for hop in ("receive", "validate", "reject", "deliver", "confirm"):
+                if line.strip().startswith(hop + "  "):
+                    by_hop[hop] = line
+        indent = {hop: len(line) - len(line.lstrip()) for hop, line in by_hop.items()}
+        self.assertEqual(sorted(by_hop), ["confirm", "deliver", "receive", "reject", "validate"])
+        self.assertEqual(indent["receive"], indent["validate"])
+        self.assertGreater(indent["reject"], indent["validate"])
+        self.assertEqual(lines.index(by_hop["reject"]), lines.index(by_hop["validate"]) + 1)
+        self.assertLess(lines.index(by_hop["reject"]), lines.index(by_hop["deliver"]))
+        self.assertIn("(code)", by_hop["receive"])
+        self.assertIn("(inferred)", by_hop["confirm"])
+
+    def test_summary_estimates_the_remaining_build_time(self):
+        # one of three lessons is done: 2 x 30 min / 3 = 20 min, up to the next half hour
+        self.assertIn("lessons: 3 (2 to build), about 0.5 h at 3 at once", self.summary())
+        self.lesson("entry-receive")["status"] = "pending"
+        course.save(self.dir, self.course)  # 3 x 30 / 3 = 30 min
+        self.assertIn("lessons: 3 (3 to build), about 0.5 h at 3 at once", self.summary())
+        self.course["blocks"][0]["lessons"].append(
+            dict(self.lesson("entry-reject"), id="entry-extra")
+        )
+        course.save(self.dir, self.course)  # 4 x 30 / 3 = 40 min -> 1 h
+        self.assertIn("lessons: 4 (4 to build), about 1 h at 3 at once", self.summary())
+
+    def test_summary_does_not_count_dropped_lessons_as_to_build(self):
+        self.lesson("entry-reject").update(status="dropped", reason="User asked.")
+        course.save(self.dir, self.course)
+        out = self.summary()
+        self.assertIn("lessons: 3 (1 to build), about 0.5 h at 3 at once", out)
+        self.assertIn("entry-reject  What happens to a bad message?  [reject]  dropped", out)
+        self.assertIn("User asked.", out)
+
+    def test_summary_marks_moved_source(self):
+        head = self.make_repo()
+        for source in self.course["sources"]:
+            source["commit"] = head
+        self.course["sources"][0]["commit"] = "0000000"
+        course.save(self.dir, self.course)
+        out = self.summary()
+        self.assertIn("moved: 0000000 -> %s" % head, out)
+        self.assertEqual(out.count("moved:"), 1)
+
+    def test_summary_marks_dirty_only_when_the_flag_differs(self):
+        head = self.make_repo()
+        for source in self.course["sources"]:
+            source["commit"] = head
+        course.save(self.dir, self.course)
+        self.assertNotIn("moved:", self.summary())
+        Path(self.root, "svc-a", "Handler.java").write_text("changed\n", encoding="utf-8")
+        self.assertEqual(self.summary().count("moved: dirty"), 2)
+
+    def test_summary_uses_the_directory_of_a_file_source(self):
+        head = self.make_repo()
+        self.course["sources"][0]["path"] = "svc-a/Handler.java"
+        self.course["sources"][0]["commit"] = "0000000"
+        self.course["sources"][1]["commit"] = head
+        course.save(self.dir, self.course)
+        self.assertIn("moved: 0000000 -> %s" % head, self.summary())
+
+    def test_summary_source_outside_git_shows_none(self):
+        self.course["sources"][0]["commit"] = "abc1234"
+        course.save(self.dir, self.course)
+        self.assertIn("moved: abc1234 -> none", self.summary())
+
+    def test_git_state_outside_git_is_none_and_clean(self):
+        self.assertEqual(course.git_state(self.root), ("none", False))
+        self.assertEqual(course.git_state(os.path.join(self.root, "missing")), ("none", False))
+
+    def test_git_state_reads_commit_and_dirty(self):
+        head = self.make_repo()
+        self.assertEqual(course.git_state(self.root), (head, False))
+        Path(self.root, "new.txt").write_text("x", encoding="utf-8")
+        self.assertEqual(course.git_state(self.root), (head, True))
+
+    def test_summary_changes_no_state_and_works_when_planned_or_done(self):
+        for state in ("planned", "approved", "done"):
+            self.course["state"] = state
+            course.save(self.dir, self.course)
+            before = Path(self.dir, "course.json").read_bytes()
+            self.assertIn(self.course["title"], self.summary())
+            self.assertEqual(Path(self.dir, "course.json").read_bytes(), before)
+
+    def test_summary_missing_course_json_exits_2(self):
+        os.remove(os.path.join(self.dir, "course.json"))
+        code, out, err = run_cli("summary", self.dir)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("course.json", err)
+
+    def test_summary_usage_error_exits_2(self):
+        for argv in (["summary"], ["summary", "a", "b"]):
+            code, out, err = run_cli(*argv)
+            self.assertEqual((code, out), (2, ""))
+            self.assertIn("usage:", err)
+
+    def test_summary_wraps_long_text_within_100_characters(self):
+        self.course["sources"][0]["why"] = " ".join(["word"] * 60)
+        self.lesson("entry-reject")["question"] = " ".join(["ask"] * 60)
+        self.course["not_covered"] = [" ".join(["gap"] * 60)]
+        course.save(self.dir, self.course)
+        out = self.summary()
+        self.assertIn("ask", out)
+        for line in out.splitlines():
+            self.assertLessEqual(len(line), 100, line)
+
+
 if __name__ == "__main__":
     unittest.main()
