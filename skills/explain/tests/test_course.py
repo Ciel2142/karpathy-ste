@@ -11,6 +11,7 @@ thing and expects exactly the failure line of that change.
 
 import contextlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -320,6 +321,287 @@ class CheckCase(CourseCase):
             capture_output=True, text=True,
         )
         self.assertEqual((result.returncode, result.stdout), (0, "course: ok\n"))
+
+
+class ProseCase(CourseCase):
+    def test_prose_error_is_reported(self):
+        self.hop("receive")["what"] = "The service utilizes the queue."
+        failures = self.failures()
+        self.assertEqual(len(failures), 1)
+        self.assertRegex(failures[0], r'^prose: \d+:\d+  E WORD  "utilizes" is not approved')
+
+    def test_prose_checks_every_field(self):
+        self.course["title"] = "The service utilizes a queue."
+        self.course["not_covered"] = ["The admin screen utilizes a queue."]
+        self.lesson("entry-reject")["brief"] = "Utilizes the queue."
+        self.assertEqual(len(self.failures()), 3)
+        self.assertTrue(all(f.startswith("prose: ") for f in self.failures()))
+
+    def test_prose_is_escaped_into_html(self):
+        self.course["question"] = "What is the <b> tag & the rest?"
+        self.only()
+
+    def test_prose_lint_missing_is_a_failure(self):
+        with mock.patch.object(course, "_find_ste_lint", return_value=None):
+            self.only("prose: ste_lint.py not found")
+
+
+class StateCase(CourseCase):
+    def cli(self, *argv):
+        return run_cli(*argv[:1], self.dir, *argv[1:])
+
+    def approve(self):
+        code, out, err = self.cli("approve")
+        self.assertEqual((code, out, err), (0, "", ""))
+        self.course = course.load(self.dir)
+
+    def state_of(self, lesson_id):
+        return self.lesson(lesson_id)["status"]
+
+    # approve
+
+    def test_approve_sets_state_and_shape(self):
+        self.approve()
+        self.assertEqual(self.course["state"], "approved")
+        self.assertEqual(self.course["approved_shape"], course.shape(self.course))
+
+    def test_approve_refuses_dirty_plan(self):
+        self.hop("receive")["cites"] = []
+        course.save(self.dir, self.course)
+        code, out, _ = self.cli("approve")
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            out.splitlines(),
+            ["hop receive: code hop needs a cite", "course: 1 failures"],
+        )
+        reloaded = course.load(self.dir)
+        self.assertEqual(reloaded["state"], "planned")
+        self.assertNotIn("approved_shape", reloaded)
+
+    def test_approve_after_a_shape_change_approves_the_new_shape(self):
+        self.approve()
+        self.lesson("entry-reject")["hops"] = ["reject", "validate"]
+        course.save(self.dir, self.course)
+        self.approve()
+        self.assertEqual(self.course["approved_shape"], course.shape(self.course))
+
+    def test_approve_refuses_a_done_course(self):
+        self.course["state"] = "done"
+        course.save(self.dir, self.course)
+        code, out, err = self.cli("approve")
+        self.assertEqual((code, out, err), (1, "", "approve: course already done\n"))
+
+    # next
+
+    def test_next_refuses_planned(self):
+        code, out, err = self.cli("next")
+        self.assertEqual((code, out, err), (1, "", "next: course not approved\n"))
+
+    def test_next_lists_pending_and_building_in_plan_order(self):
+        self.approve()
+        self.lesson("exit-deliver")["status"] = "building"
+        course.save(self.dir, self.course)
+        code, out, _ = self.cli("next")
+        self.assertEqual((code, out), (0, "entry-reject\nexit-deliver\n"))
+
+    def test_next_limit(self):
+        self.approve()
+        code, out, _ = self.cli("next", "--limit", "1")
+        self.assertEqual((code, out), (0, "entry-reject\n"))
+        self.assertEqual(course.next_lessons(self.course, 1), ["entry-reject"])
+        self.assertEqual(
+            course.next_lessons(self.course, None), ["entry-reject", "exit-deliver"]
+        )
+
+    def test_next_limit_must_be_a_positive_integer(self):
+        self.approve()
+        for bad in ("0", "-1", "x"):
+            with self.subTest(limit=bad):
+                code, out, err = self.cli("next", "--limit", bad)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("usage:", err)
+
+    # mark
+
+    def test_mark_done_needs_index(self):
+        code, out, err = self.cli("mark", "entry-reject", "done")
+        self.assertEqual(
+            (code, out, err),
+            (1, "", "mark: done needs lessons/entry-reject/index.html\n"),
+        )
+        self.assertEqual(course.load(self.dir), self.course)
+        lesson_dir = os.path.join(self.dir, "lessons", "entry-reject")
+        os.makedirs(lesson_dir)
+        Path(lesson_dir, "index.html").write_text("<html></html>", encoding="utf-8")
+        self.assertEqual(self.cli("mark", "entry-reject", "done")[0], 0)
+        self.assertEqual(
+            self.lesson_status_on_disk("entry-reject"), "done"
+        )
+
+    def lesson_status_on_disk(self, lesson_id):
+        self.course = course.load(self.dir)
+        return self.state_of(lesson_id)
+
+    def test_mark_failed_needs_reason(self):
+        for status in ("failed", "dropped"):
+            with self.subTest(status=status):
+                code, out, err = self.cli("mark", "entry-reject", status)
+                self.assertEqual(
+                    (code, out, err), (1, "", "mark: %s needs --reason\n" % status)
+                )
+        self.assertEqual(self.lesson_status_on_disk("entry-reject"), "pending")
+
+    def test_mark_failed_with_reason_is_saved(self):
+        code, out, _ = self.cli("mark", "entry-reject", "failed", "--reason", "verify.sh: bpmn")
+        self.assertEqual((code, out), (0, ""))
+        lesson = course.load(self.dir)
+        self.course = lesson
+        self.assertEqual(self.state_of("entry-reject"), "failed")
+        self.assertEqual(self.lesson("entry-reject")["reason"], "verify.sh: bpmn")
+
+    def test_mark_reason_only_for_failed_or_dropped(self):
+        for status in ("pending", "building", "done"):
+            with self.subTest(status=status):
+                code, out, err = self.cli("mark", "entry-receive", status, "--reason", "x")
+                self.assertEqual(
+                    (code, out, err), (1, "", "mark: --reason only for failed or dropped\n")
+                )
+
+    def test_mark_clears_reason_when_retrying(self):
+        self.cli("mark", "entry-reject", "dropped", "--reason", "User dropped it.")
+        self.assertEqual(self.cli("mark", "entry-reject", "pending")[0], 0)
+        self.course = course.load(self.dir)
+        self.assertEqual(self.lesson("entry-reject")["reason"], "")
+        self.assertEqual(self.failures(), [])
+
+    def test_mark_building_allows_an_existing_lesson_directory(self):
+        lesson_dir = os.path.join(self.dir, "lessons", "entry-receive")
+        self.assertTrue(os.path.isdir(lesson_dir))
+        self.assertEqual(self.cli("mark", "entry-receive", "building")[0], 0)
+        self.assertTrue(os.path.isdir(lesson_dir))
+
+    def test_mark_unknown_lesson(self):
+        code, out, err = self.cli("mark", "nowhere", "pending")
+        self.assertEqual((code, out, err), (1, "", "mark: unknown lesson nowhere\n"))
+
+    def test_mark_usage_errors(self):
+        for argv in (
+            ["mark", self.dir, "entry-reject"],
+            ["mark", self.dir, "entry-reject", "stuck"],
+            ["mark", self.dir, "entry-reject", "failed", "--reason"],
+            ["mark", self.dir, "entry-reject", "failed", "--why", "x"],
+        ):
+            with self.subTest(argv=argv):
+                code, out, err = run_cli(*argv)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("usage:", err)
+
+    # reopen
+
+    def test_reopen_resets_failed_only(self):
+        self.lesson("entry-reject").update(status="failed", reason="timeout")
+        self.lesson("exit-deliver").update(status="dropped", reason="User dropped it.")
+        course.save(self.dir, self.course)
+        code, out, _ = self.cli("reopen")
+        self.assertEqual((code, out), (0, "entry-reject\n"))
+        self.course = course.load(self.dir)
+        self.assertEqual(self.state_of("entry-reject"), "pending")
+        self.assertEqual(self.lesson("entry-reject")["reason"], "")
+        self.assertEqual(self.state_of("exit-deliver"), "dropped")
+        self.assertEqual(self.state_of("entry-receive"), "done")
+
+    def test_reopen_without_failed_changes_nothing(self):
+        before = Path(self.dir, "course.json").read_text(encoding="utf-8")
+        self.assertEqual(self.cli("reopen"), (0, "", ""))
+        self.assertEqual(Path(self.dir, "course.json").read_text(encoding="utf-8"), before)
+
+    def test_reopen_done_course_returns_to_approved(self):
+        self.course["state"] = "done"
+        self.lesson("exit-deliver").update(status="failed", reason="timeout")
+        course.save(self.dir, self.course)
+        code, out, _ = self.cli("reopen")
+        self.assertEqual((code, out), (0, "exit-deliver\n"))
+        self.assertEqual(course.load(self.dir)["state"], "approved")
+
+    def test_reopen_done_course_without_failed_stays_done(self):
+        self.course["state"] = "done"
+        course.save(self.dir, self.course)
+        self.assertEqual(self.cli("reopen")[0], 0)
+        self.assertEqual(course.load(self.dir)["state"], "done")
+
+    # shape
+
+    def test_shape_ignores_prose_and_cites(self):
+        before = course.shape(self.course)
+        self.course["title"] = "Other"
+        self.course["question"] = "Other?"
+        self.course["not_covered"] = []
+        self.hop("receive")["what"] = "Other."
+        self.hop("receive")["from"] = "elsewhere"
+        self.hop("receive")["evidence"] = "inferred"
+        self.hop("receive")["cites"] = []
+        self.course["blocks"][0]["title"] = "Other"
+        self.lesson("entry-reject").update(question="Other?", brief="Other.", status="failed")
+        self.course["sources"][0].update(commit="abc1234", dirty=True)
+        self.assertEqual(course.shape(self.course), before)
+
+    def test_shape_changes_with_the_structure(self):
+        base = course.shape(self.course)
+        self.assertRegex(base, r"^[0-9a-f]{64}$")
+        edits = {
+            "branch": lambda c: c["hops"][2].update(branch=None),
+            "hop order": lambda c: c["hops"].reverse(),
+            "lesson hops": lambda c: c["blocks"][0]["lessons"][1].update(hops=["reject", "validate"]),
+            "lesson sources": lambda c: c["blocks"][0]["lessons"][1].update(sources=[]),
+            "lesson id": lambda c: c["blocks"][0]["lessons"][1].update(id="entry-bad"),
+            "block id": lambda c: c["blocks"][0].update(id="entrance"),
+            "block order": lambda c: c["blocks"].reverse(),
+            "hop id": lambda c: c["hops"][4].update(id="ack"),
+        }
+        for name, edit in edits.items():
+            with self.subTest(edit=name):
+                other = json.loads(json.dumps(self.course))
+                edit(other)
+                self.assertNotEqual(course.shape(other), base)
+
+    def test_shape_survives_garbage(self):
+        self.course["hops"] = ["x", None, {"id": 3}]
+        self.course["blocks"] = "none"
+        self.assertRegex(course.shape(self.course), r"^[0-9a-f]{64}$")
+
+    def test_shape_change_after_approval_resets_to_planned(self):
+        self.approve()
+        self.lesson("entry-reject")["hops"] = ["reject", "validate"]
+        course.save(self.dir, self.course)
+        code, out, _ = run_cli("check", self.dir)
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "state: plan changed after approval; run summary and approve again",
+                "course: 1 failures",
+            ],
+        )
+        self.assertEqual(course.load(self.dir)["state"], "planned")
+        # the new state is saved, so the next check reports the plain plan
+        self.assertEqual(run_cli("check", self.dir)[:2], (0, "course: ok\n"))
+
+    def test_check_function_changes_no_state(self):
+        self.approve()
+        self.lesson("entry-reject")["hops"] = ["reject", "validate"]
+        self.assertEqual(
+            self.failures(),
+            ["state: plan changed after approval; run summary and approve again"],
+        )
+        self.assertEqual(self.course["state"], "approved")
+
+    def test_prose_fix_after_approval_keeps_approved(self):
+        self.approve()
+        self.hop("receive")["what"] = "The service gets the message from the queue."
+        self.hop("receive")["cites"][0]["snippet"] = "@Listener(queue = \"IN_QUEUE\")"
+        course.save(self.dir, self.course)
+        self.assertEqual(run_cli("check", self.dir)[:2], (0, "course: ok\n"))
+        self.assertEqual(course.load(self.dir)["state"], "approved")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Course plan for `explain --as course`: reads, writes and checks `course.json`.
 
-Usage: course.py check <dir>
-Exit 0 on success, 1 on failures found, 2 on a usage or read error.
+Usage: see USAGE below (check, approve, next, mark, reopen).
+Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error.
 
 `<dir>` is the course output directory; it holds `course.json` and `lessons/<id>/`.
 `root` in `course.json` is absolute, or relative to `<dir>` (the test fixture uses the
@@ -11,19 +11,31 @@ atomic: a temporary file in the same directory, then `os.replace`.
 
 `check` prints one failure per line, then `course: ok` or `course: <n> failures`.
 Failure prefixes are fixed (plan section 4): `schema:`, `id:`, `lesson <id>:`, `hop <id>:`,
-`source <id>:`, `cite <hop>#<n>:`. The `prose:` and `state:` lines belong to later tasks.
+`source <id>:`, `cite <hop>#<n>:`, `prose:` (an `ste_lint.py --html` error line) and `state:`.
 The cite rules (snippet of at most 12 words, verbatim on that line) come from `cite_check`.
 """
 
+import hashlib
+import html
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
 import cite_check
 
-USAGE = "usage: course.py check <dir>\n"
+USAGE = (
+    "usage: course.py check <dir>\n"
+    "       course.py approve <dir>\n"
+    "       course.py next <dir> [--limit N]\n"
+    "       course.py mark <dir> <lesson-id> pending|building|done|failed|dropped"
+    " [--reason TEXT]\n"
+    "       course.py reopen <dir>\n"
+)
+STATE_CHANGED = "state: plan changed after approval; run summary and approve again"
+STE_ERROR = re.compile(r"^\d+:\d+  E ")
 COURSE_FILE = "course.json"
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 STATES = ("planned", "approved", "done")
@@ -328,10 +340,88 @@ def _check_done(course_dir, course):
     return failures
 
 
-def check(course_dir, course):
-    """Return the structural failures of `course`, one per fault; empty means ok.
+def shape(course):
+    """SHA-256 hex of the plan shape: hop ids and branches, block ids, lesson ids with their
+    hops and sources, all in order. Prose, cites, statuses and source commits are not in it."""
+    hops = [[hop.get("id"), hop.get("branch")] for hop in _objects(course.get("hops"))]
+    blocks = [
+        [
+            block.get("id"),
+            [
+                [lesson.get("id"), _names(lesson.get("hops")), _names(lesson.get("sources"))]
+                for lesson in _objects(block.get("lessons"))
+            ],
+        ]
+        for block in _objects(course.get("blocks"))
+    ]
+    canonical = json.dumps({"hops": hops, "blocks": blocks}, sort_keys=True,
+                           separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    Changes no state."""
+
+def _check_state(course):
+    if course.get("state") == "approved" and course.get("approved_shape") != shape(course):
+        return [STATE_CHANGED]
+    return []
+
+
+def _prose_fields(course):
+    fields = [course.get("title"), course.get("question")]
+    fields += [hop.get("what") for hop in _objects(course.get("hops"))]
+    for block in _objects(course.get("blocks")):
+        fields.append(block.get("title"))
+        for lesson in _objects(block.get("lessons")):
+            fields += [lesson.get("question"), lesson.get("brief")]
+    fields += course["not_covered"] if isinstance(course.get("not_covered"), list) else []
+    return [text for text in fields if isinstance(text, str) and text.strip()]
+
+
+def _find_ste_lint():
+    """Same lookup as scripts/verify.sh: the sibling skill, then the installed one."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (
+        os.path.join(here, "..", "..", "ste", "scripts", "ste_lint.py"),
+        os.path.expanduser("~/.claude/skills/ste/scripts/ste_lint.py"),
+    ):
+        if os.path.isfile(path):
+            return os.path.normpath(path)
+    return None
+
+
+def _check_prose(course):
+    """`prose:` failures: the prose fields as one HTML document through `ste_lint.py --html`."""
+    fields = _prose_fields(course)
+    if not fields:
+        return []
+    linter = _find_ste_lint()
+    if linter is None:
+        return ["prose: ste_lint.py not found"]
+    lang = course.get("lang") if isinstance(course.get("lang"), str) and course["lang"] else "en"
+    document = '<html lang="%s"><body>\n%s\n</body></html>\n' % (
+        html.escape(lang), "\n".join("<p>%s</p>" % html.escape(text) for text in fields)
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "prose.html")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(document)
+        try:
+            result = subprocess.run(
+                [sys.executable, "-B", linter, "--html", path],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            return ["prose: ste_lint.py failed: %s" % error]
+    errors = ["prose: " + line for line in result.stdout.splitlines() if STE_ERROR.match(line)]
+    if result.returncode not in (0, 1) or (result.returncode == 1 and not errors):
+        return ["prose: ste_lint.py failed: exit %d" % result.returncode]
+    return errors
+
+
+def check(course_dir, course):
+    """Return the failures of `course`, one per fault; empty means ok.
+
+    Changes no state. For an approved course whose shape moved it reports the `state:`
+    failure; the command line `check` is what then sets `state` to `planned`."""
     root = course.get("root")
     root = resolve_root(course_dir, root) if isinstance(root, str) else None
     failures = _check_schema(course)
@@ -340,7 +430,26 @@ def check(course_dir, course):
     failures += _check_hops(course, root)
     failures += _check_sources(course, root)
     failures += _check_done(course_dir, course)
+    failures += _check_prose(course)
+    failures += _check_state(course)
     return failures
+
+
+# --- state machine --------------------------------------------------------------------
+
+
+def next_lessons(course, limit):
+    """Ids of the `pending` and `building` lessons in plan order, at most `limit` of them."""
+    ids = [
+        lesson["id"]
+        for lesson in _lessons(course)
+        if lesson.get("status") in ("pending", "building") and isinstance(lesson.get("id"), str)
+    ]
+    return ids if limit is None else ids[:limit]
+
+
+def _find_lesson(course, ident):
+    return next((lesson for lesson in _lessons(course) if lesson.get("id") == ident), None)
 
 
 # --- command line ---------------------------------------------------------------------
@@ -356,14 +465,7 @@ def _load_or_report(course_dir):
         return None
 
 
-def _command_check(args):
-    if len(args) != 1:
-        sys.stderr.write(USAGE)
-        return 2
-    course = _load_or_report(args[0])
-    if course is None:
-        return 2
-    failures = check(args[0], course)
+def _report(failures):
     for failure in failures:
         sys.stdout.write(failure + "\n")
     if failures:
@@ -373,7 +475,123 @@ def _command_check(args):
     return 0
 
 
-COMMANDS = {"check": _command_check}
+def _refuse(message):
+    sys.stderr.write(message + "\n")
+    return 1
+
+
+def _command_check(args):
+    if len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(args[0])
+    if course is None:
+        return 2
+    failures = check(args[0], course)
+    if STATE_CHANGED in failures:
+        course["state"] = "planned"
+        save(args[0], course)
+    return _report(failures)
+
+
+def _command_approve(args):
+    if len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(args[0])
+    if course is None:
+        return 2
+    if course.get("state") == "done":
+        return _refuse("approve: course already done")
+    # a moved shape is what a new approval is for, so the state rule does not apply here
+    failures = check(args[0], dict(course, state="planned"))
+    if failures:
+        return _report(failures)
+    course["state"] = "approved"
+    course["approved_shape"] = shape(course)
+    save(args[0], course)
+    return 0
+
+
+def _command_next(args):
+    limit = None
+    if len(args) == 3 and args[1] == "--limit":
+        if not (args[2].isdigit() and int(args[2]) >= 1):
+            sys.stderr.write(USAGE)
+            return 2
+        limit = int(args[2])
+    elif len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(args[0])
+    if course is None:
+        return 2
+    if course.get("state") == "planned":
+        return _refuse("next: course not approved")
+    for ident in next_lessons(course, limit):
+        sys.stdout.write(ident + "\n")
+    return 0
+
+
+def _command_mark(args):
+    reason = None
+    if len(args) == 5 and args[3] == "--reason":
+        reason = args[4]
+    elif len(args) != 3:
+        sys.stderr.write(USAGE)
+        return 2
+    course_dir, ident, status = args[0], args[1], args[2]
+    if status not in STATUSES:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(course_dir)
+    if course is None:
+        return 2
+    lesson = _find_lesson(course, ident)
+    if lesson is None:
+        return _refuse("mark: unknown lesson %s" % ident)
+    if status in NEEDS_REASON and not reason:
+        return _refuse("mark: %s needs --reason" % status)
+    if status not in NEEDS_REASON and reason is not None:
+        return _refuse("mark: --reason only for failed or dropped")
+    if status == "done" and not os.path.isfile(
+        os.path.join(course_dir, "lessons", ident, "index.html")
+    ):
+        return _refuse("mark: done needs lessons/%s/index.html" % ident)
+    lesson["status"] = status
+    lesson["reason"] = reason if status in NEEDS_REASON else ""
+    save(course_dir, course)
+    return 0
+
+
+def _command_reopen(args):
+    if len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    course = _load_or_report(args[0])
+    if course is None:
+        return 2
+    reset = [lesson for lesson in _lessons(course) if lesson.get("status") == "failed"]
+    if not reset:
+        return 0
+    for lesson in reset:
+        lesson["status"] = "pending"
+        lesson["reason"] = ""
+    if course.get("state") == "done":
+        course["state"] = "approved"
+    save(args[0], course)
+    for lesson in reset:
+        sys.stdout.write("%s\n" % lesson.get("id"))
+    return 0
+
+
+COMMANDS = {
+    "check": _command_check,
+    "approve": _command_approve,
+    "next": _command_next,
+    "mark": _command_mark,
+    "reopen": _command_reopen,
+}
 
 
 def main(argv):
