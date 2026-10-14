@@ -638,6 +638,7 @@ def _write_atomic(path, text):
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(temp, 0o644)  # mkstemp makes 0600; the hub is a page to read and share
         os.replace(temp, path)
     except BaseException:
         try:
@@ -798,6 +799,11 @@ def _command_hub(args):
     course = _load_or_report(args[0])
     if course is None:
         return 2
+    # the hub draws only a plan that checks clean (a schema fault, a shape changed after
+    # approval, a done lesson without its page): print the failures and write nothing
+    failures = check(args[0], course)
+    if failures:
+        return _report(failures)
     path = os.path.join(args[0], HUB_FILE)
     try:
         with open(TEMPLATE, encoding="utf-8") as handle:

@@ -104,6 +104,22 @@ def boxes_of(html):
     return parser
 
 
+FAIL_PATH = re.compile(
+    r'<path class="fail" data-from="([^"]+)" data-to="([^"]+)" d="M(\d+) (\d+) V(\d+) H(\d+)"')
+
+
+def fail_paths(html):
+    """{(from hop, to hop): (x, y1, y2, x2)} of the dashed "on failure" connectors."""
+    return {(m[0], m[1]): tuple(int(n) for n in m[2:]) for m in FAIL_PATH.findall(html)}
+
+
+def text_of(html):
+    """The visible text of the HTML, tags removed, character references decoded."""
+    import html as html_module
+
+    return html_module.unescape(re.sub(r"<[^>]+>", "", html))
+
+
 def lesson_hrefs(html):
     return re.findall(r'href="(lessons/[^"]*)"', html)
 
@@ -185,9 +201,41 @@ class HubStaticTest(HubCase):
         self.assertEqual(len({r["y"] for r in main}), 1, "main hops share one row")
         self.assertEqual([r["x"] for r in main], sorted(r["x"] for r in main), "left to right")
         branch, failure = boxes["validate"]["rect"], boxes["reject"]["rect"]
-        self.assertEqual(failure["x"], branch["x"], "the failure hop hangs under its branch hop")
+        self.assertGreater(failure["x"], branch["x"], "the failure hop hangs under its branch hop")
+        self.assertLessEqual(failure["x"] + failure["width"], branch["x"] + branch["width"])
         self.assertGreaterEqual(failure["y"], branch["y"] + branch["height"] + 40)
         self.assertIn("on failure", self.render())
+
+    def test_hub_failure_connectors_start_at_their_branch_hop(self):
+        """Two failures of one hop (reject, timeout of validate) and a failure of a failure
+        (retry of reject): each dashed connector starts at the bottom edge of the box of its
+        branch hop, ends at the left edge of its failure box, and crosses no other box."""
+        hops = self.course["hops"]
+        at = [h["id"] for h in hops].index("reject") + 1
+        extra = [
+            dict(hops[4], id="timeout", **{"from": "svc-a", "to": "queue"}, branch="validate"),
+            dict(hops[4], id="retry", **{"from": "source system", "to": "svc-a"}, branch="reject"),
+        ]
+        self.course["hops"] = hops[:at] + extra + hops[at:]
+        self.lesson("entry-reject")["hops"] += ["timeout", "retry"]
+        self.assertEqual(course.check(self.dir, self.course), [])
+        html = self.render()
+        boxes = {hop: box["rect"] for hop, box in boxes_of(html).boxes.items()}
+        paths = fail_paths(html)
+        self.assertEqual(sorted(paths), [("reject", "retry"), ("validate", "reject"),
+                                         ("validate", "timeout")])
+        for (source, target), (x, y1, y2, x2) in paths.items():
+            top, box = boxes[source], boxes[target]
+            self.assertEqual(y1, top["y"] + top["height"] + 1, (source, target))
+            self.assertTrue(top["x"] < x < top["x"] + top["width"], (source, target))
+            self.assertTrue(box["y"] < y2 < box["y"] + box["height"], (source, target))
+            self.assertEqual(x2, box["x"] - 3, (source, target))
+            for other, rect in boxes.items():
+                if other in (source, target):
+                    continue
+                crosses = (rect["x"] < x < rect["x"] + rect["width"]
+                           and rect["y"] < y2 and y1 < rect["y"] + rect["height"])
+                self.assertFalse(crosses, "%s -> %s crosses %s" % (source, target, other))
 
     def test_hub_evidence_styles_and_legend(self):
         boxes = boxes_of(self.render()).boxes
@@ -224,8 +272,39 @@ class HubStaticTest(HubCase):
         self.course["sources"][0]["commit"] = "0000000"
         self.course["sources"][1]["commit"] = head
         html = self.render()
-        self.assertIn("0000000 → %s, moved after planning" % head, html)
+        self.assertIn("0000000 → %s, moved after planning" % head, text_of(html))
         self.assertEqual(html.count("moved after planning"), 1)
+
+    def test_hub_in_russian_has_no_english_outside_code(self):
+        ru = {
+            "title": "Как сообщение идёт от источника к цели",
+            "question": "Что происходит с одним сообщением на каждом шаге?",
+        }
+        self.course.update(ru, lang="ru")
+        self.course["not_covered"] = ["Экран администратора не лежит на пути сообщения."]
+        names = {"source system": "система-источник", "svc-a": "сервис", "target": "цель"}
+        for hop in self.course["hops"]:
+            hop["from"], hop["to"] = names[hop["from"]], names[hop["to"]]
+            hop["what"] = "Сервис передаёт сообщение дальше."
+        for block in self.course["blocks"]:
+            block["title"] = "Вход" if block["id"] == "entry" else "Выход"
+            for lesson in block["lessons"]:
+                lesson["question"] = "Как сервис принимает сообщение?"
+                lesson["brief"] = "Прочитайте обработчик."
+        self.lesson("entry-reject").update(status="failed", reason="Проверка не прошла.")
+        self.assertEqual(course.check(self.dir, self.course), [])
+        html = self.render()
+        self.assertEqual(cite_check.check(html, self.dir), [])
+        body = html[html.index("<header>"):html.index("</footer>")]
+        body = re.sub(r'<div class="cites">.*?</div>', "", body, flags=re.S)
+        body = re.sub(r"<code>.*?</code>", "", body, flags=re.S)
+        body = re.sub(r"<title[^>]*>.*?</title>", "", body, flags=re.S)
+        self.assertEqual(re.findall(r"[A-Za-z]{2,}", text_of(body)), [])
+        path = os.path.join(self.base, "hub.html")
+        Path(path).write_text(html, encoding="utf-8")
+        proc = subprocess.run([sys.executable, "-B", str(STE_LINT), "--html", path],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
     def test_hub_head_keeps_the_template_chrome(self):
         self.course["lang"] = "ru"
@@ -241,9 +320,14 @@ class HubStaticTest(HubCase):
         self.assertNotIn("How do you build a page from this template?", html)
         nav = re.search(r'<nav id="toc">(.*?)</nav>', html, re.S).group(1)
         self.assertEqual(re.findall(r'href="#([^"]+)"', nav), ["flow", "block-entry", "block-exit"])
+        # the switch of the template, last in the nav, its label in the course language
         self.assertTrue(nav.rstrip().endswith(
-            '<label class="sources"><input type="checkbox" id="show-sources"> Sources</label>'))
-        self.assertIn('<p class="not-covered">Not covered: The admin screen', html)
+            '<label class="sources"><input type="checkbox" id="show-sources"> Источники</label>'))
+        self.assertIn('<p class="not-covered">Не покрыто: The admin screen', html)
+        self.course["lang"] = "en"
+        english = self.render()
+        self.assertIn('<input type="checkbox" id="show-sources"> Sources</label>\n</nav>', english)
+        self.assertIn('<p class="not-covered">Not covered: The admin screen', english)
 
     def test_hub_escapes_course_text(self):
         self.course["title"] = "A <b>bold</b> & title"
@@ -259,6 +343,10 @@ class HubStaticTest(HubCase):
                 with self.assertRaises(ValueError) as caught:
                     course.render_hub(self.dir, self.course, self.template.replace(anchor, ""))
                 self.assertIn(anchor, str(caught.exception))
+        no_switch = re.sub(r'<label class="sources">.*?</label>', "", self.template)
+        with self.assertRaises(ValueError) as caught:
+            course.render_hub(self.dir, self.course, no_switch)
+        self.assertIn("Sources switch", str(caught.exception))
         doubled = self.template.replace("<header>", "<header>\n<header>")
         with self.assertRaises(ValueError):
             course.render_hub(self.dir, self.course, doubled)
@@ -268,8 +356,12 @@ class HubCliTest(HubCase):
     def state(self):
         return course.load(self.dir)["state"]
 
+    def approve(self):
+        course.save(self.dir, dict(self.course, state="approved",
+                                   approved_shape=course.shape(self.course)))
+
     def test_hub_sets_done_only_when_nothing_open(self):
-        course.save(self.dir, dict(self.course, state="approved"))
+        self.approve()
         self.assertEqual(run_cli("hub", self.dir)[0], 0)
         self.assertTrue(os.path.isfile(os.path.join(self.dir, "index.html")))
         self.assertEqual(self.state(), "approved", "two lessons are still pending")
@@ -290,6 +382,29 @@ class HubCliTest(HubCase):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(self.state(), "done")
         self.assertIn(os.path.join(self.dir, "index.html"), out)
+
+    def test_hub_refuses_a_course_that_fails_check(self):
+        """A failing check prints its lines and the count, exits 1 and writes nothing: a
+        schema fault, and an approved course whose shape changed after approval."""
+        self.approve()
+        approved = Path(self.dir, "course.json").read_bytes()
+        data = course.load(self.dir)
+        data["not_covered"] = 5
+        course.save(self.dir, data)
+        code, out, err = run_cli("hub", self.dir)
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(out, "schema: not_covered: must be a list\ncourse: 1 failures\n")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "index.html")))
+        Path(self.dir, "course.json").write_bytes(approved)
+        data = course.load(self.dir)
+        data["hops"][-1]["branch"] = "deliver"
+        course.save(self.dir, data)
+        before = Path(self.dir, "course.json").read_bytes()
+        code, out, err = run_cli("hub", self.dir)
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines(), [course.STATE_CHANGED, "course: 1 failures"])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "index.html")))
+        self.assertEqual(Path(self.dir, "course.json").read_bytes(), before)
 
     def test_hub_leaves_a_planned_course_planned(self):
         for block in self.course["blocks"]:
