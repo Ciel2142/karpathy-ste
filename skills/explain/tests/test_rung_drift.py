@@ -946,6 +946,12 @@ LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--
               "carry short narrated clips where motion explains better than a still | A subsystem with two to "
               "four moving parts |")
 
+# The row of the course rung in the rung table of SKILL.md, word for word.
+COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory output) | Forced only "
+              "(`--as course`). A system of several services or repos that one message passes through | "
+              "One message through several services |")
+AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course"
+
 
 class SkillMdCase(unittest.TestCase):
     def bullets(self):
@@ -992,8 +998,8 @@ class SkillMdCase(unittest.TestCase):
         for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
                          "The lesson rung is English or Russian.",
                          "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
-                         "`brainrot`, `lesson`).",
-                         "(sheet, page or lesson)"):
+                         "`brainrot`, `lesson`, `course`).",
+                         "(sheet, page, lesson or course)"):
             self.assertIn(sentence, flat)
         conventions = section(text, "Conventions")
         three = " ".join(re.search(r"^3\. .*?(?=^4\. )", conventions, re.M | re.S).group(0).split())
@@ -1041,6 +1047,37 @@ class SkillMdCase(unittest.TestCase):
                          "print `--review: no effect on <rung>` after the rung line"):
             self.assertIn(sentence, contract)
 
+    # red: the argument-hint or the syntax line of the Contract without `course`, step 4 with six names, step 2 with
+    # `--review` for `lesson` only, the course row missing, reworded or chosen from content, the rule bullet
+    # without "Only `--as course` selects it." or without the languages, the conventions without `course`,
+    # convention 5 or 6 without the course, step 2 of the Build procedure without the course sentence, the
+    # subject resolution without the course exception, or the Rung files bullet not naming rungs/course.md
+    def test_skill_md_routes_the_course_rung(self):
+        text = read(SKILL_MD)
+        self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)
+        flat = " ".join(text.split())
+        for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
+                         "Only the `lesson` and `course` rungs have a review.",
+                         "List these seven names in the error.",
+                         "The `course` rung builds a set of lessons and a hub page. Only `--as course` selects it. "
+                         "The course rung is English or Russian.",
+                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`).",
+                         "(sheet, page, lesson or course)",
+                         "For a course, the slug comes from the names of the sources, joined with `-`, as "
+                         "`rungs/course.md` says.",
+                         "For a course, the rung file replaces steps 3 to 6."):
+            self.assertIn(sentence, flat)
+        rows = [line for line in text.split("\n") if line.startswith("| `course`")]
+        self.assertEqual(rows, [COURSE_ROW])
+        resolution = " ".join(section(text, "Subject resolution").split())
+        self.assertIn("Under `--as course` the subject is a list of source names", resolution)
+        self.assertIn("`course.json`", resolution)
+        self.assertIn("`rungs/course.md`", resolution)
+        course = self.bullets()["<skill-dir>/rungs/course.md"]
+        for word in ("course.json", "approval", "subagent", "hub", "resume"):
+            self.assertIn(word, course)
+        self.assertTrue((EXPLAIN / "rungs" / "course.md").is_file(), "rungs/course.md does not exist")
+
     # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
     # `$ARGUMENTS` with the typed arguments and shows the model nothing else of the command line, so a rule
     # such as "If `$ARGUMENTS` is empty" turns into "If `install.sh --as ste` is empty" and the model takes the
@@ -1058,6 +1095,10 @@ class SkillMdCase(unittest.TestCase):
         hint = re.search(r'^argument-hint: "<subject> \[--as ([^\]]*)\] \[--review\]"$', read(SKILL_MD), re.M)
         self.assertIsNotNone(hint, "no argument-hint line")
         self.assertEqual(re.findall(r"/explain <subject> \[--as ([^\]]*)\] \[--review\]", readme), [hint.group(1)])
+        self.assertEqual(hint.group(1), AS_NAMES)
+        rows = [line for line in readme.split("\n") if line.startswith("| `course` |")]
+        self.assertEqual(rows, ["| `course` | the needs of `lesson` |"])
+        self.assertIn("`--as course`", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
         self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
         self.assertIn("rungs/{sheet,page,video,brainrot,lesson}.md", readme)
