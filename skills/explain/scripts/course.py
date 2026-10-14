@@ -87,6 +87,7 @@ def save(course_dir, course):
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(temp, 0o644)  # mkstemp makes 0600; keep course.json readable, as the hub
         os.replace(temp, os.path.join(course_dir, COURSE_FILE))
     except BaseException:
         try:
@@ -780,6 +781,8 @@ def _command_mark(args):
         return _refuse("mark: %s needs --reason" % status)
     if status not in NEEDS_REASON and reason is not None:
         return _refuse("mark: --reason only for failed or dropped")
+    if reason and len(reason.splitlines()) > 1:
+        return _refuse("mark: --reason must be one line")
     page = os.path.isfile(os.path.join(course_dir, "lessons", ident, "index.html"))
     start = lesson.get("status")
     if not _transition_allowed(start, status, page):

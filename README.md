@@ -83,11 +83,12 @@ non-commercial use only; check the licence again before a commercial use.
 
 ```
 skills/ste/        SKILL.md, scripts/ste_lint.py, tests/
-skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot,lesson}.md,
-                   lesson/ (the reviewer prompts), templates/,
+skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot,lesson,course}.md,
+                   lesson/ (the reviewer prompts), course/ (the map and lesson prompts), templates/,
                    scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
-                   scripts/cite_check.py, video/ (Remotion app + pipeline; video/src/kit/ is
-                   the film kit, video/src/film/ the worked example), tests/
+                   scripts/cite_check.py, scripts/course{,_hub,_hub_text,_discover}.py,
+                   video/ (Remotion app + pipeline; video/src/kit/ is the film kit,
+                   video/src/film/ the worked example), tests/
 install.sh         links the skills into Claude Code and/or OpenCode; tests/ tests it
 docs/superpowers/  the spec, wave map, plans and live-run notes behind the skills
 ```

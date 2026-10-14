@@ -63,7 +63,7 @@ Add a `Sources` row to the `<dl>` of the provenance, after the `Source` row:
 <div class="wide"><dt>Sources</dt><dd><source-id> <commit> <dirty>; <source-id> <commit> <dirty></dd></div>
 ```
 
-Write one entry for each source of the lesson. `<dir>` is the directory of the source under `{root}`. Run
+Write one entry for each source of the lesson. `<dir>` is the directory of the source under `{root}`, or the parent directory of a file source. Run
 these two commands for each source:
 
 ```

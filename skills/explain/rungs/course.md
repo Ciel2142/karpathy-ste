@@ -90,7 +90,8 @@ A `map: done` line with no readable `map/<source-id>.md` counts as `map: failed`
 `map: failed` line. A source without a map gets no hop. Write it in `not_covered`, with the reason.
 
 A map subagent or a lesson subagent that does not return stops the run. Print the id of its source or
-its lesson, and stop. The state of the course is on disk, so a resume continues.
+its lesson, and the path of `<course-dir>`. Stop. A resume needs `course.json`: before "Plan the course"
+writes it, the user starts a new run.
 
 ## 4. Discover
 
@@ -241,7 +242,7 @@ course: a resume continues from it.
 For each change that the user asks for, do these steps:
 
 1. Edit `course.json`.
-2. Run `course.py check <course-dir>` until it prints `course: ok`.
+2. Run `course.py check <course-dir>` until it prints `course: ok`, by the stop rule of "Check and stop".
 3. Run `course.py summary <course-dir>`, and print its output verbatim.
 4. Ask the user again.
 

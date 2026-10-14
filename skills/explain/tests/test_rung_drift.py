@@ -1101,8 +1101,10 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("`--as course`", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
         self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
-        self.assertIn("rungs/{sheet,page,video,brainrot,lesson}.md", readme)
+        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course}.md", readme)
         self.assertIn("lesson/", readme)
+        self.assertIn("course/ (the map and lesson prompts)", readme)
+        self.assertIn("scripts/course{,_hub,_hub_text,_discover}.py", readme)
         self.assertIn("tests.test_lesson_e2e", readme)
 
 

@@ -75,6 +75,11 @@ class LoadSaveCase(CourseCase):
         course.save(self.dir, self.course)
         self.assertEqual(course.load(self.dir), self.course)
 
+    # red: mkstemp makes the file 0600, so course.json of a shared course is private after the first save
+    def test_save_keeps_course_json_readable(self):
+        course.save(self.dir, self.course)
+        self.assertEqual(os.stat(os.path.join(self.dir, "course.json")).st_mode & 0o777, 0o644)
+
     def test_save_leaves_no_temporary_file(self):
         course.save(self.dir, self.course)
         self.assertEqual(
@@ -547,6 +552,14 @@ class StateCase(CourseCase):
         self.course = lesson
         self.assertEqual(self.state_of("entry-reject"), "failed")
         self.assertEqual(self.lesson("entry-reject")["reason"], "verify.sh: bpmn")
+
+    # red: a reason of two lines, which the hub and the handoff print as one line
+    def test_mark_reason_is_one_line(self):
+        self.assertEqual(self.cli("mark", "entry-reject", "building")[0], 0)
+        before = Path(self.dir, "course.json").read_bytes()
+        code, out, err = self.cli("mark", "entry-reject", "failed", "--reason", "one\ntwo")
+        self.assertEqual((code, out, err), (1, "", "mark: --reason must be one line\n"))
+        self.assertEqual(Path(self.dir, "course.json").read_bytes(), before)
 
     def test_mark_reason_only_for_failed_or_dropped(self):
         for status in ("pending", "building", "done"):
