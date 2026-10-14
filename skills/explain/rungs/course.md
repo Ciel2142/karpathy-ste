@@ -275,6 +275,10 @@ Do this loop:
     Never put `<line>` in double quotes: a `FAIL` line can hold `"`.
 11. Go to step 1. Stop the loop when `next` prints nothing and no lesson subagent runs.
 
+`mark` refuses a change of status that is not in the order of the build, with the line
+`mark: <id>: <from> -> <to> not allowed`. It changes nothing then. Treat the line as a fault that is not
+in `course.json`: stop by the stop rule of "Check and stop".
+
 The result line of a lesson subagent is `lesson: done <rung> <n> clips` or `lesson: failed <reason>`. Trust
 `verify.sh`, not the result line. A failed lesson does not stop the course. Do not build it again in this
 run.
@@ -306,7 +310,8 @@ The prompt `lesson-task.md` is a template, as `map-task.md` is. Fill its names l
    Fix the prose and the cites of `course.json`, and run `hub` again, by the stop rule of "Check and
    stop".
 3. A change of shape needs a new approval. The shape is the hops, the blocks, the lessons, and the hops
-   and the sources of each lesson. After a change of shape, go to "Check and stop".
+   and the sources of each lesson. After a change of shape, go to "Check and stop". `check` sets `state`
+   to `planned`, also for a `done` course, and `approve` then approves the new shape.
 4. Run `<skill-dir>/scripts/verify.sh index.html` in `<course-dir>`. Each line must show `ok`, except that
    the `bpmn` line can show `none`:
 
@@ -338,7 +343,7 @@ The other checks of step 4 of "Verify and export" do not apply to a hub. A block
 no `div.cites`: the cites of the hub are on the hops of the flow section.
 
 The `media` check of a hub counts each link into `lessons/` that names no file. `hub` sets `state` to
-`done` when no lesson is `pending` or `building`.
+`done` when no lesson is `pending` or `building`. Else it sets `state` to `approved`.
 
 ## 10. Handoff
 
@@ -357,15 +362,15 @@ truth for a resume.
 
 1. Print the rung line, with `<course-dir>` as the subject. Then print `review: on` or `review: off`, from
    `review` in `course.json`.
-2. Run `python3 <skill-dir>/scripts/course.py reopen <course-dir>`. It sets each `failed` lesson to
-   `pending`, and it prints the ids that it reset.
+2. Run `python3 <skill-dir>/scripts/course.py reopen <course-dir>`. It sets each `failed` lesson and
+   each `building` lesson to `pending`, and it prints the ids that it reset. A `building` lesson stopped
+   in the last run.
 3. Run `course.py check <course-dir>`. Fix each failure as "Check and stop" says.
 4. Run `course.py summary <course-dir>`. Print each `moved:` line as a warning, with its source. A moved
    source does not stop the course. A cite that broke fails `check`. Fix it as an edit of prose and cites.
 5. Run `course.py next <course-dir>` to find where to go.
 6. If it prints `next: course not approved`, the state is `planned`. Go to step 3 of "Check and stop".
-7. If it prints ids, go to "Build the lessons". A `building` lesson stopped in the last run, so its
-   build starts again.
+7. If it prints ids, go to "Build the lessons".
 8. If it prints nothing, no lesson is open. Go to "Write the hub".
 
 ## 12. Output directory

@@ -49,6 +49,17 @@ FOUND = ("named", "discovered")
 EVIDENCE = ("code", "docs", "inferred")
 STATUSES = ("pending", "building", "done", "failed", "dropped")
 NEEDS_REASON = ("failed", "dropped")
+# lesson status changes that `mark` allows (spec 5.1); any status may go to `dropped`, the
+# user's word. `done -> pending` is allowed only when lessons/<id>/index.html is missing.
+TRANSITIONS = {
+    ("pending", "building"),
+    ("building", "done"),
+    ("building", "failed"),
+    ("building", "pending"),
+    ("failed", "pending"),
+    ("dropped", "pending"),
+}
+OPEN = ("pending", "building")
 TYPE_NAMES = {
     str: "a string",
     bool: "a boolean",
@@ -364,10 +375,14 @@ def shape(course):
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _shape_changed(course):
+    """True for an `approved` or `done` course whose shape is not the approved one."""
+    return (course.get("state") in ("approved", "done")
+            and course.get("approved_shape") != shape(course))
+
+
 def _check_state(course):
-    if course.get("state") == "approved" and course.get("approved_shape") != shape(course):
-        return [STATE_CHANGED]
-    return []
+    return [STATE_CHANGED] if _shape_changed(course) else []
 
 
 def _prose_fields(course):
@@ -708,6 +723,10 @@ def _command_approve(args):
     course = _load_or_report(args[0])
     if course is None:
         return 2
+    if _shape_changed(course):
+        # a new approval goes through `planned`, as `check` would set it
+        course["state"] = "planned"
+        save(args[0], course)
     if course.get("state") == "done":
         return _refuse("approve: course already done")
     # a moved shape is what a new approval is for, so the state rule does not apply here
@@ -761,14 +780,27 @@ def _command_mark(args):
         return _refuse("mark: %s needs --reason" % status)
     if status not in NEEDS_REASON and reason is not None:
         return _refuse("mark: --reason only for failed or dropped")
-    if status == "done" and not os.path.isfile(
-        os.path.join(course_dir, "lessons", ident, "index.html")
-    ):
+    page = os.path.isfile(os.path.join(course_dir, "lessons", ident, "index.html"))
+    start = lesson.get("status")
+    if not _transition_allowed(start, status, page):
+        return _refuse("mark: %s: %s -> %s not allowed" % (ident, start, status))
+    if status == "done" and not page:
         return _refuse("mark: done needs lessons/%s/index.html" % ident)
     lesson["status"] = status
     lesson["reason"] = reason if status in NEEDS_REASON else ""
+    if status in OPEN and course.get("state") == "done":
+        course["state"] = "approved"  # an open lesson: the course is not done
     save(course_dir, course)
     return 0
+
+
+def _transition_allowed(start, end, page):
+    """Spec 5.1: the build moves a lesson pending -> building -> done or failed (or back to
+    pending); a retry moves failed or dropped to pending; the user may drop any lesson. A
+    `done` lesson whose page is missing may go back to pending (the fix of that check line)."""
+    if end == "dropped" or (start, end) in TRANSITIONS:
+        return True
+    return start == "done" and end == "pending" and not page
 
 
 def _command_reopen(args):
@@ -778,7 +810,9 @@ def _command_reopen(args):
     course = _load_or_report(args[0])
     if course is None:
         return 2
-    reset = [lesson for lesson in _lessons(course) if lesson.get("status") == "failed"]
+    # no lesson subagent runs at a resume, so a `building` lesson is one the last run left
+    reset = [lesson for lesson in _lessons(course)
+             if lesson.get("status") in ("failed", "building")]
     if not reset:
         return 0
     for lesson in reset:
@@ -812,10 +846,14 @@ def _command_hub(args):
     except (OSError, ValueError) as error:
         sys.stderr.write("course: hub: %s\n" % " ".join(str(error).split()))
         return 2
-    # approved -> done only when no lesson is open (spec 5.1); a planned course stays planned
-    if course.get("state") == "approved" and not next_lessons(course, None):
-        course["state"] = "done"
-        save(args[0], course)
+    # approved -> done only when no lesson is open (spec 5.1), and a done course with an
+    # open lesson goes back to approved; a planned course stays planned
+    open_lessons = bool(next_lessons(course, None))
+    if course.get("state") in ("approved", "done"):
+        state = "approved" if open_lessons else "done"
+        if course["state"] != state:
+            course["state"] = state
+            save(args[0], course)
     sys.stdout.write("hub: wrote %s\n" % path)
     return 0
 

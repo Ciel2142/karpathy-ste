@@ -427,10 +427,55 @@ class StateCase(CourseCase):
         self.assertEqual(self.course["approved_shape"], course.shape(self.course))
 
     def test_approve_refuses_a_done_course(self):
+        self.approve()
         self.course["state"] = "done"
         course.save(self.dir, self.course)
         code, out, err = self.cli("approve")
         self.assertEqual((code, out, err), (1, "", "approve: course already done\n"))
+
+    def finish(self):
+        """Approve, then save the course as `done` with its approved shape."""
+        self.approve()
+        self.course["state"] = "done"
+        course.save(self.dir, self.course)
+
+    def test_shape_change_on_a_done_course_resets_to_planned(self):
+        self.finish()
+        self.lesson("entry-reject")["hops"] = ["reject", "validate"]
+        course.save(self.dir, self.course)
+        code, out, _ = run_cli("check", self.dir)
+        self.assertEqual(
+            (code, out.splitlines()), (1, [course.STATE_CHANGED, "course: 1 failures"])
+        )
+        self.assertEqual(course.load(self.dir)["state"], "planned")
+        self.assertEqual(run_cli("check", self.dir)[:2], (0, "course: ok\n"))
+
+    def test_prose_fix_on_a_done_course_keeps_done(self):
+        self.finish()
+        self.hop("receive")["what"] = "The service gets the message from the queue."
+        course.save(self.dir, self.course)
+        self.assertEqual(run_cli("check", self.dir)[:2], (0, "course: ok\n"))
+        self.assertEqual(course.load(self.dir)["state"], "done")
+
+    def test_approve_a_done_course_whose_shape_changed(self):
+        self.finish()
+        self.lesson("entry-reject")["hops"] = ["reject", "validate"]
+        course.save(self.dir, self.course)
+        self.approve()
+        self.assertEqual(self.course["state"], "approved")
+        self.assertEqual(self.course["approved_shape"], course.shape(self.course))
+
+    def test_approve_a_done_course_whose_shape_changed_but_fails_check(self):
+        self.finish()
+        self.lesson("entry-reject")["hops"] = ["reject", "validate"]
+        self.hop("receive")["cites"] = []
+        course.save(self.dir, self.course)
+        code, out, err = self.cli("approve")
+        self.assertEqual(
+            (code, out.splitlines(), err),
+            (1, ["hop receive: code hop needs a cite", "course: 1 failures"], ""),
+        )
+        self.assertEqual(course.load(self.dir)["state"], "planned")
 
     # next
 
@@ -465,6 +510,8 @@ class StateCase(CourseCase):
     # mark
 
     def test_mark_done_needs_index(self):
+        self.assertEqual(self.cli("mark", "entry-reject", "building")[0], 0)
+        self.course = course.load(self.dir)
         code, out, err = self.cli("mark", "entry-reject", "done")
         self.assertEqual(
             (code, out, err),
@@ -493,6 +540,7 @@ class StateCase(CourseCase):
         self.assertEqual(self.lesson_status_on_disk("entry-reject"), "pending")
 
     def test_mark_failed_with_reason_is_saved(self):
+        self.assertEqual(self.cli("mark", "entry-reject", "building")[0], 0)
         code, out, _ = self.cli("mark", "entry-reject", "failed", "--reason", "verify.sh: bpmn")
         self.assertEqual((code, out), (0, ""))
         lesson = course.load(self.dir)
@@ -516,10 +564,60 @@ class StateCase(CourseCase):
         self.assertEqual(self.failures(), [])
 
     def test_mark_building_allows_an_existing_lesson_directory(self):
+        self.lesson("entry-receive").update(status="pending")
+        course.save(self.dir, self.course)
         lesson_dir = os.path.join(self.dir, "lessons", "entry-receive")
         self.assertTrue(os.path.isdir(lesson_dir))
         self.assertEqual(self.cli("mark", "entry-receive", "building")[0], 0)
         self.assertTrue(os.path.isdir(lesson_dir))
+
+    ALLOWED = {
+        ("pending", "building"),
+        ("building", "done"), ("building", "failed"), ("building", "pending"),
+        ("failed", "pending"),
+        ("dropped", "pending"),
+    } | {(start, "dropped") for start in course.STATUSES}
+
+    def test_mark_allows_only_the_transitions_of_spec_5_1(self):
+        """Each pair of statuses: an allowed one saves the new status, any other exits 1
+        with `mark: <id>: <from> -> <to> not allowed` and changes nothing. entry-receive
+        has its lessons/<id>/index.html, so `done` is reachable."""
+        for start in course.STATUSES:
+            for end in course.STATUSES:
+                with self.subTest(transition="%s -> %s" % (start, end)):
+                    reason = "x" if start in course.NEEDS_REASON else ""
+                    self.lesson("entry-receive").update(status=start, reason=reason)
+                    course.save(self.dir, self.course)
+                    before = Path(self.dir, "course.json").read_bytes()
+                    args = ["mark", "entry-receive", end]
+                    if end in course.NEEDS_REASON:
+                        args += ["--reason", "y"]
+                    code, out, err = self.cli(*args)
+                    if (start, end) in self.ALLOWED:
+                        self.assertEqual((code, out, err), (0, "", ""))
+                        self.assertEqual(self.lesson_status_on_disk("entry-receive"), end)
+                    else:
+                        self.assertEqual(
+                            (code, out, err),
+                            (1, "", "mark: entry-receive: %s -> %s not allowed\n"
+                             % (start, end)),
+                        )
+                        self.assertEqual(Path(self.dir, "course.json").read_bytes(), before)
+                    self.course = course.load(self.dir)
+
+    def test_mark_done_lesson_pending_when_its_page_is_missing(self):
+        """The fix of `lesson <id>: done but lessons/<id>/index.html missing`: a done
+        lesson without its page may go back to pending; with its page it may not."""
+        os.remove(os.path.join(self.dir, "lessons", "entry-receive", "index.html"))
+        self.assertEqual(self.cli("mark", "entry-receive", "pending"), (0, "", ""))
+        self.assertEqual(self.lesson_status_on_disk("entry-receive"), "pending")
+
+    def test_mark_pending_on_a_done_course_returns_to_approved(self):
+        self.finish()
+        self.assertEqual(self.cli("mark", "exit-deliver", "dropped", "--reason", "No.")[0], 0)
+        self.assertEqual(course.load(self.dir)["state"], "done", "a dropped lesson is not open")
+        self.assertEqual(self.cli("mark", "exit-deliver", "pending")[0], 0)
+        self.assertEqual(course.load(self.dir)["state"], "approved")
 
     def test_mark_unknown_lesson(self):
         code, out, err = self.cli("mark", "nowhere", "pending")
@@ -550,6 +648,16 @@ class StateCase(CourseCase):
         self.assertEqual(self.lesson("entry-reject")["reason"], "")
         self.assertEqual(self.state_of("exit-deliver"), "dropped")
         self.assertEqual(self.state_of("entry-receive"), "done")
+
+    def test_reopen_resets_building_lessons_of_a_stopped_run(self):
+        """A resume starts with reopen; no lesson subagent runs then, so a `building`
+        lesson is one that the last run left open. It goes back to `pending`."""
+        self.lesson("exit-deliver").update(status="building")
+        course.save(self.dir, self.course)
+        code, out, _ = self.cli("reopen")
+        self.assertEqual((code, out), (0, "exit-deliver\n"))
+        self.course = course.load(self.dir)
+        self.assertEqual(self.state_of("exit-deliver"), "pending")
 
     def test_reopen_without_failed_changes_nothing(self):
         before = Path(self.dir, "course.json").read_text(encoding="utf-8")

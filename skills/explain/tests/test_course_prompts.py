@@ -106,6 +106,14 @@ FIX_TEXTS = (
     "--reason '<line>'",
 )
 # M6: the text types of the sources that discovery searches.
+# The final fix wave (final-review.md I2, I3): mark refuses a status change out of the order of the build; reopen
+# resets a building lesson of a stopped run; a shape change of a done course goes back through approval.
+FINAL_TEXTS = (
+    "`mark: <id>: <from> -> <to> not allowed`",
+    "It sets each `failed` lesson and each `building` lesson to `pending`",
+    "`check` sets `state` to `planned`, also for a `done` course, and `approve` then approves the new shape.",
+    "Else it sets `state` to `approved`.",
+)
 INCLUDES = ("java", "kt", "xml", "yml", "yaml", "properties", "json", "md", "proto", "sql", "xsl", "xslt", "go",
             "ts", "py", "cs", "conf")
 # M9: the two commands of the Sources row, and the untracked mark per source.
@@ -235,6 +243,14 @@ class CourseRungCase(unittest.TestCase):
                 self.assertIn("by the stop rule of", squash(section(self.text, title)))
         self.assertNotIn("Do steps 2 to 4", text)
         self.assertNotIn('--reason "', text)
+
+    # red (final I2, I3): a rule of the final fix wave left out or reworded in the rung, or the refusal line of
+    # mark in the rung not the one that course.py prints
+    def test_rung_holds_the_final_fixes(self):
+        text = squash(self.text)
+        self.assertEqual([want for want in FINAL_TEXTS if squash(want) not in text], [])
+        source = read(EXPLAIN / "scripts" / "course.py")
+        self.assertIn('"mark: %s: %s -> %s not allowed"', source)
 
     # red (M6): a text type of the sources left out of the discovery command
     def test_discovery_searches_the_text_types(self):

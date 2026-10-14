@@ -383,6 +383,14 @@ class HubCliTest(HubCase):
         self.assertEqual(self.state(), "done")
         self.assertIn(os.path.join(self.dir, "index.html"), out)
 
+    def test_hub_takes_a_done_course_with_an_open_lesson_back_to_approved(self):
+        """`hub` never leaves a course `done` while a lesson is `pending` or `building`."""
+        course.save(self.dir, dict(self.course, state="done",
+                                   approved_shape=course.shape(self.course)))
+        code, _, err = run_cli("hub", self.dir)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(self.state(), "approved")
+
     def test_hub_refuses_a_course_that_fails_check(self):
         """A failing check prints its lines and the count, exits 1 and writes nothing: a
         schema fault, and an approved course whose shape changed after approval."""
