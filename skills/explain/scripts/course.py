@@ -35,7 +35,7 @@ USAGE = (
     "       course.py reopen <dir>\n"
 )
 STATE_CHANGED = "state: plan changed after approval; run summary and approve again"
-STE_ERROR = re.compile(r"^\d+:\d+  E ")
+STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 COURSE_FILE = "course.json"
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 STATES = ("planned", "approved", "done")
@@ -366,14 +366,28 @@ def _check_state(course):
 
 
 def _prose_fields(course):
-    fields = [course.get("title"), course.get("question")]
-    fields += [hop.get("what") for hop in _objects(course.get("hops"))]
-    for block in _objects(course.get("blocks")):
-        fields.append(block.get("title"))
-        for lesson in _objects(block.get("lessons")):
-            fields += [lesson.get("question"), lesson.get("brief")]
-    fields += course["not_covered"] if isinstance(course.get("not_covered"), list) else []
-    return [text for text in fields if isinstance(text, str) and text.strip()]
+    """`(field path, text)` of each prose field, in document order; empty fields are left out."""
+    fields = [("title", course.get("title")), ("question", course.get("question"))]
+    for index, hop in enumerate(_objects(course.get("hops"))):
+        fields.append(("hops[%s].what" % _label(hop, index), hop.get("what")))
+    for index, block in enumerate(_objects(course.get("blocks"))):
+        fields.append(("blocks[%s].title" % _label(block, index), block.get("title")))
+        for number, lesson in enumerate(_objects(block.get("lessons"))):
+            label = _label(lesson, number)
+            fields.append(("lessons[%s].question" % label, lesson.get("question")))
+            fields.append(("lessons[%s].brief" % label, lesson.get("brief")))
+    if isinstance(course.get("not_covered"), list):
+        fields += [("not_covered[%d]" % i, text) for i, text in enumerate(course["not_covered"])]
+    return [
+        (path, " ".join(text.split()))
+        for path, text in fields
+        if isinstance(text, str) and text.strip()
+    ]
+
+
+def _label(item, index):
+    ident = item.get("id")
+    return ident if isinstance(ident, str) and ident else str(index)
 
 
 def _find_ste_lint():
@@ -389,7 +403,10 @@ def _find_ste_lint():
 
 
 def _check_prose(course):
-    """`prose:` failures: the prose fields as one HTML document through `ste_lint.py --html`."""
+    """`prose:` failures: the prose fields as one HTML document through `ste_lint.py --html`.
+
+    Each field is one whitespace-collapsed `<p>` on its own line, so the line of a lint error
+    names the field; the failure reads `prose: <field path>: <rule code and message>`."""
     fields = _prose_fields(course)
     if not fields:
         return []
@@ -397,8 +414,9 @@ def _check_prose(course):
     if linter is None:
         return ["prose: ste_lint.py not found"]
     lang = course.get("lang") if isinstance(course.get("lang"), str) and course["lang"] else "en"
+    first = 2  # line 1 is the opening tag
     document = '<html lang="%s"><body>\n%s\n</body></html>\n' % (
-        html.escape(lang), "\n".join("<p>%s</p>" % html.escape(text) for text in fields)
+        html.escape(lang), "\n".join("<p>%s</p>" % html.escape(text) for _, text in fields)
     )
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "prose.html")
@@ -411,7 +429,13 @@ def _check_prose(course):
             )
         except (OSError, subprocess.SubprocessError) as error:
             return ["prose: ste_lint.py failed: %s" % error]
-    errors = ["prose: " + line for line in result.stdout.splitlines() if STE_ERROR.match(line)]
+    errors = []
+    for line in result.stdout.splitlines():
+        found = STE_ERROR.match(line)
+        if found:
+            number = int(line.split(":", 1)[0]) - first
+            where = fields[number][0] if 0 <= number < len(fields) else "(unknown field)"
+            errors.append("prose: %s: %s" % (where, found.group(1)))
     if result.returncode not in (0, 1) or (result.returncode == 1 and not errors):
         return ["prose: ste_lint.py failed: exit %d" % result.returncode]
     return errors

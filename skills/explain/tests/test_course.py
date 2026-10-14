@@ -324,22 +324,63 @@ class CheckCase(CourseCase):
 
 
 class ProseCase(CourseCase):
+    BAD = "The service utilizes the queue."
+
+    def prose(self):
+        return [f for f in self.failures() if f.startswith("prose: ")]
+
     def test_prose_error_is_reported(self):
-        self.hop("receive")["what"] = "The service utilizes the queue."
-        failures = self.failures()
-        self.assertEqual(len(failures), 1)
-        self.assertRegex(failures[0], r'^prose: \d+:\d+  E WORD  "utilizes" is not approved')
+        self.hop("receive")["what"] = self.BAD
+        self.only(
+            'prose: hops[receive].what: E WORD  "utilizes" is not approved; use USE'
+        )
+
+    def test_prose_error_names_lesson_question_and_not_covered(self):
+        self.lesson("entry-reject")["question"] = self.BAD
+        self.course["not_covered"] = ["The admin screen is not on the path.", self.BAD]
+        self.assertEqual(
+            [f.split(": E ")[0] for f in self.prose()],
+            ["prose: lessons[entry-reject].question", "prose: not_covered[1]"],
+        )
 
     def test_prose_checks_every_field(self):
-        self.course["title"] = "The service utilizes a queue."
-        self.course["not_covered"] = ["The admin screen utilizes a queue."]
-        self.lesson("entry-reject")["brief"] = "Utilizes the queue."
-        self.assertEqual(len(self.failures()), 3)
-        self.assertTrue(all(f.startswith("prose: ") for f in self.failures()))
+        self.course["title"] = self.BAD
+        self.course["question"] = self.BAD
+        self.hop("receive")["what"] = self.BAD
+        self.course["blocks"][0]["title"] = self.BAD
+        self.lesson("entry-receive")["question"] = self.BAD
+        self.lesson("entry-reject")["brief"] = self.BAD
+        self.course["not_covered"] = [self.BAD]
+        self.assertEqual(
+            [f.split(": E ")[0] for f in self.prose()],
+            [
+                "prose: title",
+                "prose: question",
+                "prose: hops[receive].what",
+                "prose: blocks[entry].title",
+                "prose: lessons[entry-receive].question",
+                "prose: lessons[entry-reject].brief",
+                "prose: not_covered[0]",
+            ],
+        )
+
+    def test_prose_multiline_field_keeps_its_path(self):
+        self.hop("validate")["what"] = "The service\nchecks the message\nand utilizes the queue."
+        self.only('prose: hops[validate].what: E WORD  "utilizes" is not approved; use USE')
+
+    def test_prose_empty_field_does_not_shift_paths(self):
+        self.course["question"] = ""
+        self.hop("receive")["what"] = self.BAD
+        self.assertEqual(
+            [f.split(": E ")[0] for f in self.prose()], ["prose: hops[receive].what"]
+        )
 
     def test_prose_is_escaped_into_html(self):
-        self.course["question"] = "What is the <b> tag & the rest?"
-        self.only()
+        # unescaped, "<utilizes>" would read as a tag and hide the word from the linter
+        self.course["question"] = "Use <utilizes> now."
+        self.assertEqual(
+            [f.split(": E ")[0] for f in self.prose()], ["prose: question"]
+        )
 
     def test_prose_lint_missing_is_a_failure(self):
         with mock.patch.object(course, "_find_ste_lint", return_value=None):
