@@ -25,21 +25,22 @@
       "id": "forms",
       "narration": "The artifact is a sheet, a page or a video. We follow a page through the checks.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 7, "snippet": "(sheet: five lines; page: six; lesson: seven; video: three)" }
+        { "path": "skills/explain/scripts/verify.sh", "line": 8, "snippet": "(sheet: five lines; page: six;" },
+        { "path": "skills/explain/scripts/verify.sh", "line": 9, "snippet": "video: three)" }
       ]
     },
     {
       "id": "artifact",
       "narration": "The check script reads one file. That file is `index.html`.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 4, "snippet": "verify.sh <index.html>" }
+        { "path": "skills/explain/scripts/verify.sh", "line": 5, "snippet": "verify.sh <index.html>" }
       ]
     },
     {
       "id": "gates",
       "narration": "It prints one line for each check, in order. First comes self-contained, then render, citations and prose.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 11, "snippet": "stdout carries one line per check, in this order" }
+        { "path": "skills/explain/scripts/verify.sh", "line": 13, "snippet": "stdout carries one line per check, in this order" }
       ]
     },
     {
@@ -68,7 +69,7 @@
       "id": "handoff",
       "narration": "Every check runs, even after a failure. When all checks pass, the artifact is ready.",
       "cites": [
-        { "path": "skills/explain/scripts/verify.sh", "line": 24, "snippet": "Every check runs even after an earlier one failed." }
+        { "path": "skills/explain/scripts/verify.sh", "line": 29, "snippet": "Every check runs even after an earlier one failed." }
       ]
     }
   ]

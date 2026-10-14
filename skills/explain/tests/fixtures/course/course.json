@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "title": "How a message moves from the source to the target",
+  "question": "What happens to one message from the source system to the target, hop by hop?",
+  "lang": "en",
+  "review": false,
+  "root": "../course-root",
+  "state": "planned",
+  "sources": [
+    {"id": "svc-a", "path": "svc-a", "kind": "code", "found": "named",
+     "why": "This service takes the message and checks it.", "commit": "none", "dirty": false},
+    {"id": "docs-b", "path": "docs-b", "kind": "docs", "found": "discovered",
+     "why": "These pages describe the target.", "commit": "none", "dirty": false}
+  ],
+  "hops": [
+    {"id": "receive", "from": "source system", "to": "svc-a",
+     "what": "The service takes the message from the queue.",
+     "evidence": "code", "branch": null,
+     "cites": [{"path": "svc-a/Handler.java", "line": 4, "snippet": "@Listener(queue = \"IN_QUEUE\")"}]},
+    {"id": "validate", "from": "svc-a", "to": "svc-a",
+     "what": "The service checks the message.",
+     "evidence": "code", "branch": null,
+     "cites": [{"path": "svc-a/Handler.java", "line": 6, "snippet": "validator.validate(message)"}]},
+    {"id": "reject", "from": "svc-a", "to": "source system",
+     "what": "The service refuses a bad message and gives the reason.",
+     "evidence": "code", "branch": "validate",
+     "cites": [{"path": "svc-a/Handler.java", "line": 8, "snippet": "reject(message, result.reason());"}]},
+    {"id": "deliver", "from": "svc-a", "to": "target",
+     "what": "The service sends the message to the target.",
+     "evidence": "docs", "branch": null,
+     "cites": [{"path": "docs-b/api.md", "line": 3, "snippet": "accepts one message per call"}]},
+    {"id": "confirm", "from": "target", "to": "svc-a",
+     "what": "The target confirms the message. The docs do not show this step.",
+     "evidence": "inferred", "branch": null, "cites": []}
+  ],
+  "blocks": [
+    {"id": "entry", "title": "Entry", "lessons": [
+      {"id": "entry-receive", "question": "How does the service take a message?",
+       "hops": ["receive", "validate"], "sources": ["svc-a"],
+       "brief": "Read the listener and the check.", "status": "done", "reason": ""},
+      {"id": "entry-reject", "question": "What happens to a bad message?",
+       "hops": ["reject"], "sources": ["svc-a"],
+       "brief": "Read the refusal path.", "status": "pending", "reason": ""}
+    ]},
+    {"id": "exit", "title": "Exit", "lessons": [
+      {"id": "exit-deliver", "question": "How does the message reach the target?",
+       "hops": ["deliver", "confirm"], "sources": ["svc-a", "docs-b"],
+       "brief": "Read the send call and the target docs.", "status": "pending", "reason": ""}
+    ]}
+  ],
+  "not_covered": ["The admin screen of the service is not on the path of a message."]
+}

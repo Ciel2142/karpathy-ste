@@ -31,7 +31,7 @@
       "cites": [
         {
           "path": "skills/explain/scripts/verify.sh",
-          "line": 11,
+          "line": 13,
           "snippet": "stdout carries one line per check, in this order"
         }
       ]
@@ -42,7 +42,7 @@
       "cites": [
         {
           "path": "skills/explain/scripts/verify.sh",
-          "line": 24,
+          "line": 29,
           "snippet": "Every check runs even after an earlier one failed."
         }
       ]
