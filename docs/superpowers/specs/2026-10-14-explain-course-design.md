@@ -65,7 +65,8 @@ Anti-goals (a failure even if it runs):
 
 ### 3.1 Source resolution
 
-Each name resolves by the first rule that applies:
+Each name resolves by the first rule that applies. Rules 1 and 2 run over all names first; rule 3
+then runs for the names left, so the order of the names does not matter:
 
 1. A path candidate (the rule of `SKILL.md`): it must exist and be a directory or a file.
 2. A qmd collection of that exact name (`qmd collection list`, or the `path:` of the collection in
@@ -172,7 +173,7 @@ directory, then rename). Exit 0 on success, 1 on a check failure, 2 on a usage o
 | `course.py next <dir> [--limit N]` | Prints the ids of the lessons with status `pending` or `building`, in plan order, at most N. Refuses (exit 1) when `state` is `planned`. |
 | `course.py mark <dir> <lesson-id> <status> [--reason <text>]` | Sets the status of one lesson. `failed` and `dropped` need a reason; the others take none. `done` needs `lessons/<id>/index.html`. |
 | `course.py reopen <dir>` | Sets each `failed` lesson to `pending`, and a `done` course with a reset lesson back to `approved`. Prints the ids it reset. |
-| `course.py hub <dir>` | Writes `index.html` from `course.json` and `templates/course.html`. Sets `state` to `done` when no lesson is `pending` or `building`. |
+| `course.py hub <dir>` | Writes `index.html` from `course.json` and the chrome of `templates/page.html`. Sets `state` to `done` when no lesson is `pending` or `building`. |
 
 `building` on a resume means the run stopped during that lesson: `next` lists it again, and the
 orchestrator rebuilds it from an empty `lessons/<id>/` (the old directory is moved aside to
@@ -180,8 +181,9 @@ orchestrator rebuilds it from an empty `lessons/<id>/` (the old directory is mov
 
 ## 7. The hub
 
-`templates/course.html` is a copy of the page template's chrome (palette, guard, Sources switch,
-nav, footer provenance) with a course body. `course.py hub` fills it:
+`course.py hub` reuses the chrome of `templates/page.html` (palette, guard, Sources switch, nav,
+footer provenance): it keeps the head and the scripts of the template and writes a course body in
+place of the template's header, main and footer. No copy of the template is kept. It writes:
 
 1. Title, the course question, and a short answer: one sentence per block, from the block titles
    and the hops it holds (generated, so the answer always matches the plan).
@@ -273,7 +275,7 @@ The orchestrator trusts `verify.sh`, not the line.
 
 - `skills/explain/rungs/course.md`: the rung (sections 3 to 10 as instructions).
 - `skills/explain/course/map-task.md`, `skills/explain/course/lesson-task.md`: the two prompts.
-- `skills/explain/scripts/course.py`, `skills/explain/templates/course.html`.
+- `skills/explain/scripts/course.py` (the hub reuses `templates/page.html`).
 - `skills/explain/scripts/verify.sh`, `skills/explain/scripts/bpmn.py`: the `course` rung.
 - `skills/explain/SKILL.md`, `README.md`: `course` in the `--as` list, the rung table, the
   resume subject, the rung files list.
