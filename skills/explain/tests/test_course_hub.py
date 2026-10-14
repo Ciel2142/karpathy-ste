@@ -64,7 +64,7 @@ class Boxes(HTMLParser):
         if tag == "svg" and values.get("viewbox"):
             self.svg_views.append([float(n) for n in values["viewbox"].split()])
         if tag == "g" and "data-hop" in values and self._box is None:
-            self._box = {"rect": None, "href": None, "text": ""}
+            self._box = {"rect": None, "href": None, "text": "", "lines": [], "classes": []}
             self.boxes[values["data-hop"]] = self._box
             self._depth = 1
             return
@@ -74,6 +74,9 @@ class Boxes(HTMLParser):
             self._depth += 1
         if tag == "a":
             self._href = values.get("href")
+        if tag == "text":
+            self._box["lines"].append("")
+            self._box["classes"].append(values.get("class", ""))
         if tag == "rect" and self._box["rect"] is None:
             self._box["rect"] = {k: float(values[k]) for k in ("x", "y", "width", "height")}
             self._box["rect"]["class"] = values.get("class", "")
@@ -95,6 +98,8 @@ class Boxes(HTMLParser):
     def handle_data(self, data):
         if self._box is not None:
             self._box["text"] += data
+            if self._box["lines"]:
+                self._box["lines"][-1] += data
 
 
 def boxes_of(html):
@@ -237,6 +242,54 @@ class HubStaticTest(HubCase):
                            and rect["y"] < y2 and y1 < rect["y"] + rect["height"])
                 self.assertFalse(crosses, "%s -> %s crosses %s" % (source, target, other))
 
+    def add_hops(self, *hops):
+        """Append main hops (branch null) to the plan and to the lesson exit-deliver."""
+        base = self.course["hops"][0]
+        for ident, start, end in hops:
+            self.course["hops"].append(dict(base, id=ident, branch=None, **{"from": start, "to": end}))
+            self.lesson("exit-deliver")["hops"].append(ident)
+        self.assertEqual(course.check(self.dir, self.course), [])
+
+    # red (final I1): a box that shows only `from -> to`, so two hops between the same two
+    # systems look the same and no box can be matched to the hop list
+    def test_hub_boxes_name_their_hop(self):
+        self.add_hops(("classify", "esb", "esb"), ("parse", "esb", "esb"))
+        boxes = boxes_of(self.render()).boxes
+        for hop in self.course["hops"]:
+            with self.subTest(hop=hop["id"]):
+                box = boxes[hop["id"]]
+                self.assertEqual(box["lines"][0], hop["id"])
+                self.assertIn("hop-id", box["classes"][0])
+                self.assertIn("%s → %s" % (hop["from"], hop["to"]), " ".join(box["lines"][1:]))
+        self.assertNotEqual(boxes["classify"]["text"], boxes["parse"]["text"])
+
+    # red (final I1): textwrap with break_long_words (``cryptopros`` / ``ervice``), or a box narrower
+    # than its longest word
+    def test_hub_box_lines_never_split_a_word(self):
+        self.add_hops(("sign", "diadoc", "cryptoproservice"),
+                      ("store-in-docregistry", "esb.route_main_handler", "docregistry"),
+                      ("post", "diadoc", "Diadoc API"))
+        self.course["hops"].append(dict(self.course["hops"][4], id="sign-retry-cryptoproservice",
+                                        branch="sign", **{"from": "cryptoproservice", "to": "diadoc"}))
+        self.lesson("exit-deliver")["hops"].append("sign-retry-cryptoproservice")
+        self.assertEqual(course.check(self.dir, self.course), [])
+        import course_hub
+        parser = boxes_of(self.render())
+        for hop in self.course["hops"]:
+            box = parser.boxes[hop["id"]]
+            words = re.findall(r"[A-Za-z0-9]+", " ".join((hop["id"], hop["from"], hop["to"])))
+            for word in words:
+                with self.subTest(hop=hop["id"], word=word):
+                    self.assertTrue(any(word in line for line in box["lines"]), box["lines"])
+            for line, classes in zip(box["lines"], box["classes"]):
+                with self.subTest(hop=hop["id"], line=line):
+                    char, pad = {"hop-id": (course_hub.BOLD_W, course_hub.PAD_X),
+                                 "muted": (course_hub.MUTED_W, course_hub.MUTED_PAD)}.get(
+                                     classes, (course_hub.CHAR_W, course_hub.PAD_X))
+                    self.assertLessEqual(len(line) * char + 2 * pad, box["rect"]["width"])
+            rect = box["rect"]
+            self.assertLessEqual(rect["x"] + rect["width"], VIEW_W, hop["id"])
+
     def test_hub_evidence_styles_and_legend(self):
         boxes = boxes_of(self.render()).boxes
         self.assertIn("ev-code", boxes["receive"]["rect"]["class"])
@@ -299,6 +352,8 @@ class HubStaticTest(HubCase):
         body = re.sub(r'<div class="cites">.*?</div>', "", body, flags=re.S)
         body = re.sub(r"<code>.*?</code>", "", body, flags=re.S)
         body = re.sub(r"<title[^>]*>.*?</title>", "", body, flags=re.S)
+        # a box names its hop by its id, as the hop list does in <code>: an id is not prose
+        body = re.sub(r'<text [^>]*class="hop-id">.*?</text>', "", body, flags=re.S)
         self.assertEqual(re.findall(r"[A-Za-z]{2,}", text_of(body)), [])
         path = os.path.join(self.base, "hub.html")
         Path(path).write_text(html, encoding="utf-8")

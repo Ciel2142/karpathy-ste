@@ -7,8 +7,12 @@ replaced with the course body:
 
 - header: the title, the course question and the answer box (one generated sentence per block);
 - nav: one link per section, then the Sources switch of the template (last);
-- section#flow: the SVG flow, then the hop list with the hop cites. Main hops go left to right
-  in rows of `COLUMNS`. Each failure hop hangs under the box of its `branch` hop, indented by
+- section#flow: the SVG flow, then the hop list with the hop cites. Each box names its hop: the
+  hop id in bold on the first line (the hop list uses the same ids), then `from → to`. A line
+  breaks only at a space or after `-`, `.` or `_`, never inside a word; when the longest word of
+  a box does not fit, the diagram uses fewer columns, so the boxes are wider (the text stays at
+  18 units: less would go under 14 px at 500 px). Main hops go left to right in rows of at most
+  `COLUMNS`. Each failure hop hangs under the box of its `branch` hop, indented by
   `INDENT`: a dashed path runs down from the bottom edge of the branch box, beside the earlier
   failures of that hop, and turns right into the failure box (a tree outline). The trunk of one
   branch box is marked "on failure". A failure of a failure hangs under that failure box. The
@@ -27,7 +31,6 @@ import datetime
 import html
 import os
 import re
-import textwrap
 
 import course as plan
 from course_hub_text import TEXT, language, plural
@@ -52,6 +55,11 @@ FAIL_GAP = 56          # from a branch box to its first failure box: room for "o
 SIB_GAP = 20           # from one failure subtree to the next failure of the same branch
 ROW_GAP = 48           # from the failure boxes of a row to the next row
 CHAR_W = 10            # the width of one sans character of 18 units, rounded up
+BOLD_W = 11            # the same for the bold hop id
+PAD_X = 8              # the side room of a line of text in a box
+MUTED_W = 9            # "not built" is short italic text: about 9 units a character,
+MUTED_PAD = 6          # with 6 units of side room
+BREAK = re.compile(r"[^-._]*[-._]+|[^-._]+")  # a word breaks only after "-", "." or "_"
 LEGEND_H = 40
 
 HUB_STYLE = """<style>
@@ -64,6 +72,7 @@ HUB_STYLE = """<style>
 .diagram path.fail { stroke-dasharray: 6 5; }
 .diagram a text { fill: var(--accent); text-decoration: underline; }
 .diagram text.muted { fill: var(--muted); font-style: italic; }
+.diagram text.hop-id { font-weight: 700; }
 .hub-meta { color: var(--muted); }
 </style>
 """
@@ -202,21 +211,60 @@ def _nav(hub, switch):
 # --- the flow diagram ---------------------------------------------------------------------
 
 
-def _wrap(text, width):
-    return textwrap.wrap(text, width=width, break_long_words=True, break_on_hyphens=True) or [""]
+def _pieces(word):
+    """The parts of one word between its break points (after each "-", "." or "_")."""
+    return BREAK.findall(word) or [word]
+
+
+def _wrap(text, chars):
+    """Lines of at most `chars` characters. A line breaks at a space or after "-", "." or
+    "_", never inside a word. Only a part longer than a whole line is cut (the layout picks
+    boxes wide enough, so this happens only for a part wider than the view box)."""
+    lines, line = [], ""
+    for word in str(text).split():
+        for number, piece in enumerate(_pieces(word)):
+            joint = " " if line and number == 0 else ""
+            if len(line) + len(joint) + len(piece) <= chars:
+                line += joint + piece
+                continue
+            if line:
+                lines.append(line)
+            while len(piece) > chars:
+                lines.append(piece[:chars])
+                piece = piece[chars:]
+            line = piece
+    return lines + [line] if line or not lines else lines
+
+
+def _box_texts(hub, hop):
+    """((text, character width, side room), ...) of a box: the hop id (bold), `from → to`,
+    and "not built" when no done lesson covers the hop."""
+    texts = [(hop["id"], BOLD_W, PAD_X),
+             ("%s → %s" % (hop.get("from"), hop.get("to")), CHAR_W, PAD_X)]
+    if not hub.done.get(hop["id"]):
+        texts.append((hub.text["not_built"], MUTED_W, MUTED_PAD))
+    return texts
+
+
+def _need(hub, hop):
+    """The narrowest box that holds the longest word part of `hop` on one line."""
+    return max(len(piece) * char + 2 * pad
+               for text, char, pad in _box_texts(hub, hop)
+               for word in str(text).split() for piece in _pieces(word))
 
 
 class _Box:
     def __init__(self, hub, hop, width, failure):
         self.hop, self.failure = hop, failure
         self.lesson = hub.done.get(hop["id"])
-        chars = max(4, (width - 16) // CHAR_W)
-        self.lines = _wrap("%s →" % hop.get("from"), chars) + _wrap(str(hop.get("to")), chars)
-        # "not built" is short italic text: about 9 units a character, 6 units of side room
-        self.muted = [] if self.lesson else _wrap(hub.text["not_built"], (width - 12) // 9)
+        wrapped = [_wrap(text, (width - 2 * pad) // char)
+                   for text, char, pad in _box_texts(hub, hop)]
+        self.title, self.lines = wrapped[0], wrapped[1]
+        self.muted = wrapped[2] if len(wrapped) > 2 else []
         self.width = width
         self.x = self.y = 0
-        self.height = 2 * PAD_Y + LINE_H * (len(self.lines) + len(self.muted))
+        rows = len(self.title) + len(self.lines) + len(self.muted)
+        self.height = 2 * PAD_Y + LINE_H * rows
 
     @property
     def bottom(self):
@@ -229,6 +277,10 @@ class _Box:
         parts = ['<rect x="%d" y="%d" width="%d" height="%d" class="%s"/>'
                  % (self.x, self.y, self.width, self.height, classes)]
         baseline = self.y + PAD_Y + 16
+        for line in self.title:
+            parts.append('<text x="%d" y="%d" text-anchor="middle" class="hop-id">%s</text>'
+                         % (center, baseline, esc(line)))
+            baseline += LINE_H
         for line in self.lines:
             parts.append('<text x="%d" y="%d" text-anchor="middle">%s</text>'
                          % (center, baseline, esc(line)))
@@ -268,11 +320,35 @@ def _failures_under(hub, box, parts):
     return bottom
 
 
+def _depths(hub):
+    """{hop id: depth}: 0 for a main hop, 1 for its failure, 2 for a failure of that, ..."""
+    depths = {hop["id"]: 0 for hop in hub.main}
+    for hop in hub.hops:  # flow order: the branch hop has its depth already
+        if hop["id"] not in depths:
+            depths[hop["id"]] = depths.get(hop.get("branch"), 0) + 1
+    return depths
+
+
+def _layout(hub):
+    """(columns, box width): the most columns, at most `COLUMNS`, whose boxes hold the longest
+    word part of each hop on one line; a failure box is `INDENT` narrower per level. One column
+    may grow wider than `MAX_BOX_W`, up to the view box."""
+    depths = _depths(hub)
+    need = max([_need(hub, hop) + INDENT * depths[hop["id"]] for hop in hub.hops] or [MIN_BOX_W])
+    most = max(1, min(COLUMNS, len(hub.main)))
+    for columns in range(most, 0, -1):
+        rows = -(-len(hub.main) // columns)
+        right = VIEW_W - 2 - (WRAP_W if rows > 1 else 0)
+        room = (right - 2 - GAP_X * (columns - 1)) // columns
+        width = min(MAX_BOX_W, room) if columns > 1 else min(max(MAX_BOX_W, need), room)
+        if width >= need:
+            return columns, width
+    return 1, width  # a word wider than the view box: _wrap cuts it
+
+
 def _flow_svg(hub):
-    columns = max(1, min(COLUMNS, len(hub.main)))
+    columns, width = _layout(hub)
     rows = [hub.main[i:i + columns] for i in range(0, len(hub.main), columns)] or [[]]
-    right = VIEW_W - 2 - (WRAP_W if len(rows) > 1 else 0)
-    width = min(MAX_BOX_W, (right - 2 - GAP_X * (columns - 1)) // columns)
     parts, y, layout = [], 2, []
     for row in rows:
         boxes = [_Box(hub, hop, width, False) for hop in row]
@@ -307,7 +383,7 @@ def _flow_svg(hub):
 
 def _wrap_line(last, first, middle, next_top):
     """From the last box of a row, down the right margin, to the first box of the next row."""
-    turn_x = VIEW_W - 2 - WRAP_W // 2
+    turn_x = min(VIEW_W - 2 - WRAP_W // 2, last.x + last.width + WRAP_W // 2)  # near the row
     run_y = next_top - ROW_GAP // 2
     center = first.x + first.width // 2
     return ('<path d="M%d %d H%d V%d H%d V%d" class="next" marker-end="url(#hub-arrow)"/>'
