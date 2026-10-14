@@ -149,13 +149,15 @@ Fields:
 | From | To | By |
 |---|---|---|
 | `planned` | `approved` | `course.py approve`, after the user approves. |
-| `approved` | `planned` | `check`, when the shape differs from `approved_shape`: a change of shape needs a new approval. Prose and cite fixes after approval keep `approved`. |
+| `approved` or `done` | `planned` | `check`, when the shape differs from `approved_shape`: a change of shape needs a new approval. Prose and cite fixes after approval keep the state. |
 | `approved` | `done` | `course.py hub`, when no lesson is `pending` or `building`. |
-| `done` | `approved` | `course.py reopen`: on a resume of a done course, it sets each `failed` lesson to `pending`; if one was reset, the state goes back to `approved`. |
+| `done` | `approved` | `course.py reopen` (on a resume it sets each `failed` and each `building` lesson to `pending`), or `hub` and `mark` when a lesson is open again. |
 
 Lesson status: `pending` → `building` (orchestrator, at dispatch) → `done` or `failed`
 (orchestrator, from `verify.sh`). `dropped` is set only when the user asks for it. `mark <id>
-pending` retries one lesson (from `failed` or `dropped`). A resume runs `reopen` first, so each
+pending` retries one lesson (from `failed` or `dropped`). `mark` refuses any other transition
+(`mark: <id>: <from> -> <to> not allowed`), except `building` → `pending` and `done` → `pending`
+when `lessons/<id>/index.html` is missing, so that a resume never dead-ends. A resume runs `reopen` first, so each
 new run retries the failed lessons once; inside one run a failed lesson is not retried. A
 `dropped` lesson still counts for the rule that each hop is in at least one lesson; the hub lists
 its hops as not built.
