@@ -38,10 +38,10 @@
       },
       "narration": "One check looks for remote links. Another check tests each citation. One more check lints the prose. A sheet or a page also gets a render check.",
       "cites": [
-        { "path": "scripts/verify.sh", "line": 12, "snippet": "self-contained: ok" },
-        { "path": "scripts/verify.sh", "line": 16, "snippet": "citations: ok" },
-        { "path": "scripts/verify.sh", "line": 17, "snippet": "prose: ok" },
-        { "path": "scripts/verify.sh", "line": 23, "snippet": "two (1440x900, 500x844); a video none." }
+        { "path": "scripts/verify.sh", "line": 14, "snippet": "self-contained: ok" },
+        { "path": "scripts/verify.sh", "line": 18, "snippet": "citations: ok" },
+        { "path": "scripts/verify.sh", "line": 19, "snippet": "prose: ok" },
+        { "path": "scripts/verify.sh", "line": 28, "snippet": "two (1440x900, 500x844); a video none." }
       ]
     },
     {
@@ -49,17 +49,17 @@
       "component": "code-with-line-highlights",
       "props": {
         "title": "A safe path for Chrome",
-        "source": { "path": "scripts/verify.sh", "from": 107, "to": 114 },
+        "source": { "path": "scripts/verify.sh", "from": 112, "to": 119 },
         "highlights": [
-          { "from": 109, "to": 112, "cue": "The function swaps" },
-          { "from": 113, "to": 113, "cue": "Then it adds" }
+          { "from": 114, "to": 117, "cue": "The function swaps" },
+          { "from": 118, "to": 118, "cue": "Then it adds" }
         ]
       },
       "narration": "Chrome opens the page by its file address. The function swaps four risky characters for safe codes. Then it adds a mark for the page check.",
       "cites": [
-        { "path": "scripts/verify.sh", "line": 30, "snippet": "in headless Chrome with --dump-dom" },
-        { "path": "scripts/verify.sh", "line": 106, "snippet": "Percent-encode the characters that would end or corrupt" },
-        { "path": "scripts/verify.sh", "line": 113, "snippet": "echo \"file://$p#verify\"" }
+        { "path": "scripts/verify.sh", "line": 35, "snippet": "in headless Chrome with --dump-dom" },
+        { "path": "scripts/verify.sh", "line": 111, "snippet": "Percent-encode the characters that would end or corrupt" },
+        { "path": "scripts/verify.sh", "line": 118, "snippet": "echo \"file://$p#verify\"" }
       ]
     },
     {
@@ -79,8 +79,8 @@
       },
       "narration": "Without the script, a person checks each item by hand. Now one command runs every check and prints one line for each.",
       "cites": [
-        { "path": "scripts/verify.sh", "line": 11, "snippet": "stdout carries one line per check" },
-        { "path": "scripts/verify.sh", "line": 24, "snippet": "Every check runs even after an earlier one failed" }
+        { "path": "scripts/verify.sh", "line": 13, "snippet": "stdout carries one line per check" },
+        { "path": "scripts/verify.sh", "line": 29, "snippet": "Every check runs even after an earlier one failed" }
       ]
     }
   ]

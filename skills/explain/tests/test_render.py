@@ -977,18 +977,18 @@ class BrainrotRouteCase(unittest.TestCase):
                               "--root", str(EXPLAIN)], capture_output=True, text=True, timeout=60)
         self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "", ""))
 
-    # red: lesson missing from the argument-hint, the syntax line, or contract step 4 (the check of the --as value)
-    def test_skill_md_lists_six_rungs(self):
+    # red: lesson or course missing from the argument-hint, the syntax line, or contract step 4 (the check of the --as value)
+    def test_skill_md_lists_seven_rungs(self):
         text = SKILL_MD.read_text(encoding="utf-8")
         hint = re.search(r'^argument-hint: "(.*)"$', text, re.M)
         self.assertIsNotNone(hint, "no argument-hint line")
-        self.assertEqual(hint.group(1), "<subject> [--as ste|sheet|page|video|brainrot|lesson] [--review]")
-        self.assertIn("Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson] [--review]`.", text)
+        self.assertEqual(hint.group(1), "<subject> [--as ste|sheet|page|video|brainrot|lesson|course] [--review]")
+        self.assertIn("Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson|course] [--review]`.", text)
         step4 = re.search(r"^4\. .*?(?=^5\. )", text, re.M | re.S)
         self.assertIsNotNone(step4, "no contract step 4")
-        for name in ("ste", "sheet", "page", "video", "brainrot", "lesson"):
+        for name in ("ste", "sheet", "page", "video", "brainrot", "lesson", "course"):
             self.assertIn("`%s`" % name, step4.group(0))
-        self.assertIn("six names", step4.group(0))
+        self.assertIn("seven names", step4.group(0))
 
     # red: the brainrot row loses "Forced only" / "never chosen from content" (the rung could then
     # be chosen from content), the English-only rule of SKILL.md or of the rung file goes, or
