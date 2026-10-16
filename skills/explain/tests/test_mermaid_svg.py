@@ -226,6 +226,36 @@ class BundleCase(TempCase):
         self.assertFalse(self.bundle.exists())
         self.assert_no_part_file()
 
+    def test_bundle_path_under_a_regular_file_is_a_download_fault(self):
+        afile = Path(self.work) / "afile"
+        afile.write_bytes(b"x")
+        self.bundle = afile / mermaid_svg.BUNDLE_NAME
+        with self.assertRaises(mermaid_svg.MermaidError) as caught:
+            self.ensure([(Path(self.work) / "none.js").as_uri()])
+        self.assertTrue(
+            str(caught.exception).startswith("mermaid: FAIL download mermaid-12.2.0.min.js"),
+            str(caught.exception),
+        )
+        self.assertNotIn("\n", str(caught.exception))
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(afile.read_bytes(), b"x")
+        self.assertEqual(list(Path(self.work).rglob("*.part")), [])
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads a mode 0 file")
+    def test_unreadable_bundle_in_place_is_a_bundle_fault(self):
+        self.bundle.parent.mkdir()
+        self.bundle.write_bytes(b"twenty bytes exactly")
+        self.bundle.chmod(0)
+        self.addCleanup(self.bundle.chmod, 0o644)
+        with self.assertRaises(mermaid_svg.MermaidError) as caught:
+            mermaid_svg.ensure_bundle(self.bundle)
+        self.assertTrue(
+            str(caught.exception).startswith("mermaid: FAIL bundle %s: " % self.bundle),
+            str(caught.exception),
+        )
+        self.assertNotIn("\n", str(caught.exception))
+        self.assertEqual(caught.exception.code, 2)
+
     @unittest.skipUnless(E2E, "EXPLAIN_MERMAID_E2E=1 only")
     def test_real_download_matches_the_hash(self):
         path, _ = self.ensure(mermaid_svg.BUNDLE_URLS)

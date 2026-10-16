@@ -10,9 +10,11 @@ Env:   EXPLAIN_MERMAID_JS  the pinned mermaid bundle (default
 Exit 0 on success, 1 on a render failure, 2 on a usage error, Chrome not found or a bundle fault.
 Output: `mermaid: ok <n> diagrams` is the last line on success; every failure is one line
 `mermaid: FAIL <id> <message>`, `mermaid: FAIL Chrome not found <path>`, `mermaid: FAIL timeout`,
-`mermaid: FAIL sha256 <got>` or `mermaid: FAIL download <name>: <error>`.
+`mermaid: FAIL sha256 <got>`, `mermaid: FAIL download <name>: <error>` or
+`mermaid: FAIL bundle <path>: <error>`.
 """
 
+import contextlib
 import hashlib
 import html
 import http.client
@@ -90,10 +92,14 @@ def sha256_of(path):
     return digest.hexdigest()
 
 
+def one_line(exc):
+    """The text of an error on one line."""
+    return " ".join(str(exc).split()) or type(exc).__name__
+
+
 def download_fault(exc):
-    """The exit-2 fault for a failed fetch, with the error on one line."""
-    error = " ".join(str(exc).split()) or type(exc).__name__
-    return MermaidError("mermaid: FAIL download %s: %s" % (BUNDLE_NAME, error), 2)
+    """The exit-2 fault for a failed fetch."""
+    return MermaidError("mermaid: FAIL download %s: %s" % (BUNDLE_NAME, one_line(exc)), 2)
 
 
 def fetch(part):
@@ -114,7 +120,10 @@ def ensure_bundle(path):
     """Return the bundle path after checking its hash; fetch it first when it is missing."""
     path = Path(path)
     if path.is_file():
-        got = sha256_of(path)
+        try:
+            got = sha256_of(path)
+        except OSError as exc:
+            raise MermaidError("mermaid: FAIL bundle %s: %s" % (path, one_line(exc)), 2) from exc
         if got != BUNDLE_SHA256:
             raise MermaidError("mermaid: FAIL sha256 " + got, 2)
         return path
@@ -130,7 +139,8 @@ def ensure_bundle(path):
     except OSError as exc:
         raise download_fault(exc) from exc
     finally:
-        part.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            part.unlink(missing_ok=True)
     print("mermaid: downloaded " + BUNDLE_NAME)
     return path
 
