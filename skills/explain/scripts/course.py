@@ -2,16 +2,24 @@
 """Course plan for `explain --as course`: reads, writes and checks `course.json`.
 
 Usage: see USAGE below (check, summary, approve, next, mark, reopen, hub).
-Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error.
+Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error or a
+version 1 course.
 
-`<dir>` is the course output directory; it holds `course.json` and `lessons/<id>/`.
-`root` in `course.json` is absolute, or relative to `<dir>` (the test fixture uses the
-second form so that it works in any checkout). Every write goes through `save`, which is
-atomic: a temporary file in the same directory, then `os.replace`.
+`<dir>` is the course output directory; it holds `course.json`, `lessons/<id>/` and
+`map/<source-id>.md`. `root` in `course.json` is absolute, or relative to `<dir>` (the test
+fixture uses the second form so that it works in any checkout). Every write goes through
+`save`, which is atomic: a temporary file in the same directory, then `os.replace`.
+
+`course.json` is version 2: a hop carries `flow`, null or `<source-id>/<flow-id>` (a flow of
+`map/<source-id>.md`), and `nodes`, the node ids of that flow on the hop (empty for a null
+flow). Every command refuses a version 1 file before it does anything else: it writes the one
+line `course: version 1 is older than this skill; start a new course` to stderr, changes no
+file and exits 2. Nothing migrates a version 1 course.
 
 `check` prints one failure per line, then `course: ok` or `course: <n> failures`.
 Failure prefixes are fixed (plan section 4): `schema:`, `id:`, `lesson <id>:`, `hop <id>:`,
-`source <id>:`, `cite <hop>#<n>:`, `prose:` (an `ste_lint.py --html` error line) and `state:`.
+`flow <source>/<flow>:`, `node <source>/<flow>/<id>:`, `source <id>:`, `cite <hop>#<n>:`,
+`prose:` (an `ste_lint.py --html` error line) and `state:`.
 The cite rules (snippet of at most 12 words, verbatim on that line) come from `cite_check`.
 """
 
@@ -26,6 +34,7 @@ import tempfile
 import textwrap
 
 import cite_check
+import onboard
 
 USAGE = (
     "usage: course.py check <dir>\n"
@@ -40,9 +49,15 @@ USAGE = (
 STATE_CHANGED = "state: plan changed after approval; run summary and approve again"
 STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 COURSE_FILE = "course.json"
+VERSION = 2
+OLD_VERSION = "course: version 1 is older than this skill; start a new course"
 HUB_FILE = "index.html"
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "page.html")
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
+FLOW_REF = re.compile(r"[a-z0-9][a-z0-9-]*/[a-z][a-z0-9_-]*")
+# a name in a `not_covered` sentence: a whole token, so `esb/request-retry` does not name
+# `esb/request`, and a backtick or a period after the name does not break it
+NAME_TOKEN = re.compile(r"[a-z0-9][a-z0-9_/-]*")
 STATES = ("planned", "approved", "done")
 SOURCE_KINDS = ("code", "docs")
 FOUND = ("named", "discovered")
@@ -161,8 +176,8 @@ class _Schema:
 
 def _check_schema(course):
     schema = _Schema()
-    if schema.get(course, "version", "", int) is not None and course["version"] != 1:
-        schema.fail("version", "must be 1")
+    if schema.get(course, "version", "", int) is not None and course["version"] != VERSION:
+        schema.fail("version", "must be %d" % VERSION)
     for key in ("title", "question", "lang", "root"):
         schema.get(course, key, "", str)
     schema.get(course, "review", "", bool)
@@ -200,6 +215,18 @@ def _check_hop(schema, hop, path):
         schema.fail("%s.branch" % path, "missing")
     elif hop["branch"] is not None and not isinstance(hop["branch"], str):
         schema.fail("%s.branch" % path, "must be null or a string")
+    if "flow" not in hop:
+        schema.fail("%s.flow" % path, "missing")
+    elif hop["flow"] is not None and not isinstance(hop["flow"], str):
+        schema.fail("%s.flow" % path, "must be null or a string")
+    elif hop["flow"] is not None and not FLOW_REF.fullmatch(hop["flow"]):
+        schema.fail("%s.flow" % path, "must be <source-id>/<flow-id>")
+    nodes = schema.get(hop, "nodes", path, list)
+    for index, name in enumerate(nodes or []):
+        if not isinstance(name, str):
+            schema.fail("%s.nodes[%d]" % (path, index), "must be a string")
+    if nodes and "flow" in hop and hop["flow"] is None:
+        schema.fail("%s.nodes" % path, "must be empty when flow is null")
     for cite_path, cite in schema.items(hop, "cites", path):
         schema.get(cite, "path", cite_path, str, nonempty=True)
         schema.get(cite, "line", cite_path, int)
@@ -329,6 +356,86 @@ def _check_hops(course, root):
             failures.append("hop %s: inferred hop has a cite" % ident)
         elif evidence in ("code", "docs") and root is not None:
             failures.extend(_cite_problems(hop, root))
+    return failures
+
+
+def _map_flows(course_dir, source_id):
+    """Each flow of `map/<source_id>.md` with its node ids in diagram order (`onboard.flow_nodes`).
+
+    A missing or unreadable map has no flows; it gives no line here, the orchestrator's
+    `onboard.py check` reports it."""
+    path = os.path.join(course_dir, "map", source_id + ".md")
+    try:
+        return onboard.flow_nodes(onboard.read_map(path))
+    except (onboard.OnboardError, OSError):
+        return {}
+
+
+def _named(not_covered, name):
+    """True when one string of `not_covered` holds `name` as a whole `NAME_TOKEN` token."""
+    return any(name in NAME_TOKEN.findall(text) for text in _names(not_covered))
+
+
+def _flow_hops(course):
+    """The hops with a string `id`, a `flow` that is null or a `FLOW_REF`, and `nodes` a list of
+    strings. Every other hop has a `schema:` line already, so `_check_flows` skips it."""
+    def bound(hop):
+        flow, nodes = hop.get("flow", ""), hop.get("nodes")  # "": a missing flow fails FLOW_REF
+        return (
+            isinstance(hop.get("id"), str)
+            and (flow is None or (isinstance(flow, str) and FLOW_REF.fullmatch(flow) is not None))
+            and isinstance(nodes, list)
+            and all(isinstance(name, str) for name in nodes)
+        )
+
+    return [hop for hop in _objects(course.get("hops")) if bound(hop)]
+
+
+def _hop_flow_lines(hop, maps):
+    """The `hop <id>:` lines of one hop of `_flow_hops`; `maps` holds the flows of each source."""
+    ident, flow, nodes = hop["id"], hop["flow"], hop["nodes"]
+    if flow is None:
+        return ["hop %s: flow missing" % ident] if hop.get("evidence") == "code" else []
+    source, name = flow.split("/", 1)
+    known = maps[source].get(name)  # None: the map has no such flow
+    lines = []
+    if known is None:
+        lines.append("hop %s: flow %s not in map/%s.md" % (ident, flow, source))
+    if not nodes:
+        lines.append("hop %s: nodes empty" % ident)
+    if known is not None:
+        lines += ["hop %s: node %s not in flow %s" % (ident, node, flow)
+                  for node in nodes if node not in known]
+    return lines
+
+
+def _check_flows(course_dir, course):
+    """Each hop against its flow, then the flow floor (every flow of every map of a source is on
+    a hop or named in `not_covered`), then the node floor (the same for every node of a flow
+    that some hop names)."""
+    hops = _flow_hops(course)
+    sources = list(dict.fromkeys(_ids(_objects(course.get("sources")))))
+    named = [hop["flow"].split("/", 1)[0] for hop in hops if hop["flow"] is not None]
+    maps = {ident: _map_flows(course_dir, ident) for ident in dict.fromkeys(sources + named)}
+    failures = [line for hop in hops for line in _hop_flow_lines(hop, maps)]
+    on_hops = {}  # each flow that a hop names -> the nodes of those hops
+    for hop in hops:
+        if hop["flow"] is not None:
+            on_hops.setdefault(hop["flow"], set()).update(hop["nodes"])
+    not_covered = course.get("not_covered")
+    for source in sources:
+        for flow in maps[source]:
+            ref = "%s/%s" % (source, flow)
+            if ref not in on_hops and not _named(not_covered, ref):
+                failures.append("flow %s: in no hop and not in not_covered" % ref)
+    for source, flows in maps.items():
+        for flow, nodes in flows.items():
+            ref = "%s/%s" % (source, flow)
+            if ref not in on_hops:
+                continue  # no hop follows this flow: the flow floor covers it
+            for node in nodes:
+                if node not in on_hops[ref] and not _named(not_covered, "%s/%s" % (ref, node)):
+                    failures.append("node %s/%s: in no hop and not in not_covered" % (ref, node))
     return failures
 
 
@@ -473,6 +580,7 @@ def check(course_dir, course):
     failures += _duplicates(course)
     failures += _check_references(course)
     failures += _check_hops(course, root)
+    failures += _check_flows(course_dir, course)
     failures += _check_sources(course, root)
     failures += _check_done(course_dir, course)
     failures += _check_prose(course)
@@ -585,6 +693,10 @@ def _summary_hops(course):
             return
         seen.add(id(hop))
         evidence = hop.get("evidence")
+        if isinstance(hop.get("flow"), str):
+            evidence = "%s, flow %s, %d nodes" % (
+                evidence, hop["flow"], len(_names(hop.get("nodes")))
+            )
         if depth:
             evidence = "%s, fails at %s" % (evidence, hop.get("branch"))
         text = "%s  %s \u2192 %s  (%s)" % (hop.get("id"), hop.get("from"), hop.get("to"), evidence)
@@ -668,13 +780,19 @@ def _write_atomic(path, text):
 
 
 def _load_or_report(course_dir):
+    """The course of `course_dir`, or None after one stderr line: unreadable, or version 1."""
     try:
-        return load(course_dir)
+        course = load(course_dir)
     except (OSError, ValueError) as error:
         sys.stderr.write(
             "course: cannot read %s: %s\n" % (os.path.join(course_dir, COURSE_FILE), error)
         )
         return None
+    version = course.get("version")
+    if version == 1 and not isinstance(version, bool):  # true == 1: a schema fault, not version 1
+        sys.stderr.write(OLD_VERSION + "\n")
+        return None
+    return course
 
 
 def _report(failures):

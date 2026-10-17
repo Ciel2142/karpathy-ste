@@ -1,0 +1,165 @@
+version: 2
+feature: explain-onboard
+spec: docs/superpowers/specs/2026-10-16-explain-onboard-design.md
+coverage: waived
+# One feature branch `feat/explain-onboard`, cut from `main`, driven by ralph in the worktree
+# /Users/valukin/karpathy-wt/explain-onboard (the main working tree holds unrelated uncommitted
+# edits to bpmn_svg.py and its test). Four waves to ralph, each with a plan of at most five
+# tasks (the plan stage refuses more): two domain waves with disjoint ownership and stable CLI
+# contracts fixed by the spec (mermaid-pattern, onboard-check), then the rung that consumes
+# both, then the course. The fifth wave, onboard-live-run, has no epic on purpose: its
+# done_when is a live run of the shipped rung on a real service, which only the user or a cold
+# session can observe (setup rule 4); it runs interactively after the finish session. The user
+# skipped the brainstorming questions and then wrote "proceed as you see fit, use ralph loop"
+# (2026-10-16): the spec and this map go through the ralph split screen for one confirmation
+# before any br issue exists.
+waves:
+  - id: mermaid-pattern
+    slice: domain
+    goal: >-
+      Mermaid text renders to inline SVG in an explain page (spec sections 8 and 9):
+      `mermaid_svg.py render <in.mmd> [<out.svg>]` renders one diagram through headless Chrome
+      with the fixed config (theme base, page palette, `htmlLabels` false at the top level and
+      under `flowchart`, 14 px) and writes an SVG with `viewBox` kept, `width`/`height` rounded
+      up from the `viewBox`, no root `max-width` style, `role="img"`, `data-ste="skip"`,
+      `aria-labelledby` and a `<title>`; the script fetches the pinned bundle
+      (`mermaid@12.2.0`, sha256 `a8a6a6f8…c3b9f`) into `EXPLAIN_MERMAID_JS` or its default path
+      when it is missing; `mermaid_svg.py inline <index.html>` fills every
+      `figure.mermaid[data-src]` of a page in one Chrome run and replaces the SVG on a second
+      run; `templates/page.html` carries the three `figure.mermaid` rules and `rungs/page.md`
+      section 4 the Mermaid pattern.
+    done_when: >-
+      `test_mermaid_svg.py` passes: the render of a fixture `.mmd` has zero `foreignObject`,
+      `role="img"`, `data-ste="skip"`, integer `width`/`height` not below the `viewBox` size;
+      `inline` on a fixture page (the page template with one `figure.mermaid`) writes the SVG
+      before the `figcaption`, a second run leaves one SVG, a missing `data-src` file exits 1
+      with `mermaid: FAIL <id> …`, a wrong bundle file gives `mermaid: FAIL sha256 <got>`; the
+      filled fixture page passes `verify.sh` (`rung=page`) at both viewports; `test_page_template.py`
+      pins the three CSS rules and `test_rung_drift.py` the pattern text; the explain unit suite passes.
+    status: done
+    depends_on: []
+    owns:
+      - skills/explain/scripts/mermaid_svg.py (new)
+      - skills/explain/templates/page.html (the three figure.mermaid rules)
+      - skills/explain/rungs/page.md (section 4: the Mermaid pattern)
+      - skills/explain/tests/test_mermaid_svg.py (new), skills/explain/tests/fixtures/mermaid/ (new)
+      - skills/explain/tests/test_page_template.py, test_rung_drift.py (the pattern only)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+
+  - id: onboard-check
+    slice: domain
+    goal: >-
+      The mechanical floor of an onboarding map (spec sections 6 and 7): `onboard.py inventory
+      <source-dir> --root <root> [--out <file>]` prints one `<path>:<line>\t<kind>\t<text>` line
+      per entry-point hit of the pattern table (Java, Kotlin, Go, Camel YAML; test trees and
+      build directories skipped) and `inventory: <n> entry points`; `onboard.py check <map.md>
+      --root <root> [--inventory <file>]` enforces the map format (the ten level-2 sections in
+      order, one diagram per place with `none found` allowed for Architecture, Flows and State,
+      at most 25 nodes, one fact line per node and one node per fact line, the cite rules of
+      `cite_check` reused from `course.py`'s `_cite_problems`, entry lines that name a flow or
+      a reason, every inventory line accounted for) and prints `onboard: ok` or `onboard: <n>
+      failures` with the failure prefixes of spec section 7. The Mermaid node parser is a
+      module function that the course wave imports.
+    done_when: >-
+      `test_onboard.py` passes: the inventory of a fixture tree with Java, Kotlin, Go and a
+      `.camel.yaml` file lists each planted entry point once and nothing from `src/test`; a
+      good fixture map prints `onboard: ok`; one mutated copy per failure prefix (`section:`,
+      `diagram … none`, `diagram … more than 25`, `node … no fact line`, `fact … not a node`,
+      `cite …`, `entry … no flow id and no reason`, `entry … flow … not in Flows`,
+      `inventory … not in Entry points`, `map: cannot read`) prints that line; the explain unit
+      suite passes.
+    status: done
+    depends_on: []
+    owns:
+      - skills/explain/scripts/onboard.py (new)
+      - skills/explain/scripts/cite_check.py (only if _cite_problems moves there from course.py)
+      - skills/explain/tests/test_onboard.py (new), skills/explain/tests/fixtures/onboard/ (new)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+
+  - id: onboard-rung
+    slice: vertical
+    goal: >-
+      `/explain <service-dir> --as onboard` is the eighth rung (spec sections 3, 4, 5, 9.1 and
+      12): `rungs/onboard.md` holds "Explore the service", "The map", the page plan of 9.1 and
+      the output directory, and it lints clean; `SKILL.md` names the rung in the argument-hint,
+      the Contract (eight names), the rung table, the rung rules and the Rung files list;
+      `README.md` lists it; `verify.sh` renders `rung=onboard` at the two page viewports and
+      `bpmn.py` accepts the rung.
+    done_when: >-
+      `test_verify.py` passes a fixture onboard page (the page template with meta `onboard` and
+      one `figure.mermaid` filled by `mermaid_svg.py inline`) with the six page lines and
+      `bpmn: none`, all `ok`; `test_bpmn_check.py` accepts `--rung onboard`;
+      `test_rung_drift.py` pins the eight `--as` names in `SKILL.md` and `README.md`, the rung
+      bullets, and the section plan of spec 9.1 in `rungs/onboard.md`; `rungs/onboard.md` and
+      `SKILL.md` lint clean; the explain unit suite passes.
+    status: done
+    depends_on: [mermaid-pattern, onboard-check]
+    owns:
+      - skills/explain/rungs/onboard.md (new)
+      - skills/explain/SKILL.md, README.md (the eighth rung)
+      - skills/explain/scripts/verify.sh (rung=onboard), skills/explain/scripts/bpmn.py (RUNGS)
+      - skills/explain/tests/test_verify.py, test_bpmn_check.py, test_rung_drift.py (the new rung)
+      - skills/explain/tests/fixtures/onboard-page/ (new)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+
+  - id: course-on-flows
+    slice: vertical
+    goal: >-
+      A course plans from the flows of its maps (spec sections 10 and 11): the map subagent
+      follows "Explore the service" and "The map" of `rungs/onboard.md` and ends with
+      `onboard.py check --inventory`; the orchestrator runs the check on each map; a hop of
+      `course.json` version 2 carries `flow` and `nodes`, and `course.py check` enforces the
+      flow floor and the node floor (every flow of every map on a hop or in `not_covered`;
+      every node of a followed flow on a hop or in `not_covered` by name); `summary` shows the
+      flow and node count; a version 1 file is refused with one line; the lesson subagent cuts
+      its first diagram from the map block by the nodes of its hops.
+    done_when: >-
+      `test_course.py` passes the new cases (a `code` hop without `flow`, a node not in its
+      flow, an unnamed flow and an unnamed node of a followed flow each print their line; a
+      good version 2 fixture prints `course: ok`; a version 1 fixture is refused by every
+      command); `test_course_prompts.py` locks the new map sections and the `onboard.py` commands
+      in `map-task.md`, and the diagram cut rule in `lesson-task.md`; `course.md` and the two
+      prompts lint clean; the explain unit suite passes.
+    status: done
+    depends_on: [onboard-rung]
+    owns:
+      - skills/explain/course/map-task.md, skills/explain/course/lesson-task.md
+      - skills/explain/rungs/course.md (Map the sources, Plan the course, the course.json example)
+      - skills/explain/scripts/course.py (version 2, flow and nodes, the two floors, summary)
+      - skills/explain/tests/test_course.py, test_course_prompts.py, test_course_hub.py (fixture version only)
+      - skills/explain/tests/fixtures/course*/ (version 2, flow and nodes in the fixture course)
+    risk: high   # course.json is a compatibility contract between runs (resume); version 2 refuses version 1
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+
+  - id: onboard-live-run
+    slice: vertical
+    goal: >-
+      The shipped rung works on a real service of the user: `/explain <service-dir> --as
+      onboard` on one qmd collection (such as `diadoc`) gives a page whose `verify.sh` lines
+      are all `ok`, whose entry table covers every line of `inventory.txt`, and whose tiles
+      show no cut text and no false picture (spec section 13, "Proof at the end").
+    done_when: >-
+      The user has read the page of one live run and accepts it, or names what to change.
+    status: done
+    depends_on: [onboard-rung]
+    owns:
+      - out/<timestamp>-onboard-<slug>/ (discardable output; nothing tracked)
+    risk: low
+    plan: null
+    acceptance:
+      - "/explain <a real service dir> --as onboard: verify.sh all ok; entry table covers inventory.txt"
+deferred: []
+approval:
+  required: false
+  reason: null

@@ -1,0 +1,25 @@
+<section id="entry">
+  <h2>Where does a message enter?</h2>
+  <p>A new order enters the service through one HTTP route. The table names this entry point and links to its flow.</p>
+  <div class="cites">
+    <cite data-path="diagrams/order.mmd" data-line="1" data-snippet="flowchart">order.mmd:1 <code>flowchart</code></cite>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Kind</th><th>Name</th><th>Flow</th></tr></thead>
+      <tbody>
+        <tr><td>http</td><td><code>POST /orders</code></td><td><a href="#flow-order">order</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<section id="flow-order">
+  <h2>What happens to a new order?</h2>
+  <p>The controller takes the order body and checks the total. A valid order is charged, saved and sent to Kafka.</p>
+  <div class="cites">
+    <cite data-path="diagrams/order.mmd" data-line="1" data-snippet="flowchart">order.mmd:1 <code>flowchart</code></cite>
+  </div>
+  <figure class="mermaid" data-src="diagrams/order.mmd">
+    <figcaption>The path of one new order from the request to the reply.</figcaption>
+  </figure>
+</section>

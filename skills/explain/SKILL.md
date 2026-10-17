@@ -2,7 +2,7 @@
 name: explain
 description: Use when the user invokes /explain — explain a subject (file, directory, `this`, or topic) in the best rung, from chat text to a one-page sheet, an interactive page, or a narrated video.
 disable-model-invocation: true
-argument-hint: "<subject> [--as ste|sheet|page|video|brainrot|lesson|course] [--review]"
+argument-hint: "<subject> [--as ste|sheet|page|video|brainrot|lesson|course|onboard] [--review]"
 ---
 
 # explain
@@ -13,7 +13,7 @@ this skill, printed when it starts; the `ste` skill is its sibling `<skill-dir>/
 
 ## Contract
 
-Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson|course] [--review]`.
+Syntax: `/explain <subject> [--as ste|sheet|page|video|brainrot|lesson|course|onboard] [--review]`.
 
 The arguments of this run: `$ARGUMENTS`
 
@@ -24,7 +24,7 @@ The arguments of this run: `$ARGUMENTS`
    `--review: no effect on <rung>` after the rung line, and continue.
 3. Find the last `--as <rung>` pair in the arguments. The last pair wins. Remove it.
 4. If `--as` is present, its value must be `ste`, `sheet`, `page`, `video`, `brainrot`,
-   `lesson` or `course`. Else stop with an error. List these seven names in the error.
+   `lesson`, `course` or `onboard`. Else stop with an error. List these eight names in the error.
 5. Trim the rest. The result is the subject.
 
 ## Subject resolution
@@ -66,6 +66,7 @@ section on a page.
 | `brainrot` (vertical narrated mp4) | Forced only: a vertical narrated short for a phone; never chosen from content | Any subject that the user wants as a phone short |
 | `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections carry short narrated clips where motion explains better than a still | A subsystem with two to four moving parts |
 | `course` (hub page and a lesson for each subsystem, directory output) | Forced only (`--as course`). A system of several services or repos that one message passes through | One message through several services |
+| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). A service to onboard to: its architecture and every flow | One service directory |
 
 Read the subject before you choose the rung: the file, the directory, or the repo code of
 a topic. A model-knowledge topic has no source to read. Before you build, print this line,
@@ -83,6 +84,8 @@ names the flag and tells if the content fits the rung. Then follow these rules:
   rung is English or Russian.
 - The `course` rung builds a set of lessons and a hub page. Only `--as course` selects it. The
   course rung is English or Russian.
+- The `onboard` rung builds one page for one service from its map. Only `--as onboard` selects it.
+  The onboard rung is English or Russian.
 - If `rungs/<rung>.md` does not exist for the chosen rung, print the rung line. Say that the
   rung is not available yet. Stop. Offer `sheet` or `ste`.
 - A forced rung can be too small for the content, for example a sheet for more than 6
@@ -95,7 +98,7 @@ names the flag and tells if the content fits the rung. Then follow these rules:
 
 ## Conventions
 
-These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`).
+These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`, `onboard`).
 
 1. Prose: follow the STE profile. For a non-English artifact, follow convention 7. The final
    `index.html` passes `ste_lint.py --html` with 0 errors.
@@ -183,3 +186,5 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
   gates, the drop rule and the output directory).
 - `<skill-dir>/rungs/course.md`: the course rung (the plan in `course.json`, the stop for approval,
   one subagent for each lesson, the hub page and the resume).
+- `<skill-dir>/rungs/onboard.md`: the onboard rung (the onboarding rules, the inventory, the map and
+  its check, the Mermaid flows, the section plan and the output directory).

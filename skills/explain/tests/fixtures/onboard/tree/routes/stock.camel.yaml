@@ -1,0 +1,5 @@
+- from:
+    uri: "kafka:stock.updates"
+    steps:
+      - to: "log:stock.updates"
+- from: { uri: "timer:stock" }

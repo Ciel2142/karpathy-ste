@@ -360,5 +360,38 @@ class TestMain(CiteCheckCase):
         self.assertEqual(self.run_main([path])[0], 0)
 
 
+class FactProblemsCase(CiteCheckCase):
+    """fact_problems: the bare problem texts of one map cite under the temp root."""
+
+    def problems(self, path="src.txt", line=1, snippet="alpha beta"):
+        return cite_check.fact_problems(path, line, snippet, self.dir)
+
+    def test_good_cite_has_no_problem(self):
+        self.assertEqual(cite_check.fact_problems("src.txt", 1, "alpha beta", self.dir), [])
+
+    def test_long_snippet(self):
+        self.assertEqual(
+            self.problems(snippet=THIRTEEN), ["snippet has 13 words (max 12)", "snippet not found on that line"]
+        )
+
+    def test_missing_file(self):
+        self.assertEqual(self.problems(path="none.txt"), ["file missing: %s" % os.path.join(self.dir, "none.txt")])
+
+    def test_line_out_of_range(self):
+        self.assertEqual(self.problems(line=9), ["line out of range (file has 3 lines)"])
+
+    def test_snippet_not_on_that_line(self):
+        self.assertEqual(self.problems(line=2, snippet="gamma delta"), ["snippet not found on that line"])
+
+    def test_url_path_has_no_problem(self):
+        self.assertEqual(self.problems(path="https://example.com/x"), [])
+
+    def test_path_with_surrounding_whitespace_is_stripped(self):
+        self.assertEqual(cite_check.fact_problems("src.txt ", 1, "alpha beta", self.dir), [])
+        self.assertEqual(
+            cite_check.fact_problems(" src.txt", 9, "alpha beta", self.dir), ["line out of range (file has 3 lines)"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

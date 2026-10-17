@@ -20,11 +20,18 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
 
+import mermaid_svg  # noqa: E402
+import onboard  # noqa: E402
 from bpmn_page import bpmn_page  # noqa: E402
+from onboard_page import FIXTURES as ONBOARD_PAGE_FIXTURES, onboard_page  # noqa: E402
 
 SCRIPT = os.path.join(os.path.dirname(HERE), "scripts", "verify.sh")
 BPMN_PY = os.path.join(os.path.dirname(HERE), "scripts", "bpmn.py")
+MERMAID_PY = os.path.join(os.path.dirname(HERE), "scripts", "mermaid_svg.py")
+HAVE_BUNDLE = mermaid_svg.bundle_path().is_file()
+NO_BUNDLE = "mermaid bundle missing: %s" % mermaid_svg.bundle_path()
 FIXTURES = os.path.join(HERE, "fixtures")
 HANG = os.path.join(FIXTURES, "snap-hang.html")
 SOURCE = "The parser reads each tag and keeps the attributes.\n"
@@ -365,6 +372,42 @@ class VerifyTest(unittest.TestCase):
         self.assertNotIn("render 1920x1080: ok", lines)
         self.assert_no_chrome_left()
 
+    def test_onboard_rung_renders_the_page_viewports(self):
+        """Red on the old script: exit 2, unknown rung "onboard". Red when the onboard rung gets the
+        sheet viewport, a media line or no bpmn line: the six lines compare in order."""
+        proc, _ = self.verify_fixture(
+            "verify-good.html",
+            edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="onboard"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + BPMN_NONE)
+        self.assert_no_chrome_left()
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_onboard_fixture_page_prints_six_ok_lines_and_bpmn_none(self):
+        """Red when the onboard rung fails a page that holds an entry table and a filled figure.mermaid, prints
+        a media line, or drops the bpmn line: the six lines compare in order. Red when mermaid_svg.py inline does
+        not fill the one figure of the fixture."""
+        page = onboard_page(os.path.join(self.root, "onboard"))
+        env = dict(os.environ, TMPDIR=self.tmp + "/")
+        inline = subprocess.run(
+            [sys.executable, MERMAID_PY, "inline", str(page)], capture_output=True, text=True, env=env, timeout=180,
+        )
+        self.assertEqual(inline.returncode, 0, inline.stdout + inline.stderr)
+        self.assertEqual(inline.stdout.splitlines()[-1], "mermaid: ok 1 diagrams")
+        proc, _ = self.run_verify(str(page))
+        self.assertEqual((proc.returncode, proc.stdout), (0, LESSON_PASS + BPMN_NONE), proc.stdout + proc.stderr)
+        self.assert_no_chrome_left()
+
+    def test_onboard_fixture_diagram_is_the_order_flow_of_the_fixture_map(self):
+        """Red when order.mmd drifts from the order flow block of the wave 2 fixture map, so that the page
+        fixture no longer shows a diagram that the map checks."""
+        doc = onboard.read_map(os.path.join(FIXTURES, "onboard", "map.md"))
+        flow = doc.section("Flows").flows[0]
+        self.assertEqual(flow.ident, "order")
+        with open(os.path.join(str(ONBOARD_PAGE_FIXTURES), "order.mmd"), encoding="utf-8") as handle:
+            self.assertEqual(flow.diagrams[0].text.rstrip("\n"), handle.read().rstrip("\n"))
+
     # --- lesson rung: the media check (spec 6.3) ---------------------------------------
 
     def test_lesson_with_media_prints_seven_ok_lines(self):
@@ -645,18 +688,18 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
         self.assertIn("poster", proc.stderr)
-        self.assertIn("(expected sheet, page, video, lesson or course)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson, course or onboard)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_unknown_rung_message_lists_lesson(self):
-        """Red on the old text: the usage line names three rungs and omits lesson."""
+        """Red on the old text: the usage line omits the onboard rung."""
         proc, _ = self.verify_fixture(
             "verify-good.html",
             edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="poster"'),
         )
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
-        self.assertIn("(expected sheet, page, video, lesson or course)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson, course or onboard)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_no_argument_or_unreadable_file_is_a_usage_error(self):

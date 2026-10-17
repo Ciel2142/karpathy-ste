@@ -479,7 +479,9 @@ class HubCliTest(HubCase):
 
     def test_hub_write_is_atomic(self):
         self.assertEqual(run_cli("hub", self.dir)[0], 0)
-        self.assertEqual(sorted(os.listdir(self.dir)), ["course.json", "index.html", "lessons"])
+        self.assertEqual(
+            sorted(os.listdir(self.dir)), ["course.json", "index.html", "lessons", "map"]
+        )
 
     def test_hub_template_error_exits_2_with_one_line(self):
         broken = os.path.join(self.base, "page.html")

@@ -48,7 +48,11 @@ and the build step), the languages of the video and lesson rungs, and convention
 with the two rules that point to it, and it ties the `--as` list of README.md to the argument-hint of
 SKILL.md and the README rows of the lesson rung to the files that they name.
 
-HtmlLangCase pins the step of "Fill the template" in page.md and sheet.md that sets the `lang` of `<html>`."""
+HtmlLangCase pins the step of "Fill the template" in page.md and sheet.md that sets the `lang` of `<html>`.
+
+OnboardRungCase ties rungs/onboard.md to scripts/onboard.py: the six level-2 titles (ONBOARD_TITLES), the kinds
+table to the keys of PATTERNS, the map skeleton to TITLES, the prefix table to the seven failure prefixes of
+`check`, the section plan of spec 9.1, the page-rung overrides and the output directory; the file lints clean."""
 
 import ast
 import json
@@ -61,6 +65,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import onboard
 from test_format_limits import fill
 
 EXPLAIN = Path(__file__).resolve().parent.parent
@@ -72,6 +78,7 @@ REVIEW_PAGE_MD = EXPLAIN / "lesson" / "review-page.md"
 BRAINROT_MD = EXPLAIN / "rungs" / "brainrot.md"
 PAGE_MD = EXPLAIN / "rungs" / "page.md"
 SHEET_MD = EXPLAIN / "rungs" / "sheet.md"
+ONBOARD_MD = EXPLAIN / "rungs" / "onboard.md"
 SKILL_MD = EXPLAIN / "SKILL.md"
 README_MD = REPO / "README.md"
 STE_LINT = "skills/ste/scripts/ste_lint.py"  # relative to REPO, where lint runs it
@@ -941,6 +948,173 @@ class BpmnRungCase(unittest.TestCase):
                 self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
 
 
+class MermaidRungCase(unittest.TestCase):
+    """The Mermaid pattern of "Diagram patterns" in rungs/page.md (spec 9): when to use it, the two types, the
+    figure block, the command that fills it and the rule against an SVG pasted by hand. The section is read as
+    one line of words, because the rung wraps its lines."""
+
+    def words(self):
+        return " ".join(section(read(PAGE_MD), "Diagram patterns").split())
+
+    def test_page_md_has_the_mermaid_pattern(self):
+        """Red when "Diagram patterns" loses the figure.mermaid block, the `inline` command, the `diagrams/<id>.svg`
+        output, the place before the figcaption, the replace-on-rerun rule, the rule against an SVG pasted by hand,
+        the rule for when to use it, the six-box limit of the flow pattern or one of the two diagram types."""
+        patterns = self.words()
+        for phrase in ('<figure class="mermaid" data-src="diagrams/<id>.mmd">',
+                       "mermaid_svg.py inline index.html", "diagrams/<id>.svg", "before the <figcaption>",
+                       "A second run replaces the SVG", "Never paste an SVG by hand",
+                       "any flow with a branch, and any state machine", "at most six boxes", "flowchart",
+                       "stateDiagram-v2"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, patterns)
+
+    def test_mermaid_pattern_follows_the_bpmn_plane(self):
+        """Red when the Mermaid figure block comes before the BPMN one, so the pattern list loses its order."""
+        patterns = self.words()
+        places = [patterns.find('<figure class="bpmn">'), patterns.find('<figure class="mermaid"')]
+        self.assertNotIn(-1, places, patterns)
+        self.assertLess(places[0], places[1])
+
+    def test_page_md_lints_clean_with_the_mermaid_pattern(self):
+        """Red when the Mermaid pattern breaks the STE profile in page.md."""
+        run = lint(PAGE_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+
+ONBOARD_TITLES = ("When an onboarding page", "Explore the service", "The map", "Plan the sections",
+                  "Write the page", "Output directory")
+# The fence of the map skeleton in "The map": four backticks, so that its ```mermaid blocks stay literal.
+SKELETON_FENCE = "````"
+
+
+def skeleton_lines(text: str) -> list[str]:
+    """The lines of the first block of `text` that opens on a line of exactly four backticks, up to the next
+    such line. AssertionError when no such block opens or it does not close."""
+    lines = text.split("\n")
+    starts = [index for index, line in enumerate(lines) if line.strip() == SKELETON_FENCE]
+    if len(starts) < 2:
+        raise AssertionError("%d lines of four backticks, not a block" % len(starts))
+    return lines[starts[0] + 1:starts[1]]
+
+
+class OnboardRungCase(unittest.TestCase):
+    """rungs/onboard.md (spec 3 to 7 and 9.1): when the rung applies, the rules to explore a service, the map and
+    its check, the section plan, the overrides of the page rung and the output directory. The names that the
+    rung shares with scripts/onboard.py come from the script. Each section is read as one line of words,
+    because the rung wraps its lines."""
+
+    def words(self, title):
+        return " ".join(section(read(ONBOARD_MD), title).split())
+
+    def assert_phrases(self, title, phrases):
+        text = self.words(title)
+        for phrase in phrases:
+            with self.subTest(section=title, phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_the_headings_of_onboard_md(self):
+        """Red when a level-2 section is gone, renamed or moved, or the file does not open as a rung file."""
+        text = read(ONBOARD_MD)
+        self.assertEqual(text.split("\n")[0], "# Rung: onboard")
+        self.assertEqual(tuple(title for level, title in headings(text) if level == 2), ONBOARD_TITLES)
+
+    def test_when_section_holds_the_command_the_subject_rule_and_the_rung_line(self):
+        """Red when "When an onboarding page" loses the command, the rung line, the forced-only rule, the
+        one-directory rule and its offer of `page`, the --review line, the two languages or the root rule."""
+        self.assert_phrases("When an onboarding page", (
+            "/explain <service-dir> --as onboard",
+            "Rung: onboard (forced) — <reason> — subject: <path> (directory)",
+            "Only `--as onboard` selects it", "one directory", "Offer `page`", "--review: no effect on onboard",
+            "English or Russian", "git rev-parse --show-toplevel"))
+
+    def test_explore_runs_the_inventory_and_lists_the_kinds_of_onboard_py(self):
+        """Red when "Explore the service" loses the inventory command or its summary line, or when the kinds
+        table drops, adds or reorders a kind of onboard.PATTERNS, or quotes a regular expression."""
+        self.assert_phrases("Explore the service", (
+            "onboard.py inventory <service-dir> --root <root> --out inventory.txt", "inventory: <n> entry points"))
+        kinds = limits_table(ONBOARD_MD, "| Kind | Finds |")
+        self.assertEqual(list(kinds), ["`http`", "`listener`", "`route`", "`schedule`", "`main`"])
+        self.assertEqual(list(kinds), ["`%s`" % kind for kind in onboard.PATTERNS])
+        for kind, finds in kinds.items():
+            with self.subTest(kind=kind):
+                self.assertTrue(finds)
+                self.assertNotIn("\\", finds)
+
+    def test_explore_holds_the_seven_rules_in_order(self):
+        """Red when a rule of spec 5 is gone, out of order or not numbered, or the flow rules lose the decision
+        node, the 25-node cap, the stage split or the `see <flow-id>` node."""
+        text = section(read(ONBOARD_MD), "Explore the service")
+        rules = re.findall(r"^(\d+)\. (.*)", text, re.M)
+        self.assertEqual([number for number, _ in rules], ["1", "2", "3", "4", "5", "6", "7"])
+        starts = ("Shape first", "Inventory", "Architecture", "Flows", "State", "Formats and transforms",
+                  "Not covered")
+        for (number, rule), start in zip(rules, starts):
+            with self.subTest(rule=number):
+                self.assertTrue(rule.startswith(start), rule)
+        self.assert_phrases("Explore the service", ("decision node", "at most 25 nodes", "<flow>-<stage>",
+                                                    "see <flow-id>"))
+
+    def test_the_map_skeleton_lists_the_ten_titles_of_onboard_py(self):
+        """Red when the skeleton of "The map" loses its four-backtick fence or its title line, or drops, adds,
+        renames or reorders a level-2 section of onboard.TITLES."""
+        lines = skeleton_lines(section(read(ONBOARD_MD), "The map"))
+        self.assertTrue(lines[0].startswith("# Map: <id>"), lines[0])
+        self.assertEqual([line for line in lines if line.startswith("## ")], ["## " + t for t in onboard.TITLES])
+        self.assertIn("### <flow-id>: <question>", lines)
+
+    def test_the_map_runs_the_check_and_names_its_prefixes(self):
+        """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or
+        reorders one of the seven prefixes of spec 7."""
+        self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt",
+                                        "onboard: ok", "onboard: <n> failures"))
+        prefixes = limits_table(ONBOARD_MD, "| Prefix | Meaning |")
+        starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`inventory ", "`map: cannot read")
+        self.assertEqual(len(prefixes), 7, list(prefixes))
+        for key, start in zip(prefixes, starts):
+            with self.subTest(prefix=start):
+                self.assertTrue(key.startswith(start), key)
+
+    def test_plan_the_sections_follows_spec_9_1(self):
+        """Red when "Plan the sections" loses a section id, a diagram file, the never-merge rule, the footer,
+        the cite rule or the rule that drops the clip line."""
+        self.assert_phrases("Plan the sections", (
+            "#whole", "#entry", "flow-<flow-id>", "#state", "#formats", "#config", "#errors", "#systems", "#terms",
+            ".table-wrap > table", "diagrams/architecture.mmd", "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
+            "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
+            "is not printed"))
+
+    def test_write_the_page_reuses_page_md_and_the_two_scripts(self):
+        """Red when "Write the page" stops pointing at the four sections of page.md, or loses the meta, the
+        provenance kind, the Mermaid command and its line, `bpmn: none`, the inventory compare or the handoff."""
+        self.assert_phrases("Write the page", (
+            '"Fill the template"', '"Provenance"', '"Write the prose"', '"Verify and export"',
+            '<meta name="explain-rung" content="onboard">', 'data-kind="directory"', "mermaid_svg.py inline index.html",
+            "mermaid: ok <n> diagrams", "bpmn: none", "inventory.txt", "open index.html",
+            "Never run `open` inside a subagent"))
+
+    def test_write_the_page_points_at_titles_that_page_md_has(self):
+        """Red when page.md loses, renames or repeats one of the six headings that onboard.md points at: each
+        title must be exactly one heading of page.md."""
+        for title in ("Plan the sections", "Fill the template", "Diagram patterns", "Provenance",
+                      "Write the prose", "Verify and export"):
+            with self.subTest(title=title):
+                section(read(PAGE_MD), title)
+
+    def test_output_directory_lists_the_rows_of_spec_4(self):
+        """Red when "Output directory" loses the directory name, or its table drops, adds or reorders a row of
+        spec 4."""
+        self.assert_phrases("Output directory", ("~/karpathy/out/YYYY-MM-DD-HHMMSS-onboard-<slug>/",))
+        self.assertEqual(list(limits_table(ONBOARD_MD, "| Path | Holds |")), [
+            "`map.md`", "`inventory.txt`", "`diagrams/<id>.mmd`", "`diagrams/<id>.svg`", "`index.html`",
+            "`page.png`, `narrow.png`, `review/`"])
+
+    def test_onboard_md_lints_clean(self):
+        """Red when a sentence of onboard.md breaks the STE profile."""
+        run = lint(ONBOARD_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+
 # The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.
 LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections "
               "carry short narrated clips where motion explains better than a still | A subsystem with two to "
@@ -950,7 +1124,11 @@ LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--
 COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory output) | Forced only "
               "(`--as course`). A system of several services or repos that one message passes through | "
               "One message through several services |")
-AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course"
+AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard"
+
+# The row of the onboard rung in the rung table of SKILL.md, word for word.
+ONBOARD_ROW = ("| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). "
+               "A service to onboard to: its architecture and every flow | One service directory |")
 
 
 class SkillMdCase(unittest.TestCase):
@@ -998,7 +1176,7 @@ class SkillMdCase(unittest.TestCase):
         for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
                          "The lesson rung is English or Russian.",
                          "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
-                         "`brainrot`, `lesson`, `course`).",
+                         "`brainrot`, `lesson`, `course`, `onboard`).",
                          "(sheet, page, lesson or course)"):
             self.assertIn(sentence, flat)
         conventions = section(text, "Conventions")
@@ -1058,10 +1236,10 @@ class SkillMdCase(unittest.TestCase):
         flat = " ".join(text.split())
         for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
                          "Only the `lesson` and `course` rungs have a review.",
-                         "List these seven names in the error.",
+                         "List these eight names in the error.",
                          "The `course` rung builds a set of lessons and a hub page. Only `--as course` selects it. "
                          "The course rung is English or Russian.",
-                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`).",
+                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`, `onboard`).",
                          "(sheet, page, lesson or course)",
                          "For a course, the slug comes from the names of the sources, joined with `-`, as "
                          "`rungs/course.md` says.",
@@ -1077,6 +1255,30 @@ class SkillMdCase(unittest.TestCase):
         for word in ("course.json", "approval", "subagent", "hub", "resume"):
             self.assertIn(word, course)
         self.assertTrue((EXPLAIN / "rungs" / "course.md").is_file(), "rungs/course.md does not exist")
+
+    # red: the argument-hint or the syntax line of the Contract without `onboard`, step 4 naming the rungs in
+    # another order or without backticks, the onboard row missing, reworded or chosen from content, the rule
+    # bullet without "Only `--as onboard` selects it." or without the languages, the review sentence back to
+    # the lesson and the course only, the Rung files bullet that leaves out the map, the inventory or the
+    # check, or the rung file missing
+    def test_skill_md_routes_the_onboard_rung(self):
+        text = read(SKILL_MD)
+        self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)
+        flat = " ".join(text.split())
+        for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
+                         "The `onboard` rung builds one page for one service from its map. Only `--as onboard` "
+                         "selects it. The onboard rung is English or Russian.",
+                         "Only the `lesson` and `course` rungs have a review."):
+            self.assertIn(sentence, flat)
+        contract = " ".join(section(text, "Contract").split())
+        names = re.search(r"its value must be (.*?)\. Else stop", contract).group(1)
+        self.assertEqual(re.findall(r"`([^`]+)`", names), AS_NAMES.split("|"))
+        rows = [line for line in text.split("\n") if line.startswith("| `onboard` ")]
+        self.assertEqual(rows, [ONBOARD_ROW])
+        onboard = self.bullets()["<skill-dir>/rungs/onboard.md"]
+        for word in ("map", "inventory", "check"):
+            self.assertIn(word, onboard)
+        self.assertTrue((EXPLAIN / "rungs" / "onboard.md").is_file(), "rungs/onboard.md does not exist")
 
     # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
     # `$ARGUMENTS` with the typed arguments and shows the model nothing else of the command line, so a rule
@@ -1101,11 +1303,20 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("`--as course`", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
         self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
-        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course}.md", readme)
+        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course,onboard}.md", readme)
         self.assertIn("lesson/", readme)
         self.assertIn("course/ (the map and lesson prompts)", readme)
         self.assertIn("scripts/course{,_hub,_hub_text,_discover}.py", readme)
         self.assertIn("tests.test_lesson_e2e", readme)
+
+    # red: the README without `--as onboard`, the Requirements row of `onboard` missing or reworded, or the
+    # layout block without scripts/{onboard,mermaid_svg}.py
+    def test_readme_names_the_onboard_rung(self):
+        readme = read(README_MD)
+        self.assertIn("`--as onboard`", readme)
+        rows = [line for line in readme.split("\n") if line.startswith("| `onboard` |")]
+        self.assertEqual(rows, ["| `onboard` | the needs of `page` |"])
+        self.assertIn("scripts/{onboard,mermaid_svg}.py", readme)
 
 
 class HtmlLangCase(unittest.TestCase):

@@ -1,0 +1,8 @@
+flowchart TD
+  recv[POST /orders] --> valid{total over limit?}
+  valid -->|yes| reject[400 over the limit]
+  valid -->|no| charge[charge the payment]
+  charge -- declined --> reject
+  charge --> save[(orders table)]
+  save --> publish[send orders.created]
+  publish --> reply[202 with the id]

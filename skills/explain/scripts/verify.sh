@@ -6,7 +6,7 @@
 #   env VERIFY_TIMEOUT   seconds to wait for each Chrome DOM dump (default 60)
 #
 #   exit 0  all checks of the rung passed (sheet: five lines; page: six; lesson: seven; course: seven;
-#           video: three)
+#           onboard: six; video: three)
 #   exit 1  at least one check failed
 #   exit 2  usage: no argument, unreadable file, no or unknown <meta name="explain-rung">
 #
@@ -25,7 +25,7 @@
 # The media check counts each local video src or poster and each <a href> into clips/ that names no file; for a course
 # (the hub) it also counts each <a href> into lessons/ that names no file, once per distinct value: the hub links one
 # lesson from its diagram boxes and from its lesson list, and one missing lesson is one fault.
-# A sheet has one render line (1920x1080); a page, a lesson or a course two (1440x900, 500x844); a video none.
+# A sheet has one render line (1920x1080); a page, a lesson, a course or an onboarding page two (1440x900, 500x844); a video none.
 # Every check runs even after an earlier one failed.
 #
 # Only the guard may write data-verify. If the source <html> start tag already carries
@@ -322,9 +322,10 @@ case "$rung_line" in
     rung=page) viewports="1440x900 500x844" ;;
     rung=lesson) viewports="1440x900 500x844" ;;
     rung=course) viewports="1440x900 500x844" ;;   # the hub of a course: a page
+    rung=onboard) viewports="1440x900 500x844" ;;   # an onboarding page: a page
     rung=video) viewports="" ;;   # a transcript: no viewport render, check 2 is skipped
     rung-missing) usage "no <meta name=\"explain-rung\"> in $input_abs" ;;
-    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video, lesson or course)" ;;
+    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video, lesson, course or onboard)" ;;
 esac
 
 # --- check 1: self-containment -------------------------------------------------

@@ -1,0 +1,7 @@
+flowchart TD
+  recv[receive the message] --> kind{type?}
+  kind -->|send| route[route by place]
+  kind -->|cancel| cancel[cancel the request]
+  route --> deliver[deliver to the partner]
+  cancel --> reply[reply to the sender]
+  deliver --> reply
