@@ -136,6 +136,13 @@ class MermaidNodesCase(unittest.TestCase):
         block = "stateDiagram-v2\n  A --> B\n  note right of B: then --> C\n"
         self.assertEqual(onboard.mermaid_nodes(block), ["A", "B"])
 
+    def test_statements_separated_by_semicolons(self):
+        self.assertEqual(onboard.mermaid_nodes("flowchart TD\n  a --> b; c --> d\n"), ["a", "b", "c", "d"])
+        self.assertEqual(onboard.mermaid_nodes("flowchart TD\n  a[x; y] --> b\n"), ["a", "b"])
+        self.assertEqual(onboard.mermaid_nodes("flowchart TD\n  a --> b; style a fill:#f00\n"), ["a", "b"])
+        self.assertEqual(onboard.mermaid_nodes("flowchart TD\n  subgraph s; a --> b; end\n"), ["a", "b"])
+        self.assertEqual(onboard.mermaid_nodes("flowchart TD\n  a -- x; y --> b\n"), ["a", "b"])
+
     def test_kind_of_each_first_line(self):
         self.assertEqual(onboard.mermaid_kind("flowchart TD\n  a --> b\n"), onboard.FLOWCHART)
         self.assertEqual(onboard.mermaid_kind("flowchart LR\n  a --> b\n"), onboard.FLOWCHART)
@@ -168,6 +175,16 @@ class ParseMapCase(unittest.TestCase):
         bare = self.doc.section("Not covered").facts[0]
         self.assertIsNone(bare.cite)
         self.assertEqual(bare.fact, "cmd/tools: generated code")
+
+    def test_cite_with_an_empty_snippet_is_no_cite(self):
+        text = replace_once(GOOD, "## Shape\n", "## Shape\n- g | a/b.txt:1 | \n")
+        fact = onboard.parse_map(text).section("Shape").facts[0]
+        self.assertIsNone(fact.cite)
+        self.assertEqual(fact.fact, "g")
+
+    def test_cite_path_before_the_colon_is_stripped(self):
+        text = replace_once(GOOD, "## Shape\n", "## Shape\n- g | a/b.txt :1 | x\n")
+        self.assertEqual(onboard.parse_map(text).section("Shape").facts[0].cite, ("a/b.txt", 1, "x"))
 
     def test_none_found_marks_the_section(self):
         state = self.doc.section("State")
@@ -212,6 +229,12 @@ class ParseMapCase(unittest.TestCase):
                     onboard.read_map(target)
                 self.assertTrue(str(caught.exception).startswith("map: cannot read %s:" % target), caught.exception)
                 self.assertEqual(caught.exception.code, 2)
+
+    def test_map_with_a_bom_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "map.md")
+            Path(path).write_text("\ufeff" + GOOD, encoding="utf-8")
+            self.assertEqual(onboard.read_map(path).ident, "demo")
 
 
 JAVA_DIR = "src/main/java/shop/"
@@ -279,6 +302,34 @@ class InventoryCase(unittest.TestCase):
         hits = hits_of(rel)
         self.assertNotIn(line_of(rel, '@RequestMapping("/orders")'), hits)
         self.assertEqual(hits[line_of(rel, "@RequestMapping(method")].kind, "http")
+
+    def test_method_level_request_mapping_over_an_object_parameter_is_a_hit(self):
+        source = (
+            '@RequestMapping("/orders")\n'
+            "@RestController\n"
+            "public class Orders {\n"
+            "    @RequestMapping(method = RequestMethod.POST)\n"
+            "    public void save(@RequestBody Object object) {}\n"
+            "}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Orders.java"
+            path.write_text(source, encoding="utf-8")
+            hits = onboard.scan_file(str(path), "Orders.java")
+        self.assertEqual([(hit.line, hit.kind) for hit in hits], [(4, "http")])
+
+    def test_request_mapping_on_an_annotation_type_is_not_a_hit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Post.java"
+            source = "@RequestMapping(method = RequestMethod.POST)\npublic @interface Post {}\n"
+            path.write_text(source, encoding="utf-8")
+            self.assertEqual(onboard.scan_file(str(path), "Post.java"), [])
+
+    def test_request_mapping_over_an_annotated_class_line_is_not_a_hit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "X.java"
+            path.write_text('@RequestMapping("/orders")\n@Deprecated public class X {\n}\n', encoding="utf-8")
+            self.assertEqual(onboard.scan_file(str(path), "X.java"), [])
 
     def test_from_outside_a_route_builder_is_not_a_hit(self):
         self.assertEqual(hits_of(JAVA_DIR + "ReportQuery.java"), {})

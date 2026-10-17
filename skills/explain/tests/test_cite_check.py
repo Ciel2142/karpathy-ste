@@ -386,6 +386,12 @@ class FactProblemsCase(CiteCheckCase):
     def test_url_path_has_no_problem(self):
         self.assertEqual(self.problems(path="https://example.com/x"), [])
 
+    def test_path_with_surrounding_whitespace_is_stripped(self):
+        self.assertEqual(cite_check.fact_problems("src.txt ", 1, "alpha beta", self.dir), [])
+        self.assertEqual(
+            cite_check.fact_problems(" src.txt", 9, "alpha beta", self.dir), ["line out of range (file has 3 lines)"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -82,8 +82,10 @@ def mermaid_kind(block: str) -> str | None:
     return HEADERS.get(lines[0].strip()) if lines else None
 
 
-def _flowchart_ids(line: str) -> list[str]:
-    """The node ids of one flowchart line: labels stripped first, then split on the edges."""
+def _flow_statements(line: str) -> list[str]:
+    """The statements of one flowchart line: labels stripped, each edge made ` --> `, then cut at `;`.
+
+    Stripping and edge matching come first so that a `;` in a label or an edge text cuts nothing."""
     line = QUOTED.sub("", line)
     while True:
         peeled = SHAPE.sub("", line)
@@ -91,7 +93,12 @@ def _flowchart_ids(line: str) -> list[str]:
             break
         line = peeled
     line = CLASS_SUFFIX.sub("", EDGE_LABEL.sub("", line))
-    tokens = (TOKEN.search(segment) for segment in EDGE.split(line))
+    return [statement.strip() for statement in EDGE.sub(" --> ", line).split(";")]
+
+
+def _flowchart_ids(statement: str) -> list[str]:
+    """The node ids of one statement of _flow_statements: split on the edges."""
+    tokens = (TOKEN.search(segment) for segment in EDGE.split(statement))
     return [token.group(0) for token in tokens if token]
 
 
@@ -111,14 +118,18 @@ def mermaid_nodes(block: str) -> list[str]:
     kind = mermaid_kind(block)
     if kind is None:
         return []
-    statements, ids_of = (FLOW_STATEMENTS, _flowchart_ids) if kind == FLOWCHART else (STATE_STATEMENTS, _state_ids)
     lines = [raw.split("%%", 1)[0].strip() for raw in _block_lines(block)[1:]]
-    subgraphs = {m.group(1) for m in map(SUBGRAPH.match, lines) if m} if kind == FLOWCHART else set()
+    if kind == FLOWCHART:
+        keywords, ids_of = FLOW_STATEMENTS, _flowchart_ids
+        statements = [statement for line in lines for statement in _flow_statements(line)]
+        subgraphs = {m.group(1) for m in map(SUBGRAPH.match, statements) if m}
+    else:
+        keywords, ids_of, statements, subgraphs = STATE_STATEMENTS, _state_ids, lines, set()
     ids = []
-    for line in lines:
-        if not line or line == "}" or line.split()[0] in statements:
+    for statement in statements:
+        if not statement or statement == "}" or statement.split()[0] in keywords:
             continue
-        ids.extend(ids_of(line))
+        ids.extend(ids_of(statement))
     return [ident for ident in dict.fromkeys(ids) if ident not in subgraphs]
 
 
@@ -168,8 +179,8 @@ def _fact(n: int, line: int, text: str) -> Fact:
     cite = None
     if len(parts) == 3:
         where = CITE.fullmatch(parts[1].strip())
-        if where and int(where.group(2)) >= 1:
-            cite = (where.group(1), int(where.group(2)), parts[2].strip())
+        if where and int(where.group(2)) >= 1 and parts[2].strip():
+            cite = (where.group(1).strip(), int(where.group(2)), parts[2].strip())
     return Fact(n, line, parts[0].strip(), cite)
 
 
@@ -235,7 +246,7 @@ def parse_map(text: str) -> MapDoc:
 
 def read_map(path: str) -> MapDoc:
     try:
-        with open(path, encoding="utf-8") as handle:
+        with open(path, encoding="utf-8-sig") as handle:
             return parse_map(handle.read())
     except (OSError, ValueError) as error:
         reason = getattr(error, "strerror", None) or error
@@ -297,7 +308,8 @@ SKIP_DIRS = frozenset({"node_modules", "target", "build", ".git", "vendor", "tes
 SKIP_SUFFIXES = ("_test.go", "Test.java", "Test.kt", "Spec.kt")
 TEXT_MAX = 120
 BUILDER = "RouteBuilder"
-TYPE_DECL = re.compile(r"\b(class|interface|object|enum|record)\b")
+# A type declaration line: modifiers or same-line annotations, then the keyword and a name.
+TYPE_DECL = re.compile(r"(?:(?:@\w+(?:\([^)]*\))?|\w+)\s+)*@?(?:class|interface|object|enum|record)\s+[A-Za-z_]")
 
 
 class Hit(NamedTuple):
@@ -312,11 +324,14 @@ def squash(text: str) -> str:
 
 
 def _declares_type(lines: list[str], index: int) -> bool:
-    """Whether the first line after lines[index] that is neither blank nor an annotation declares a type."""
+    """Whether a line after lines[index] declares a type, up to and with the first that is neither blank nor
+    starts with `@`; an annotation line such as `@Deprecated public class X {` counts."""
     for line in lines[index + 1 :]:
         text = line.strip()
+        if TYPE_DECL.match(text):
+            return True
         if text and not text.startswith("@"):
-            return TYPE_DECL.search(text) is not None
+            return False
     return False
 
 

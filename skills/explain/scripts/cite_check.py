@@ -145,6 +145,7 @@ def fact_problems(path: str, line: int, snippet: str, root: str) -> list[str]:
 
     `onboard.py check` calls it. It strips the `cite 1 (<path>:<line>): ` label as
     `course._cite_problems` does; `course.py` keeps that copy in this wave."""
+    path = path.strip()
     values = {"data-path": path, "data-line": str(line), "data-snippet": snippet}
     label = "cite 1 (%s:%d): " % (path, line)
     shown = "%s:%d" % (os.path.basename(path), line)
