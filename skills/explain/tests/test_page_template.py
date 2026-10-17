@@ -25,15 +25,20 @@ Each run gets a private TMPDIR, so every Chrome process carries that path and th
 cleanup can kill a stray one.
 """
 
+import contextlib
+import io
 import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.bpmn_page import FIXTURES, bpmn_page
+from tests.mermaid_page import FIXTURES as MERMAID_FIXTURES, mermaid_page
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -42,6 +47,11 @@ TEMPLATE = os.path.join(SKILL, "templates", "page.html")
 SHEET = os.path.join(SKILL, "templates", "sheet.html")
 VIDEO = os.path.join(SKILL, "templates", "video.html")
 THEME = os.path.join(SKILL, "video", "src", "theme.ts")
+sys.path.insert(0, os.path.join(SKILL, "scripts"))
+import mermaid_svg  # noqa: E402
+
+HAVE_BUNDLE = mermaid_svg.bundle_path().is_file()
+NO_BUNDLE = "mermaid bundle missing: %s" % mermaid_svg.bundle_path()
 RENDER_OK = ["render 1440x900: ok", "render 500x844: ok"]
 OTHER_OK = ["citations: ok", "prose: ok", "bpmn: none"]
 
@@ -702,6 +712,50 @@ class PageGuardTest(unittest.TestCase):
         proc = self.verify(str(page))
         lines = proc.stdout.splitlines()
         self.assertTrue(set(RENDER_OK) <= set(lines), proc.stdout + proc.stderr)
+
+    def inline_mermaid(self, page):
+        """Fill the figure.mermaid of the page with TMPDIR=<tmp>/, then check that no Chrome is left."""
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"TMPDIR": self.tmp + "/"}), contextlib.redirect_stdout(out):
+            code = mermaid_svg.main(["inline", str(page)])
+        self.assertEqual((code, out.getvalue()), (0, "mermaid: ok 1 diagrams\n"))
+        left = subprocess.run(["pgrep", "-f", self.tmp], capture_output=True, text=True).stdout
+        self.assertEqual(left.split(), [], "processes left matching %s" % self.tmp)
+
+    def test_mermaid_rules_exist_and_keep_the_floor(self):
+        """Red: one of the three figure.mermaid rules is gone or changed, or a Mermaid rule sets a
+        font-size under 14 px."""
+        rules = {sel: " ".join(body.split()) for sel, body in style_rules(self.template)}
+        self.assertEqual(rules["figure.mermaid"], rules["figure.bpmn"])
+        self.assertEqual(rules["figure.mermaid svg"], "display: block; max-width: none;")
+        self.assertEqual(rules["figure.mermaid svg text"], "font-size: 14px;")
+        for selector, body in rules.items():
+            if "mermaid" in selector:
+                for size in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", body):
+                    self.assertGreaterEqual(float(size), 14, selector)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_mermaid_fixture_page_passes_the_guard(self):
+        """Red: the filled fixture page scrolls sideways or shows text under 14 px, in the reading
+        view or with Sources on. The rules alone do not turn it red; the rules test pins them."""
+        page = mermaid_page(Path(self.work))
+        self.inline_mermaid(page)
+        proc = self.verify(str(page))
+        self.assertTrue(set(RENDER_OK) <= set(proc.stdout.splitlines()), proc.stdout + proc.stderr)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_wide_mermaid_figure_scrolls_without_page_hscroll(self):
+        """Red: overflow-x is removed from figure.mermaid, so an SVG wider than 700 px widens the
+        500 px page."""
+        section = (MERMAID_FIXTURES / "section.html").read_text(encoding="utf-8")
+        self.assertEqual(section.count("flow.mmd"), 3)   # data-src, cite data-path, cite text
+        page = mermaid_page(Path(self.work), section.replace("flow.mmd", "wide.mmd"), mmd="wide.mmd")
+        self.inline_mermaid(page)
+        root = re.search(r'<figure class="mermaid"[^>]*>\s*<svg\b[^>]*>', page.read_text(encoding="utf-8"))
+        self.assertTrue(root, "no svg in the figure")
+        self.assertGreater(int(re.search(r'\swidth="(\d+)"', root.group(0)).group(1)), 700)
+        proc = self.verify(str(page))
+        self.assertTrue(set(RENDER_OK) <= set(proc.stdout.splitlines()), proc.stdout + proc.stderr)
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)

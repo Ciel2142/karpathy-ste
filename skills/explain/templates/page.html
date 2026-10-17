@@ -17,6 +17,7 @@ window.onerror = function () { window.explainJsErrors += 1; };
     answers, and one <a href="#id"> in <nav id="toc">, in document order.
   - Code: <figure class="code"> with a name:line caption. Long proof: <details class="walk">.
   - Diagrams: copy one of the three SVG patterns. Steps player: one figure.step per state.
+  - Mermaid: figure.mermaid with data-src="diagrams/<id>.mmd", filled by scripts/mermaid_svg.py inline (rungs/page.md section 4).
   - All prose in STE-80. A file or directory subject needs a <cite> in every section.
   - Delete the demo content and the HTML comments; keep the CSS and script comments.
   - Keep <meta name="explain-rung" content="page">, the ids, the classes, the data-*
@@ -136,6 +137,15 @@ svg.bpmn text[data-for] { paint-order: stroke; stroke: var(--bg); stroke-width: 
 .hl .bpmn-flow { stroke: var(--accent); }
 .bpmn-label { display: block; color: var(--ink); font-family: var(--sans); font-size: 16px; }
 cite:has(.bpmn-label) > code { color: var(--muted); font-size: 14px; }
+
+/* Mermaid figures (spec 9). A figure.mermaid takes the figure rules of BPMN: the same breakout, the
+   same scroll inside the figure. The SVG keeps its intrinsic size: scripts/mermaid_svg.py sets the
+   width and height from the viewBox, rounded up, because a width rounded down fails the font guard
+   with SMALLTEXT:14. figure.mermaid svg text sets 14 px because the template's svg text rule of
+   18 px wins over the size that the labels of Mermaid inherit. */
+figure.mermaid { --bpmn-w: max(100%, min(1040px, 100vw - 64px)); width: var(--bpmn-w); margin: 16px 0 16px calc((100% - var(--bpmn-w)) / 2); overflow-x: auto; }
+figure.mermaid svg { display: block; max-width: none; }
+figure.mermaid svg text { font-size: 14px; }
 
 /* Sections: one facet each. scroll-margin keeps the <h2> clear of the sticky nav;
    the guard sets --nav-h to the real nav height in "load". */
