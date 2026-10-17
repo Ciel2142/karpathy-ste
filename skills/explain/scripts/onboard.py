@@ -16,6 +16,8 @@ import re
 import sys
 from typing import NamedTuple, NoReturn
 
+import cite_check
+
 USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
     "       onboard.py check <map.md> --root <root> [--inventory <file>]\n"
@@ -55,6 +57,8 @@ STATE_DECL = re.compile(r'state\s+(?:"[^"]*"\s+as\s+)?(' + TOKEN.pattern + ")")
 MAP_TITLE = re.compile(r"# Map:(.*)")
 CITE = re.compile(r"(.+):([0-9]+)")
 FENCE = "```"
+REASON = re.compile(r"not (?:traced|an entry point):\s*\S.*")
+HANDLE = re.compile(r"`[^`\n]+`")
 
 
 class OnboardError(Exception):
@@ -486,12 +490,69 @@ def _place_lines(where: str, scope: Section | Flow, needs: str) -> list[str]:
     return lines + _node_lines(where, diagram, scope.facts)
 
 
+def _facts(doc: MapDoc, title: str) -> list[Fact]:
+    """The facts of the first `title` section; none when the map lacks it."""
+    section = doc.section(title)
+    return section.facts if section else []
+
+
+def _entry_lines(doc: MapDoc) -> list[str]:
+    """The `entry` lines: a fact part ends at its last ` -> ` with a reason or the id of a flow under Flows."""
+    flows = doc.section("Flows")
+    idents = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
+    lines = []
+    for fact in _facts(doc, "Entry points"):
+        _, arrow, tail = fact.fact.rpartition(" -> ")
+        if arrow and ID.fullmatch(tail):
+            if tail not in idents:
+                lines.append("entry #%d: flow %s not in Flows" % (fact.n, tail))
+        elif not (arrow and REASON.fullmatch(tail)):
+            lines.append("entry #%d: no flow id and no reason" % fact.n)
+    return lines
+
+
+def _handle_lines(doc: MapDoc) -> list[str]:
+    """The `fact Other systems#<n>` lines: a fact part without a handle in backticks."""
+    facts = _facts(doc, "Other systems")
+    return ["fact Other systems#%d: no handle in backticks" % f.n for f in facts if not HANDLE.search(f.fact)]
+
+
+def _cite_scopes(doc: MapDoc) -> list[tuple[str, list[Fact]]]:
+    """(scope, facts) in canonical section order, each flow after the Flows facts; `Not covered` has no cites."""
+    scopes = []
+    for title in TITLES:
+        section = doc.section(title)
+        if section is not None and title != "Not covered":
+            scopes.append((title, section.facts))
+            scopes.extend(("Flows/%s" % (flow.ident or flow.heading), flow.facts) for flow in section.flows)
+    return scopes
+
+
+def _cite_lines(doc: MapDoc, root: str) -> list[str]:
+    """The `cite <scope>#<n>` lines: a fact without a cite, or each problem of its cite under root."""
+    lines = []
+    for scope, facts in _cite_scopes(doc):
+        for fact in facts:
+            problems = ["no cite"] if fact.cite is None else cite_check.fact_problems(*fact.cite, root)
+            lines.extend("cite %s#%d: %s" % (scope, fact.n, problem) for problem in problems)
+    return lines
+
+
+def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
+    """The `inventory` lines: the `<path>:<line>` of each tabbed inventory line that no Entry points fact cites."""
+    cited = {"%s:%d" % fact.cite[:2] for fact in _facts(doc, "Entry points") if fact.cite}
+    wheres = [line.split("\t", 1)[0] for line in inventory_lines if "\t" in line]
+    return ["inventory %s: not in Entry points" % where for where in wheres if where not in cited]
+
+
 def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
-    """The failure lines of a map, in order: sections, then each place (architecture, the flows, state)."""
+    """The failure lines of a map, in order: sections, each place (architecture, the flows, state), entry
+    lines, Other systems handles, cites, then the inventory lines that no entry line cites."""
     lines = _section_lines(doc)
     for where, scope, needs in _places(doc):
         lines.extend(_place_lines(where, scope, needs))
-    return lines
+    lines.extend(_entry_lines(doc) + _handle_lines(doc) + _cite_lines(doc, root))
+    return lines + _unlisted_lines(doc, inventory or [])
 
 
 def _inventory_lines(path: str) -> list[str]:

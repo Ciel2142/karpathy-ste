@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
+import cite_check  # noqa: E402
 import onboard  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "onboard"
@@ -429,6 +430,16 @@ ORDER = block_after("### order:")
 CANCEL = block_after("### cancel:")
 STATE_BLOCK = block_after("## State")
 OK = (0, "onboard: ok\n", "")
+SHAPE_1 = section_text("Shape").splitlines()[1]
+RECV = line_starting("- recv:")
+GET_ENTRY = line_starting("- http GET /orders/{id}")
+THIRTEEN = " ".join("w%d" % n for n in range(1, 14))
+
+
+def with_part(line, index, new):
+    """A fact `line` with its ` | `-separated part `index` (0 fact, 1 cite, 2 snippet) replaced by `new`."""
+    parts = line.split(" | ")
+    return " | ".join(parts[:index] + [new] + parts[index + 1 :])
 
 
 class CheckCase(unittest.TestCase):
@@ -457,6 +468,8 @@ class CheckCase(unittest.TestCase):
     def test_flow_heading_without_an_id_is_a_section_fault(self):
         self.only(
             "section: Flows heading Cancel flow has no flow id",
+            "entry #12: flow cancel not in Flows",
+            "entry #13: flow cancel not in Flows",
             edits=[("### cancel: How is an order cancelled?", "### Cancel flow")],
         )
 
@@ -523,6 +536,129 @@ class CheckCase(unittest.TestCase):
         edits = [(section_body("Flows"), "none found\n\n"), (" -> order |", later), (" -> cancel |", later),
                  (" -> cancel |", later)]
         self.assertEqual(check(edits=edits), OK)
+
+    def tmp(self, name):
+        """The path `name` inside a temp directory removed after the test."""
+        return os.path.join(self.enterContext(tempfile.TemporaryDirectory()), name)
+
+    def inventory_out(self):
+        """Run `inventory` on TREE with `--out <tmp>/inv.txt`; return that path and the stdout."""
+        path = self.tmp("inv.txt")
+        code, stdout, _ = run(["inventory", str(TREE), "--root", str(TREE), "--out", path])
+        self.assertEqual(code, 0)
+        return path, stdout
+
+    def test_cite_snippet_too_long(self):
+        self.only(
+            "cite Shape#1: snippet has 13 words (max 12)", "cite Shape#1: snippet not found on that line",
+            edits=[(SHAPE_1, with_part(SHAPE_1, 2, THIRTEEN))],
+        )
+
+    def test_cite_file_missing(self):
+        self.only(
+            "cite Shape#1: file missing: %s" % os.path.join(str(TREE), "missing/X.java"),
+            edits=[(SHAPE_1, with_part(SHAPE_1, 1, "missing/X.java:2"))],
+        )
+
+    def test_cite_line_out_of_range(self):
+        path = RECV.split(" | ")[1].rsplit(":", 1)[0]
+        lines = len(cite_check._read_lines(str(TREE / path)))
+        self.only(
+            "cite Flows/order#1: line out of range (file has %d lines)" % lines,
+            edits=[(RECV, with_part(RECV, 1, path + ":9999"))],
+        )
+
+    def test_cite_snippet_not_on_line(self):
+        self.only(
+            "cite Flows/order#1: snippet not found on that line", edits=[(RECV, with_part(RECV, 2, "not on this line"))]
+        )
+
+    def test_fact_without_a_cite(self):
+        self.only("cite Shape#1: no cite", edits=[(SHAPE_1, SHAPE_1.split(" | ")[0])])
+
+    def test_not_covered_lines_need_no_cite(self):
+        self.assertEqual(check(text=MAP + "- src/test: the tests are not read\n"), OK)
+
+    def test_entry_without_flow_or_reason(self):
+        self.only(
+            "entry #11: no flow id and no reason",
+            edits=[("-> not traced: a plain read of one row |", "-> not traced: |")],
+        )
+        self.only(
+            "entry #1: no flow id and no reason",
+            edits=[(" -> not an entry point: the start of the Go gateway process |", " |")],
+        )
+
+    def test_entry_flow_not_in_flows(self):
+        self.only("entry #10: flow orders not in Flows", edits=[(" -> order |", " -> orders |")])
+
+    def test_other_systems_line_without_a_handle(self):
+        self.only(
+            "fact Other systems#1: no handle in backticks",
+            edits=[("`PaymentsClient` `payments.charge`", "PaymentsClient payments.charge")],
+        )
+
+    def test_inventory_of_the_tree_is_accounted_for(self):
+        path, _ = self.inventory_out()
+        self.assertEqual(check(inventory=path), OK)
+
+    def test_inventory_line_not_in_entry_points(self):
+        path, _ = self.inventory_out()
+        plus = self.tmp("plus.txt")
+        extra = "src/main/java/shop/Order.java:3\tmain\tx\n"
+        Path(plus).write_text(Path(path).read_text(encoding="utf-8") + extra, encoding="utf-8")
+        self.only("inventory src/main/java/shop/Order.java:3: not in Entry points", inventory=plus)
+        self.only(
+            "inventory %s: not in Entry points" % GET_ENTRY.split(" | ")[1],
+            edits=[(GET_ENTRY + "\n", "")], inventory=path,
+        )
+
+    def test_inventory_summary_line_is_skipped(self):
+        path, stdout = self.inventory_out()
+        self.assertTrue(stdout.endswith("\ninventory: 18 entry points\n"), stdout)
+        Path(path).write_text(stdout, encoding="utf-8")
+        self.assertEqual(check(inventory=path), OK)
+
+    def test_inventory_matched_elsewhere_still_fails(self):
+        path, _ = self.inventory_out()
+        cite = GET_ENTRY.split(" | ", 1)[1]
+        moved = [(GET_ENTRY + "\n", ""), (SHAPE_1 + "\n", SHAPE_1 + "\n- serves one order by id | %s\n" % cite)]
+        self.only("inventory %s: not in Entry points" % GET_ENTRY.split(" | ")[1], edits=moved, inventory=path)
+
+    def test_every_fault_is_listed_before_the_summary(self):
+        self.only(
+            "section: missing Routing config",
+            "node order/publish: no fact line",
+            "cite Shape#1: snippet has 13 words (max 12)",
+            "cite Shape#1: snippet not found on that line",
+            edits=[
+                (SHAPE_1, with_part(SHAPE_1, 2, THIRTEEN)),
+                (section_text("Routing config"), ""),
+                (line_starting("- publish:") + "\n", ""),
+            ],
+        )
+
+    def test_map_without_title_cannot_be_read(self):
+        path = self.tmp("map.md")
+        Path(path).write_text("## Shape\n", encoding="utf-8")
+        expected = (2, 'map: cannot read %s: no "# Map:" title\n' % path, "")
+        self.assertEqual(run(["check", path, "--root", str(TREE)]), expected)
+
+    def test_missing_map_cannot_be_read(self):
+        missing = self.tmp("none.md")
+        code, out, _ = run(["check", missing, "--root", str(TREE)])
+        self.assertEqual(code, 2)
+        self.assertTrue(out.startswith("map: cannot read %s:" % missing), out)
+
+    def test_root_not_a_directory_exits_2(self):
+        root = self.tmp("none")
+        code, out, err = run(["check", str(FIXTURES / "map.md"), "--root", root])
+        self.assertEqual((code, out, err), (2, "", "onboard: cannot read root %s\n" % root))
+
+    def test_missing_inventory_file_exits_2(self):
+        missing = self.tmp("none.txt")
+        code, out, err = run(["check", str(FIXTURES / "map.md"), "--root", str(TREE), "--inventory", missing])
+        self.assertEqual((code, out, err), (2, "", "onboard: cannot read inventory %s\n" % missing))
 
 
 class CliCase(unittest.TestCase):

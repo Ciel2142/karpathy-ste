@@ -140,6 +140,18 @@ def _check_cite(number, values, root, text):
     return failures
 
 
+def fact_problems(path: str, line: int, snippet: str, root: str) -> list[str]:
+    """The problems of one `<path>:<line> | <snippet>` cite of a map under `root`.
+
+    `onboard.py check` calls it. It strips the `cite 1 (<path>:<line>): ` label as
+    `course._cite_problems` does; `course.py` keeps that copy in this wave."""
+    values = {"data-path": path, "data-line": str(line), "data-snippet": snippet}
+    label = "cite 1 (%s:%d): " % (path, line)
+    shown = "%s:%d" % (os.path.basename(path), line)
+    problems = _check_cite(1, values, root, shown)
+    return [p[len(label) :] if p.startswith(label) else p for p in problems]
+
+
 def _section_label(section):
     return section.ident or _normalize(section.heading) or "unnamed"
 
