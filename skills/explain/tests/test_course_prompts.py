@@ -82,6 +82,8 @@ MAP_TEXTS = (
     "The first line of the map is `# Map: {source_id}`.",
     "`<service-dir>` is `{source_path}`.",
     "`<root>` is `{root}`.",
+    # final review F4: the prompt names `<skill-dir>` of rungs/onboard.md too
+    "`<skill-dir>` is `{skill_dir}`.",
     "Run the inventory first and the check last.",
     "Fix the map for each failure line, and run the check again, until it prints `onboard: ok`.",
     "Stop after 3 rounds in which the same failure lines come back.",
@@ -106,10 +108,15 @@ LESSON_OVERRIDES = (
     "Never run `open`.",
     # spec section 11: the flow and the nodes of a hop
     "Each hop has a `flow`, `<source-id>/<flow-id>`, and the `nodes` of that flow that it covers.",
+    # final review F2: a hop with no flow
+    "A `docs` hop or an `inferred` hop can have `null` as its `flow`. Then `nodes` is `[]`.",
     "The flow is the block under `### <flow-id>:` in `{course_dir}/map/<source-id>.md`.",
     # spec section 11: the first diagram is cut from the map block, mechanically, by the nodes of the hops
     "The first diagram of the lesson uses the Mermaid pattern of `{skill_dir}/rungs/page.md`.",
     "Cut its text from the map block of the flow by the `nodes` of the hops of the lesson.",
+    # final review F3: what the map block is
+    "The block is the `mermaid` fence under `### <flow-id>:`, without its fence lines and without the fact lines "
+    "below it.",
     "Keep each line of the block whose node ids are all in that set.",
     "Keep each edge that leaves the set. Its far node stays as one node, and its label names the lesson that "
     "covers it, by its question.",
@@ -164,6 +171,9 @@ MAP_CHECK_COMMAND = "python3 <skill-dir>/scripts/onboard.py check <course-dir>/m
 MAP_RUNG_TEXTS = (
     "The prompt points at \"Explore the service\" and \"The map\" of `<skill-dir>/rungs/onboard.md`.",
     "Each subagent writes `map/<source-id>.md` and `map/<source-id>.inventory.txt` in `<course-dir>`.",
+    # final review F1: the orchestrator prints the failure lines that the subagent lists (spec section 10)
+    "Its reply ends with one line: `map: done <source-id> <n> facts` or `map: failed <reason>`.",
+    "Before it, the reply holds the failure lines of its last check. Print each of them.",
     "Print each failure line that it writes.",
     "A map with failures still counts as a map: it is an input, not the artifact.",
     "Only a map that the check cannot read (`map: cannot read`) counts as `map: failed`.",

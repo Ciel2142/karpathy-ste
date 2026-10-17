@@ -84,9 +84,9 @@ subagent as its prompt. Fill the names like this:
 | `{root}` | The absolute path of the root of the course. |
 | `{lang}` | `en`, or `ru` when the user asks for Russian. |
 
-Each subagent writes `map/<source-id>.md` and `map/<source-id>.inventory.txt` in `<course-dir>`. It
-returns one line: `map: done <source-id> <n> facts` or `map: failed <reason>`. Wait for all the map
-subagents.
+Each subagent writes `map/<source-id>.md` and `map/<source-id>.inventory.txt` in `<course-dir>`. Its
+reply ends with one line: `map: done <source-id> <n> facts` or `map: failed <reason>`. Before it, the
+reply holds the failure lines of its last check. Print each of them. Wait for all the map subagents.
 
 Then run the check on each map yourself, with the root of the course as `<root>`:
 

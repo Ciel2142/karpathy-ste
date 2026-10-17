@@ -19,6 +19,7 @@ Follow "Explore the service" and then "The map" of `{skill_dir}/rungs/onboard.md
 
 - `<service-dir>` is `{source_path}`.
 - `<root>` is `{root}`.
+- `<skill-dir>` is `{skill_dir}`.
 - The map file is `{course_dir}/map/{source_id}.md`, in place of `map.md`. The inventory file is
   `{course_dir}/map/{source_id}.inventory.txt`, in place of `inventory.txt`.
 - The first line of the map is `# Map: {source_id}`.
