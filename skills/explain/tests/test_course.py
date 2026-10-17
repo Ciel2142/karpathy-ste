@@ -103,6 +103,13 @@ class LoadSaveCase(CourseCase):
 
 
 class CheckCase(CourseCase):
+    NO_FLOWS = tuple(
+        "hop %s: flow svc-a/receive not in map/svc-a.md" % hop
+        for hop in ("receive", "validate", "reject", "deliver")
+    )
+    LISTEN = "node svc-a/receive/listen: in no hop and not in not_covered"
+    ADMIN = "flow svc-a/admin: in no hop and not in not_covered"
+
     def test_fixture_is_clean(self):
         self.only()
         code, out, _ = run_cli("check", self.dir)
@@ -168,31 +175,34 @@ class CheckCase(CourseCase):
         self.lesson("exit-deliver")["hops"] = ["deliver", "Confirm_"]
         self.only("schema: hops[4].id: must match [a-z0-9][a-z0-9-]*")
 
+    # A hop with a bad `flow` or `nodes` gets no `hop <id>:` line from the flow checks, and its
+    # nodes are on no hop: `listen`, on the hop receive only, then fails the node floor.
+
     def test_schema_flow_missing(self):
         del self.hop("receive")["flow"]
-        self.only("schema: hops[0].flow: missing")
+        self.only("schema: hops[0].flow: missing", self.LISTEN)
 
     def test_schema_flow_must_be_null_or_a_string(self):
         self.hop("receive")["flow"] = 5
-        self.only("schema: hops[0].flow: must be null or a string")
+        self.only("schema: hops[0].flow: must be null or a string", self.LISTEN)
 
     def test_schema_flow_must_name_a_source_and_a_flow(self):
         for flow in ("receive", "svc-a/Receive"):
             with self.subTest(flow=flow):
                 self.hop("receive")["flow"] = flow
-                self.only("schema: hops[0].flow: must be <source-id>/<flow-id>")
+                self.only("schema: hops[0].flow: must be <source-id>/<flow-id>", self.LISTEN)
 
     def test_schema_nodes_missing(self):
         del self.hop("receive")["nodes"]
-        self.only("schema: hops[0].nodes: missing")
+        self.only("schema: hops[0].nodes: missing", self.LISTEN)
 
     def test_schema_nodes_must_be_a_list(self):
         self.hop("receive")["nodes"] = "listen"
-        self.only("schema: hops[0].nodes: must be a list")
+        self.only("schema: hops[0].nodes: must be a list", self.LISTEN)
 
     def test_schema_nodes_items_are_strings(self):
         self.hop("receive")["nodes"] = ["listen", 2]
-        self.only("schema: hops[0].nodes[1]: must be a string")
+        self.only("schema: hops[0].nodes[1]: must be a string", self.LISTEN)
 
     def test_schema_nodes_must_be_empty_when_flow_is_null(self):
         self.hop("confirm")["nodes"] = ["x"]
@@ -317,6 +327,98 @@ class CheckCase(CourseCase):
     def test_done_lesson_needs_index_html(self):
         os.remove(os.path.join(self.dir, "lessons", "entry-receive", "index.html"))
         self.only("lesson entry-receive: done but lessons/entry-receive/index.html missing")
+
+    # flows
+
+    def add_admin_flow(self):
+        """Add the flow `admin` to the copy of map/svc-a.md, as the last flow of `Flows`."""
+        path = Path(self.dir, "map", "svc-a.md")
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("\n## State\n"), 1)
+        block = (
+            "### admin: What does the admin call do?\n"
+            "```mermaid\n"
+            "flowchart TD\n"
+            "  ping[GET /admin] --> pong[200 ok]\n"
+            "```\n"
+            "- ping: the admin call comes in | svc-a/Handler.java:3 | public class Handler {\n"
+            "- pong: the service answers 200 | svc-a/Handler.java:3 | public class Handler {\n"
+            "\n"
+        )
+        path.write_text(text.replace("\n## State\n", "\n" + block + "## State\n"), encoding="utf-8")
+        flows = onboard.flow_nodes(onboard.read_map(str(path)))
+        self.assertEqual(flows, {"receive": ["listen", "check", "reject", "send"],
+                                 "admin": ["ping", "pong"]})
+
+    def test_code_hop_needs_a_flow(self):
+        self.hop("receive").update(flow=None, nodes=[])
+        self.only("hop receive: flow missing", self.LISTEN)
+
+    def test_docs_hop_may_have_no_flow(self):
+        self.hop("deliver").update(flow=None, nodes=[])
+        self.course["not_covered"].append(
+            "The send call `svc-a/receive/send` is in the docs of the target."
+        )
+        self.only()
+
+    def test_hop_flow_not_in_map(self):
+        self.hop("receive")["flow"] = "svc-a/missing"
+        self.only("hop receive: flow svc-a/missing not in map/svc-a.md", self.LISTEN)
+
+    # red: a flow of a source that `sources` does not list (a typo) raises in the loop over sources
+    def test_hop_flow_of_an_unknown_source(self):
+        self.hop("receive")["flow"] = "nope/receive"
+        self.only("hop receive: flow nope/receive not in map/nope.md", self.LISTEN)
+
+    def test_hop_nodes_empty(self):
+        self.hop("receive")["nodes"] = []
+        self.only("hop receive: nodes empty", self.LISTEN)
+
+    def test_hop_node_not_in_flow(self):
+        self.hop("receive")["nodes"] = ["listen", "bogus"]
+        self.only("hop receive: node bogus not in flow svc-a/receive")
+
+    def test_flow_in_no_hop_and_not_in_not_covered(self):
+        self.add_admin_flow()
+        self.only(self.ADMIN)
+
+    def test_flow_named_in_not_covered(self):
+        self.add_admin_flow()
+        self.course["not_covered"].append("The admin flow `svc-a/admin` reads no message.")
+        self.only()
+
+    # red: a substring match, so a sentence on `svc-a/admin-ui` silences the floor of `svc-a/admin`
+    def test_flow_name_is_a_whole_token(self):
+        self.add_admin_flow()
+        fixture = list(self.course["not_covered"])
+        for sentence, expected in (
+            ("The admin screen `svc-a/admin-ui` reads no message.", [self.ADMIN]),
+            ("The course does not follow the admin flow `svc-a/admin`.", []),
+            ("The course does not follow the admin flow svc-a/admin.", []),
+        ):
+            with self.subTest(sentence=sentence):
+                self.course["not_covered"] = fixture + [sentence]
+                self.assertEqual(self.failures(), expected)
+
+    def test_node_in_no_hop_and_not_in_not_covered(self):
+        self.hop("deliver").update(flow=None, nodes=[])
+        self.only("node svc-a/receive/send: in no hop and not in not_covered")
+
+    # red: a map that is missing, unreadable or of the old six sections makes check raise
+    def test_missing_map_has_no_flows(self):
+        os.remove(os.path.join(self.dir, "map", "svc-a.md"))
+        self.only(*self.NO_FLOWS)
+
+    def test_unreadable_map_has_no_flows(self):
+        Path(self.dir, "map", "svc-a.md").write_text("nonsense\n", encoding="utf-8")
+        self.only(*self.NO_FLOWS)
+
+    def test_old_six_section_map_has_no_flows(self):
+        titles = ("Entry points", "In and out", "Formats and transforms", "Routing config",
+                  "Error paths", "Other systems")
+        text = "# Map: svc-a\n" + "".join("\n## %s\n- none found\n" % title for title in titles)
+        Path(self.dir, "map", "svc-a.md").write_text(text, encoding="utf-8")
+        self.only(*self.NO_FLOWS)
 
     # command line
 
@@ -884,8 +986,19 @@ class SummaryCase(CourseCase):
         self.assertGreater(indent["reject"], indent["validate"])
         self.assertEqual(lines.index(by_hop["reject"]), lines.index(by_hop["validate"]) + 1)
         self.assertLess(lines.index(by_hop["reject"]), lines.index(by_hop["deliver"]))
-        self.assertIn("(code)", by_hop["receive"])
+        self.assertIn("(code, flow svc-a/receive", by_hop["receive"])
         self.assertIn("(inferred)", by_hop["confirm"])
+
+    def test_summary_hop_line_shows_the_flow_and_the_node_count(self):
+        lines = [line.strip() for line in self.summary().splitlines()]
+        for text in (
+            "receive  source system \u2192 svc-a  (code, flow svc-a/receive, 1 nodes)",
+            "reject  svc-a \u2192 source system  "
+            "(code, flow svc-a/receive, 1 nodes, fails at validate)",
+            "confirm  target \u2192 svc-a  (inferred)",
+        ):
+            with self.subTest(line=text):
+                self.assertIn(text, lines)
 
     def test_summary_estimates_the_remaining_build_time(self):
         # one of three lessons is done: 2 x 30 min / 3 = 20 min, up to the next half hour

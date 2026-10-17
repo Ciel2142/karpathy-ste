@@ -34,6 +34,7 @@ import tempfile
 import textwrap
 
 import cite_check
+import onboard
 
 USAGE = (
     "usage: course.py check <dir>\n"
@@ -54,6 +55,9 @@ HUB_FILE = "index.html"
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "page.html")
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 FLOW_REF = re.compile(r"[a-z0-9][a-z0-9-]*/[a-z][a-z0-9_-]*")
+# a name in a `not_covered` sentence: a whole token, so `esb/request-retry` does not name
+# `esb/request`, and a backtick or a period after the name does not break it
+NAME_TOKEN = re.compile(r"[a-z0-9][a-z0-9_/-]*")
 STATES = ("planned", "approved", "done")
 SOURCE_KINDS = ("code", "docs")
 FOUND = ("named", "discovered")
@@ -355,6 +359,86 @@ def _check_hops(course, root):
     return failures
 
 
+def _map_flows(course_dir, source_id):
+    """Each flow of `map/<source_id>.md` with its node ids in diagram order (`onboard.flow_nodes`).
+
+    A missing or unreadable map has no flows; it gives no line here, the orchestrator's
+    `onboard.py check` reports it."""
+    path = os.path.join(course_dir, "map", source_id + ".md")
+    try:
+        return onboard.flow_nodes(onboard.read_map(path))
+    except (onboard.OnboardError, OSError):
+        return {}
+
+
+def _named(not_covered, name):
+    """True when one string of `not_covered` holds `name` as a whole `NAME_TOKEN` token."""
+    return any(name in NAME_TOKEN.findall(text) for text in _names(not_covered))
+
+
+def _flow_hops(course):
+    """The hops with a string `id`, a `flow` that is null or a `FLOW_REF`, and `nodes` a list of
+    strings. Every other hop has a `schema:` line already, so `_check_flows` skips it."""
+    def bound(hop):
+        flow, nodes = hop.get("flow", ""), hop.get("nodes")  # "": a missing flow fails FLOW_REF
+        return (
+            isinstance(hop.get("id"), str)
+            and (flow is None or (isinstance(flow, str) and FLOW_REF.fullmatch(flow) is not None))
+            and isinstance(nodes, list)
+            and all(isinstance(name, str) for name in nodes)
+        )
+
+    return [hop for hop in _objects(course.get("hops")) if bound(hop)]
+
+
+def _hop_flow_lines(hop, maps):
+    """The `hop <id>:` lines of one hop of `_flow_hops`; `maps` holds the flows of each source."""
+    ident, flow, nodes = hop["id"], hop["flow"], hop["nodes"]
+    if flow is None:
+        return ["hop %s: flow missing" % ident] if hop.get("evidence") == "code" else []
+    source, name = flow.split("/", 1)
+    known = maps[source].get(name)  # None: the map has no such flow
+    lines = []
+    if known is None:
+        lines.append("hop %s: flow %s not in map/%s.md" % (ident, flow, source))
+    if not nodes:
+        lines.append("hop %s: nodes empty" % ident)
+    if known is not None:
+        lines += ["hop %s: node %s not in flow %s" % (ident, node, flow)
+                  for node in nodes if node not in known]
+    return lines
+
+
+def _check_flows(course_dir, course):
+    """Each hop against its flow, then the flow floor (every flow of every map of a source is on
+    a hop or named in `not_covered`), then the node floor (the same for every node of a flow
+    that some hop names)."""
+    hops = _flow_hops(course)
+    sources = list(dict.fromkeys(_ids(_objects(course.get("sources")))))
+    named = [hop["flow"].split("/", 1)[0] for hop in hops if hop["flow"] is not None]
+    maps = {ident: _map_flows(course_dir, ident) for ident in dict.fromkeys(sources + named)}
+    failures = [line for hop in hops for line in _hop_flow_lines(hop, maps)]
+    on_hops = {}  # each flow that a hop names -> the nodes of those hops
+    for hop in hops:
+        if hop["flow"] is not None:
+            on_hops.setdefault(hop["flow"], set()).update(hop["nodes"])
+    not_covered = course.get("not_covered")
+    for source in sources:
+        for flow in maps[source]:
+            ref = "%s/%s" % (source, flow)
+            if ref not in on_hops and not _named(not_covered, ref):
+                failures.append("flow %s: in no hop and not in not_covered" % ref)
+    for source, flows in maps.items():
+        for flow, nodes in flows.items():
+            ref = "%s/%s" % (source, flow)
+            if ref not in on_hops:
+                continue  # no hop follows this flow: the flow floor covers it
+            for node in nodes:
+                if node not in on_hops[ref] and not _named(not_covered, "%s/%s" % (ref, node)):
+                    failures.append("node %s/%s: in no hop and not in not_covered" % (ref, node))
+    return failures
+
+
 def _check_sources(course, root):
     if root is None:
         return []
@@ -496,6 +580,7 @@ def check(course_dir, course):
     failures += _duplicates(course)
     failures += _check_references(course)
     failures += _check_hops(course, root)
+    failures += _check_flows(course_dir, course)
     failures += _check_sources(course, root)
     failures += _check_done(course_dir, course)
     failures += _check_prose(course)
@@ -608,6 +693,10 @@ def _summary_hops(course):
             return
         seen.add(id(hop))
         evidence = hop.get("evidence")
+        if isinstance(hop.get("flow"), str):
+            evidence = "%s, flow %s, %d nodes" % (
+                evidence, hop["flow"], len(_names(hop.get("nodes")))
+            )
         if depth:
             evidence = "%s, fails at %s" % (evidence, hop.get("branch"))
         text = "%s  %s \u2192 %s  (%s)" % (hop.get("id"), hop.get("from"), hop.get("to"), evidence)
