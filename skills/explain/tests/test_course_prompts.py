@@ -114,7 +114,7 @@ LESSON_OVERRIDES = (
     "Keep each edge that leaves the set. Its far node stays as one node, and its label names the lesson that "
     "covers it, by its question.",
     "Redraw nothing.",
-    "Write the text to `diagrams/<flow-id>.mmd` in your output directory.",
+    "Write the text to `diagrams/<flow-id>-<source-id>.mmd` in your output directory.",
     "Each decision node of that diagram gets one paragraph that names its branches, or a section of its own.",
     "A moving part is a hop, not a node.",
     "If the hops of your lesson come from two flows, make one figure for each flow, the flow of the first hop first.",
