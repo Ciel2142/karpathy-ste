@@ -713,6 +713,48 @@ class InlineCase(TempCase):
                 self.assertEqual(stdout, "")
                 self.assertTrue(stderr.startswith("usage:"), stderr)
 
+    def test_page_figures_takes_a_figure_by_its_class_token(self):
+        page = (
+            '<figure class="mermaid-note" data-src="x/note.mmd"></figure>\n'
+            '<figure class="no-mermaid"></figure>\n'
+            '<figure data-class="mermaid"></figure>\n'
+            '<figure id="a" class="mermaid" data-src="d/a.mmd"></figure>\n'
+            "<figure class='mermaid' data-src='d/b.mmd'></figure>\n"
+            '<figure class="figure mermaid wide" data-src="d/c.mmd"></figure>\n'
+            '<figure class="code"><pre>a</pre></figure>\n'
+            '<figure\n  class="mermaid"\n  data-src="d/d.mmd"></figure>\n'
+        )
+        found = mermaid_svg.page_figures(page)
+        self.assertEqual([(f.n, f.src) for f in found], [
+            (1, "d/a.mmd"), (2, "d/b.mmd"), (3, "d/c.mmd"), (4, "d/d.mmd"),
+        ])
+        for figure in found:
+            self.assertTrue(page[figure.start:figure.end].startswith("<figure"))
+            self.assertTrue(page[figure.start:figure.end].endswith("</figure>"))
+            self.assertEqual(page[figure.start:figure.end].count("<figure"), 1)
+
+    def test_other_figures_are_not_faults(self):
+        section = SECTION.replace(FIGURE_TEXT, '<figure class="no-mermaid"></figure>')
+        page = self.page(section)
+        before = page.read_bytes()
+        code, stdout, stderr = self.inline_without_chrome(page)
+        self.assertEqual((code, stdout, stderr), (0, "mermaid: ok 0 diagrams\n", ""))
+        self.assertEqual(page.read_bytes(), before)
+
+    def test_figure_with_an_attribute_before_class_is_not_skipped(self):
+        openings = (
+            '<figure id="a" class="mermaid" data-src="diagrams/missing.mmd">',
+            "<figure id='a' class='mermaid' data-src='diagrams/missing.mmd'>",
+        )
+        for index, opening in enumerate(openings):
+            with self.subTest(opening=opening):
+                self.out = Path(self.work) / ("page-%d" % index)
+                page = self.page(SECTION.replace(FIGURE_TEXT.split("\n")[0], opening))
+                self.assert_fails_with(
+                    self.inline_without_chrome(page),
+                    "mermaid: FAIL missing cannot read diagrams/missing.mmd",
+                )
+
     @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
     def test_figure_without_figcaption_takes_the_id_as_title(self):
         page = self.page(re.sub(r"\s*<figcaption>.*?</figcaption>", "", SECTION, flags=re.S))

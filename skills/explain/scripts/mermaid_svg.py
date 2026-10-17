@@ -11,11 +11,14 @@ inline: every `<figure class="mermaid" data-src="<dir>/<id>.mmd">` of the page g
 first child, and the SVG is also written to `<dir>/<id>.svg`; a second run replaces the SVG.
 Exit 0 on success, 1 on a render failure or a fault in a figure of the page, 2 on a usage error,
 Chrome not found, a bundle fault or (render only) a bad id.
-Output: `mermaid: ok <n> diagrams` is the last line on success. Every failure is one line, and a
-page with several faults lists one line each, in page order:
+Output: `mermaid: ok <n> diagrams` is the last line on success. A first run, with no bundle yet,
+starts with `mermaid: download mermaid-12.2.0.min.js (5.5 MB)` and
+`mermaid: downloaded mermaid-12.2.0.min.js`. Every failure is one line, and a page with several
+faults lists one line each, in page order:
 `mermaid: FAIL <id> <message>` (Mermaid's parse message, `no viewBox` or `foreignObject in output`),
-`mermaid: FAIL <id> bad id`, `mermaid: FAIL figure <n> no data-src`,
-`mermaid: FAIL <id> cannot read <data-src>`, `mermaid: FAIL <id> duplicate id`,
+`mermaid: FAIL <id> bad id` (<id> is the file name when the data-src suffix is not `.mmd`),
+`mermaid: FAIL figure <n> no data-src`, `mermaid: FAIL <id> cannot read <data-src>`,
+`mermaid: FAIL <id> duplicate id`,
 `mermaid: FAIL Chrome not found <path>`, `mermaid: FAIL timeout`,
 `mermaid: FAIL harness incomplete`, `mermaid: FAIL sha256 <got>`,
 `mermaid: FAIL download <name>: <error>` or `mermaid: FAIL bundle <path>: <error>`.
@@ -389,7 +392,8 @@ def render_many(diagrams, bundle, timeout):
 
 # --- the page -------------------------------------------------------------------------------
 
-FIGURE = re.compile(r'<figure( class="[^"]*\bmermaid\b[^"]*"[^>]*)>(.*?)</figure>', re.S)
+FIGURE = re.compile(r"<figure\b([^>]*)>(.*?)</figure>", re.S)
+CLASS = re.compile(r"""\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 DATA_SRC = re.compile(r"""\sdata-src\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 FIGCAPTION = re.compile(r"<figcaption\b[^>]*>(.*?)</figcaption>", re.S)
 TAG = re.compile(r"<[^>]*>")
@@ -410,14 +414,19 @@ class Figure(NamedTuple):
 
 
 def page_figures(html_text):
-    """Every figure.mermaid of the page, in page order, numbered from 1."""
+    """Every figure.mermaid of the page, in page order, numbered from 1: a figure whose class
+    attribute holds `mermaid` as a whole word, wherever the attribute stands in the tag."""
     figures = []
-    for n, found in enumerate(FIGURE.finditer(html_text), 1):
+    for found in FIGURE.finditer(html_text):
         attrs, inner = found.group(1), found.group(2)
+        classes = CLASS.search(attrs)
+        words = (classes.group(1) or classes.group(2) or "").split() if classes else []
+        if "mermaid" not in words:
+            continue
         src = DATA_SRC.search(attrs)
         caption = FIGCAPTION.search(inner)
         figures.append(Figure(
-            n, found.start(), found.end(), attrs, inner,
+            len(figures) + 1, found.start(), found.end(), attrs, inner,
             None if src is None else (src.group(1) if src.group(1) is not None else src.group(2)),
             None if caption is None else " ".join(
                 html.unescape(TAG.sub("", caption.group(1))).split()
