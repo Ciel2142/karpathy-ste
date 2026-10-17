@@ -1,0 +1,14 @@
+stateDiagram-v2
+  direction LR
+  [*] --> New
+  New --> Paid: charge ok
+  Paid --> Shipped
+  New --> Cancelled: cancel
+  state "On hold" as Held
+  Paid --> Held: dispute
+  state Shipped {
+    [*] --> Packed
+    Packed --> Sent
+  }
+  note right of Sent: the carrier takes it
+  Sent --> [*]

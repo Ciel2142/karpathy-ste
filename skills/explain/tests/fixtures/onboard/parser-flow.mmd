@@ -1,0 +1,16 @@
+flowchart TD
+  %% the receive side
+  subgraph svc[The service]
+    direction LR
+    recv[receive the message] --> kind{type?}
+    kind -->|send| route[route by place]
+    kind -- cancel --> cancel(cancel the request)
+  end
+  route -. retry .-> route
+  cancel ==> reply([reply to the sender])
+  route --> store[(orders table)] & audit>audit log]
+  store --> note["send --> partner [async]"]
+  note:::ext --> done((done))
+  classDef ext fill:#fff
+  class note ext
+  click done "https://example.com"
