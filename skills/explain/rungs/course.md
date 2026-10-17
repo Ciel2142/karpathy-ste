@@ -146,11 +146,11 @@ The script writes the same lines to `discover/result.txt`.
 
 Read the maps. Write `<course-dir>/course.json`. Build nothing before the user approves the plan.
 
-This is the shape of `course.json`, version 1:
+This is the shape of `course.json`, version 2:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "title": "How a document travels from the bank to Diadoc",
   "question": "What happens to one message from the source system to Diadoc, hop by hop?",
   "lang": "en",
@@ -164,7 +164,8 @@ This is the shape of `course.json`, version 1:
   "hops": [
     {"id": "receive", "from": "source system", "to": "esb", "what": "ESB takes the XML message from the queue.",
      "evidence": "code", "branch": null,
-     "cites": [{"path": "esb/src/main/java/Foo.java", "line": 42, "snippet": "@JmsListener(destination = IN_QUEUE)"}]}
+     "cites": [{"path": "esb/src/main/java/Foo.java", "line": 42, "snippet": "@JmsListener(destination = IN_QUEUE)"}],
+     "flow": "esb/request", "nodes": ["listen", "parse"]}
   ],
   "blocks": [
     {"id": "entry", "title": "Entry", "lessons": [
@@ -173,7 +174,8 @@ This is the shape of `course.json`, version 1:
        "status": "pending", "reason": ""}
     ]}
   ],
-  "not_covered": ["The admin UI of ESB: not on the path of a message."]
+  "not_covered": ["The admin UI of ESB: not on the path of a message.",
+                  "The flow esb/health: a health probe, not on the path of a message."]
 }
 ```
 
@@ -201,13 +203,33 @@ Write the fields by these rules:
 - `cites`: a `path` relative to `root`, a `line` and a `snippet`. The snippet has at most 12 words, copied
   verbatim from that line. The maps give the cites with the same root. Copy each cite from the map lines.
   Never type a cite again from memory.
+- `flow`: the flow that the hop comes from, as `<source-id>/<flow-id>`. The flow is a `### <flow-id>:`
+  heading under `Flows` in `map/<source-id>.md`. A `code` hop has a flow. A `docs` hop has a flow or
+  `null`. An `inferred` hop has `null`.
+- `nodes`: the nodes of that flow that the hop covers, in the order of the flow. The list is not empty when
+  `flow` is a string. It is `[]` when `flow` is `null`.
 - `blocks`: in the order of the flow. Each block has at least one lesson.
 - `lessons`: a lesson holds one subsystem with two to four moving parts, usually one to three hops. A hop
   that needs more gets more lessons. There is no limit on the number of lessons. Each hop is in at least
-  one lesson.
+  one lesson. A lesson holds the hops of one flow, or of two flows that meet at one node.
 - `status` of a lesson: `pending`. `reason`: an empty string.
 - `not_covered`: one sentence for each item. A source that is on no hop leaves the plan, with a sentence
   here. A source that holds the config or the docs of a hop stays.
+
+### Plan from the flows
+
+The hops come from the flows of the maps. Plan them by these rules:
+
+- Read the `Flows` of each map. The flows that carry the message of the course give the hops.
+- Walk the nodes of such a flow in their order. A node that changes the message, sends it, stores it, or
+  replies is a hop. That hop also covers the nodes before it since the last hop.
+- A decision node with an edge to an error exit gives a `branch` hop.
+- A decision node that splits the main path gives one hop for each edge, and `what` names the condition.
+- A flow that some hop names is a followed flow. Every node of a followed flow is in the `nodes` of one
+  hop, or named in `not_covered` as `<source-id>/<flow-id>/<node-id>`. Thus a node leaves the course only
+  by name.
+- A flow of a map that no hop names gets one sentence in `not_covered` that holds
+  `<source-id>/<flow-id>`. A sentence can name several flows or nodes.
 
 ## 6. Check and stop
 
@@ -229,11 +251,14 @@ The prefix of a failure line tells where the fault is:
 | `schema:` | The field that the line names. |
 | `id:` | Give the second item a new id. |
 | `lesson <id>:` | The hops or the sources of that lesson. For `lesson <id>: done but lessons/<id>/index.html missing`, run `course.py mark <course-dir> <id> pending`. |
-| `hop <id>:` | The lessons that cover the hop, its `branch`, or its evidence and its cites. |
+| `hop <id>:` | The lessons that cover the hop, its `branch`, its evidence and its cites, or its `flow` and its `nodes` against `map/<source-id>.md`. |
+| `flow <source>/<flow>:` | Put the flow on a hop, or name it in `not_covered`. |
+| `node <source>/<flow>/<id>:` | Put the node in the `nodes` of a hop, or name it in `not_covered`. |
 | `source <id>:` | The `path` of that source. |
 | `cite <hop>#<n>:` | Cite number `<n>` of that hop: its path, its line or its snippet. |
 | `prose:` | The prose field that the line names. |
 | `state:` | The line is `state: plan changed after approval; run summary and approve again`. Go to step 3. |
+| `course: version 1 is older than this skill; start a new course` | The course is from an older skill. Start a new course. `course.py` exits with 2. |
 | `course: cannot read` | `course.json` is not valid JSON. Write it again. `check` exits with 2. |
 
 ### The stop rule
@@ -381,6 +406,9 @@ The `media` check of a hub counts each link into `lessons/` that names no file. 
 
 The command `/explain <course-dir> --as course` resumes a course. `course.json` is the one source of
 truth for a resume.
+
+A `course.json` of version 1 cannot resume: each command of `course.py` prints
+`course: version 1 is older than this skill; start a new course`, and the user starts a new course.
 
 `--review` has no effect on a resume: the value in `course.json` holds. If the arguments hold
 `--review`, print `--review: no effect on a resume`.

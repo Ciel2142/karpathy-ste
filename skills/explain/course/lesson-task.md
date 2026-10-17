@@ -21,6 +21,9 @@ The subject of the lesson is its `question`. Its kind is `topic`. Answer it from
 of the lesson. The `brief` of the lesson tells what the lesson holds. A hop has a `branch` when it is a
 failure path: `branch` is the id of the hop where the failure starts.
 
+Each hop has a `flow`, `<source-id>/<flow-id>`, and the `nodes` of that flow that it covers. The flow is
+the block under `### <flow-id>:` in `{course_dir}/map/<source-id>.md`.
+
 The root of the course is `{root}`. Each `path` of a source and of a cite is relative to it.
 
 ## What to read
@@ -88,6 +91,17 @@ questions and their hops:
 A neighbour hop is a hop of another lesson. For a neighbour hop, write one sentence that names the lesson
 that covers it, by its question. Do not explain the neighbour hop. Write no link to another lesson. The
 hub links the lessons.
+
+The first diagram of the lesson uses the Mermaid pattern of `{skill_dir}/rungs/page.md`. Cut its text from
+the map block of the flow by the `nodes` of the hops of the lesson. Keep each line of the block whose node
+ids are all in that set. Keep each edge that leaves the set. Its far node stays as one node, and its label
+names the lesson that covers it, by its question. Redraw nothing.
+
+Write the text to `diagrams/<flow-id>.mmd` in your output directory. Then run
+`python3 {skill_dir}/scripts/mermaid_svg.py inline index.html` in that directory, as the pattern of
+`page.md` says. Each decision node of that diagram gets one paragraph that names its branches, or a
+section of its own. A moving part is a hop, not a node. If the hops of your lesson come from two flows,
+make one figure for each flow, the flow of the first hop first.
 
 ### A lesson with no clip
 

@@ -10,7 +10,8 @@ of onboard.TITLES) live there, so the prompt holds no skeleton. Its fenced block
 of a course map (MAP_COMMANDS), and its prose holds the course overrides (MAP_TEXTS): the two files, the first
 line, the fix loop of the check with its stop rule, and the fact count. The lesson prompt holds the overrides of
 spec section 10 (LESSON_OVERRIDES): the output directory, the `data-root`, the `Sources` row of the provenance,
-the page rung for a lesson with no clip, and no `open`.
+the page rung for a lesson with no clip, no `open`, and (spec section 11) the `flow` and the `nodes` of a hop and the
+cut of the first diagram from the map block by the nodes of the hops of the lesson.
 
 CourseRungCase ties rungs/course.md to the code and the files that it names. Each command of the usage of
 scripts/course.py occurs in the rung as `course.py <command>`, with the two options; the check lines
@@ -19,7 +20,10 @@ The prompt files that the rung names under `<skill-dir>/course/` are the keys of
 and the {name} set of the rung is the union of PLACEHOLDERS (its fill table). The rung has one fenced block of
 the seven verify.sh lines of a lesson (LESSON_PASS, the media line and the bpmn line): a hub prints the same
 seven lines. Each text of RUNG_TEXTS occurs in the rung. "Map the sources" runs onboard.py check on each map
-(MAP_CHECK_COMMAND), and the rung says which map counts (MAP_RUNG_TEXTS). The three files pass the STE lint.
+(MAP_CHECK_COMMAND), and the rung says which map counts (MAP_RUNG_TEXTS). "Plan the course" plans from the flows
+of the maps (FLOW_TEXTS, spec section 11): the version 2 example, the `flow` and `nodes` rules, the planning rules,
+the two floor prefixes of "Check and stop", and the refusal line course.OLD_VERSION in the table and in "Resume".
+The three files pass the STE lint.
 
 Fix round 1 of the review adds: the video workspace is set up once, before the build loop, with the engine of
 the course language (WORKSPACE_COMMAND); each fix loop has the stop rule (STOP_RULE); the hub read names its
@@ -100,6 +104,20 @@ LESSON_OVERRIDES = (
     "If no section earns a clip, build the page rung in the same directory instead of stopping.",
     # no open
     "Never run `open`.",
+    # spec section 11: the flow and the nodes of a hop
+    "Each hop has a `flow`, `<source-id>/<flow-id>`, and the `nodes` of that flow that it covers.",
+    "The flow is the block under `### <flow-id>:` in `{course_dir}/map/<source-id>.md`.",
+    # spec section 11: the first diagram is cut from the map block, mechanically, by the nodes of the hops
+    "The first diagram of the lesson uses the Mermaid pattern of `{skill_dir}/rungs/page.md`.",
+    "Cut its text from the map block of the flow by the `nodes` of the hops of the lesson.",
+    "Keep each line of the block whose node ids are all in that set.",
+    "Keep each edge that leaves the set. Its far node stays as one node, and its label names the lesson that "
+    "covers it, by its question.",
+    "Redraw nothing.",
+    "Write the text to `diagrams/<flow-id>.mmd` in your output directory.",
+    "Each decision node of that diagram gets one paragraph that names its branches, or a section of its own.",
+    "A moving part is a hop, not a node.",
+    "If the hops of your lesson come from two flows, make one figure for each flow, the flow of the first hop first.",
 )
 # What rungs/course.md says in its own words that no other test pins: file names, lines and rules.
 RUNG_TEXTS = (
@@ -114,6 +132,32 @@ RUNG_TEXTS = (
     "next: course not approved",
     "Build nothing before the user approves the plan.",
     "`--review` has no effect on a resume",
+)
+# Spec section 11 in rungs/course.md: the version 2 example with a bound hop, the field rules of `flow` and `nodes`,
+# the planning rules of "Plan from the flows", the lesson rule, and the rows of "Check and stop" for the hop binding,
+# the two floors and the refusal of a version 1 course.
+FLOW_TEXTS = (
+    '"version": 2',
+    '"flow": "esb/request"',
+    '"nodes": ["listen", "parse"]',
+    "`flow`: the flow that the hop comes from, as `<source-id>/<flow-id>`.",
+    "The flow is a `### <flow-id>:` heading under `Flows` in `map/<source-id>.md`.",
+    "A `code` hop has a flow. A `docs` hop has a flow or `null`. An `inferred` hop has `null`.",
+    "`nodes`: the nodes of that flow that the hop covers, in the order of the flow.",
+    "The list is not empty when `flow` is a string. It is `[]` when `flow` is `null`.",
+    "Read the `Flows` of each map. The flows that carry the message of the course give the hops.",
+    "Walk the nodes of such a flow in their order.",
+    "A decision node with an edge to an error exit gives a `branch` hop.",
+    "A decision node that splits the main path gives one hop for each edge, and `what` names the condition.",
+    "A flow that some hop names is a followed flow.",
+    "`<source-id>/<flow-id>/<node-id>`",
+    "Thus a node leaves the course only by name.",
+    "A sentence can name several flows or nodes.",
+    "A lesson holds the hops of one flow, or of two flows that meet at one node.",
+    "its `flow` and its `nodes` against `map/<source-id>.md`",
+    "| `flow <source>/<flow>:` |",
+    "| `node <source>/<flow>/<id>:` |",
+    "cannot resume",
 )
 # The check that the orchestrator runs on each map, and what the rung says on which map counts.
 MAP_CHECK_COMMAND = "python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root>"
@@ -344,6 +388,18 @@ class CourseRungCase(unittest.TestCase):
         self.assertIn(MAP_CHECK_COMMAND, commands)
         text = squash(self.text)
         self.assertEqual([want for want in MAP_RUNG_TEXTS if squash(want) not in text], [])
+
+    # red: the example back to version 1 or without the `flow` and the `nodes` of its hop, a field rule or a planning
+    # rule of spec section 11 left out or reworded, a floor prefix left out of the table, or the refusal line of a
+    # version 1 course not the line of course.py, left out of the table or of "Resume", or written a third time
+    def test_rung_plans_from_the_flows(self):
+        text = squash(self.text)
+        self.assertEqual([want for want in FLOW_TEXTS if squash(want) not in text], [])
+        self.assertNotIn('"version": 1', text)
+        self.assertEqual(text.count(course.OLD_VERSION), 2)
+        for title in ("Check and stop", "Resume"):
+            with self.subTest(section=title):
+                self.assertIn(course.OLD_VERSION, squash(section(self.text, title)))
 
     # red: the resume or the build left out of the rung, or the steps out of the order of spec section 9
     def test_rung_sections_follow_the_build(self):
