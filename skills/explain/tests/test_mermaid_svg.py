@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -21,6 +22,7 @@ BUNDLE = mermaid_svg.bundle_path()
 HAVE_BUNDLE = BUNDLE.is_file()
 NO_BUNDLE = "mermaid bundle missing: %s" % BUNDLE
 E2E = os.environ.get("EXPLAIN_MERMAID_E2E") == "1"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "mermaid"
 
 SAMPLE = (
     '<svg id="flow" width="100%" style="max-width: 496.4px;" viewBox="0 0 496.4 311.5" '
@@ -42,6 +44,12 @@ def run(argv, env=None):
 def root_tag(svg):
     """The root start tag of an svg text."""
     return re.match(r"<svg[^>]*>", svg).group(0)
+
+
+def svg_text(svg):
+    """The words of every <text> element of an svg, tags cut and white space squashed."""
+    parts = re.findall(r"<text\b[^>]*>(.*?)</text>", svg, re.S)
+    return " ".join(" ".join(re.sub(r"<[^>]*>", " ", part).split()) for part in parts)
 
 
 class TempCase(unittest.TestCase):
@@ -271,6 +279,205 @@ class BundleCase(TempCase):
         code, out, err = run(["frobnicate"])
         self.assertEqual(code, 2)
         self.assertTrue(err.startswith("usage: mermaid_svg.py"), err)
+
+
+class RenderCase(TempCase):
+    """render through headless Chrome; every run has TMPDIR=<tmp>/ and leaves no process."""
+
+    def env(self, extra=None):
+        return {"TMPDIR": self.tmp + "/", **(extra or {})}
+
+    def render(self, *args, env=None):
+        """Run `render` with TMPDIR=<tmp>/, then check that nothing is left behind."""
+        result = run(["render", *map(str, args)], self.env(env))
+        self.assert_no_chrome_left()
+        return result
+
+    def assert_no_chrome_left(self):
+        """No process matches <tmp> and <tmp> is empty, as tests/test_verify.py checks."""
+        found = subprocess.run(
+            ["pgrep", "-f", self.tmp], capture_output=True, text=True,
+        ).stdout.split()
+        if found:
+            listing = subprocess.run(
+                ["ps", "-o", "pid,ppid,pgid,etime,command", "-p", ",".join(found)],
+                capture_output=True, text=True,
+            ).stdout
+            self.fail("processes left matching %s:\n%s" % (self.tmp, listing))
+        self.assertEqual(os.listdir(self.tmp), [], "temp dir not removed")
+
+    def fake_chrome(self, first=""):
+        """A Chrome stand-in that, like headless Chrome after --dump-dom, never exits."""
+        path = Path(self.work) / "chrome"
+        path.write_text(
+            "#!/bin/sh\necho $$ > %s.pid\n%swhile :; do sleep 1; done\n" % (path, first)
+        )
+        path.chmod(0o755)
+        return str(path)
+
+    def assert_group_gone(self, chrome):
+        """No process is left in the process group of the stand-in."""
+        pgid = Path(chrome + ".pid").read_text().strip()
+        found = subprocess.run(["pgrep", "-g", pgid], capture_output=True, text=True).stdout
+        self.assertEqual(found, "", "process group %s still has members" % pgid)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_render_flow_to_a_file(self):
+        out = Path(self.work) / "flow.svg"
+        code, stdout, stderr = self.render(FIXTURES / "flow.mmd", out)
+        self.assertEqual(code, 0, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: ok 1 diagrams\n")
+        svg = out.read_text(encoding="utf-8")
+        tag = root_tag(svg)
+        self.assertNotIn("foreignObject", svg)
+        self.assertIn('role="img"', tag)
+        self.assertIn('data-ste="skip"', tag)
+        self.assertIn('aria-labelledby="flow-title"', tag)
+        self.assertIn('<title id="flow-title">flow</title>', svg)
+        box = re.search(r'\sviewBox="([^"]*)"', tag).group(1).split()
+        width = re.search(r'\swidth="([^"]*)"', tag).group(1)
+        height = re.search(r'\sheight="([^"]*)"', tag).group(1)
+        self.assertRegex(width, r"^[0-9]+$")
+        self.assertRegex(height, r"^[0-9]+$")
+        self.assertGreaterEqual(int(width), float(box[2]))
+        self.assertGreaterEqual(int(height), float(box[3]))
+        self.assertNotIn("max-width", tag)
+        words = svg_text(svg)
+        self.assertIn("receive the message", words)
+        self.assertIn("cancel", words)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_render_to_stdout_keeps_the_svg_clean(self):
+        code, stdout, stderr = self.render(FIXTURES / "flow.mmd")
+        self.assertEqual(code, 0, stdout + stderr)
+        self.assertTrue(stdout.startswith("<svg"), stdout[:200])
+        self.assertEqual([l for l in stdout.splitlines() if l.startswith("mermaid:")], [])
+        self.assertNotIn("foreignObject", stdout)
+        self.assertEqual(stderr, "mermaid: ok 1 diagrams\n")
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_title_option_sets_the_title(self):
+        code, stdout, stderr = self.render(FIXTURES / "flow.mmd", "--title", "One message")
+        self.assertEqual(code, 0, stdout + stderr)
+        self.assertIn('<title id="flow-title">One message</title>', stdout)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_state_diagram_renders(self):
+        out = Path(self.work) / "state.svg"
+        code, stdout, stderr = self.render(FIXTURES / "state.mmd", out)
+        self.assertEqual(code, 0, stdout + stderr)
+        svg = out.read_text(encoding="utf-8")
+        self.assertNotIn("foreignObject", svg)
+        self.assertIn('<title id="state-title">state</title>', svg)
+        words = svg_text(svg)
+        self.assertIn("Sent", words)
+        self.assertIn("Failed", words)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_parse_error_names_the_id_and_exits_1(self):
+        out = Path(self.work) / "bad.svg"
+        code, stdout, stderr = self.render(FIXTURES / "bad.mmd", out)
+        self.assertEqual(code, 1, stdout + stderr)
+        self.assertTrue(stdout.startswith("mermaid: FAIL bad Parse error"), stdout)
+        self.assertEqual(len(stdout.splitlines()), 1, stdout)
+        self.assertFalse(out.exists())
+
+    def test_chrome_not_found_exits_2(self):
+        missing = os.path.join(self.work, "no-chrome")
+        with mock.patch.object(mermaid_svg, "CHROME", missing):
+            code, stdout, stderr = self.render(FIXTURES / "flow.mmd")
+        self.assertEqual(code, 2, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: FAIL Chrome not found %s\n" % missing)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_timeout_kills_the_group_and_removes_the_temp_dir(self):
+        chrome = self.fake_chrome()
+        start = time.monotonic()
+        with mock.patch.object(mermaid_svg, "CHROME", chrome):
+            code, stdout, stderr = self.render(
+                FIXTURES / "flow.mmd", env={"MERMAID_TIMEOUT": "1"}
+            )
+        self.assertLess(time.monotonic() - start, 5)
+        self.assertEqual(code, 1, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: FAIL timeout\n")
+        self.assert_group_gone(chrome)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_dump_without_a_result_is_harness_incomplete(self):
+        chrome = self.fake_chrome("printf '<html><body></body></html>\\n'\n")
+        with mock.patch.object(mermaid_svg, "CHROME", chrome):
+            code, stdout, stderr = self.render(FIXTURES / "flow.mmd")
+        self.assertEqual(code, 1, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: FAIL harness incomplete\n")
+        self.assert_group_gone(chrome)
+
+    def test_bad_id_fails_before_chrome(self):
+        copy = Path(self.work) / "1 flow.mmd"
+        copy.write_bytes((FIXTURES / "flow.mmd").read_bytes())
+        with mock.patch.object(mermaid_svg, "CHROME", os.path.join(self.work, "no-chrome")):
+            code, stdout, stderr = self.render(copy)
+        self.assertEqual(code, 2, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: FAIL 1 flow bad id\n")
+
+    def test_unreadable_input_is_usage(self):
+        code, stdout, stderr = self.render(Path(self.work) / "missing.mmd")
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("usage:"), stderr)
+
+    def test_bad_timeout_is_usage(self):
+        code, stdout, stderr = self.render(FIXTURES / "flow.mmd", env={"MERMAID_TIMEOUT": "abc"})
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("usage:"), stderr)
+        self.assertIn("MERMAID_TIMEOUT", stderr)
+
+    def test_render_with_a_wrong_bundle_prints_the_sha_line_and_exits_2(self):
+        wrong = Path(self.work) / "wrong.js"
+        wrong.write_bytes(b"twenty bytes exactly")
+        got = hashlib.sha256(b"twenty bytes exactly").hexdigest()
+        with mock.patch.object(mermaid_svg, "CHROME", sys.executable):
+            code, stdout, stderr = self.render(
+                FIXTURES / "flow.mmd", env={"EXPLAIN_MERMAID_JS": str(wrong)}
+            )
+        self.assertEqual(code, 2, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: FAIL sha256 %s\n" % got)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_render_many_returns_every_raw_svg_of_one_run(self):
+        diagrams = [
+            ("flow", (FIXTURES / "flow.mmd").read_text()),
+            ("state", (FIXTURES / "state.mmd").read_text()),
+            ("amp", 'flowchart LR\n  a["fish & chips"] --> b\n'),
+        ]
+        with mock.patch.dict(os.environ, self.env()):
+            svgs = mermaid_svg.render_many(diagrams, BUNDLE, 60)
+        self.assert_no_chrome_left()
+        self.assertEqual(list(svgs), ["flow", "state", "amp"])
+        for diagram_id, svg in svgs.items():
+            self.assertIn(' id="%s"' % diagram_id, root_tag(svg))
+            self.assertTrue(svg.endswith("</svg>"), svg[-200:])
+        # Mermaid splits a label into one tspan per word, so the words are read as text.
+        self.assertIn("fish &amp; chips", svg_text(svgs["amp"]))
+        self.assertNotIn("&amp;amp;", svgs["amp"])
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_render_many_reports_every_fault_once_in_order(self):
+        bad = (FIXTURES / "bad.mmd").read_text()
+        diagrams = [("flow", (FIXTURES / "flow.mmd").read_text()), ("bad", bad), ("worse", bad)]
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, self.env()), contextlib.redirect_stdout(out):
+            with self.assertRaises(mermaid_svg.MermaidError) as caught:
+                mermaid_svg.render_many(diagrams, BUNDLE, 60)
+        self.assert_no_chrome_left()
+        self.assertEqual(caught.exception.code, 1)
+        # main prints the raised line last, so the run shows each fault once, in order.
+        lines = out.getvalue().splitlines() + [str(caught.exception)]
+        self.assertEqual(
+            [line.split(" Parse error")[0] for line in lines],
+            ["mermaid: FAIL bad", "mermaid: FAIL worse"],
+            lines,
+        )
 
 
 if __name__ == "__main__":

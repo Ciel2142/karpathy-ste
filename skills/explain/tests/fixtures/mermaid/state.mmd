@@ -1,0 +1,6 @@
+stateDiagram-v2
+  [*] --> New
+  New --> Sent: deliver
+  Sent --> Done: ack
+  Sent --> Failed: timeout
+  Done --> [*]
