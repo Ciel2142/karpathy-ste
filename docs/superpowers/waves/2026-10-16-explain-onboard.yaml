@@ -151,7 +151,7 @@ waves:
       show no cut text and no false picture (spec section 13, "Proof at the end").
     done_when: >-
       The user has read the page of one live run and accepts it, or names what to change.
-    status: pending
+    status: done
     depends_on: [onboard-rung]
     owns:
       - out/<timestamp>-onboard-<slug>/ (discardable output; nothing tracked)
