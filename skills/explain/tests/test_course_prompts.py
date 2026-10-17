@@ -4,10 +4,13 @@ and 10), and the rung file rungs/course.md that the orchestrator reads (spec sec
 Each prompt is a template. The orchestrator fills it by plain text replacement of {name}, so a prompt holds
 the placeholders of PLACEHOLDERS and no other word in braces (every {name} counts, name = letters and "_").
 Each prompt ends its reply with one result line (RESULT_LINES): the orchestrator keeps its context small and
-reads that line, not the work. The map prompt asks for the six sections of spec step 9.2 (MAP_SECTIONS): the
-fenced skeleton of the map has them as its level-2 headings, in that order. The lesson prompt holds the overrides of spec section 10 (LESSON_OVERRIDES):
-the output directory, the `data-root`, the `Sources` row of the provenance, the page rung for a lesson with no
-clip, and no `open`.
+reads that line, not the work. The map prompt points at "Explore the service" and "The map" of rungs/onboard.md
+(MAP_RUNG_SECTIONS): the onboarding rules and the skeleton of the ten sections of a map (MAP_SECTIONS, the titles
+of onboard.TITLES) live there, so the prompt holds no skeleton. Its fenced blocks are the two onboard.py commands
+of a course map (MAP_COMMANDS), and its prose holds the course overrides (MAP_TEXTS): the two files, the first
+line, the fix loop of the check with its stop rule, and the fact count. The lesson prompt holds the overrides of
+spec section 10 (LESSON_OVERRIDES): the output directory, the `data-root`, the `Sources` row of the provenance,
+the page rung for a lesson with no clip, and no `open`.
 
 CourseRungCase ties rungs/course.md to the code and the files that it names. Each command of the usage of
 scripts/course.py occurs in the rung as `course.py <command>`, with the two options; the check lines
@@ -15,7 +18,8 @@ scripts/course.py occurs in the rung as `course.py <command>`, with the two opti
 The prompt files that the rung names under `<skill-dir>/course/` are the keys of PLACEHOLDERS, each a file,
 and the {name} set of the rung is the union of PLACEHOLDERS (its fill table). The rung has one fenced block of
 the seven verify.sh lines of a lesson (LESSON_PASS, the media line and the bpmn line): a hub prints the same
-seven lines. Each text of RUNG_TEXTS occurs in the rung. The three files pass the STE lint.
+seven lines. Each text of RUNG_TEXTS occurs in the rung. "Map the sources" runs onboard.py check on each map
+(MAP_CHECK_COMMAND), and the rung says which map counts (MAP_RUNG_TEXTS). The three files pass the STE lint.
 
 Fix round 1 of the review adds: the video workspace is set up once, before the build loop, with the engine of
 the course language (WORKSPACE_COMMAND); each fix loop has the stop rule (STOP_RULE); the hub read names its
@@ -38,9 +42,11 @@ from test_verify import LESSON_PASS
 EXPLAIN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(EXPLAIN / "scripts"))
 import course  # noqa: E402  (scripts/ is on the path only from here)
+import onboard  # noqa: E402
 
 COURSE_DIR = EXPLAIN / "course"
 COURSE_MD = EXPLAIN / "rungs" / "course.md"
+ONBOARD_MD = EXPLAIN / "rungs" / "onboard.md"
 
 MAP, LESSON = "map-task.md", "lesson-task.md"
 # The placeholders of each prompt, braces removed (spec sections 9.2 and 10).
@@ -54,9 +60,31 @@ RESULT_LINES = {
     MAP: ("map: done {source_id} <n> facts", "map: failed <reason>"),
     LESSON: ("lesson: done <rung> <n> clips", "lesson: failed <reason>"),
 }
-# The level-2 sections of a map, in the order of spec step 9.2.
-MAP_SECTIONS = ("Entry points", "In and out", "Formats and transforms", "Routing config", "Error paths",
-                "Other systems")
+# The ten level-2 sections of a map, in order: the titles of onboard.TITLES ("The map" of rungs/onboard.md).
+MAP_SECTIONS = ("Shape", "Architecture", "Entry points", "Flows", "State", "Formats and transforms",
+                "Routing config", "Error paths", "Other systems", "Not covered")
+# The two sections of rungs/onboard.md that the map prompt points at.
+MAP_RUNG_SECTIONS = ("Explore the service", "The map")
+# The two commands of a course map, the inventory first and the check last: the fenced blocks of the prompt.
+MAP_COMMANDS = (
+    "python3 {skill_dir}/scripts/onboard.py inventory {source_path} --root {root} "
+    "--out {course_dir}/map/{source_id}.inventory.txt",
+    "python3 {skill_dir}/scripts/onboard.py check {course_dir}/map/{source_id}.md --root {root} "
+    "--inventory {course_dir}/map/{source_id}.inventory.txt",
+)
+# The overrides of the course in the map prompt: what replaces the generic names of rungs/onboard.md.
+MAP_TEXTS = (
+    "Write two files: `{course_dir}/map/{source_id}.md` and `{course_dir}/map/{source_id}.inventory.txt`.",
+    "The first line of the map is `# Map: {source_id}`.",
+    "`<service-dir>` is `{source_path}`.",
+    "`<root>` is `{root}`.",
+    "Run the inventory first and the check last.",
+    "Fix the map for each failure line, and run the check again, until it prints `onboard: ok`.",
+    "Stop after 3 rounds in which the same failure lines come back.",
+    "If failure lines remain, end with `map: done` all the same. Write each failure line before it.",
+    "Write `none found` under `Architecture`, `Flows` and `State` when the source has no code to trace.",
+    "`<n>` counts the fact lines of the map, the node lines included.",
+)
 # The overrides of spec section 10, as lesson-task.md words them.
 LESSON_OVERRIDES = (
     # the output directory (instead of convention 5)
@@ -84,6 +112,17 @@ RUNG_TEXTS = (
     "next: course not approved",
     "Build nothing before the user approves the plan.",
     "`--review` has no effect on a resume",
+)
+# The check that the orchestrator runs on each map, and what the rung says on which map counts.
+MAP_CHECK_COMMAND = "python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root>"
+MAP_RUNG_TEXTS = (
+    "The prompt points at \"Explore the service\" and \"The map\" of `<skill-dir>/rungs/onboard.md`.",
+    "Each subagent writes `map/<source-id>.md` and `map/<source-id>.inventory.txt` in `<course-dir>`.",
+    "Print each failure line that it writes.",
+    "A map with failures still counts as a map: it is an input, not the artifact.",
+    "Only a map that the check cannot read (`map: cannot read`) counts as `map: failed`.",
+    "A map whose `Flows` is `none found` is a map.",
+    "| `map/<source-id>.inventory.txt` |",
 )
 # Fix round 1 of the review (task-6-review.md I1-I3, M1-M3, M6, M9): rules of the rung that keep a live run on
 # a large directory bounded and give each fix loop an exit.
@@ -168,12 +207,30 @@ class CoursePromptCase(unittest.TestCase):
         text = squash(prompt(LESSON))
         self.assertEqual([want for want in LESSON_OVERRIDES if squash(want) not in text], [])
 
-    # red: a section of spec step 9.2 left out of the skeleton of the map, two swapped, or "Other systems"
-    # renamed (discovery reads that section by its title)
-    def test_map_task_names_the_six_sections(self):
-        skeletons = [[line[3:] for line in lines if line.startswith("## ")]
-                     for _, lines in fenced_blocks(prompt(MAP))]
-        self.assertIn(list(MAP_SECTIONS), skeletons)
+    # red: a title of onboard.TITLES changed and not here, "Other systems" renamed (discovery reads that section
+    # by its title), the pointer to rungs/onboard.md or a title of its two sections left out or renamed, a map
+    # skeleton back in the prompt, or a command reworded, split over two lines, swapped or joined by a third block
+    def test_map_task_points_at_the_onboard_rung(self):
+        self.assertEqual(MAP_SECTIONS, onboard.TITLES)
+        self.assertIn("Other systems", MAP_SECTIONS)
+        text = prompt(MAP)
+        self.assertIn("{skill_dir}/rungs/onboard.md", text)
+        rung = read(ONBOARD_MD)
+        for title in MAP_RUNG_SECTIONS:
+            with self.subTest(section=title):
+                self.assertIn('"%s"' % title, squash(text))
+                section(rung, title)
+        found = fenced_blocks(text)
+        self.assertEqual([line for _, lines in found for line in lines if line.startswith("## ")], [])
+        self.assertEqual([[line.strip() for line in lines] for _, lines in found],
+                         [[command] for command in MAP_COMMANDS])
+
+    # red: an override of the course left out or reworded (the map back to `map.md`, the root back to the
+    # `git rev-parse` of the onboard rung, the fix loop without its stop rule or its ending, the docs source
+    # without `none found`, or the fact count without the node lines)
+    def test_map_task_holds_the_course_overrides(self):
+        text = squash(prompt(MAP))
+        self.assertEqual([want for want in MAP_TEXTS if squash(want) not in text], [])
 
     # red: the Sources row back to "the commands of the provenance recipe" (four commands, --show-toplevel among
     # them), or the untracked mark without its per-source command
@@ -275,6 +332,16 @@ class CourseRungCase(unittest.TestCase):
                      "cut: <dir> more than 8 discovered sources", "note: map <file> has no Other systems section"):
             with self.subTest(line=line):
                 self.assertIn(line, self.text)
+
+    # red: the check of each map left out of "Map the sources", or split over two lines; the pointer to
+    # onboard.md left out; a map with failures or a map with no flow counted as `map: failed`; or the inventory
+    # file left out of the output directory
+    def test_rung_checks_each_map(self):
+        commands = [line.strip() for _, lines in fenced_blocks(section(self.text, "Map the sources"))
+                    for line in lines]
+        self.assertIn(MAP_CHECK_COMMAND, commands)
+        text = squash(self.text)
+        self.assertEqual([want for want in MAP_RUNG_TEXTS if squash(want) not in text], [])
 
     # red: the resume or the build left out of the rung, or the steps out of the order of spec section 9
     def test_rung_sections_follow_the_build(self):

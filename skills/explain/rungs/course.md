@@ -69,7 +69,8 @@ Make the output directory: `~/karpathy/out/YYYY-MM-DD-HHMMSS-course-<slug>/`. Th
 ## 3. Map the sources
 
 Start one map subagent for each source, all at the same time. Its prompt is
-`<skill-dir>/course/map-task.md`.
+`<skill-dir>/course/map-task.md`. The prompt points at "Explore the service" and "The map" of
+`<skill-dir>/rungs/onboard.md`.
 
 The prompt is a template. Read it. Replace each name in braces with plain text. Give the result to the
 subagent as its prompt. Fill the names like this:
@@ -83,8 +84,19 @@ subagent as its prompt. Fill the names like this:
 | `{root}` | The absolute path of the root of the course. |
 | `{lang}` | `en`, or `ru` when the user asks for Russian. |
 
-Each subagent writes `map/<source-id>.md` in `<course-dir>`. It returns one line:
-`map: done <source-id> <n> facts` or `map: failed <reason>`. Wait for all the map subagents.
+Each subagent writes `map/<source-id>.md` and `map/<source-id>.inventory.txt` in `<course-dir>`. It
+returns one line: `map: done <source-id> <n> facts` or `map: failed <reason>`. Wait for all the map
+subagents.
+
+Then run the check on each map yourself, with the root of the course as `<root>`:
+
+```
+python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root>
+```
+
+Print each failure line that it writes. A map with failures still counts as a map: it is an input, not the
+artifact. Only a map that the check cannot read (`map: cannot read`) counts as `map: failed`. A map whose
+`Flows` is `none found` is a map.
 
 A `map: done` line with no readable `map/<source-id>.md` counts as `map: failed`. Print each
 `map: failed` line. A source without a map gets no hop. Write it in `not_covered`, with the reason.
@@ -394,6 +406,7 @@ The directory is `~/karpathy/out/YYYY-MM-DD-HHMMSS-course-<slug>/`. A course com
 |---|---|
 | `course.json` | The plan and the state. The one source of truth for a resume. |
 | `map/<source-id>.md` | The map of one source, from a map subagent. |
+| `map/<source-id>.inventory.txt` | The entry points of one source, from `onboard.py inventory`. |
 | `discover/` | The files of the discovery script: `result.txt` (its lines), `handles.txt`, `candidates.txt` and `matches.tsv`. |
 | `lessons/<id>/` | One complete lesson output directory (`rungs/lesson.md` "Output directory"), or a page output for a lesson with no clip. |
 | `lessons/<id>.stale-<n>/` | An earlier build of the lesson `<id>`, moved aside before a new build. |
