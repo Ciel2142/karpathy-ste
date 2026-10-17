@@ -159,7 +159,7 @@ of an empty section):
 # Map: <id>
 
 ## Shape
-- <fact> | <path>:<line> | <snippet>
+- <key>: <fact> | <path>:<line> | <snippet>
 
 ## Architecture
 ```mermaid
@@ -194,11 +194,18 @@ stateDiagram-v2
 ## Other systems
 - <system>: <handles> | <path>:<line> | <snippet>
 
+## Conventions
+- <topic>: <fact> | <path>:<line> | <snippet>
+
+## Where to look
+- <task>: `<path>` | <path>:<line> | <snippet>
+
 ## Not covered
 - <directory or module>: <reason>
 ```
 
-Rules of the format, which `onboard.py check` enforces:
+Rules of the format, which `onboard.py check` enforces (the rules of `Shape`, `Conventions` and
+`Where to look` are in section 15):
 
 - A fact line is `- <fact> | <path>:<line> | <snippet>`. `<path>` is relative to the root. The
   snippet has at most 12 words, copied verbatim from that line (the cite rules of convention 2).
@@ -264,6 +271,9 @@ root. The prefix of a line tells where the fault is:
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: path missing under root, line beyond the end, snippet not on that line, more than 12 words. Reuse `_cite_problems` of `course.py` (move it to `cite_check.py` if the import is awkward). |
 | `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | Entry lines. |
 | `inventory <path>:<line>: not in Entry points` | Only with `--inventory`. |
+| `shape: missing <key>` / `shape: <key> twice` / `shape #<n>: unknown key <key>` / `shape #<n>: no command in backticks` | The keyed `Shape` lines (section 15). |
+| `conventions: missing <topic>` / `conventions #<n>: no topic` | The `Conventions` lines (section 15). |
+| `where: missing <key>` / `where #<n>: no path in backticks` / `where #<n>: <path> not under root` | The `Where to look` lines (section 15). |
 | `map: cannot read` | Not a Markdown file with a `# Map:` title. Exit 2. |
 
 The Mermaid parser is small and tolerant: it needs node ids and a count, not a full grammar.
@@ -536,3 +546,115 @@ After the builder check (2026-10-16), four more:
 12. A hop binds to its flow by `nodes`, checked against the map, and every node of a followed flow
     is on a hop or in `not_covered` by name. `from` and `to` stay system names. Reason: the hub
     prints `from → to`; a node-level floor is what makes "no branch dropped" checkable.
+
+## 15. Follow-up of 2026-10-18: run, conventions, where to look
+
+The user read the `codebase-onboarding` skill of the ecc repository (affaan-m/ecc) and asked what to
+take. Four things: the commands to build, test and run the service; the framework versions; the
+conventions of the code, each with an example; and a "where to look" table from a task to a place.
+The rest of that skill is covered by the map in a stricter form, and its starter `CLAUDE.md` output
+is out of scope. These rules extend sections 5, 6, 7 and 9.1. The ids and prefixes here are
+authoritative where the earlier sections are silent.
+
+### 15.1 `Shape` lines carry a key
+
+Each `Shape` line is `- <key>: <fact> | <path>:<line> | <snippet>`. The keys, in this order:
+
+| Key | Fact | Required |
+|---|---|---|
+| `language` | The language and the build tool. | yes, once |
+| `framework` | One framework or runtime library and its version, from the line that pins it (`pom.xml`, `build.gradle.kts`, `go.mod`). | no, any number |
+| `runtime` | The runtime kind: web server, consumer, scheduler, batch or library. | yes, once |
+| `artifact` | The deploy artifact: image, jar, binary or chart. | yes, once |
+| `purpose` | The purpose of the service, one sentence. | yes, once |
+| `build` | The command that builds it, in backticks. | yes, once |
+| `test` | The command that runs its tests, in backticks. | yes, once |
+| `run` | The command that runs it locally, in backticks. | yes, once |
+
+The cite of a command is the line that defines it: a Makefile target, a Gradle or Maven plugin line,
+a `scripts` entry, a README line, a Dockerfile `ENTRYPOINT` or `CMD`, or a CI job line. When the
+source has no such command (a docs repository, a library with no entry), the line is
+`- build: none found` with no cite; the same for `test` and `run`. The fact of `build`, `test` and
+`run` holds one command in backticks (the `HANDLE` pattern of `Other systems`). The check:
+
+- `shape: missing <key>` for each required key with no line;
+- `shape #<n>: unknown key <key>` for a line whose key is not in the table, or a line with no key;
+- `shape #<n>: no command in backticks` for `build`, `test` or `run` that is neither `none found`
+  nor a fact with a backticked handle.
+
+A key other than `framework` that appears twice is reported as `shape: <key> twice`.
+
+### 15.2 `Conventions`
+
+A new level-2 section after `Other systems`. Each line is `- <topic>: <fact> | <path>:<line> |
+<snippet>`: one convention of the code with one example line as its cite. Four topics are required;
+any other topic that matches the id pattern is allowed:
+
+| Topic | What the fact says |
+|---|---|
+| `tests` | Where the tests live and how a test file is named, from one test file. |
+| `errors` | How an error is raised and handled on a message path (an exception type, a `Result`, an error reply), from one line that does it. |
+| `wiring` | How a dependency reaches a class: constructor injection, a factory, a global, from one line that does it. |
+| `naming` | How the classes or packages of the message path are named (suffixes such as `Listener`, `Service`, `Repository`; one package per feature or per layer), from one declaration line. |
+
+A topic with nothing to find is `- <topic>: none found` with no cite. The check: `conventions:
+missing <topic>` for a required topic with no line, `conventions #<n>: no topic` for a line with no
+`<key>:` head. Git conventions (commit style, branch names) are not in the map: the rules cite
+lines read from disk only, and `git log` is not a file.
+
+### 15.3 `Where to look`
+
+A new level-2 section after `Conventions`, before `Not covered`. Each line is
+`- <key>: `<path>` | <path>:<line> | <snippet>`: a task of a new team member, the directory or file
+where that task starts, and one existing example line under that path as the cite. The keys:
+
+| Key | Required when |
+|---|---|
+| `add-http`, `add-listener`, `add-route`, `add-schedule` | `Entry points` has a traced or not-traced line of that kind (`main` has no row). |
+| `change-routing` | `Routing config` is not `none found`. |
+| `add-transform` | `Formats and transforms` is not `none found`. |
+| `add-test` | The `test` line of `Shape` is not `none found`. |
+| any other key that matches the id pattern | never; allowed. |
+
+The check: `where: missing <key>` for a required key with no line; `where #<n>: no path in
+backticks` when the fact part holds no backticked handle; `where #<n>: <path> not under root` when
+the first backticked handle, joined to the root, is not an existing file or directory. The cite rules
+apply as to every fact line.
+
+### 15.4 The page
+
+Three sections join the plan of section 9.1, and the nav gets a link for each:
+
+- `#run`, "How do I build, test and run it?", directly after `#whole`. A stack table
+  (`.table-wrap > table`): one row per `language` and `framework` line, with the name and the
+  version. Then, for `build`, `test` and `run` in this order, one sentence that says what the
+  command does and a `<pre>` block that holds the command alone. A `none found` line becomes one
+  sentence that says no such command was found, with no block. Commands never sit inline in
+  prose (the user's rule: code goes in a code block).
+- `#conventions`, "How is the code written?", after `#systems`: one paragraph per `Conventions`
+  line, each with its cite; a `none found` topic becomes one sentence.
+- `#where`, "Where do I look to change something?", after `#conventions` and before `#terms`: a
+  table (`.table-wrap > table`) with one row per `Where to look` line: the task in words, the
+  path, and the cite.
+
+The answer box does not change. The rung file lists the three ids with the others in "Plan the
+sections", and `test_rung_drift.py` locks them.
+
+### 15.5 Files and tests of this follow-up
+
+- `scripts/onboard.py`: `TITLES` gains `Conventions` and `Where to look` before `Not covered`;
+  `SHAPE_KEYS`, `SHAPE_REQUIRED`, `CONVENTION_TOPICS`, `WHERE_KEYS` are module constants; new
+  functions `_shape_lines(doc) -> list[str]`, `_convention_lines(doc) -> list[str]`,
+  `_where_lines(doc, root) -> list[str]`, called from `check_map` after `_handle_lines` and before
+  `_cite_lines`. `check_map` keeps its order otherwise.
+- `tests/test_onboard.py`: cases for each new prefix and for the `none found` forms; the fixture
+  `tests/fixtures/onboard/map.md` and its `tree` gain keyed `Shape` lines, the two sections and the
+  files they cite.
+- `rungs/onboard.md`: rule 1 of "Explore the service" names the keys; a new rule 7 "Conventions and
+  where to look" before "Not covered" (which becomes rule 8); the skeleton of "The map" and the
+  prefix table; "Plan the sections" adds the three sections. `tests/test_rung_drift.py` follows:
+  eight rules, twelve titles, ten prefixes, the three ids.
+- `course/map-task.md`: no change (it names the sections of the rung file by title).
+- Proof: the diadoc output of 2026-10-17 is extended by hand to the new format (keyed `Shape`, the
+  two sections, the three page sections), `onboard.py check` prints `onboard: ok` and `verify.sh`
+  prints all `ok`. The output stays untracked.
