@@ -83,6 +83,8 @@ MAP_TEXTS = (
     "Stop after 3 rounds in which the same failure lines come back.",
     "If failure lines remain, end with `map: done` all the same. Write each failure line before it.",
     "Write `none found` under `Architecture`, `Flows` and `State` when the source has no code to trace.",
+    # the exception of "The map": a docs source with a request sequence keeps its flow, so a hop can bind to it
+    "A docs source that documents a request sequence still gets a flow, as \"The map\" says.",
     "`<n>` counts the fact lines of the map, the node lines included.",
 )
 # The overrides of spec section 10, as lesson-task.md words them.
@@ -227,7 +229,7 @@ class CoursePromptCase(unittest.TestCase):
 
     # red: an override of the course left out or reworded (the map back to `map.md`, the root back to the
     # `git rev-parse` of the onboard rung, the fix loop without its stop rule or its ending, the docs source
-    # without `none found`, or the fact count without the node lines)
+    # without `none found` or without the flow of a request sequence, or the fact count without the node lines)
     def test_map_task_holds_the_course_overrides(self):
         text = squash(prompt(MAP))
         self.assertEqual([want for want in MAP_TEXTS if squash(want) not in text], [])

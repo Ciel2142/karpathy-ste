@@ -35,6 +35,7 @@ Follow "Explore the service" and then "The map" of `{skill_dir}/rungs/onboard.md
   ```
 
 - Write `none found` under `Architecture`, `Flows` and `State` when the source has no code to trace.
+  A docs source that documents a request sequence still gets a flow, as "The map" says.
 - Write the map in the language `{lang}`: `en` for English, `ru` for Russian. Keep each code name in
   backticks in the two languages.
 - Write one short sentence for each fact. The map is for the orchestrator, not for a reader.
