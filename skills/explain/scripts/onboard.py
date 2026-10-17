@@ -361,6 +361,11 @@ def scan_file(path: str, rel: str) -> list[Hit]:
     return hits
 
 
+def _cannot_list(error: OSError) -> NoReturn:
+    """The `os.walk` error hook: a directory that cannot be listed is an unreadable source, not an empty one."""
+    raise OnboardError("onboard: cannot read %s: %s" % (error.filename, error.strerror or error), 2) from error
+
+
 def inventory(source: str, root: str) -> list[Hit]:
     source, root = os.fspath(source), os.fspath(root)
     if not os.path.isdir(source):
@@ -368,7 +373,7 @@ def inventory(source: str, root: str) -> list[Hit]:
     if os.path.relpath(source, root).split(os.sep, 1)[0] == os.pardir:
         raise OnboardError("usage: %s is not under %s" % (source, root), 2)
     hits = []
-    for folder, dirnames, filenames in os.walk(source):
+    for folder, dirnames, filenames in os.walk(source, onerror=_cannot_list):
         dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
         for name in filenames:
             if not name.endswith(SKIP_SUFFIXES):

@@ -358,6 +358,21 @@ class InventoryCase(unittest.TestCase):
         self.assertTrue(stderr.startswith("onboard: cannot read"), stderr)
         self.assertIn("Broken.java", stderr)
 
+    @unittest.skipUnless(os.geteuid() != 0, "root can list any directory")
+    def test_unreadable_directory_in_the_tree_exits_2(self):
+        copy = Path(self.enterContext(tempfile.TemporaryDirectory())) / "tree"
+        shutil.copytree(TREE, copy)
+        locked = copy / JAVA_DIR / "locked"
+        locked.mkdir()
+        (locked / "Hidden.java").write_text('@GetMapping("/hidden")\n', encoding="utf-8")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o700)
+        code, stdout, stderr = run(["inventory", str(copy), "--root", str(copy)])
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("onboard: cannot read"), stderr)
+        self.assertIn(str(locked), stderr)
+
     def test_missing_root_flag_is_usage(self):
         code, stdout, stderr = run(["inventory", str(TREE)])
         self.assertEqual(code, 2)
