@@ -36,7 +36,7 @@ waves:
       with `mermaid: FAIL <id> …`, a wrong bundle file gives `mermaid: FAIL sha256 <got>`; the
       filled fixture page passes `verify.sh` (`rung=page`) at both viewports; `test_page_template.py`
       pins the three CSS rules and `test_rung_drift.py` the pattern text; the explain unit suite passes.
-    status: pending
+    status: done
     depends_on: []
     owns:
       - skills/explain/scripts/mermaid_svg.py (new)
@@ -71,7 +71,7 @@ waves:
       `cite …`, `entry … no flow id and no reason`, `entry … flow … not in Flows`,
       `inventory … not in Entry points`, `map: cannot read`) prints that line; the explain unit
       suite passes.
-    status: pending
+    status: done
     depends_on: []
     owns:
       - skills/explain/scripts/onboard.py (new)
@@ -98,7 +98,7 @@ waves:
       `test_rung_drift.py` pins the eight `--as` names in `SKILL.md` and `README.md`, the rung
       bullets, and the section plan of spec 9.1 in `rungs/onboard.md`; `rungs/onboard.md` and
       `SKILL.md` lint clean; the explain unit suite passes.
-    status: pending
+    status: done
     depends_on: [mermaid-pattern, onboard-check]
     owns:
       - skills/explain/rungs/onboard.md (new)
@@ -129,7 +129,7 @@ waves:
       command); `test_course_prompts.py` locks the new map sections and the `onboard.py` commands
       in `map-task.md`, and the diagram cut rule in `lesson-task.md`; `course.md` and the two
       prompts lint clean; the explain unit suite passes.
-    status: pending
+    status: done
     depends_on: [onboard-rung]
     owns:
       - skills/explain/course/map-task.md, skills/explain/course/lesson-task.md
