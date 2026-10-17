@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "How a message moves from the source to the target",
   "question": "What happens to one message from the source system to the target, hop by hop?",
   "lang": "en",
@@ -16,22 +16,27 @@
     {"id": "receive", "from": "source system", "to": "svc-a",
      "what": "The service takes the message from the queue.",
      "evidence": "code", "branch": null,
+     "flow": "svc-a/receive", "nodes": ["listen"],
      "cites": [{"path": "svc-a/Handler.java", "line": 4, "snippet": "@Listener(queue = \"IN_QUEUE\")"}]},
     {"id": "validate", "from": "svc-a", "to": "svc-a",
      "what": "The service checks the message.",
      "evidence": "code", "branch": null,
+     "flow": "svc-a/receive", "nodes": ["check"],
      "cites": [{"path": "svc-a/Handler.java", "line": 6, "snippet": "validator.validate(message)"}]},
     {"id": "reject", "from": "svc-a", "to": "source system",
      "what": "The service refuses a bad message and gives the reason.",
      "evidence": "code", "branch": "validate",
+     "flow": "svc-a/receive", "nodes": ["reject"],
      "cites": [{"path": "svc-a/Handler.java", "line": 8, "snippet": "reject(message, result.reason());"}]},
     {"id": "deliver", "from": "svc-a", "to": "target",
      "what": "The service sends the message to the target.",
      "evidence": "docs", "branch": null,
+     "flow": "svc-a/receive", "nodes": ["send"],
      "cites": [{"path": "docs-b/api.md", "line": 3, "snippet": "accepts one message per call"}]},
     {"id": "confirm", "from": "target", "to": "svc-a",
      "what": "The target confirms the message. The docs do not show this step.",
-     "evidence": "inferred", "branch": null, "cites": []}
+     "evidence": "inferred", "branch": null,
+     "flow": null, "nodes": [], "cites": []}
   ],
   "blocks": [
     {"id": "entry", "title": "Entry", "lessons": [

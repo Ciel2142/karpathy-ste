@@ -23,6 +23,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import course  # noqa: E402
+import onboard  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 LONG_LINE = "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13"
@@ -67,7 +68,7 @@ class CourseCase(unittest.TestCase):
 
 class LoadSaveCase(CourseCase):
     def test_load_reads_course_json(self):
-        self.assertEqual(self.course["version"], 1)
+        self.assertEqual(self.course["version"], 2)
         self.assertEqual([h["id"] for h in self.course["hops"]][0], "receive")
 
     def test_save_then_load_round_trips(self):
@@ -83,7 +84,7 @@ class LoadSaveCase(CourseCase):
     def test_save_leaves_no_temporary_file(self):
         course.save(self.dir, self.course)
         self.assertEqual(
-            sorted(os.listdir(self.dir)), ["course.json", "lessons"]
+            sorted(os.listdir(self.dir)), ["course.json", "lessons", "map"]
         )
 
     def test_failed_save_keeps_the_old_file_and_cleans_up(self):
@@ -93,7 +94,7 @@ class LoadSaveCase(CourseCase):
             with self.assertRaises(OSError):
                 course.save(self.dir, self.course)
         self.assertEqual(Path(self.dir, "course.json").read_text(encoding="utf-8"), before)
-        self.assertEqual(sorted(os.listdir(self.dir)), ["course.json", "lessons"])
+        self.assertEqual(sorted(os.listdir(self.dir)), ["course.json", "lessons", "map"])
 
     def test_load_rejects_a_non_object(self):
         Path(self.dir, "course.json").write_text("[1]", encoding="utf-8")
@@ -107,6 +108,12 @@ class CheckCase(CourseCase):
         code, out, _ = run_cli("check", self.dir)
         self.assertEqual((code, out), (0, "course: ok\n"))
 
+    def test_fixture_maps_pass_onboard_check(self):
+        for ident in ("svc-a", "docs-b"):
+            with self.subTest(map=ident):
+                doc = onboard.read_map(os.path.join(self.dir, "map", ident + ".md"))
+                self.assertEqual(onboard.check_map(doc, self.root), [])
+
     # schema
 
     def test_schema_missing_field(self):
@@ -117,9 +124,9 @@ class CheckCase(CourseCase):
         self.course["review"] = "no"
         self.only("schema: review: must be a boolean")
 
-    def test_schema_version_must_be_one(self):
-        self.course["version"] = 2
-        self.only("schema: version: must be 1")
+    def test_schema_version_must_be_two(self):
+        self.course["version"] = 3
+        self.only("schema: version: must be 2")
 
     def test_schema_state_enum(self):
         self.course["state"] = "started"
@@ -160,6 +167,36 @@ class CheckCase(CourseCase):
         self.hop("confirm")["id"] = "Confirm_"
         self.lesson("exit-deliver")["hops"] = ["deliver", "Confirm_"]
         self.only("schema: hops[4].id: must match [a-z0-9][a-z0-9-]*")
+
+    def test_schema_flow_missing(self):
+        del self.hop("receive")["flow"]
+        self.only("schema: hops[0].flow: missing")
+
+    def test_schema_flow_must_be_null_or_a_string(self):
+        self.hop("receive")["flow"] = 5
+        self.only("schema: hops[0].flow: must be null or a string")
+
+    def test_schema_flow_must_name_a_source_and_a_flow(self):
+        for flow in ("receive", "svc-a/Receive"):
+            with self.subTest(flow=flow):
+                self.hop("receive")["flow"] = flow
+                self.only("schema: hops[0].flow: must be <source-id>/<flow-id>")
+
+    def test_schema_nodes_missing(self):
+        del self.hop("receive")["nodes"]
+        self.only("schema: hops[0].nodes: missing")
+
+    def test_schema_nodes_must_be_a_list(self):
+        self.hop("receive")["nodes"] = "listen"
+        self.only("schema: hops[0].nodes: must be a list")
+
+    def test_schema_nodes_items_are_strings(self):
+        self.hop("receive")["nodes"] = ["listen", 2]
+        self.only("schema: hops[0].nodes[1]: must be a string")
+
+    def test_schema_nodes_must_be_empty_when_flow_is_null(self):
+        self.hop("confirm")["nodes"] = ["x"]
+        self.only("schema: hops[4].nodes: must be empty when flow is null")
 
     def test_schema_garbage_does_not_crash(self):
         self.course["hops"] = ["x", None, {"id": 3, "cites": "y"}]
@@ -309,6 +346,24 @@ class CheckCase(CourseCase):
         code, out, err = run_cli("check", self.dir)
         self.assertEqual((code, out), (2, ""))
         self.assertIn("course.json", err)
+
+    def test_cli_refuses_a_version_1_course_from_every_command(self):
+        self.course["version"] = 1
+        course.save(self.dir, self.course)
+        before = Path(self.dir, "course.json").read_bytes()
+        for argv in (
+            ["check", self.dir],
+            ["summary", self.dir],
+            ["approve", self.dir],
+            ["next", self.dir],
+            ["mark", self.dir, "entry-reject", "building"],
+            ["reopen", self.dir],
+            ["hub", self.dir],
+        ):
+            with self.subTest(argv=argv[0]):
+                self.assertEqual(run_cli(*argv), (2, "", course.OLD_VERSION + "\n"))
+        self.assertEqual(Path(self.dir, "course.json").read_bytes(), before)
+        self.assertNotIn("index.html", os.listdir(self.dir))
 
     def test_cli_usage_error_exits_2(self):
         for argv in ([], ["check"], ["check", "a", "b"], ["bogus", self.dir]):

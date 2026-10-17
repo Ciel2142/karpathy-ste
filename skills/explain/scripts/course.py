@@ -2,16 +2,24 @@
 """Course plan for `explain --as course`: reads, writes and checks `course.json`.
 
 Usage: see USAGE below (check, summary, approve, next, mark, reopen, hub).
-Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error.
+Exit 0 on success, 1 on failures found or a refused change, 2 on a usage or read error or a
+version 1 course.
 
-`<dir>` is the course output directory; it holds `course.json` and `lessons/<id>/`.
-`root` in `course.json` is absolute, or relative to `<dir>` (the test fixture uses the
-second form so that it works in any checkout). Every write goes through `save`, which is
-atomic: a temporary file in the same directory, then `os.replace`.
+`<dir>` is the course output directory; it holds `course.json`, `lessons/<id>/` and
+`map/<source-id>.md`. `root` in `course.json` is absolute, or relative to `<dir>` (the test
+fixture uses the second form so that it works in any checkout). Every write goes through
+`save`, which is atomic: a temporary file in the same directory, then `os.replace`.
+
+`course.json` is version 2: a hop carries `flow`, null or `<source-id>/<flow-id>` (a flow of
+`map/<source-id>.md`), and `nodes`, the node ids of that flow on the hop (empty for a null
+flow). Every command refuses a version 1 file before it does anything else: it writes the one
+line `course: version 1 is older than this skill; start a new course` to stderr, changes no
+file and exits 2. Nothing migrates a version 1 course.
 
 `check` prints one failure per line, then `course: ok` or `course: <n> failures`.
 Failure prefixes are fixed (plan section 4): `schema:`, `id:`, `lesson <id>:`, `hop <id>:`,
-`source <id>:`, `cite <hop>#<n>:`, `prose:` (an `ste_lint.py --html` error line) and `state:`.
+`flow <source>/<flow>:`, `node <source>/<flow>/<id>:`, `source <id>:`, `cite <hop>#<n>:`,
+`prose:` (an `ste_lint.py --html` error line) and `state:`.
 The cite rules (snippet of at most 12 words, verbatim on that line) come from `cite_check`.
 """
 
@@ -40,9 +48,12 @@ USAGE = (
 STATE_CHANGED = "state: plan changed after approval; run summary and approve again"
 STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 COURSE_FILE = "course.json"
+VERSION = 2
+OLD_VERSION = "course: version 1 is older than this skill; start a new course"
 HUB_FILE = "index.html"
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "page.html")
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
+FLOW_REF = re.compile(r"[a-z0-9][a-z0-9-]*/[a-z][a-z0-9_-]*")
 STATES = ("planned", "approved", "done")
 SOURCE_KINDS = ("code", "docs")
 FOUND = ("named", "discovered")
@@ -161,8 +172,8 @@ class _Schema:
 
 def _check_schema(course):
     schema = _Schema()
-    if schema.get(course, "version", "", int) is not None and course["version"] != 1:
-        schema.fail("version", "must be 1")
+    if schema.get(course, "version", "", int) is not None and course["version"] != VERSION:
+        schema.fail("version", "must be %d" % VERSION)
     for key in ("title", "question", "lang", "root"):
         schema.get(course, key, "", str)
     schema.get(course, "review", "", bool)
@@ -200,6 +211,18 @@ def _check_hop(schema, hop, path):
         schema.fail("%s.branch" % path, "missing")
     elif hop["branch"] is not None and not isinstance(hop["branch"], str):
         schema.fail("%s.branch" % path, "must be null or a string")
+    if "flow" not in hop:
+        schema.fail("%s.flow" % path, "missing")
+    elif hop["flow"] is not None and not isinstance(hop["flow"], str):
+        schema.fail("%s.flow" % path, "must be null or a string")
+    elif hop["flow"] is not None and not FLOW_REF.fullmatch(hop["flow"]):
+        schema.fail("%s.flow" % path, "must be <source-id>/<flow-id>")
+    nodes = schema.get(hop, "nodes", path, list)
+    for index, name in enumerate(nodes or []):
+        if not isinstance(name, str):
+            schema.fail("%s.nodes[%d]" % (path, index), "must be a string")
+    if nodes and "flow" in hop and hop["flow"] is None:
+        schema.fail("%s.nodes" % path, "must be empty when flow is null")
     for cite_path, cite in schema.items(hop, "cites", path):
         schema.get(cite, "path", cite_path, str, nonempty=True)
         schema.get(cite, "line", cite_path, int)
@@ -668,13 +691,19 @@ def _write_atomic(path, text):
 
 
 def _load_or_report(course_dir):
+    """The course of `course_dir`, or None after one stderr line: unreadable, or version 1."""
     try:
-        return load(course_dir)
+        course = load(course_dir)
     except (OSError, ValueError) as error:
         sys.stderr.write(
             "course: cannot read %s: %s\n" % (os.path.join(course_dir, COURSE_FILE), error)
         )
         return None
+    version = course.get("version")
+    if version == 1 and not isinstance(version, bool):  # true == 1: a schema fault, not version 1
+        sys.stderr.write(OLD_VERSION + "\n")
+        return None
+    return course
 
 
 def _report(failures):
