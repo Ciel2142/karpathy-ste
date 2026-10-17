@@ -347,6 +347,17 @@ class InventoryCase(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertEqual(stderr, "onboard: cannot read %s\n" % missing)
 
+    def test_unreadable_file_in_the_tree_exits_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "tree"
+            shutil.copytree(TREE, copy)
+            os.symlink(copy / "missing-target", copy / JAVA_DIR / "Broken.java")
+            code, stdout, stderr = run(["inventory", str(copy), "--root", str(copy)])
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("onboard: cannot read"), stderr)
+        self.assertIn("Broken.java", stderr)
+
     def test_missing_root_flag_is_usage(self):
         code, stdout, stderr = run(["inventory", str(TREE)])
         self.assertEqual(code, 2)

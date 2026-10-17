@@ -346,8 +346,11 @@ def scan_file(path: str, rel: str) -> list[Hit]:
     rules = [(kind, rule) for kind, group in PATTERNS.items() for rule in group if path.endswith(rule.suffixes)]
     if not rules:
         return []
-    with open(path, encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError as error:
+        raise OnboardError("onboard: cannot read %s: %s" % (path, error.strerror or error), 2) from error
     lines = text.split("\n")  # the line numbers of cite_check, not those of str.splitlines
     route_builder = BUILDER in text
     hits = []
