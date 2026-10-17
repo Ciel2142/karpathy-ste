@@ -941,6 +941,40 @@ class BpmnRungCase(unittest.TestCase):
                 self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
 
 
+class MermaidRungCase(unittest.TestCase):
+    """The Mermaid pattern of "Diagram patterns" in rungs/page.md (spec 9): when to use it, the two types, the
+    figure block, the command that fills it and the rule against an SVG pasted by hand. The section is read as
+    one line of words, because the rung wraps its lines."""
+
+    def words(self):
+        return " ".join(section(read(PAGE_MD), "Diagram patterns").split())
+
+    def test_page_md_has_the_mermaid_pattern(self):
+        """Red when "Diagram patterns" loses the figure.mermaid block, the `inline` command, the `diagrams/<id>.svg`
+        output, the place before the figcaption, the replace-on-rerun rule, the rule against an SVG pasted by hand,
+        the rule for when to use it, the six-box limit of the flow pattern or one of the two diagram types."""
+        patterns = self.words()
+        for phrase in ('<figure class="mermaid" data-src="diagrams/<id>.mmd">',
+                       "mermaid_svg.py inline index.html", "diagrams/<id>.svg", "before the <figcaption>",
+                       "A second run replaces the SVG", "Never paste an SVG by hand",
+                       "any flow with a branch, and any state machine", "at most six boxes", "flowchart",
+                       "stateDiagram-v2"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, patterns)
+
+    def test_mermaid_pattern_follows_the_bpmn_plane(self):
+        """Red when the Mermaid figure block comes before the BPMN one, so the pattern list loses its order."""
+        patterns = self.words()
+        places = [patterns.find('<figure class="bpmn">'), patterns.find('<figure class="mermaid"')]
+        self.assertNotIn(-1, places, patterns)
+        self.assertLess(places[0], places[1])
+
+    def test_page_md_lints_clean_with_the_mermaid_pattern(self):
+        """Red when the Mermaid pattern breaks the STE profile in page.md."""
+        run = lint(PAGE_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+
 # The row that SKILL.md has in its rung table for the lesson rung (spec 3.1), word for word.
 LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections "
               "carry short narrated clips where motion explains better than a still | A subsystem with two to "

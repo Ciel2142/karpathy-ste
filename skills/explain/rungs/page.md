@@ -165,6 +165,34 @@ geometry.
   The SVG keeps the size of the file, and a wide plane scrolls inside its figure. To draw one plane
   two times in one page, for example in the steps of a player, give each copy its own `--prefix`.
 
+- Mermaid: a diagram that you write as text and a script draws as an SVG. Use it for any flow with a
+  branch, and any state machine. The flow pattern stays for a straight pipeline of at most six
+  boxes. The sequence and layers patterns stay. A BPMN plane keeps its own pattern.
+  Use one of two types: `flowchart` (`TD` or `LR`) and `stateDiagram-v2`. A branch in the code is a
+  decision node with one labelled edge for each outcome. Put at most 25 nodes in one diagram.
+  Write the diagram text to `diagrams/<id>.mmd` in the output directory. The id is the file stem. It
+  starts with a letter. Then write this block:
+
+  ```html
+  <figure class="mermaid" data-src="diagrams/<id>.mmd">
+    <figcaption>One STE sentence: what this flow is.</figcaption>
+  </figure>
+  ```
+
+  Run `python3 <skill-dir>/scripts/mermaid_svg.py inline index.html`. It renders each `.mmd` file to
+  `diagrams/<id>.svg`. It writes the SVG into its figure before the <figcaption>. A second run
+  replaces the SVG. Never paste an SVG by hand. The script fetches the Mermaid bundle on its first
+  run.
+
+  The script sets the style: the page palette, 14 px text and no HTML labels. Write no style in the
+  diagram. The rules above for the units, the `viewBox` and the marker ids do not apply to a Mermaid
+  diagram. The SVG keeps its intrinsic size. A wide diagram scrolls inside its figure.
+
+  Put the cites of the section in the `div.cites` after the lead paragraph or after the figcaption.
+  The `media` check of `verify.sh` does not read `data-src`. When a `data-src` names no file,
+  `inline` reports the figure and exits with code 1. The figure stays empty, and the tiles show it
+  too.
+
 Steps player: write one `figure.step` for each state. The diagram changes in each step. The caption is
 one or two STE sentences. Without `#verify` in the URL, one step shows. With it, all steps stack.
 
