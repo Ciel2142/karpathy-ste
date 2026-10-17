@@ -4,7 +4,7 @@
 Usage: bpmn.py planes <file.bpmn>
        bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]
        bpmn.py label <index.html>
-       bpmn.py check [--rung sheet|page|lesson|course] <index.html>
+       bpmn.py check [--rung sheet|page|lesson|course|onboard] <index.html>
 Exit 0 on success, 1 on failures found, 2 on a usage or read error or an internal error.
 """
 
@@ -32,9 +32,9 @@ USAGE = (
     "usage: bpmn.py planes <file.bpmn>\n"
     "       bpmn.py svg <file.bpmn> [--plane <id>] [--highlight id,id,...] [--prefix <p>]\n"
     "       bpmn.py label <index.html>\n"
-    "       bpmn.py check [--rung sheet|page|lesson|course] <index.html>\n"
+    "       bpmn.py check [--rung sheet|page|lesson|course|onboard] <index.html>\n"
 )
-RUNGS = ("sheet", "page", "lesson", "course")
+RUNGS = ("sheet", "page", "lesson", "course", "onboard")
 PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
 

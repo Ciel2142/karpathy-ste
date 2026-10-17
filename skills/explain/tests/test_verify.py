@@ -365,6 +365,17 @@ class VerifyTest(unittest.TestCase):
         self.assertNotIn("render 1920x1080: ok", lines)
         self.assert_no_chrome_left()
 
+    def test_onboard_rung_renders_the_page_viewports(self):
+        """Red on the old script: exit 2, unknown rung "onboard". Red when the onboard rung gets the
+        sheet viewport, a media line or no bpmn line: the six lines compare in order."""
+        proc, _ = self.verify_fixture(
+            "verify-good.html",
+            edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="onboard"'),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + BPMN_NONE)
+        self.assert_no_chrome_left()
+
     # --- lesson rung: the media check (spec 6.3) ---------------------------------------
 
     def test_lesson_with_media_prints_seven_ok_lines(self):
@@ -645,18 +656,18 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
         self.assertIn("poster", proc.stderr)
-        self.assertIn("(expected sheet, page, video, lesson or course)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson, course or onboard)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_unknown_rung_message_lists_lesson(self):
-        """Red on the old text: the usage line names three rungs and omits lesson."""
+        """Red on the old text: the usage line omits the onboard rung."""
         proc, _ = self.verify_fixture(
             "verify-good.html",
             edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="poster"'),
         )
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
-        self.assertIn("(expected sheet, page, video, lesson or course)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson, course or onboard)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_no_argument_or_unreadable_file_is_a_usage_error(self):

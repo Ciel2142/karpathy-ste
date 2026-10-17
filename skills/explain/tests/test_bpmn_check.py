@@ -280,10 +280,20 @@ class CheckCase(unittest.TestCase):
         self.assertIn("stage-a | diagram | data-plane Nope_P is no plane of a cited file\n", out)
         self.assertEqual(out.splitlines()[-1], "bpmn: 2 failures")
 
+    def test_onboard_rung_is_a_page(self):
+        """Red when --rung onboard is a usage error, or skips conditions 1 and 2 as a sheet does."""
+        self.assertEqual(run(["check", "--rung", "onboard", str(bpmn_page(self.out))])[:2], (0, "bpmn: ok\n"))
+        page = bpmn_page(self.out, self.one_cite_section())
+        code, out, _err = run(["check", "--rung", "onboard", str(page)])
+        self.assertEqual(code, 1)
+        self.assertIn("page | plane | Collaboration_1 (Collaboration_1) has no svg.bpmn", out)
+
     def test_unknown_rung_is_usage(self):
-        """Red when check accepts a rung that is not sheet, page or lesson, or --rung without a value."""
+        """Red when check accepts a rung that is not sheet, page, lesson, course or onboard, or --rung without a value."""
         page = bpmn_page(self.out)
-        self.assertEqual(run(["check", "--rung", "video", str(page)])[0], 2)
+        code, _out, err = run(["check", "--rung", "video", str(page)])
+        self.assertEqual(code, 2)
+        self.assertIn("--rung sheet|page|lesson|course|onboard", err)
         self.assertEqual(run(["check", "--rung", str(page)])[0], 2)
         self.assertEqual(run(["check", "--rung", "lesson", str(page)])[:2], (0, "bpmn: ok\n"))
 
