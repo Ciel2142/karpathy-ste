@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import bpmn  # noqa: E402
 import bpmn_page as bpmn_page_module  # noqa: E402
 from bpmn_page import FIXTURES, PAGE_TEMPLATE, bpmn_page  # noqa: E402
+from onboard_page import onboard_page  # noqa: E402
 
 BPMN_PY = Path(bpmn.__file__).resolve()
 SECTION = (FIXTURES / "bpmn-section.html").read_text(encoding="utf-8")
@@ -287,6 +288,10 @@ class CheckCase(unittest.TestCase):
         code, out, _err = run(["check", "--rung", "onboard", str(page)])
         self.assertEqual(code, 1)
         self.assertIn("page | plane | Collaboration_1 (Collaboration_1) has no svg.bpmn", out)
+
+    def test_onboard_page_without_a_bpmn_cite_is_none(self):
+        """Red when an onboard page that cites no .bpmn file reports a failure, or prints bpmn: ok instead of none."""
+        self.assertEqual(run(["check", "--rung", "onboard", str(onboard_page(self.out))])[:2], (0, "bpmn: none\n"))
 
     def test_unknown_rung_is_usage(self):
         """Red when check accepts a rung that is not sheet, page, lesson, course or onboard, or --rung without a value."""
