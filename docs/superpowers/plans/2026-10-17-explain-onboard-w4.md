@@ -349,3 +349,13 @@ Expected: the last line `OK (skipped=46)` and the count above 1393 (the base ran
 git add skills/explain/course/lesson-task.md skills/explain/rungs/course.md skills/explain/tests/test_course_prompts.py
 git commit -m "feat: explain: the course plans from the flows of its maps; the lesson cuts its first diagram by the nodes of its hops"
 ```
+
+---
+
+## Execution rulings (2026-10-17)
+
+Two rulings of the execute session changed pinned text of this plan; the code and the tests follow the rulings, the steps above keep the text as planned.
+
+- Task 1, Step 2: the six schema tests that mutate hop `receive` (`test_schema_flow_missing`, `test_schema_flow_must_be_null_or_a_string`, `test_schema_flow_must_name_a_source_and_a_flow`, `test_schema_nodes_missing`, `test_schema_nodes_must_be_a_list`, `test_schema_nodes_items_are_strings`) expect their schema line followed by `node svc-a/receive/listen: in no hop and not in not_covered`: a hop that `_check_flows` skips for a malformed `flow` or `nodes` covers no node, so the node floor reports its nodes. Suppressing the floors when a hop is skipped would hide real faults behind one typo.
+- Task 4, Step 1: the `LESSON_OVERRIDES` sentence "Write the text to `diagrams/<flow-id>.mmd` in your output directory." is "Write the text to `diagrams/<flow-id>-<source-id>.mmd` in your output directory.": a lesson that joins two flows of different sources with one flow id would overwrite the first file. `page.md` requires only a stem that starts with a letter; a flow id does, a source id may not.
+- Task 3, Step 1: `MAP_TEXTS` gains one sentence after the `none found` override: "A docs source that documents a request sequence still gets a flow, as \"The map\" says." (spec section 6; the pinned override read as an order).
