@@ -380,6 +380,151 @@ class InventoryCase(unittest.TestCase):
         self.assertTrue(stderr.startswith("usage:"), stderr)
 
 
+MAP = read("map.md")
+
+
+def check(text=MAP, edits=(), inventory=None):
+    """Run check on `text` after each (old, new) edit, applied once; return the exit code, stdout and stderr."""
+    for old, new in edits:
+        text = replace_once(text, old, new)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "map.md")
+        Path(path).write_text(text, encoding="utf-8")
+        argv = ["check", path, "--root", str(TREE)]
+        if inventory is not None:
+            argv += ["--inventory", str(inventory)]
+        return run(argv)
+
+
+def failures(out):
+    """Every stdout line but the summary line."""
+    return out.splitlines()[:-1]
+
+
+def line_starting(prefix):
+    """The first line of MAP that starts with `prefix`."""
+    return next(line for line in MAP.splitlines() if line.startswith(prefix))
+
+
+def section_text(title):
+    """The `## <title>` section of MAP, heading included, up to the next level-2 heading."""
+    start = MAP.index("## %s\n" % title)
+    end = MAP.find("\n## ", start)
+    return MAP[start : end + 1 if end >= 0 else len(MAP)]
+
+
+def section_body(title):
+    """The section of MAP without its heading line."""
+    return section_text(title).split("\n", 1)[1]
+
+
+def block_after(anchor):
+    """The mermaid block of MAP, fences included, that first follows `anchor`."""
+    start = MAP.index("```mermaid\n", MAP.index(anchor))
+    return MAP[start : MAP.index("```\n", start + 3) + 4]
+
+
+ARCH = block_after("## Architecture")
+ORDER = block_after("### order:")
+CANCEL = block_after("### cancel:")
+STATE_BLOCK = block_after("## State")
+OK = (0, "onboard: ok\n", "")
+
+
+class CheckCase(unittest.TestCase):
+    def only(self, *expected, **kw):
+        """check(**kw) prints exactly the `expected` failures, then their count, and exits 1."""
+        code, out, err = check(**kw)
+        self.assertEqual((failures(out), err), (list(expected), ""))
+        self.assertEqual(out.splitlines()[-1:], ["onboard: %d failures" % len(expected)])
+        self.assertEqual(code, 1)
+
+    def test_good_map_is_ok(self):
+        self.assertEqual(check(), OK)
+
+    def test_missing_section_names_the_title(self):
+        self.only("section: missing Routing config", edits=[(section_text("Routing config"), "")])
+
+    def test_section_out_of_order(self):
+        state = section_text("State")
+        moved = [(state, ""), ("## Not covered\n", state + "## Not covered\n")]
+        self.only("section: State out of order", edits=moved)
+
+    def test_section_twice(self):
+        first_fact = section_text("Shape").splitlines()[1]
+        self.only("section: Shape twice", text=MAP + "\n## Shape\n%s\n" % first_fact)
+
+    def test_flow_heading_without_an_id_is_a_section_fault(self):
+        self.only(
+            "section: Flows heading Cancel flow has no flow id",
+            edits=[("### cancel: How is an order cancelled?", "### Cancel flow")],
+        )
+
+    def test_diagram_none(self):
+        nodes = ("api", "repo", "listener", "payments", "kafka")
+        self.only(
+            "diagram architecture: none", *("fact architecture/%s: not a node" % node for node in nodes),
+            edits=[(ARCH, "")],
+        )
+
+    def test_two_blocks_in_one_place(self):
+        self.only("diagram order: 2 blocks, more than 1", edits=[(ORDER, ORDER + ORDER)])
+
+    def test_diagram_not_flowchart_or_state(self):
+        sequence = replace_once(ORDER, "```mermaid\nflowchart TD\n", "```mermaid\nsequenceDiagram\n")
+        self.only("diagram order: not flowchart or stateDiagram-v2", edits=[(ORDER, sequence)])
+
+    def test_state_block_in_a_flow_is_not_flowchart(self):
+        self.only("diagram order: not flowchart", edits=[(ORDER, STATE_BLOCK)])
+
+    def test_flow_block_in_state_is_not_state(self):
+        self.only("diagram state: not stateDiagram-v2", edits=[(STATE_BLOCK, CANCEL)])
+
+    def test_more_than_25_nodes(self):
+        cite = line_starting("- listen:").split(" | ", 1)[1]
+        chain = "".join("  n%d --> n%d\n" % (n, n + 1) for n in range(1, 26))
+        facts = "".join("- n%d: step %d | %s\n" % (n, n, cite) for n in range(1, 27))
+        last = line_starting("- next:") + "\n"
+        self.only(
+            "diagram cancel: 31 nodes, more than 25",
+            edits=[(CANCEL, CANCEL[: -len("```\n")] + chain + "```\n"), (last, last + facts)],
+        )
+
+    def test_node_without_a_fact_line(self):
+        self.only("node order/publish: no fact line", edits=[(line_starting("- publish:") + "\n", "")])
+
+    def test_fact_that_is_not_a_node(self):
+        self.only(
+            "node order/reply: no fact line", "fact order/answer: not a node", edits=[("- reply:", "- answer:")]
+        )
+
+    def test_fact_twice(self):
+        charge = line_starting("- charge:") + "\n"
+        self.only("fact order/charge: two lines", edits=[(charge, charge + charge)])
+
+    def test_fact_without_a_key_is_not_a_node(self):
+        self.only(
+            "node order/save: no fact line", "fact order/the: not a node",
+            edits=[("- save: the order row |", "- the order row is saved |")],
+        )
+
+    def test_bad_node_id(self):
+        self.only("node order/Recv: bad id", edits=[("  recv[", "  Recv["), ("- recv:", "- Recv:")])
+
+    def test_none_found_in_architecture_and_state_skips_the_diagram_rules(self):
+        edits = [(section_body(title), "none found\n\n") for title in ("Architecture", "State")]
+        self.assertEqual(check(edits=edits), OK)
+
+    def test_none_found_with_a_diagram_is_a_normal_section(self):
+        self.assertEqual(check(edits=[("## Architecture\n", "## Architecture\nnone found\n")]), OK)
+
+    def test_flows_none_found_skips_the_flows(self):
+        later = " -> not traced: later |"
+        edits = [(section_body("Flows"), "none found\n\n"), (" -> order |", later), (" -> cancel |", later),
+                 (" -> cancel |", later)]
+        self.assertEqual(check(edits=edits), OK)
+
+
 class CliCase(unittest.TestCase):
     def test_usage_without_a_command_exits_2(self):
         code, _, err = run([])

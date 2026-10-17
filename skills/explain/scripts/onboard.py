@@ -386,21 +386,21 @@ def inventory_line(hit: Hit) -> str:
     return "%s:%d\t%s\t%s" % (hit.path, hit.line, hit.kind, hit.text)
 
 
-class _InventoryParser(argparse.ArgumentParser):
-    """The arguments of `inventory`; any error is the usage and exit 2, never a SystemExit."""
+class _Parser(argparse.ArgumentParser):
+    """The arguments of a command: one positional, `--root`, one option; any error is the usage and exit 2."""
 
-    def __init__(self) -> None:
+    def __init__(self, positional: str, option: str) -> None:
         super().__init__(add_help=False)
-        self.add_argument("source")
+        self.add_argument(positional)
         self.add_argument("--root", required=True)
-        self.add_argument("--out")
+        self.add_argument(option)
 
     def error(self, message: str) -> NoReturn:
         raise OnboardError(USAGE, 2)
 
 
 def cmd_inventory(argv: list[str]) -> int:
-    args = _InventoryParser().parse_args(argv)
+    args = _Parser("source", "--out").parse_args(argv)
     lines = [inventory_line(hit) for hit in inventory(args.source, args.root)]
     body = "".join(line + "\n" for line in lines)
     if args.out is not None:
@@ -413,13 +413,109 @@ def cmd_inventory(argv: list[str]) -> int:
     return 0
 
 
-def _usage() -> int:
-    sys.stderr.write(USAGE)
-    return 2
+def _section_lines(doc: MapDoc) -> list[str]:
+    """The `section:` lines: missing titles in canonical order, then repeats, order and flow ids in map order."""
+    titles = [section.title for section in doc.sections]
+    lines = ["section: missing %s" % title for title in TITLES if title not in titles]
+    seen, highest = set(), -1
+    for section in doc.sections:
+        if section.title in seen:
+            lines.append("section: %s twice" % section.title)
+            continue
+        seen.add(section.title)
+        index = TITLES.index(section.title) if section.title in TITLES else -1
+        if 0 <= index < highest:
+            lines.append("section: %s out of order" % section.title)
+        highest = max(highest, index)
+        lines.extend("section: Flows heading %s has no flow id" % flow.heading for flow in section.flows
+                     if flow.ident is None)
+    return lines
+
+
+def _places(doc: MapDoc) -> list[tuple[str, Section | Flow, str]]:
+    """(where, scope, the diagram kind it needs) of each place to check, in output order; `none found` skips."""
+    architecture, flows, state = (doc.section(title) for title in ("Architecture", "Flows", "State"))
+    places = []
+    if architecture and not architecture.none_found:
+        places.append(("architecture", architecture, FLOWCHART))
+    if flows and not flows.none_found:
+        places.extend((flow.ident, flow, FLOWCHART) for flow in flows.flows if flow.ident)
+    if state and not state.none_found:
+        places.append(("state", state, STATE))
+    return places
+
+
+def _key(fact: Fact) -> str:
+    """The node a fact names: the text before its first `:` when that is one token, else its first word."""
+    head, colon, _ = fact.fact.partition(":")
+    if colon and TOKEN.fullmatch(head):
+        return head
+    return (fact.fact.split() or [""])[0]
+
+
+def _node_lines(where: str, diagram: Diagram, facts: list[Fact]) -> list[str]:
+    """The `node` lines in diagram order, then the `fact` lines in bullet order."""
+    keys = [_key(fact) for fact in facts]
+    lines = []
+    for node in diagram.nodes:
+        if diagram.kind == FLOWCHART and not ID.fullmatch(node):
+            lines.append("node %s/%s: bad id" % (where, node))
+        if node not in keys:
+            lines.append("node %s/%s: no fact line" % (where, node))
+    for index, key in enumerate(keys):
+        if key not in diagram.nodes:
+            lines.append("fact %s/%s: not a node" % (where, key))
+        elif keys[:index].count(key) == 1:  # the second line of a node, reported once
+            lines.append("fact %s/%s: two lines" % (where, key))
+    return lines
+
+
+def _place_lines(where: str, scope: Section | Flow, needs: str) -> list[str]:
+    """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind."""
+    if not scope.diagrams:
+        return ["diagram %s: none" % where] + ["fact %s/%s: not a node" % (where, _key(f)) for f in scope.facts]
+    diagram = scope.diagrams[0]
+    lines = []
+    if len(scope.diagrams) > 1:
+        lines.append("diagram %s: %d blocks, more than 1" % (where, len(scope.diagrams)))
+    if diagram.kind != needs:
+        fault = "not flowchart or stateDiagram-v2" if diagram.kind is None else "not " + needs
+        return lines + ["diagram %s: %s" % (where, fault)]
+    if diagram.kind == FLOWCHART and len(diagram.nodes) > MAX_NODES:
+        lines.append("diagram %s: %d nodes, more than %d" % (where, len(diagram.nodes), MAX_NODES))
+    return lines + _node_lines(where, diagram, scope.facts)
+
+
+def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
+    """The failure lines of a map, in order: sections, then each place (architecture, the flows, state)."""
+    lines = _section_lines(doc)
+    for where, scope, needs in _places(doc):
+        lines.extend(_place_lines(where, scope, needs))
+    return lines
+
+
+def _inventory_lines(path: str) -> list[str]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().splitlines()
+    except (OSError, UnicodeDecodeError) as error:
+        raise OnboardError("onboard: cannot read inventory %s" % path, 2) from error
 
 
 def cmd_check(argv: list[str]) -> int:
-    return _usage()
+    args = _Parser("map", "--inventory").parse_args(argv)
+    if not os.path.isdir(args.root):
+        raise OnboardError("onboard: cannot read root %s" % args.root, 2)
+    inventory_lines = None if args.inventory is None else _inventory_lines(args.inventory)
+    failures = check_map(read_map(args.map), args.root, inventory_lines)
+    summary = "onboard: %d failures\n" % len(failures) if failures else "onboard: ok\n"
+    sys.stdout.write("".join(line + "\n" for line in failures) + summary)
+    return 1 if failures else 0
+
+
+def _usage() -> int:
+    sys.stderr.write(USAGE)
+    return 2
 
 
 def main(argv: list[str]) -> int:
