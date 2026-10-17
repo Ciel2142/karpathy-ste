@@ -7,11 +7,18 @@ Env:   EXPLAIN_MERMAID_JS  the pinned mermaid bundle (default
                            $HOME/karpathy/video-workspace/mermaid/mermaid-12.2.0.min.js);
                            fetched on the first run and checked by sha256
        MERMAID_TIMEOUT     seconds to wait for Chrome (default 60)
-Exit 0 on success, 1 on a render failure, 2 on a usage error, Chrome not found or a bundle fault.
-Output: `mermaid: ok <n> diagrams` is the last line on success; every failure is one line
-`mermaid: FAIL <id> <message>`, `mermaid: FAIL Chrome not found <path>`, `mermaid: FAIL timeout`,
-`mermaid: FAIL sha256 <got>`, `mermaid: FAIL download <name>: <error>` or
-`mermaid: FAIL bundle <path>: <error>`.
+inline: every `<figure class="mermaid" data-src="<dir>/<id>.mmd">` of the page gets its SVG as the
+first child, and the SVG is also written to `<dir>/<id>.svg`; a second run replaces the SVG.
+Exit 0 on success, 1 on a render failure or a fault in a figure of the page, 2 on a usage error,
+Chrome not found, a bundle fault or (render only) a bad id.
+Output: `mermaid: ok <n> diagrams` is the last line on success. Every failure is one line, and a
+page with several faults lists one line each, in page order:
+`mermaid: FAIL <id> <message>` (Mermaid's parse message, `no viewBox` or `foreignObject in output`),
+`mermaid: FAIL <id> bad id`, `mermaid: FAIL figure <n> no data-src`,
+`mermaid: FAIL <id> cannot read <data-src>`, `mermaid: FAIL <id> duplicate id`,
+`mermaid: FAIL Chrome not found <path>`, `mermaid: FAIL timeout`,
+`mermaid: FAIL harness incomplete`, `mermaid: FAIL sha256 <got>`,
+`mermaid: FAIL download <name>: <error>` or `mermaid: FAIL bundle <path>: <error>`.
 """
 
 import argparse
@@ -31,6 +38,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 BUNDLE_NAME = "mermaid-12.2.0.min.js"
@@ -379,6 +387,121 @@ def render_many(diagrams, bundle, timeout):
     return read_dump(dump, diagrams)
 
 
+# --- the page -------------------------------------------------------------------------------
+
+FIGURE = re.compile(r'<figure( class="[^"]*\bmermaid\b[^"]*"[^>]*)>(.*?)</figure>', re.S)
+DATA_SRC = re.compile(r"""\sdata-src\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+FIGCAPTION = re.compile(r"<figcaption\b[^>]*>(.*?)</figcaption>", re.S)
+TAG = re.compile(r"<[^>]*>")
+SVG_ELEMENT = re.compile(r"<svg\b[^>]*>.*?</svg>\n?", re.S)
+
+
+class Figure(NamedTuple):
+    """One figure.mermaid of a page: start..end is the whole figure in the page text, attrs the
+    start tag after `<figure`, inner the text between the tags."""
+
+    n: int
+    start: int
+    end: int
+    attrs: str
+    inner: str
+    src: str | None
+    caption: str | None
+
+
+def page_figures(html_text):
+    """Every figure.mermaid of the page, in page order, numbered from 1."""
+    figures = []
+    for n, found in enumerate(FIGURE.finditer(html_text), 1):
+        attrs, inner = found.group(1), found.group(2)
+        src = DATA_SRC.search(attrs)
+        caption = FIGCAPTION.search(inner)
+        figures.append(Figure(
+            n, found.start(), found.end(), attrs, inner,
+            None if src is None else (src.group(1) if src.group(1) is not None else src.group(2)),
+            None if caption is None else " ".join(
+                html.unescape(TAG.sub("", caption.group(1))).split()
+            ),
+        ))
+    return figures
+
+
+def figure_job(figure, page_dir, seen):
+    """(id, text) of the diagram of a figure; raise a fault line when the figure cannot be read.
+    `seen` holds the ids of the earlier figures and gets this one."""
+    if not figure.src:
+        raise MermaidError("mermaid: FAIL figure %d no data-src" % figure.n)
+    src = Path(figure.src)
+    if src.suffix != ".mmd" or not ID.fullmatch(src.stem):
+        shown = src.stem if src.suffix == ".mmd" else src.name
+        raise MermaidError("mermaid: FAIL %s bad id" % shown)
+    try:
+        text = (page_dir / src).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        raise MermaidError("mermaid: FAIL %s cannot read %s" % (src.stem, figure.src)) from None
+    if src.stem in seen:
+        raise MermaidError("mermaid: FAIL %s duplicate id" % src.stem)
+    seen.add(src.stem)
+    return src.stem, text
+
+
+def finish_figures(figures, jobs, svgs):
+    """The finished SVG of each figure, in page order; every fault of the run is listed once."""
+    finished, faults = [], []
+    for figure, (diagram_id, _) in zip(figures, jobs):
+        try:
+            finished.append(finish_svg(svgs[diagram_id], diagram_id, figure.caption or diagram_id))
+        except MermaidError as exc:
+            faults.append(str(exc))
+    if faults:
+        raise_faults(faults)
+    return finished
+
+
+def fill_figures(html_text, figures, finished):
+    """The page text with each SVG as the first child of its figure; an SVG that the figure
+    already holds is cut first, with the newline after it, so a second run gives the same text."""
+    # From the last figure to the first, so the offsets of the earlier ones stay valid.
+    for figure, svg in reversed(list(zip(figures, finished))):
+        inner = SVG_ELEMENT.sub("", figure.inner, count=1)
+        filled = "<figure%s>%s\n%s</figure>" % (figure.attrs, svg, inner)
+        html_text = html_text[: figure.start] + filled + html_text[figure.end:]
+    return html_text
+
+
+def inline_page(page, bundle, timeout):
+    """Fill every figure.mermaid of the page; return the number of diagrams.
+
+    The figures are checked and rendered first. The SVG files and then the page are written only
+    when every figure has its SVG, so a fault leaves the files as they were."""
+    try:
+        html_text = page.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        raise MermaidError(USAGE, 2) from None
+    figures = page_figures(html_text)
+    jobs, faults, seen = [], [], set()
+    for figure in figures:
+        try:
+            jobs.append(figure_job(figure, page.parent, seen))
+        except MermaidError as exc:
+            faults.append(str(exc))
+    if faults:
+        raise_faults(faults)
+    if not figures:
+        print("mermaid: ok 0 diagrams")
+        return 0
+    finished = finish_figures(figures, jobs, render_many(jobs, bundle, timeout))
+    try:
+        for figure, svg in zip(figures, finished):
+            svg_file = page.parent / Path(figure.src).with_suffix(".svg")
+            svg_file.write_text(svg + "\n", encoding="utf-8")
+        page.write_text(fill_figures(html_text, figures, finished), encoding="utf-8")
+    except OSError:
+        raise MermaidError(USAGE, 2) from None
+    print("mermaid: ok %d diagrams" % len(figures))
+    return len(figures)
+
+
 # --- the command line -----------------------------------------------------------------------
 
 
@@ -419,9 +542,12 @@ def cmd_render(args):
 
 
 def cmd_inline(args):
-    """inline <index.html>: lands with the page functions."""
-    print(USAGE, file=sys.stderr)
-    return 2
+    """inline <index.html>: the SVG of every figure.mermaid of the page, in one Chrome run."""
+    parser = Parser(prog="mermaid_svg.py inline", add_help=False)
+    parser.add_argument("page")
+    opts = parser.parse_args(args)
+    inline_page(Path(opts.page), bundle_path(), read_timeout())
+    return 0
 
 
 COMMANDS = {"render": cmd_render, "inline": cmd_inline}

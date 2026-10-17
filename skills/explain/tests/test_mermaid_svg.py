@@ -15,14 +15,18 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import mermaid_svg  # noqa: E402
+from mermaid_page import mermaid_page  # noqa: E402
 
 BUNDLE = mermaid_svg.bundle_path()
 HAVE_BUNDLE = BUNDLE.is_file()
 NO_BUNDLE = "mermaid bundle missing: %s" % BUNDLE
 E2E = os.environ.get("EXPLAIN_MERMAID_E2E") == "1"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "mermaid"
+SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+PAGE_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "page.html"
 
 SAMPLE = (
     '<svg id="flow" width="100%" style="max-width: 496.4px;" viewBox="0 0 496.4 311.5" '
@@ -67,6 +71,22 @@ class TempCase(unittest.TestCase):
 
     def _kill_strays(self):
         subprocess.run(["pkill", "-KILL", "-f", self.tmp], capture_output=True)
+
+    def env(self, extra=None):
+        return {"TMPDIR": self.tmp + "/", **(extra or {})}
+
+    def assert_no_chrome_left(self):
+        """No process matches <tmp> and <tmp> is empty, as tests/test_verify.py checks."""
+        found = subprocess.run(
+            ["pgrep", "-f", self.tmp], capture_output=True, text=True,
+        ).stdout.split()
+        if found:
+            listing = subprocess.run(
+                ["ps", "-o", "pid,ppid,pgid,etime,command", "-p", ",".join(found)],
+                capture_output=True, text=True,
+            ).stdout
+            self.fail("processes left matching %s:\n%s" % (self.tmp, listing))
+        self.assertEqual(os.listdir(self.tmp), [], "temp dir not removed")
 
 
 class FinishSvgCase(TempCase):
@@ -284,27 +304,11 @@ class BundleCase(TempCase):
 class RenderCase(TempCase):
     """render through headless Chrome; every run has TMPDIR=<tmp>/ and leaves no process."""
 
-    def env(self, extra=None):
-        return {"TMPDIR": self.tmp + "/", **(extra or {})}
-
     def render(self, *args, env=None):
         """Run `render` with TMPDIR=<tmp>/, then check that nothing is left behind."""
         result = run(["render", *map(str, args)], self.env(env))
         self.assert_no_chrome_left()
         return result
-
-    def assert_no_chrome_left(self):
-        """No process matches <tmp> and <tmp> is empty, as tests/test_verify.py checks."""
-        found = subprocess.run(
-            ["pgrep", "-f", self.tmp], capture_output=True, text=True,
-        ).stdout.split()
-        if found:
-            listing = subprocess.run(
-                ["ps", "-o", "pid,ppid,pgid,etime,command", "-p", ",".join(found)],
-                capture_output=True, text=True,
-            ).stdout
-            self.fail("processes left matching %s:\n%s" % (self.tmp, listing))
-        self.assertEqual(os.listdir(self.tmp), [], "temp dir not removed")
 
     def fake_chrome(self, first=""):
         """A Chrome stand-in that, like headless Chrome after --dump-dom, never exits."""
@@ -478,6 +482,263 @@ class RenderCase(TempCase):
             ["mermaid: FAIL bad", "mermaid: FAIL worse"],
             lines,
         )
+
+
+FIGURE = re.compile(r'<figure class="mermaid".*?</figure>', re.S)
+SECTION = (FIXTURES / "section.html").read_text(encoding="utf-8")
+FIGURE_TEXT = FIGURE.search(SECTION).group(0)
+FLOW_TITLE = (
+    '<title id="flow-title">The path of one message from the listener to the reply.</title>'
+)
+VERIFY_PASS = (
+    "self-contained: ok\n"
+    "render 1440x900: ok\n"
+    "render 500x844: ok\n"
+    "citations: ok\n"
+    "prose: ok\n"
+    "bpmn: none\n"
+)
+
+
+class InlineCase(TempCase):
+    """inline on a fixture page; every run has TMPDIR=<tmp>/ and leaves no process behind."""
+
+    def setUp(self):
+        super().setUp()
+        self.out = Path(self.work) / "page"
+
+    def page(self, section=None, mmd="flow.mmd"):
+        return mermaid_page(self.out, section, mmd)
+
+    def inline(self, *args):
+        """Run `inline` with TMPDIR=<tmp>/, then check that nothing is left behind."""
+        result = run(["inline", *map(str, args)], self.env())
+        self.assert_no_chrome_left()
+        return result
+
+    def inline_without_chrome(self, *args):
+        """As inline, with a Chrome path that does not exist: a run that reaches Chrome exits 2."""
+        missing = os.path.join(self.work, "no-chrome")
+        with mock.patch.object(mermaid_svg, "CHROME", missing):
+            return self.inline(*args)
+
+    def figure_of(self, page):
+        return FIGURE.search(page.read_text(encoding="utf-8")).group(0)
+
+    def assert_fails_with(self, result, *lines):
+        code, stdout, stderr = result
+        self.assertEqual((code, stdout, stderr), (1, "".join(l + "\n" for l in lines), ""))
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_inline_writes_the_svg_before_the_figcaption_and_the_svg_file(self):
+        page = self.page()
+        before = page.read_text(encoding="utf-8")
+        code, stdout, stderr = self.inline(page)
+        self.assertEqual(code, 0, stdout + stderr)
+        self.assertEqual(stdout, "mermaid: ok 1 diagrams\n")
+        after = page.read_text(encoding="utf-8")
+        figure = self.figure_of(page)
+        self.assertEqual(figure.count("<svg"), 1)
+        self.assertLess(figure.index("<svg"), figure.index("<figcaption>"))
+        self.assertTrue(
+            figure.startswith('<figure class="mermaid" data-src="diagrams/flow.mmd"><svg')
+        )
+        self.assertIn(FLOW_TITLE, figure)
+        svg_file = self.out / "diagrams" / "flow.svg"
+        self.assertTrue(svg_file.is_file())
+        inline_svg = re.search(r"<svg\b.*?</svg>", figure, re.S).group(0)
+        self.assertEqual(svg_file.read_text(encoding="utf-8"), inline_svg + "\n")
+        self.assertNotIn("foreignObject", inline_svg)
+        self.assertEqual(FIGURE.sub("", after), FIGURE.sub("", before))
+        self.assertEqual(
+            (self.out / "diagrams" / "flow.mmd").read_text(encoding="utf-8"),
+            (FIXTURES / "flow.mmd").read_text(encoding="utf-8"),
+        )
+
+    def two_figure_page(self):
+        """A page with the flow figure and then a state figure; return its path."""
+        state = FIGURE_TEXT.replace("diagrams/flow.mmd", "diagrams/state.mmd").replace(
+            "The path of one message from the listener to the reply.", "The states of one message."
+        )
+        page = self.page(SECTION.replace(FIGURE_TEXT, FIGURE_TEXT + "\n  " + state))
+        (self.out / "diagrams" / "state.mmd").write_bytes((FIXTURES / "state.mmd").read_bytes())
+        return page
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_every_figure_of_the_page_is_filled_in_page_order(self):
+        page = self.two_figure_page()
+        before = page.read_text(encoding="utf-8")
+        code, stdout, stderr = self.inline(page)
+        self.assertEqual((code, stdout), (0, "mermaid: ok 2 diagrams\n"), stderr)
+        after = page.read_text(encoding="utf-8")
+        flow, state = FIGURE.findall(after)
+        self.assertIn(FLOW_TITLE, flow)
+        self.assertIn('<title id="state-title">The states of one message.</title>', state)
+        self.assertIn("receive the message", svg_text(flow))
+        self.assertIn("Sent", svg_text(state))
+        for figure in (flow, state):
+            self.assertEqual(figure.count("<svg"), 1)
+            self.assertLess(figure.index("<svg"), figure.index("<figcaption>"))
+        self.assertEqual(FIGURE.sub("", after), FIGURE.sub("", before))
+        for name, figure in (("flow", flow), ("state", state)):
+            svg_file = self.out / "diagrams" / (name + ".svg")
+            self.assertEqual(
+                svg_file.read_text(encoding="utf-8"),
+                re.search(r"<svg\b.*?</svg>", figure, re.S).group(0) + "\n",
+            )
+        self.assertEqual(self.inline(page)[0], 0)
+        self.assertEqual(page.read_text(encoding="utf-8"), after)
+
+    def test_a_finish_fault_is_listed_once_in_page_order_and_writes_nothing(self):
+        page = self.two_figure_page()
+        before = page.read_bytes()
+        raw = {"flow": SAMPLE.replace(' viewBox="0 0 496.4 311.5"', ""),
+               "state": SAMPLE.replace("<g>", "<g><foreignObject></foreignObject>")}
+        with mock.patch.object(mermaid_svg, "render_many", lambda diagrams, bundle, timeout: raw):
+            self.assert_fails_with(
+                self.inline(page),
+                "mermaid: FAIL flow no viewBox", "mermaid: FAIL state foreignObject in output",
+            )
+        self.assertEqual(page.read_bytes(), before)
+        self.assertEqual(sorted(os.listdir(self.out / "diagrams")), ["flow.mmd", "state.mmd"])
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_second_run_replaces_the_svg(self):
+        page = self.page()
+        self.assertEqual(self.inline(page)[0], 0)
+        first = page.read_bytes()
+        first_svg = (self.out / "diagrams" / "flow.svg").read_bytes()
+        code, stdout, stderr = self.inline(page)
+        self.assertEqual((code, stdout), (0, "mermaid: ok 1 diagrams\n"), stderr)
+        self.assertEqual(self.figure_of(page).count("<svg"), 1)
+        self.assertEqual(page.read_bytes(), first)
+        self.assertEqual((self.out / "diagrams" / "flow.svg").read_bytes(), first_svg)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_filled_page_passes_verify_at_both_viewports(self):
+        page = self.page()
+        self.assertEqual(self.inline(page)[0], 0)
+        env = dict(os.environ, TMPDIR=self.tmp + "/")
+        env.pop("VERIFY_TIMEOUT", None)
+        proc = subprocess.run(
+            [str(SCRIPTS / "verify.sh"), str(page)],
+            capture_output=True, text=True, env=env, timeout=180,
+        )
+        self.assert_no_chrome_left()
+        self.assertEqual((proc.returncode, proc.stdout), (0, VERIFY_PASS), proc.stderr)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_parse_error_names_the_id_and_writes_nothing(self):
+        page = self.page(SECTION.replace("diagrams/flow.mmd", "diagrams/bad.mmd"), "bad.mmd")
+        before = page.read_bytes()
+        code, stdout, stderr = self.inline(page)
+        self.assertEqual(code, 1, stdout + stderr)
+        self.assertTrue(stdout.startswith("mermaid: FAIL bad Parse error"), stdout)
+        self.assertEqual(len(stdout.splitlines()), 1, stdout)
+        self.assertEqual(page.read_bytes(), before)
+        self.assertEqual(os.listdir(self.out / "diagrams"), ["bad.mmd"])
+
+    def test_missing_data_src_file_fails_with_the_id(self):
+        page = self.page()
+        (self.out / "diagrams" / "flow.mmd").unlink()
+        before = page.read_bytes()
+        self.assert_fails_with(
+            self.inline_without_chrome(page), "mermaid: FAIL flow cannot read diagrams/flow.mmd"
+        )
+        self.assertEqual(page.read_bytes(), before)
+
+    def test_figure_without_data_src_fails(self):
+        page = self.page(SECTION.replace(' data-src="diagrams/flow.mmd"', ""))
+        before = page.read_bytes()
+        self.assert_fails_with(
+            self.inline_without_chrome(page), "mermaid: FAIL figure 1 no data-src"
+        )
+        self.assertEqual(page.read_bytes(), before)
+
+    def test_duplicate_id_fails(self):
+        page = self.page(SECTION.replace(FIGURE_TEXT, FIGURE_TEXT + "\n  " + FIGURE_TEXT))
+        self.assertEqual(page.read_text(encoding="utf-8").count('class="mermaid"'), 2)
+        before = page.read_bytes()
+        self.assert_fails_with(self.inline_without_chrome(page), "mermaid: FAIL flow duplicate id")
+        self.assertEqual(page.read_bytes(), before)
+
+    def test_bad_data_src_stem_fails(self):
+        page = self.page(SECTION.replace("diagrams/flow.mmd", "diagrams/1 flow.mmd"))
+        (self.out / "diagrams" / "1 flow.mmd").write_bytes((FIXTURES / "flow.mmd").read_bytes())
+        before = page.read_bytes()
+        self.assert_fails_with(self.inline_without_chrome(page), "mermaid: FAIL 1 flow bad id")
+        self.assertEqual(page.read_bytes(), before)
+
+    def test_data_src_without_the_mmd_suffix_fails(self):
+        page = self.page(SECTION.replace("diagrams/flow.mmd", "diagrams/flow.txt"))
+        (self.out / "diagrams" / "flow.txt").write_bytes((FIXTURES / "flow.mmd").read_bytes())
+        self.assert_fails_with(self.inline_without_chrome(page), "mermaid: FAIL flow.txt bad id")
+
+    def test_every_figure_fault_is_listed_before_exit(self):
+        missing = FIGURE_TEXT.replace("diagrams/flow.mmd", "diagrams/missing.mmd")
+        no_src = FIGURE_TEXT.replace(' data-src="diagrams/flow.mmd"', "")
+        orders = (
+            ((missing, no_src), ("mermaid: FAIL missing cannot read diagrams/missing.mmd",
+                                 "mermaid: FAIL figure 2 no data-src")),
+            ((no_src, missing), ("mermaid: FAIL figure 1 no data-src",
+                                 "mermaid: FAIL missing cannot read diagrams/missing.mmd")),
+        )
+        for index, (figures, lines) in enumerate(orders):
+            with self.subTest(lines=lines):
+                self.out = Path(self.work) / ("page-%d" % index)
+                page = self.page(SECTION.replace(FIGURE_TEXT, "\n  ".join(figures)))
+                before = page.read_bytes()
+                self.assert_fails_with(self.inline_without_chrome(page), *lines)
+                self.assertEqual(page.read_bytes(), before)
+
+    def test_page_without_figures_prints_ok_0(self):
+        page = Path(self.work) / "index.html"
+        page.write_bytes(PAGE_TEMPLATE.read_bytes())
+        code, stdout, stderr = self.inline_without_chrome(page)
+        self.assertEqual((code, stdout, stderr), (0, "mermaid: ok 0 diagrams\n", ""))
+        self.assertEqual(page.read_bytes(), PAGE_TEMPLATE.read_bytes())
+
+    def test_unreadable_page_is_usage(self):
+        code, stdout, stderr = self.inline(Path(self.work) / "missing.html")
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("usage:"), stderr)
+
+    def test_the_page_path_is_the_one_argument(self):
+        page = self.page()
+        for args in ((), (page, page)):
+            with self.subTest(args=args):
+                code, stdout, stderr = self.inline(*args)
+                self.assertEqual(code, 2)
+                self.assertEqual(stdout, "")
+                self.assertTrue(stderr.startswith("usage:"), stderr)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_figure_without_figcaption_takes_the_id_as_title(self):
+        page = self.page(re.sub(r"\s*<figcaption>.*?</figcaption>", "", SECTION, flags=re.S))
+        self.assertNotIn("<figcaption>", self.figure_of(page))
+        code, stdout, stderr = self.inline(page)
+        self.assertEqual(code, 0, stdout + stderr)
+        self.assertIn('<title id="flow-title">flow</title>', self.figure_of(page))
+
+    def test_page_figures_reads_the_source_and_the_caption(self):
+        page = (
+            '<p>a</p><figure class="wide mermaid" data-src="diagrams/a.mmd" id="x">\n'
+            "  <figcaption>The <code>a &lt; b</code>\n  path &amp; <em>reply</em>.</figcaption>\n"
+            "</figure>\n"
+            '<figure class="mermaid"></figure>\n'
+            '<figure class="bpmn"><svg></svg></figure>\n'
+        )
+        found = mermaid_svg.page_figures(page)
+        self.assertEqual([f.n for f in found], [1, 2])
+        first, second = found
+        self.assertEqual(first.src, "diagrams/a.mmd")
+        self.assertEqual(first.caption, "The a < b path & reply.")
+        self.assertEqual(first.attrs, ' class="wide mermaid" data-src="diagrams/a.mmd" id="x"')
+        self.assertTrue(first.inner.startswith("\n  <figcaption>"))
+        self.assertTrue(page[first.start:first.end].startswith("<figure class=\"wide"))
+        self.assertTrue(page[first.start:first.end].endswith("</figure>"))
+        self.assertEqual((second.src, second.caption, second.inner), (None, None, ""))
 
 
 if __name__ == "__main__":
