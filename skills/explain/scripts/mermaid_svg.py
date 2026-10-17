@@ -20,8 +20,14 @@ faults lists one line each, in page order:
 `mermaid: FAIL figure <n> no data-src`, `mermaid: FAIL <id> cannot read <data-src>`,
 `mermaid: FAIL <id> duplicate id`,
 `mermaid: FAIL Chrome not found <path>`, `mermaid: FAIL timeout`,
+`mermaid: FAIL Chrome exited <code> before the dump`,
 `mermaid: FAIL harness incomplete`, `mermaid: FAIL sha256 <got>`,
 `mermaid: FAIL download <name>: <error>` or `mermaid: FAIL bundle <path>: <error>`.
+Three lines go to stderr: `usage: mermaid_svg.py render <in.mmd> [<out.svg>] [--title <text>]
+| inline <index.html>` (a bad command line, or a file that cannot be read or written),
+`usage: MERMAID_TIMEOUT must be a positive integer: <value>` and
+`mermaid_svg.py: Chrome processes survived the kill: <work>` (the work path is the temp
+directory of the run). The last one does not change the exit code.
 """
 
 import argparse
@@ -63,6 +69,8 @@ CONFIG = {
     "fontSize": "14px",
     "themeVariables": {
         "fontFamily": SANS,
+        # Mermaid 12 lays a diagram out at the theme variable; the top-level fontSize has no effect.
+        "fontSize": "14px",
         "primaryColor": "#f0eee6",
         "primaryTextColor": "#1f1d1a",
         "primaryBorderColor": "#1f1d1a",
@@ -224,7 +232,7 @@ def finish_svg(svg, diagram_id, title):
 # then the group is killed and swept by the work path, as scripts/verify.sh does.
 # --virtual-time-budget=<timeout * 1000> is required with more than one diagram: --dump-dom
 # fires when the page first goes idle, not when the harness script ends, so the second diagram
-# was still unrendered in the dump (Chrome 155: out-1 ok, out-2 without a status, no
+# was still unrendered in the dump (Chrome 155: result 1 ok, result 2 without a status, no
 # data-mermaid on <html>, the same bytes on every run). The budget holds the dump until every
 # await of the loop has resolved; the real-time poll below still bounds the run to `timeout`.
 
@@ -237,8 +245,8 @@ mermaid.initialize(%(config)s);
   const diagrams = JSON.parse(document.getElementById("diagrams").textContent);
   let allOk = true;
   for (let i = 0; i < diagrams.length; i++) {
-    const out = document.getElementById("out-" + (i + 1));
-    const area = document.getElementById("svg-" + (i + 1));
+    const out = document.getElementById("%(out_id)s" + (i + 1));
+    const area = document.getElementById("%(svg_id)s" + (i + 1));
     try {
       const result = await mermaid.render(diagrams[i][0], diagrams[i][1]);
       area.textContent = result.svg;
@@ -254,6 +262,10 @@ mermaid.initialize(%(config)s);
 </script></body></html>
 """
 HTML_TAG = re.compile(r"<html\b[^>]*>")
+# The ids of the result elements start with `_`, which no diagram id does (ID), so a diagram
+# named `out-1` or `svg-1` cannot be the element that Mermaid finds first by id.
+OUT_ID = "_out-"
+SVG_ID = "_svg-"
 
 
 def read_timeout():
@@ -267,19 +279,21 @@ def read_timeout():
 
 
 def script_json(value):
-    r"""JSON to inline in a <script>: every `</` written as `<\/`."""
-    return json.dumps(value).replace("</", "<\\/")
+    r"""JSON to inline in a <script>: every `<` written as `\u003c`, so that neither `</script>`
+    nor `<!--<script` in a diagram text can change how the page parser reads the script."""
+    return json.dumps(value).replace("<", "\\u003c")
 
 
 def harness_html(bundle_js, diagrams):
     """The harness page: the result divs first (so the dump finds them before any script
     text), then the bundle, the (id, text) list as JSON and the script that renders them."""
     outs = "".join(
-        '<div id="out-%d"><textarea id="svg-%d"></textarea></div>' % (n, n)
+        '<div id="%s%d"><textarea id="%s%d"></textarea></div>' % (OUT_ID, n, SVG_ID, n)
         for n in range(1, len(diagrams) + 1)
     )
     return HARNESS % {
         "outs": outs, "bundle": bundle_js, "config": script_json(CONFIG),
+        "out_id": OUT_ID, "svg_id": SVG_ID,
         "diagrams": script_json([[diagram_id, text] for diagram_id, text in diagrams]),
     }
 
@@ -332,6 +346,11 @@ def dump_dom(chrome, work, timeout):
     try:
         deadline = time.monotonic() + timeout
         while not dump_complete(dump):
+            # Chrome writes the dump and then exits, so the exit can be seen before the last read.
+            if proc.poll() is not None and not dump_complete(dump):
+                raise MermaidError(
+                    "mermaid: FAIL Chrome exited %d before the dump" % proc.returncode
+                )
             if time.monotonic() >= deadline:
                 raise MermaidError("mermaid: FAIL timeout")
             time.sleep(0.2)
@@ -356,7 +375,9 @@ def read_dump(dump, diagrams):
     svgs, faults = {}, []
     for n, (diagram_id, _) in enumerate(diagrams, 1):
         found = re.search(
-            r'<div id="out-%d"([^>]*)><textarea id="svg-%d">([^<]*)</textarea>' % (n, n), dump
+            r'<div id="%s%d"([^>]*)><textarea id="%s%d">([^<]*)</textarea>'
+            % (OUT_ID, n, SVG_ID, n),
+            dump,
         )
         status = re.search(r'\sdata-status="([^"]*)"', found.group(1)) if found else None
         if status and status.group(1) == "ok":
@@ -393,6 +414,7 @@ def render_many(diagrams, bundle, timeout):
 # --- the page -------------------------------------------------------------------------------
 
 FIGURE = re.compile(r"<figure\b([^>]*)>(.*?)</figure>", re.S)
+COMMENT = re.compile(r"<!--.*?-->", re.S)
 CLASS = re.compile(r"""\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 DATA_SRC = re.compile(r"""\sdata-src\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 FIGCAPTION = re.compile(r"<figcaption\b[^>]*>(.*?)</figcaption>", re.S)
@@ -415,10 +437,14 @@ class Figure(NamedTuple):
 
 def page_figures(html_text):
     """Every figure.mermaid of the page, in page order, numbered from 1: a figure whose class
-    attribute holds `mermaid` as a whole word, wherever the attribute stands in the tag."""
+    attribute holds `mermaid` as a whole word, wherever the attribute stands in the tag. A comment
+    is not read: a `<figure` tag in one (the header comment of templates/page.html holds one)
+    opens no figure."""
     figures = []
-    for found in FIGURE.finditer(html_text):
-        attrs, inner = found.group(1), found.group(2)
+    # Each comment is blanked to spaces of its own length, so the offsets still index the page.
+    visible = COMMENT.sub(lambda comment: " " * len(comment.group(0)), html_text)
+    for found in FIGURE.finditer(visible):
+        attrs, inner = html_text[slice(*found.span(1))], html_text[slice(*found.span(2))]
         classes = CLASS.search(attrs)
         words = (classes.group(1) or classes.group(2) or "").split() if classes else []
         if "mermaid" not in words:
