@@ -38,7 +38,8 @@ output is `<root>`. If the command fails, `<root>` is the absolute path of the s
 is relative to `<root>`.
 
 Make the output directory ("Output directory") before you explore. Run the two `onboard.py` commands in
-the output directory.
+the output directory. Make `<service-dir>` an absolute path, because the commands run in the output
+directory.
 
 ## 2. Explore the service
 
@@ -121,7 +122,7 @@ YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target
 |---|---|
 | `http` | The Spring annotations `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping` and `@RequestMapping` on a method, the JAX-RS `@Path`, `@MessageMapping` and `@ServerEndpoint`. In Go, a router call whose first argument is a route string, and `http.HandleFunc`. |
 | `listener` | The annotations `@JmsListener`, `@RabbitListener`, `@KafkaListener`, `@KafkaHandler`, `@SqsListener`, `@StreamListener`, `@ServiceActivator`, `@InboundChannelAdapter`, `@EventListener`, `@TransactionalEventListener` and `@ExternalTaskSubscription`, and a class that implements `JavaDelegate`. In Go, the calls `Consume`, `NewReader`, `NewConsumer` and `Subscribe`. |
-| `route` | A Camel `from(` in a `RouteBuilder` file, a `- from:` line of a `*.camel.yaml` file, a `<from uri=…>` element of an XML file, a `routeTemplate` and a `@GrpcService`. In Go, a gRPC call `Register<Service>Server(`. |
+| `route` | A Camel `from(` in a `RouteBuilder` file, a `- from:` line of a `*.camel.yaml` or `*.camel.yml` file, a `<from uri=…>` element of an XML file, a `routeTemplate` and a `@GrpcService`. In Go, a gRPC call `Register<Service>Server(`. |
 | `schedule` | A `@Scheduled` method. In Go, a `cron.` call, `NewTicker` and `time.Tick`. |
 | `main` | `public static void main` in Java, `fun main(` in Kotlin and `func main(` in Go. |
 
@@ -258,7 +259,7 @@ sections.
   exact rules into `details.walk`. `#errors` is a list: each retry, dead letter, timeout and error
   reply, with a link to the section of the flow where it occurs. `#systems` is a table of each system
   and its handles.
-- `#terms`: the glossary, by the rule of `page.md`.
+- `#terms`: the glossary of `page.md` (`section#terms > dl.terms` of "Fill the template").
 - `Not covered` in the footer: each `Not covered` line of the map, and each `not traced` entry point
   with its reason.
 - Every section holds at least one `<cite>`, because the subject is a directory. The cites are the

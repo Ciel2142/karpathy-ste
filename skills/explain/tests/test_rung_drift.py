@@ -1093,6 +1093,14 @@ class OnboardRungCase(unittest.TestCase):
             "mermaid: ok <n> diagrams", "bpmn: none", "inventory.txt", "open index.html",
             "Never run `open` inside a subagent"))
 
+    def test_write_the_page_points_at_titles_that_page_md_has(self):
+        """Red when page.md loses, renames or repeats one of the six headings that onboard.md points at: each
+        title must be exactly one heading of page.md."""
+        for title in ("Plan the sections", "Fill the template", "Diagram patterns", "Provenance",
+                      "Write the prose", "Verify and export"):
+            with self.subTest(title=title):
+                section(read(PAGE_MD), title)
+
     def test_output_directory_lists_the_rows_of_spec_4(self):
         """Red when "Output directory" loses the directory name, or its table drops, adds or reorders a row of
         spec 4."""
