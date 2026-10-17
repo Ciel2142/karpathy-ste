@@ -1116,7 +1116,11 @@ LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--
 COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory output) | Forced only "
               "(`--as course`). A system of several services or repos that one message passes through | "
               "One message through several services |")
-AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course"
+AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard"
+
+# The row of the onboard rung in the rung table of SKILL.md, word for word.
+ONBOARD_ROW = ("| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). "
+               "A service to onboard to: its architecture and every flow | One service directory |")
 
 
 class SkillMdCase(unittest.TestCase):
@@ -1164,7 +1168,7 @@ class SkillMdCase(unittest.TestCase):
         for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
                          "The lesson rung is English or Russian.",
                          "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
-                         "`brainrot`, `lesson`, `course`).",
+                         "`brainrot`, `lesson`, `course`, `onboard`).",
                          "(sheet, page, lesson or course)"):
             self.assertIn(sentence, flat)
         conventions = section(text, "Conventions")
@@ -1224,10 +1228,10 @@ class SkillMdCase(unittest.TestCase):
         flat = " ".join(text.split())
         for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
                          "Only the `lesson` and `course` rungs have a review.",
-                         "List these seven names in the error.",
+                         "List these eight names in the error.",
                          "The `course` rung builds a set of lessons and a hub page. Only `--as course` selects it. "
                          "The course rung is English or Russian.",
-                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`).",
+                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`, `onboard`).",
                          "(sheet, page, lesson or course)",
                          "For a course, the slug comes from the names of the sources, joined with `-`, as "
                          "`rungs/course.md` says.",
@@ -1243,6 +1247,30 @@ class SkillMdCase(unittest.TestCase):
         for word in ("course.json", "approval", "subagent", "hub", "resume"):
             self.assertIn(word, course)
         self.assertTrue((EXPLAIN / "rungs" / "course.md").is_file(), "rungs/course.md does not exist")
+
+    # red: the argument-hint or the syntax line of the Contract without `onboard`, step 4 naming the rungs in
+    # another order or without backticks, the onboard row missing, reworded or chosen from content, the rule
+    # bullet without "Only `--as onboard` selects it." or without the languages, the review sentence back to
+    # the lesson and the course only, the Rung files bullet that leaves out the map, the inventory or the
+    # check, or the rung file missing
+    def test_skill_md_routes_the_onboard_rung(self):
+        text = read(SKILL_MD)
+        self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)
+        flat = " ".join(text.split())
+        for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
+                         "The `onboard` rung builds one page for one service from its map. Only `--as onboard` "
+                         "selects it. The onboard rung is English or Russian.",
+                         "Only the `lesson` and `course` rungs have a review."):
+            self.assertIn(sentence, flat)
+        contract = " ".join(section(text, "Contract").split())
+        names = re.search(r"its value must be (.*?)\. Else stop", contract).group(1)
+        self.assertEqual(re.findall(r"`([^`]+)`", names), AS_NAMES.split("|"))
+        rows = [line for line in text.split("\n") if line.startswith("| `onboard` ")]
+        self.assertEqual(rows, [ONBOARD_ROW])
+        onboard = self.bullets()["<skill-dir>/rungs/onboard.md"]
+        for word in ("map", "inventory", "check"):
+            self.assertIn(word, onboard)
+        self.assertTrue((EXPLAIN / "rungs" / "onboard.md").is_file(), "rungs/onboard.md does not exist")
 
     # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
     # `$ARGUMENTS` with the typed arguments and shows the model nothing else of the command line, so a rule
@@ -1267,11 +1295,20 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("`--as course`", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
         self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
-        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course}.md", readme)
+        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course,onboard}.md", readme)
         self.assertIn("lesson/", readme)
         self.assertIn("course/ (the map and lesson prompts)", readme)
         self.assertIn("scripts/course{,_hub,_hub_text,_discover}.py", readme)
         self.assertIn("tests.test_lesson_e2e", readme)
+
+    # red: the README without `--as onboard`, the Requirements row of `onboard` missing or reworded, or the
+    # layout block without scripts/{onboard,mermaid_svg}.py
+    def test_readme_names_the_onboard_rung(self):
+        readme = read(README_MD)
+        self.assertIn("`--as onboard`", readme)
+        rows = [line for line in readme.split("\n") if line.startswith("| `onboard` |")]
+        self.assertEqual(rows, ["| `onboard` | the needs of `page` |"])
+        self.assertIn("scripts/{onboard,mermaid_svg}.py", readme)
 
 
 class HtmlLangCase(unittest.TestCase):
