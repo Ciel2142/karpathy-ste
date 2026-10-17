@@ -10,9 +10,11 @@ Exit 0 on success, 1 on failures found, 2 on a usage error or an unreadable sour
 inventory file. `map: cannot read ...` goes to stdout; every other exit-2 line goes to stderr.
 """
 
+import argparse
+import os
 import re
 import sys
-from typing import NamedTuple
+from typing import NamedTuple, NoReturn
 
 USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
@@ -244,13 +246,168 @@ def flow_nodes(doc: MapDoc) -> dict[str, list[str]]:
     return {flow.ident: flow.diagrams[0].nodes for flow in flows.flows if flow.ident and flow.diagrams}
 
 
-def _usage() -> int:
-    sys.stderr.write(USAGE)
-    return 2
+class Rule(NamedTuple):
+    suffixes: tuple[str, ...]  # the file name endings the rule applies to
+    regex: re.Pattern  # searched per line
+
+
+def _rule(suffixes: tuple[str, ...], *patterns: str) -> Rule:
+    return Rule(suffixes, re.compile("|".join(patterns)))
+
+
+JVM = (".java", ".kt")
+GO = (".go",)
+CAMEL_YAML = (".camel.yaml", ".camel.yml")
+XML = (".xml",)
+# One dict, kinds in the order a line is tried: a line is a hit of the first kind that matches.
+PATTERNS = {
+    "http": (
+        _rule(JVM, r"@(Get|Post|Put|Delete|Patch)Mapping", r"@RequestMapping", r"@Path\(", r"@MessageMapping",
+              r"@ServerEndpoint"),
+        _rule(GO, r'\.(Get|Post|Put|Delete|Patch|GET|POST|PUT|DELETE|PATCH|Handle|HandleFunc)\(\s*"',
+              r"http\.HandleFunc\("),
+    ),
+    "listener": (
+        _rule(JVM, r"@(Jms|Rabbit|Kafka|Sqs|Stream)Listener", r"@KafkaHandler", r"@ServiceActivator",
+              r"@InboundChannelAdapter", r"@EventListener", r"@TransactionalEventListener",
+              r"@ExternalTaskSubscription", r"implements JavaDelegate", r": JavaDelegate"),
+        _rule(GO, r"\.Consume\(", r"NewReader\(", r"NewConsumer\(", r"Subscribe\("),
+    ),
+    "route": (
+        _rule(JVM, r"\bfrom\(", r"routeTemplate", r"@GrpcService"),
+        _rule(GO, r"Register\w*Server\("),
+        _rule(CAMEL_YAML, r"^\s*-\s*from:"),
+        _rule(XML, r"<from\s[^>]*uri="),
+    ),
+    "schedule": (
+        _rule(JVM, r"@Scheduled"),
+        _rule(GO, r"\bcron\.", r"NewTicker\(", r"time\.Tick\("),
+    ),
+    "main": (
+        _rule((".java",), r"public static void main"),
+        _rule((".kt",), r"fun main\("),
+        _rule(GO, r"func main\("),
+    ),
+}
+SKIP_DIRS = frozenset({"node_modules", "target", "build", ".git", "vendor", "test", "tests"})
+SKIP_SUFFIXES = ("_test.go", "Test.java", "Test.kt", "Spec.kt")
+TEXT_MAX = 120
+BUILDER = "RouteBuilder"
+TYPE_DECL = re.compile(r"\b(class|interface|object|enum|record)\b")
+
+
+class Hit(NamedTuple):
+    path: str
+    line: int  # 1-based
+    kind: str
+    text: str
+
+
+def squash(text: str) -> str:
+    return " ".join(text.split())[:TEXT_MAX]
+
+
+def _declares_type(lines: list[str], index: int) -> bool:
+    """Whether the first line after lines[index] that is neither blank nor an annotation declares a type."""
+    for line in lines[index + 1 :]:
+        text = line.strip()
+        if text and not text.startswith("@"):
+            return TYPE_DECL.search(text) is not None
+    return False
+
+
+def _counts(token: str, lines: list[str], index: int, route_builder: bool) -> bool:
+    """Whether a rule match is an entry point: `from(` only in a RouteBuilder file, `@RequestMapping` on a method."""
+    if token == "from(":
+        return route_builder
+    if token == "@RequestMapping":
+        return not _declares_type(lines, index)
+    return True
+
+
+def _kind_of(rules: list[tuple[str, Rule]], lines: list[str], index: int, route_builder: bool) -> str | None:
+    """The first kind, in table order, with a rule that matches lines[index] in a way that counts."""
+    for kind, rule in rules:
+        if any(_counts(found.group(0), lines, index, route_builder) for found in rule.regex.finditer(lines[index])):
+            return kind
+    return None
+
+
+def _hit_text(lines: list[str], index: int) -> str:
+    """The squashed line; a Camel YAML `- from:` alone on its line takes the next non-blank line with it."""
+    text = squash(lines[index])
+    if text == "- from:":
+        following = next((line for line in lines[index + 1 :] if line.strip()), "")
+        text = squash(text + " " + following)
+    return text
+
+
+def scan_file(path: str, rel: str) -> list[Hit]:
+    rules = [(kind, rule) for kind, group in PATTERNS.items() for rule in group if path.endswith(rule.suffixes)]
+    if not rules:
+        return []
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+    lines = text.split("\n")  # the line numbers of cite_check, not those of str.splitlines
+    route_builder = BUILDER in text
+    hits = []
+    for index in range(len(lines)):
+        kind = _kind_of(rules, lines, index, route_builder)
+        if kind:
+            hits.append(Hit(rel, index + 1, kind, _hit_text(lines, index)))
+    return hits
+
+
+def inventory(source: str, root: str) -> list[Hit]:
+    source, root = os.fspath(source), os.fspath(root)
+    if not os.path.isdir(source):
+        raise OnboardError("onboard: cannot read %s" % source, 2)
+    if os.path.relpath(source, root).split(os.sep, 1)[0] == os.pardir:
+        raise OnboardError("usage: %s is not under %s" % (source, root), 2)
+    hits = []
+    for folder, dirnames, filenames in os.walk(source):
+        dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
+        for name in filenames:
+            if not name.endswith(SKIP_SUFFIXES):
+                path = os.path.join(folder, name)
+                hits.extend(scan_file(path, os.path.relpath(path, root)))
+    return sorted(hits, key=lambda hit: (hit.path, hit.line))
+
+
+def inventory_line(hit: Hit) -> str:
+    return "%s:%d\t%s\t%s" % (hit.path, hit.line, hit.kind, hit.text)
+
+
+class _InventoryParser(argparse.ArgumentParser):
+    """The arguments of `inventory`; any error is the usage and exit 2, never a SystemExit."""
+
+    def __init__(self) -> None:
+        super().__init__(add_help=False)
+        self.add_argument("source")
+        self.add_argument("--root", required=True)
+        self.add_argument("--out")
+
+    def error(self, message: str) -> NoReturn:
+        raise OnboardError(USAGE, 2)
 
 
 def cmd_inventory(argv: list[str]) -> int:
-    return _usage()
+    args = _InventoryParser().parse_args(argv)
+    lines = [inventory_line(hit) for hit in inventory(args.source, args.root)]
+    body = "".join(line + "\n" for line in lines)
+    if args.out is not None:
+        try:
+            with open(args.out, "w", encoding="utf-8") as handle:
+                handle.write(body)
+        except OSError as error:
+            raise OnboardError("onboard: cannot write %s: %s" % (args.out, error.strerror or error), 2) from error
+    sys.stdout.write(body + "inventory: %d entry points\n" % len(lines))
+    return 0
+
+
+def _usage() -> int:
+    sys.stderr.write(USAGE)
+    return 2
 
 
 def cmd_check(argv: list[str]) -> int:

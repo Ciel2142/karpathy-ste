@@ -4,6 +4,7 @@
 import contextlib
 import io
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import onboard  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "onboard"
+TREE = FIXTURES / "tree"
 
 GOOD = """# Map: demo
 
@@ -209,6 +211,147 @@ class ParseMapCase(unittest.TestCase):
                     onboard.read_map(target)
                 self.assertTrue(str(caught.exception).startswith("map: cannot read %s:" % target), caught.exception)
                 self.assertEqual(caught.exception.code, 2)
+
+
+JAVA_DIR = "src/main/java/shop/"
+PLANTED = [
+    (JAVA_DIR + "ShopApplication.java", "public static void main", "main"),
+    (JAVA_DIR + "OrderController.java", "@PostMapping", "http"),
+    (JAVA_DIR + "OrderController.java", '@GetMapping("/{id}")', "http"),
+    (JAVA_DIR + "OrderController.java", "@RequestMapping(method", "http"),
+    (JAVA_DIR + "OrderListener.java", '@KafkaListener(topics = "orders.cancel")', "listener"),
+    (JAVA_DIR + "ShopRoutes.java", 'from("jms:queue:shop.in")', "route"),
+    ("src/main/kotlin/shop/StockJobs.kt", "@Scheduled(cron", "schedule"),
+    ("src/main/kotlin/shop/StockJobs.kt", "class StockDelegate : JavaDelegate", "listener"),
+    ("src/main/kotlin/shop/StockJobs.kt", "fun main(", "main"),
+    ("cmd/shop-gw/main.go", "func main(", "main"),
+    ("cmd/shop-gw/main.go", 'r.GET("/health"', "http"),
+    ("cmd/shop-gw/main.go", 'http.HandleFunc("/metrics"', "http"),
+    ("cmd/shop-gw/main.go", "consumer.Consume(ctx", "listener"),
+    ("cmd/shop-gw/main.go", "time.NewTicker(", "schedule"),
+    ("cmd/shop-gw/main.go", "pb.RegisterShopServer(", "route"),
+    ("routes/stock.camel.yaml", "- from:", "route"),
+    ("routes/stock.camel.yaml", "- from: {", "route"),
+    ("config/camel-context.xml", '<from uri="jms:queue:legacy.in"/>', "route"),
+]
+
+
+def line_of(rel, needle):
+    """The 1-based line of the first line of TREE/rel that holds `needle`."""
+    for number, text in enumerate((TREE / rel).read_text(encoding="utf-8").splitlines(), 1):
+        if needle in text:
+            return number
+    raise AssertionError("%s lacks %s" % (rel, needle))
+
+
+def triples(hits):
+    return [(hit.path, hit.line, hit.kind) for hit in hits]
+
+
+def hits_of(rel):
+    """The hits of the committed tree in one file, by line."""
+    return {hit.line: hit for hit in onboard.inventory(TREE, TREE) if hit.path == rel}
+
+
+class InventoryCase(unittest.TestCase):
+    def test_tree_lists_each_planted_entry_point_once_and_nothing_else(self):
+        hits = onboard.inventory(TREE, TREE)
+        expected = sorted((rel, line_of(rel, needle), kind) for rel, needle, kind in PLANTED)
+        self.assertEqual(len(expected), 18)
+        self.assertEqual(triples(hits), expected)
+        for hit in hits:
+            for skipped in ("Test.java", "_test.go", "Spec.kt", "src/test"):
+                self.assertNotIn(skipped, hit.path)
+
+    def test_skipped_directories_are_pruned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "tree"
+            shutil.copytree(TREE, copy)
+            for skipped in ("target", "build", "node_modules", "vendor", ".git", "tests", "src/test"):
+                planted = copy / skipped / "Planted.java"
+                planted.parent.mkdir(parents=True, exist_ok=True)
+                planted.write_text('@GetMapping("/planted")\n', encoding="utf-8")
+            self.assertEqual(triples(onboard.inventory(copy, copy)), triples(onboard.inventory(TREE, TREE)))
+
+    def test_class_level_request_mapping_is_not_a_hit(self):
+        rel = JAVA_DIR + "OrderController.java"
+        hits = hits_of(rel)
+        self.assertNotIn(line_of(rel, '@RequestMapping("/orders")'), hits)
+        self.assertEqual(hits[line_of(rel, "@RequestMapping(method")].kind, "http")
+
+    def test_from_outside_a_route_builder_is_not_a_hit(self):
+        self.assertEqual(hits_of(JAVA_DIR + "ReportQuery.java"), {})
+        rel = JAVA_DIR + "ShopRoutes.java"
+        self.assertEqual(hits_of(rel)[line_of(rel, 'from("jms:queue:shop.in")')].kind, "route")
+
+    def test_camel_yaml_from_without_inline_uri_takes_the_next_line(self):
+        rel = "routes/stock.camel.yaml"
+        hits = hits_of(rel)
+        self.assertEqual(hits[line_of(rel, "- from:")].text, '- from: uri: "kafka:stock.updates"')
+        self.assertEqual(hits[line_of(rel, "- from: {")].text, '- from: { uri: "timer:stock" }')
+
+    def test_text_is_squashed_and_cut_to_120(self):
+        line = '@GetMapping \t ( \t "/' + "x" * 278 + '")'
+        self.assertEqual(len(line), 300)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Big.java"
+            path.write_text(line + "\n", encoding="utf-8")
+            (hit,) = onboard.scan_file(str(path), "Big.java")
+        self.assertEqual(hit.text, '@GetMapping ( "/' + "x" * 104)
+
+    def test_a_line_hits_once_with_the_first_kind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "main.go"
+            path.write_text('\tr.GET("/x", h); c := cron.New()\n', encoding="utf-8")
+            hits = onboard.scan_file(str(path), "main.go")
+        self.assertEqual([(hit.line, hit.kind) for hit in hits], [(1, "http")])
+
+    def test_cli_prints_the_lines_then_the_count_and_writes_out(self):
+        lines = [onboard.inventory_line(hit) for hit in onboard.inventory(TREE, TREE)]
+        main_line = line_of("cmd/shop-gw/main.go", "func main(")
+        self.assertIn("cmd/shop-gw/main.go:%d\tmain\tfunc main() {" % main_line, lines)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "inv.txt"
+            code, stdout, stderr = run(["inventory", str(TREE), "--root", str(TREE), "--out", str(out)])
+            written = out.read_text(encoding="utf-8")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(lines), 18)
+        self.assertEqual(stdout, "".join(line + "\n" for line in lines) + "inventory: 18 entry points\n")
+        self.assertEqual(written, "".join(line + "\n" for line in lines))
+        self.assertEqual(stderr, "")
+
+    def test_paths_are_relative_to_root(self):
+        code, stdout, _ = run(["inventory", str(TREE), "--root", str(TREE.parent)])
+        hit_lines = [line for line in stdout.splitlines() if "\t" in line]
+        self.assertEqual(code, 0)
+        self.assertEqual(len(hit_lines), 18)
+        for line in hit_lines:
+            self.assertTrue(line.startswith("tree/"), line)
+
+    def test_source_outside_root_is_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, root = Path(tmp) / "a", Path(tmp) / "b"
+            source.mkdir()
+            root.mkdir()
+            code, stdout, stderr = run(["inventory", str(source), "--root", str(root)])
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("usage:"), stderr)
+        self.assertIn(str(source), stderr)
+
+    def test_missing_source_exits_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "none"
+            code, stdout, stderr = run(["inventory", str(missing), "--root", tmp])
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertEqual(stderr, "onboard: cannot read %s\n" % missing)
+
+    def test_missing_root_flag_is_usage(self):
+        code, stdout, stderr = run(["inventory", str(TREE)])
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertTrue(stderr.startswith("usage:"), stderr)
 
 
 class CliCase(unittest.TestCase):

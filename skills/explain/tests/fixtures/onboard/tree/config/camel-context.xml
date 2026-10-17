@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<camelContext xmlns="http://camel.apache.org/schema/spring">
+  <route id="legacy">
+    <from uri="jms:queue:legacy.in"/>
+    <to uri="log:legacy"/>
+  </route>
+</camelContext>
