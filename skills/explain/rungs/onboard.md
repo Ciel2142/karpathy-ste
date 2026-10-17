@@ -37,11 +37,12 @@ output is `<root>`. If the command fails, `<root>` is the absolute path of the s
 `<root>` is the `--root` of both `onboard.py` commands and the `data-root` of the page. Each cite path
 is relative to `<root>`.
 
+Make the output directory ("Output directory") before you explore. Run the two `onboard.py` commands in
+the output directory.
+
 ## 2. Explore the service
 
 In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`.
-Make the output directory ("Output directory") before you start. Run the two `onboard.py` commands in
-the output directory.
 
 Follow these seven rules, in the order of the work. Write each fact into `map.md`, in the format of
 "The map".
@@ -126,7 +127,7 @@ YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target
 
 ## 3. The map
 
-Write the map to `map.md` in the output directory. It has this skeleton. Keep the ten level-2 sections,
+Write the map to `map.md`. It has this skeleton. Keep the ten level-2 sections,
 in this order, with these titles. Write `none found` as the one line of an empty section.
 
 ````
@@ -172,7 +173,8 @@ stateDiagram-v2
 - <directory or module>: <reason>
 ````
 
-`<id>` in `# Map: <id>` is the `<slug>` of the output directory. These rules give the format:
+`<id>` in `# Map: <id>` is the name of the service directory, the last segment of its path. These rules
+give the format:
 
 - A fact line is `- <fact> | <path>:<line> | <snippet>`. `<path>` is relative to `<root>`. The snippet
   has at most 12 words, copied verbatim from that line (the cite rules of convention 2 of `SKILL.md`).
