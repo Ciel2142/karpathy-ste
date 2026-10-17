@@ -48,6 +48,7 @@ EDGE = re.compile(
     r"--\s.*?\s--[->ox]|-\.\s.*?\s\.->?|==\s.*?\s==[=>]"  # -- text -->, -. text .->, == text ==>
     r"|<-->|-\.->|-->|---|-\.-|==>|===|--o|--x|&"
 )
+SUBGRAPH = re.compile(r"subgraph\s+(" + TOKEN.pattern + ")")
 STATE_DECL = re.compile(r'state\s+(?:"[^"]*"\s+as\s+)?(' + TOKEN.pattern + ")")
 MAP_TITLE = re.compile(r"# Map:(.*)")
 CITE = re.compile(r"(.+):([0-9]+)")
@@ -105,13 +106,14 @@ def mermaid_nodes(block: str) -> list[str]:
     if kind is None:
         return []
     statements, ids_of = (FLOW_STATEMENTS, _flowchart_ids) if kind == FLOWCHART else (STATE_STATEMENTS, _state_ids)
+    lines = [raw.split("%%", 1)[0].strip() for raw in _block_lines(block)[1:]]
+    subgraphs = {m.group(1) for m in map(SUBGRAPH.match, lines) if m} if kind == FLOWCHART else set()
     ids = []
-    for raw in _block_lines(block)[1:]:
-        line = raw.split("%%", 1)[0].strip()
+    for line in lines:
         if not line or line == "}" or line.split()[0] in statements:
             continue
         ids.extend(ids_of(line))
-    return list(dict.fromkeys(ids))
+    return [ident for ident in dict.fromkeys(ids) if ident not in subgraphs]
 
 
 class Fact(NamedTuple):
@@ -187,7 +189,7 @@ def parse_map(text: str) -> MapDoc:
     title = MAP_TITLE.fullmatch(lines[start].strip()) if start < len(lines) else None
     if not title or not title.group(1).strip():
         raise ValueError('no "# Map:" title')
-    sections, contents = [], []  # contents: the non-blank lines of each section outside fences
+    sections, contents = [], []  # contents: each section's non-blank lines outside fences and its opening fences
     flow = fence = None  # fence: (line, info, body) of the open fenced block
     for number, line in enumerate(lines[start + 1 :], start + 2):
         if fence is not None:
@@ -199,6 +201,8 @@ def parse_map(text: str) -> MapDoc:
             continue
         if line.startswith(FENCE):
             fence = (number, line[len(FENCE) :].strip(), [])
+            if sections:
+                contents[-1].append(line.strip())
             continue
         if line.startswith("## "):
             sections.append(Section(line[3:].strip(), number, [], [], [], False))

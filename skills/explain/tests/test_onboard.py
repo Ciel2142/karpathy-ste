@@ -106,6 +106,18 @@ class MermaidNodesCase(unittest.TestCase):
         edge_text = 'flowchart TD\n  a -- "x --> y" --> b\n'
         self.assertEqual(onboard.mermaid_nodes(edge_text), ["a", "b"])
 
+    def test_edge_to_a_subgraph_id_is_not_a_node(self):
+        block = "flowchart LR\n  subgraph svc[The service]\n    recv --> store\n  end\n  api --> svc\n"
+        self.assertEqual(onboard.mermaid_nodes(block), ["recv", "store", "api"])
+
+    def test_edge_text_is_not_a_node(self):
+        block = "flowchart TD\n  a -. retry .-> b\n  c -- rock & roll --> d\n  e == rock & roll ==> f\n"
+        self.assertEqual(onboard.mermaid_nodes(block), ["a", "b", "c", "d", "e", "f"])
+
+    def test_shape_labels_hide_their_operators(self):
+        block = "flowchart TD\n  a[rock & roll] --> b(send --> c)\n  d{x & y} --> e>z & w]\n"
+        self.assertEqual(onboard.mermaid_nodes(block), ["a", "b", "d", "e"])
+
     def test_subgraph_and_statements_are_not_nodes(self):
         nodes = onboard.mermaid_nodes(read("parser-flow.mmd"))
         for word in ("svc", "direction", "classDef", "class", "click", "end", "ext"):
@@ -116,6 +128,10 @@ class MermaidNodesCase(unittest.TestCase):
             onboard.mermaid_nodes(read("parser-state.mmd")),
             ["New", "Paid", "Shipped", "Cancelled", "Held", "Packed", "Sent"],
         )
+
+    def test_state_note_with_an_arrow_adds_no_state(self):
+        block = "stateDiagram-v2\n  A --> B\n  note right of B: then --> C\n"
+        self.assertEqual(onboard.mermaid_nodes(block), ["A", "B"])
 
     def test_kind_of_each_first_line(self):
         self.assertEqual(onboard.mermaid_kind("flowchart TD\n  a --> b\n"), onboard.FLOWCHART)
@@ -158,6 +174,13 @@ class ParseMapCase(unittest.TestCase):
         routing = self.doc.section("Routing config")
         self.assertTrue(routing.none_found)
         self.assertEqual(routing.facts, [])
+
+    def test_none_found_with_a_block_is_not_empty(self):
+        block = "```mermaid\nstateDiagram-v2\n  [*] --> A\n```\n"
+        text = replace_once(GOOD, "## State\nnone found\n", "## State\nnone found\n" + block)
+        state = onboard.parse_map(text).section("State")
+        self.assertFalse(state.none_found)
+        self.assertEqual(len(state.diagrams), 1)
 
     def test_fenced_text_block_is_not_a_diagram_and_hides_its_bullets(self):
         shape = self.doc.section("Shape")
