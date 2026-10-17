@@ -306,8 +306,11 @@ SVG holds no `foreignObject`), `fontSize: "14px"` (the font floor of the page), 
 `themeVariables` from the palette of `templates/page.html`: `fontFamily` the `--sans` stack,
 `primaryColor #f0eee6`, `primaryTextColor #1f1d1a`, `primaryBorderColor #1f1d1a`,
 `lineColor #1f1d1a`, `secondaryColor`, `tertiaryColor`, `background` and `edgeLabelBackground`
-`#faf9f5`. A diagram id is the stem of its `.mmd` file; Mermaid scopes its `<style>` by that id,
-so two diagrams on one page never share a rule.
+`#faf9f5`. A diagram id is the stem of its `.mmd` file, and the SVG element id is `mmd-<stem>`;
+Mermaid scopes its `<style>` by that element id, so two diagrams on one page never share a rule,
+and a rule never reaches a section of the page whose id equals the stem (`section#flow-auth`
+beside `flow-auth.mmd`: the live run of 2026-10-17 lost its paragraph gaps to `#flow-auth p`
+before the prefix existed).
 
 What the script does to the SVG before it writes it: keeps `viewBox`; sets `width` and `height`
 to the `viewBox` size rounded **up** to whole pixels, so the SVG keeps its intrinsic size and never

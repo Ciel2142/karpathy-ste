@@ -135,10 +135,10 @@ class FinishSvgCase(TempCase):
         out = self.finish()
         tag = root_tag(out)
         self.assertIn('data-ste="skip"', tag)
-        self.assertIn('aria-labelledby="flow-title"', tag)
+        self.assertIn('aria-labelledby="mmd-flow-title"', tag)
         self.assertEqual(
             out[len(tag):].split("</title>")[0] + "</title>",
-            '<title id="flow-title">The path &amp; the reply</title>',
+            '<title id="mmd-flow-title">The path &amp; the reply</title>',
         )
 
     def test_the_rest_of_the_svg_is_kept_byte_for_byte(self):
@@ -336,8 +336,8 @@ class RenderCase(TempCase):
         self.assertNotIn("foreignObject", svg)
         self.assertIn('role="img"', tag)
         self.assertIn('data-ste="skip"', tag)
-        self.assertIn('aria-labelledby="flow-title"', tag)
-        self.assertIn('<title id="flow-title">flow</title>', svg)
+        self.assertIn('aria-labelledby="mmd-flow-title"', tag)
+        self.assertIn('<title id="mmd-flow-title">flow</title>', svg)
         box = re.search(r'\sviewBox="([^"]*)"', tag).group(1).split()
         width = re.search(r'\swidth="([^"]*)"', tag).group(1)
         height = re.search(r'\sheight="([^"]*)"', tag).group(1)
@@ -366,7 +366,7 @@ class RenderCase(TempCase):
     def test_title_option_sets_the_title(self):
         code, stdout, stderr = self.render(FIXTURES / "flow.mmd", "--title", "One message")
         self.assertEqual(code, 0, stdout + stderr)
-        self.assertIn('<title id="flow-title">One message</title>', stdout)
+        self.assertIn('<title id="mmd-flow-title">One message</title>', stdout)
 
     @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
     def test_state_diagram_renders(self):
@@ -375,7 +375,7 @@ class RenderCase(TempCase):
         self.assertEqual(code, 0, stdout + stderr)
         svg = out.read_text(encoding="utf-8")
         self.assertNotIn("foreignObject", svg)
-        self.assertIn('<title id="state-title">state</title>', svg)
+        self.assertIn('<title id="mmd-state-title">state</title>', svg)
         words = svg_text(svg)
         self.assertIn("Sent", words)
         self.assertIn("Failed", words)
@@ -462,7 +462,7 @@ class RenderCase(TempCase):
         self.assert_no_chrome_left()
         self.assertEqual(list(svgs), ["flow", "state", "amp"])
         for diagram_id, svg in svgs.items():
-            self.assertIn(' id="%s"' % diagram_id, root_tag(svg))
+            self.assertIn(' id="mmd-%s"' % diagram_id, root_tag(svg))
             self.assertTrue(svg.endswith("</svg>"), svg[-200:])
         # Mermaid splits a label into one tspan per word, so the words are read as text.
         self.assertIn("fish &amp; chips", svg_text(svgs["amp"]))
@@ -491,7 +491,7 @@ FIGURE = re.compile(r'<figure class="mermaid".*?</figure>', re.S)
 SECTION = (FIXTURES / "section.html").read_text(encoding="utf-8")
 FIGURE_TEXT = FIGURE.search(SECTION).group(0)
 FLOW_TITLE = (
-    '<title id="flow-title">The path of one message from the listener to the reply.</title>'
+    '<title id="mmd-flow-title">The path of one message from the listener to the reply.</title>'
 )
 VERIFY_PASS = (
     "self-contained: ok\n"
@@ -531,6 +531,21 @@ class InlineCase(TempCase):
     def assert_fails_with(self, result, *lines):
         code, stdout, stderr = result
         self.assertEqual((code, stdout, stderr), (1, "".join(l + "\n" for l in lines), ""))
+
+    # red: the SVG id is the bare stem, so Mermaid's scoped rules (`#flow p { margin: 0 }`) hit a
+    # section#flow of the page (the live diadoc run of 2026-10-17 lost the gaps of every flow section)
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_svg_id_never_collides_with_a_section_id(self):
+        page = self.page(section=SECTION.replace('id="flow-send"', 'id="flow"', 1))
+        code, stdout, stderr = self.inline(page)
+        self.assertEqual(code, 0, stdout + stderr)
+        figure = self.figure_of(page)
+        tag = root_tag(re.search(r"<svg\b.*?</svg>", figure, re.S).group(0))
+        self.assertIn(' id="mmd-flow"', tag)
+        self.assertIn('aria-labelledby="mmd-flow-title"', tag)
+        self.assertIn('<title id="mmd-flow-title">', figure)
+        self.assertIsNone(re.search(r"#flow[\s.{:,>\[]", figure), "a rule scoped to #flow")
+        self.assertIn("#mmd-flow", figure)
 
     @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
     def test_inline_writes_the_svg_before_the_figcaption_and_the_svg_file(self):
@@ -576,7 +591,7 @@ class InlineCase(TempCase):
         after = page.read_text(encoding="utf-8")
         flow, state = FIGURE.findall(after)
         self.assertIn(FLOW_TITLE, flow)
-        self.assertIn('<title id="state-title">The states of one message.</title>', state)
+        self.assertIn('<title id="mmd-state-title">The states of one message.</title>', state)
         self.assertIn("receive the message", svg_text(flow))
         self.assertIn("Sent", svg_text(state))
         for figure in (flow, state):
@@ -764,7 +779,7 @@ class InlineCase(TempCase):
         self.assertNotIn("<figcaption>", self.figure_of(page))
         code, stdout, stderr = self.inline(page)
         self.assertEqual(code, 0, stdout + stderr)
-        self.assertIn('<title id="flow-title">flow</title>', self.figure_of(page))
+        self.assertIn('<title id="mmd-flow-title">flow</title>', self.figure_of(page))
 
     def test_page_figures_reads_the_source_and_the_caption(self):
         page = (

@@ -220,9 +220,9 @@ def finish_svg(svg, diagram_id, title):
     for name in ("width", "height", "role", "data-ste", "aria-labelledby"):
         tag = attribute(name).sub("", tag)
     added = ' width="%d" height="%d" role="img" data-ste="skip" aria-labelledby="%s-title"' % (
-        size + (diagram_id,)
+        size + (svg_id(diagram_id),)
     )
-    title_tag = '<title id="%s-title">%s</title>' % (diagram_id, html.escape(title))
+    title_tag = '<title id="%s-title">%s</title>' % (svg_id(diagram_id), html.escape(title))
     return tag[:-1] + added + ">" + title_tag + svg[root.end():]
 
 
@@ -294,7 +294,7 @@ def harness_html(bundle_js, diagrams):
     return HARNESS % {
         "outs": outs, "bundle": bundle_js, "config": script_json(CONFIG),
         "out_id": OUT_ID, "svg_id": SVG_ID,
-        "diagrams": script_json([[diagram_id, text] for diagram_id, text in diagrams]),
+        "diagrams": script_json([[svg_id(diagram_id), text] for diagram_id, text in diagrams]),
     }
 
 
@@ -459,6 +459,12 @@ def page_figures(html_text):
             ),
         ))
     return figures
+
+
+def svg_id(stem):
+    """The id of the SVG of `<stem>.mmd`: `mmd-<stem>`. Mermaid scopes the CSS of a diagram by this
+    id, so it never equals a section id of the page (`section#flow-auth` beside `flow-auth.mmd`)."""
+    return "mmd-" + stem
 
 
 def figure_job(figure, page_dir, seen):
