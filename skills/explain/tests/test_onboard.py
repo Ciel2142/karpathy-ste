@@ -378,6 +378,12 @@ class InventoryCase(unittest.TestCase):
             ("A.kt", "data class StockMovedEvent(val id: String)\n", "data class StockMovedEvent(val id: String)"),
             ("A.kt", "object ShippedEvent\n", "object ShippedEvent"),
             ("A.java", "public class Custom extends ApplicationEvent {\n}\n", "public class Custom extends ApplicationEvent {"),
+            ("A.kt", "class UserRegistered(source: Any) : ApplicationEvent(source)\n",
+             "class UserRegistered(source: Any) : ApplicationEvent(source)"),
+            ("A.kt", "class UserRegistered(source: Any) : ApplicationEvent(source), Serializable\n",
+             "class UserRegistered(source: Any) : ApplicationEvent(source), Serializable"),
+            # a multi-line declaration gives one hit, at its first line
+            ("A.kt", "class XEvent(\n    val id: String,\n) : ApplicationEvent(id)\n", "class XEvent("),
             ("a.go", "type StockMovedEvent struct {\n}\n", "type StockMovedEvent struct {"),
         )
         for name, source, text in cases:
@@ -401,6 +407,8 @@ class InventoryCase(unittest.TestCase):
         cases = (
             ("A.java", "public class EventPoller {\n}\n"),
             ("A.java", "public class EventEnvelope {\n}\n"),
+            ("A.kt", "fun <T : ApplicationEvent> publish(event: T) {}\n"),
+            ("A.kt", "class Relay(val ev: ApplicationEvent) : Bar()\n"),
             ("A.java", "public class OrderEventsConfig {\n}\n"),
             ("A.java", "    @EventSourcingHandler\n    public void on(OrderPlaced event) {}\n"),
             ("A.kt", "    @EventSourcingHandler\n    fun on(e: Paid) {}\n"),

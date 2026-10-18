@@ -46,7 +46,8 @@ EVENT_ONCE = ("type", "payload", "stream")
 EVENT_COMPONENT_KEYS = ("emits", "consumes")  # the keys whose lines name a component or an outside system
 CONVENTION_TOPICS = ("tests", "errors", "wiring", "naming")
 WHERE_ENTRY_KINDS = ("http", "listener", "route", "schedule")
-WHERE_KEYS = tuple("add-" + kind for kind in WHERE_ENTRY_KINDS) + ("change-routing", "add-transform", "add-event", "add-test")
+WHERE_KEYS = (tuple("add-" + kind for kind in WHERE_ENTRY_KINDS)
+              + ("change-routing", "add-transform", "add-event", "add-test"))
 NONE_FOUND = "none found"
 ID = re.compile(r"[a-z][a-z0-9_-]*")
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -331,7 +332,7 @@ PATTERNS = {
     # A declaration, not an entry point: the annotations `@DomainEvent` and `@Event` hit at the type they annotate.
     "event": (
         _rule(JVM, r"\b(?:class|record|interface|object)\s+\w*Event\b", r"\bextends ApplicationEvent\b",
-              r"@DomainEvent\b", r"@Event\b"),
+              r"\bclass\s+\w+\b[^{]*:\s*ApplicationEvent\(", r"@DomainEvent\b", r"@Event\b"),
         _rule(GO, r"\btype\s+\w+Event\s+struct\b"),
     ),
 }
