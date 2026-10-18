@@ -40,6 +40,9 @@ flowchart TD
 ## State
 none found
 
+## Events
+none found
+
 ## Formats and transforms
 - the handler takes a `Message` object | svc-a/Handler.java:5 | public void receive(Message message) {
 

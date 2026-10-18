@@ -28,6 +28,7 @@ TITLES = (
     "Entry points",
     "Flows",
     "State",
+    "Events",
     "Formats and transforms",
     "Routing config",
     "Error paths",
@@ -39,6 +40,10 @@ TITLES = (
 SHAPE_KEYS = ("language", "framework", "runtime", "artifact", "purpose", "build", "test", "run")
 SHAPE_REQUIRED = ("language", "runtime", "artifact", "purpose", "build", "test", "run")
 SHAPE_COMMANDS = ("build", "test", "run")
+EVENT_KEYS = ("type", "payload", "stream", "emits", "consumes")
+EVENT_REQUIRED = ("type", "stream", "emits", "consumes")
+EVENT_ONCE = ("type", "payload", "stream")
+EVENT_COMPONENT_KEYS = ("emits", "consumes")  # the keys whose lines name a component or an outside system
 CONVENTION_TOPICS = ("tests", "errors", "wiring", "naming")
 WHERE_ENTRY_KINDS = ("http", "listener", "route", "schedule")
 WHERE_KEYS = tuple("add-" + kind for kind in WHERE_ENTRY_KINDS) + ("change-routing", "add-transform", "add-test")
@@ -66,6 +71,7 @@ MAP_TITLE = re.compile(r"# Map:(.*)")
 CITE = re.compile(r"(.+):([0-9]+)")
 FENCE = "```"
 REASON = re.compile(r"not (?:traced|an entry point):\s*\S.*")
+DISMISSAL = re.compile(r"not an event:\s*`[^`\n]+`:\s*\S.*")
 HANDLE = re.compile(r"`[^`\n]+`")
 
 
@@ -164,12 +170,19 @@ class Flow(NamedTuple):
     facts: list[Fact]
 
 
+class Event(NamedTuple):
+    name: str  # the `### ` heading text, kept verbatim
+    line: int
+    facts: list[Fact]
+
+
 class Section(NamedTuple):
     title: str
     line: int
     diagrams: list[Diagram]
     facts: list[Fact]
-    flows: list[Flow]
+    flows: list[Flow]  # empty for every section but Flows
+    events: list[Event]  # empty for every section but Events
     none_found: bool
 
 
@@ -215,7 +228,7 @@ def parse_map(text: str) -> MapDoc:
     if not title or not title.group(1).strip():
         raise ValueError('no "# Map:" title')
     sections, contents = [], []  # contents: each section's non-blank lines outside fences and its opening fences
-    flow = fence = None  # fence: (line, info, body) of the open fenced block
+    flow = event = fence = None  # fence: (line, info, body) of the open fenced block
     for number, line in enumerate(lines[start + 1 :], start + 2):
         if fence is not None:
             if line.startswith(FENCE):
@@ -230,9 +243,9 @@ def parse_map(text: str) -> MapDoc:
                 contents[-1].append(line.strip())
             continue
         if line.startswith("## "):
-            sections.append(Section(line[3:].strip(), number, [], [], [], False))
+            sections.append(Section(line[3:].strip(), number, [], [], [], [], False))
             contents.append([])
-            flow = None
+            flow = event = None
             continue
         if not sections or not line.strip():
             continue
@@ -240,8 +253,11 @@ def parse_map(text: str) -> MapDoc:
         if line.startswith("### ") and sections[-1].title == "Flows":
             flow = _flow(line[4:].strip(), number)
             sections[-1].flows.append(flow)
+        elif line.startswith("### ") and sections[-1].title == "Events":
+            event = Event(line[4:].strip(), number, [])
+            sections[-1].events.append(event)
         elif line.startswith("- ") and line.strip() != "- " + NONE_FOUND:
-            scope = flow or sections[-1]
+            scope = flow or event or sections[-1]
             scope.facts.append(_fact(len(scope.facts) + 1, number, line[2:]))
     if fence is not None:
         _close_fence(fence, flow or (sections[-1] if sections else None))
@@ -575,6 +591,46 @@ def _shape_lines(doc: MapDoc) -> list[str]:
     return lines
 
 
+def _event_flaws(event: Event, idents: set[str]) -> list[str]:
+    """The lines of one `Events` entry: missing and repeated keys, then per fact an unknown key, a missing
+    component or a flow id that is not under Flows, then a `none found` beside another line of its key."""
+    facts = [(fact, *keyed(fact)) for fact in event.facts]
+    keys = [key for _, key, _ in facts]
+    head = "event %s" % event.name
+    lines = ["%s: missing %s" % (head, key) for key in EVENT_REQUIRED if key not in keys]
+    lines.extend("%s: %s twice" % (head, key) for key in EVENT_ONCE if keys.count(key) > 1)
+    for fact, key, rest in facts:
+        if key not in EVENT_KEYS:
+            lines.append("%s #%d: unknown key %s" % (head, fact.n, key or (fact.fact.split() or ["none"])[0]))
+        elif key in EVENT_COMPONENT_KEYS and rest != NONE_FOUND:
+            if not HANDLE.search(rest):
+                lines.append("%s #%d: no component in backticks" % (head, fact.n))
+            _, arrow, tail = fact.fact.rpartition(" -> ")
+            if arrow and ID.fullmatch(tail) and tail not in idents:
+                lines.append("%s #%d: flow %s not in Flows" % (head, fact.n, tail))
+    for key in EVENT_KEYS:
+        if keys.count(key) > 1 and any(none_found(fact) for fact, k, _ in facts if k == key):
+            lines.append("%s: none found beside a line" % head)
+    return lines
+
+
+def _event_lines(doc: MapDoc) -> list[str]:
+    """The `events` and `event` lines: a line before the first entry that is not a dismissal, then the lines of
+    each entry in map order, a repeated name reported once, at its second entry."""
+    section = doc.section("Events")
+    if section is None:
+        return []
+    flows = doc.section("Flows")
+    idents = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
+    lines = ["events #%d: not a dismissal" % fact.n for fact in section.facts if not DISMISSAL.fullmatch(fact.fact)]
+    names = [event.name for event in section.events]
+    for index, event in enumerate(section.events):
+        if names[:index].count(event.name) == 1:
+            lines.append("event %s: twice" % event.name)
+        lines.extend(_event_flaws(event, idents))
+    return lines
+
+
 def _convention_lines(doc: MapDoc) -> list[str]:
     """The `conventions` lines: required topics with no line, then per fact a head that is not one id."""
     section = doc.section("Conventions")
@@ -633,21 +689,26 @@ def _where_lines(doc: MapDoc, root: str) -> list[str]:
 
 
 def _cite_scopes(doc: MapDoc) -> list[tuple[str, list[Fact]]]:
-    """(scope, facts) in canonical section order, each flow after the Flows facts; `Not covered` has no cites."""
+    """(scope, facts) in canonical section order, each flow after the Flows facts and each event after the
+    dismissals of Events; `Not covered` has no cites."""
     scopes = []
     for title in TITLES:
         section = doc.section(title)
         if section is not None and title != "Not covered":
             scopes.append((title, section.facts))
             scopes.extend(("Flows/%s" % (flow.ident or flow.heading), flow.facts) for flow in section.flows)
+            scopes.extend(("Events/%s" % event.name, event.facts) for event in section.events)
     return scopes
 
 
 def _may_lack_cite(scope: str, fact: Fact) -> bool:
-    """Whether a `none found` fact needs no cite: a Shape command or any Conventions topic."""
+    """Whether a `none found` fact needs no cite: a Shape command, any Conventions topic or an emits or
+    consumes line of an event."""
     if not none_found(fact):
         return False
-    return scope == "Conventions" or (scope == "Shape" and keyed(fact)[0] in SHAPE_COMMANDS)
+    key = keyed(fact)[0]
+    return (scope == "Conventions" or (scope == "Shape" and key in SHAPE_COMMANDS)
+            or (scope.startswith("Events/") and key in EVENT_COMPONENT_KEYS))
 
 
 def _cite_lines(doc: MapDoc, root: str) -> list[str]:
@@ -671,12 +732,12 @@ def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
 
 def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
     """The failure lines of a map, in order: sections, each place (architecture, the flows, state), entry
-    lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths, cites, then
-    the inventory lines that no entry line cites."""
+    lines, event lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths,
+    cites, then the inventory lines that no entry line cites."""
     lines = _section_lines(doc)
     for where, scope, needs in _places(doc):
         lines.extend(_place_lines(where, scope, needs))
-    lines.extend(_entry_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
+    lines.extend(_entry_lines(doc) + _event_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
     lines.extend(_convention_lines(doc) + _where_lines(doc, root) + _cite_lines(doc, root))
     return lines + _unlisted_lines(doc, inventory or [])
 

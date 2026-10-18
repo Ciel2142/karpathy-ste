@@ -1071,13 +1071,14 @@ class OnboardRungCase(unittest.TestCase):
 
     def test_the_map_skeleton_lists_the_titles_of_onboard_py(self):
         """Red when the skeleton of "The map" loses its four-backtick fence or its title line, or drops, adds,
-        renames or reorders a level-2 section of onboard.TITLES (twelve), or the `Shape` lines lose their key."""
+        renames or reorders a level-2 section of onboard.TITLES (thirteen), or the `Shape` lines lose their key."""
         lines = skeleton_lines(section(read(ONBOARD_MD), "The map"))
         self.assertTrue(lines[0].startswith("# Map: <id>"), lines[0])
         self.assertEqual([line for line in lines if line.startswith("## ")], ["## " + t for t in onboard.TITLES])
         self.assertIn("### <flow-id>: <question>", lines)
+        self.assertIn("### <event-name>", lines)
         self.assertIn("- <key>: <fact> | <path>:<line> | <snippet>", lines)
-        self.assertEqual(len(onboard.TITLES), 12)
+        self.assertEqual(len(onboard.TITLES), 13)
 
     def test_the_map_runs_the_check_and_names_its_prefixes(self):
         """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or

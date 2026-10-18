@@ -61,6 +61,15 @@ flowchart TD
 ## State
 none found
 
+## Events
+- not an event: `Order`: a plain row, not a message | src/Order.java:3 | class Order
+
+### event.document.signature
+- type: the routing key `event.document.signature` | src/E.java:2 | KEY = "event.document.signature"
+- stream: the exchange `documents` | src/E.java:3 | EXCHANGE = "documents"
+- emits: `Signer` sends it after signing -> send | src/S.java:5 | rabbit.send(KEY)
+- consumes: outside: Archive `documents` | src/E.java:3 | EXCHANGE = "documents"
+
 ## Formats and transforms
 - JSON bodies by Jackson | src/A.java:2 | import com.fasterxml.jackson
 
@@ -219,6 +228,21 @@ class ParseMapCase(unittest.TestCase):
         flow = onboard.parse_map(text).section("Flows").flows[1]
         self.assertIsNone(flow.ident)
         self.assertEqual(flow.heading, "Order flow")
+
+    def test_event_entry_keeps_its_name_verbatim_and_owns_its_lines(self):
+        events = self.doc.section("Events")
+        self.assertEqual([e.name for e in events.events], ["event.document.signature"])
+        event = events.events[0]
+        self.assertEqual([f.n for f in event.facts], [1, 2, 3, 4])
+        self.assertEqual(event.facts[0].cite, ("src/E.java", 2, 'KEY = "event.document.signature"'))
+        self.assertEqual([f.fact for f in events.facts], ["not an event: `Order`: a plain row, not a message"])
+
+    def test_only_events_and_flows_open_a_level_3_scope(self):
+        text = replace_once(GOOD, "## Error paths\n", "## Error paths\n### Not an event\n- a fault | src/A.java:1 | x\n")
+        doc = onboard.parse_map(text)
+        self.assertEqual([len(s.events) for s in doc.sections if s.title != "Events"], [0] * 12)
+        self.assertIn("a fault", [f.fact for f in doc.section("Error paths").facts])
+        self.assertEqual(len(doc.section("Events").events), 1)
 
     def test_flow_nodes_maps_each_flow_to_its_node_ids(self):
         self.assertEqual(onboard.flow_nodes(self.doc), {"send": ["recv", "check", "store"], "cancel": ["listen"]})
@@ -491,6 +515,8 @@ OK = (0, "onboard: ok\n", "")
 SHAPE_1 = section_text("Shape").splitlines()[1]
 RECV = line_starting("- recv:")
 GET_ENTRY = line_starting("- http GET /orders/{id}")
+ENTRY_1 = section_text("Events").split("\n\n")[0].split("\n", 1)[1]  # the first entry, heading line included
+CONSUME_CITE = line_starting("- consumes: `OrderProjection`").split(" | ", 1)[1]
 THIRTEEN = " ".join("w%d" % n for n in range(1, 14))
 
 
@@ -592,7 +618,7 @@ class CheckCase(unittest.TestCase):
     def test_flows_none_found_skips_the_flows(self):
         later = " -> not traced: later |"
         edits = [(section_body("Flows"), "none found\n\n"), (" -> order |", later), (" -> cancel |", later),
-                 (" -> cancel |", later)]
+                 (" -> cancel |", later)] + [(" -> order |", " |")] * 3  # the flow links of the three event lines
         self.assertEqual(check(edits=edits), OK)
 
     def tmp(self, name):
@@ -673,12 +699,135 @@ class CheckCase(unittest.TestCase):
     def test_shape_language_none_found_still_needs_a_cite(self):
         self.only("cite Shape#1: no cite", edits=[(SHAPE_1, "- language: none found")])
 
-    def test_sections_now_twelve(self):
-        self.assertEqual(len(onboard.TITLES), 12)
+    def test_sections_now_thirteen(self):
+        self.assertEqual(len(onboard.TITLES), 13)
+        self.assertEqual(onboard.TITLES[4:7], ("State", "Events", "Formats and transforms"))
         self.only("section: missing Conventions", edits=[(section_text("Conventions"), "")])
         where = section_text("Where to look")
         moved = replace_once(MAP, where, "") + "\n" + where
         self.only("section: Where to look out of order", text=moved)
+
+    def test_events_section_follows_state_and_precedes_formats(self):
+        events = section_text("Events")
+        moved = replace_once(MAP, events, "")
+        moved = replace_once(moved, "## Not covered\n", events + "## Not covered\n")
+        self.only("section: Events out of order", text=moved)
+
+    def test_map_without_an_events_section_reports_only_the_missing_section(self):
+        self.only("section: missing Events", edits=[(section_text("Events"), "")])
+
+    def test_events_none_found_is_checked_for_nothing_else(self):
+        self.assertEqual(check(edits=[(section_body("Events"), "none found\n\n")]), OK)
+
+    def test_event_name_twice_is_reported_once_for_a_repeated_name(self):
+        entry = ENTRY_1
+        self.only("event OrderPlacedEvent: twice", edits=[(entry, entry + "\n" + entry)])
+        self.only("event OrderPlacedEvent: twice", edits=[(entry, "\n".join([entry] * 3))])
+        lower = entry.replace("### OrderPlacedEvent", "### orderplacedevent", 1)
+        self.assertEqual(check(edits=[(entry, entry + "\n" + lower)]), OK)
+
+    def test_event_missing_key(self):
+        for key in onboard.EVENT_REQUIRED:
+            with self.subTest(key=key):
+                line = next(l for l in ENTRY_1.splitlines() if l.startswith("- %s:" % key))
+                self.only("event OrderPlacedEvent: missing %s" % key, edits=[(line + "\n", "")])
+        payload = line_starting("- payload:")
+        self.assertEqual(check(edits=[(payload + "\n", "")]), OK)
+
+    def test_event_missing_keys_follow_the_required_order(self):
+        lines = [l for l in ENTRY_1.splitlines()[1:]]
+        self.only(*("event OrderPlacedEvent: missing %s" % key for key in onboard.EVENT_REQUIRED),
+                  edits=[("\n".join(lines) + "\n", "")])
+
+    def test_event_type_payload_and_stream_once(self):
+        for key, line in (("type", line_starting("- type:")), ("payload", line_starting("- payload:")),
+                          ("stream", line_starting("- stream:"))):
+            with self.subTest(key=key):
+                name = "orders.created" if key == "payload" else "OrderPlacedEvent"
+                self.only("event %s: %s twice" % (name, key), edits=[(line, line + "\n" + line)])
+        emits = line_starting("- emits:")
+        self.assertEqual(check(edits=[(emits, emits + "\n" + emits)]), OK)
+
+    def test_event_unknown_key(self):
+        stream = line_starting("- stream:")
+        self.only("event OrderPlacedEvent: missing stream", "event OrderPlacedEvent #2: unknown key sink",
+                  edits=[(stream, stream.replace("- stream:", "- sink:"))])
+        keyless = stream.replace("- stream: ", "- the ")
+        self.only("event OrderPlacedEvent: missing stream", "event OrderPlacedEvent #2: unknown key the",
+                  edits=[(stream, keyless)])
+        self.only("event OrderPlacedEvent: missing stream", "event OrderPlacedEvent #2: unknown key none",
+                  "cite Events/OrderPlacedEvent#2: no cite", edits=[(stream, "- ")])
+
+    def test_event_emits_and_consumes_need_a_component_in_backticks(self):
+        emits, outside = line_starting("- emits:"), line_starting("- consumes: outside:")
+        self.only("event OrderPlacedEvent #3: no component in backticks",
+                  edits=[(emits, emits.replace("`OrderPublisher`", "OrderPublisher"))])
+        self.only("event orders.created #5: no component in backticks",
+                  edits=[(outside, outside.replace("`orders.created`", "orders.created", 1))])
+        ignores = "- consumes: `OrderProjection` ignores: it only logs and acks"
+        self.assertEqual(check(edits=[(line_starting("- consumes:"), ignores + " | " + CONSUME_CITE)]), OK)
+        self.only("event OrderPlacedEvent #4: no component in backticks",
+                  edits=[(line_starting("- consumes:"), "- consumes: OrderProjection ignores: logs | " + CONSUME_CITE)])
+
+    def test_event_type_and_stream_need_no_backticks(self):
+        stream = line_starting("- stream:")
+        self.assertEqual(check(edits=[(stream, stream.replace("`in-process`", "in-process"))]), OK)
+
+    def test_event_flow_must_be_under_flows(self):
+        emits = line_starting("- emits:")
+        self.only("event OrderPlacedEvent #3: flow orders not in Flows",
+                  edits=[(emits, emits.replace(" -> order |", " -> orders |"))])
+        self.assertEqual(check(edits=[(emits, emits.replace(" -> order |", " |"))]), OK)
+
+    def test_event_none_found_needs_no_cite_for_emits_and_consumes(self):
+        self.assertEqual(check(edits=[(line_starting("- consumes:"), "- consumes: none found")]), OK)
+        self.assertEqual(check(edits=[(line_starting("- emits:"), "- emits: none found")]), OK)
+        type_line = line_starting("- type:")
+        self.only("cite Events/OrderPlacedEvent#1: no cite", edits=[(type_line, "- type: none found")])
+
+    def test_event_none_found_beside_a_line_fails(self):
+        emits = line_starting("- emits:")
+        self.only("event OrderPlacedEvent: none found beside a line", edits=[(emits, emits + "\n- emits: none found")])
+        both = emits + "\n- emits: none found\n- emits: none found"
+        self.only("event OrderPlacedEvent: none found beside a line", edits=[(emits, both)])
+
+    def test_event_outside_without_a_handle_fails(self):
+        outside = line_starting("- consumes: outside:")
+        self.only("event orders.created #5: no component in backticks",
+                  edits=[(outside, outside.replace(" `orders.created`", "", 1))])
+
+    def test_events_line_before_the_first_entry_must_be_a_dismissal(self):
+        cite = " | src/main/java/shop/Order.java:3 | public class Order {"
+        good = "- not an event: `Order`: a plain row, not a message" + cite
+        anchor = "### OrderPlacedEvent"
+        self.assertEqual(check(edits=[(anchor, good + "\n\n" + anchor)]), OK)
+        for bad in ("- an Order is not an event", "- not an event: Order: a plain row", "- not an event: `Order`",
+                    "- not an event: `Order`: ", "- an event: `Order`: a row"):
+            with self.subTest(line=bad):
+                self.only("events #1: not a dismissal", edits=[(anchor, bad + cite + "\n\n" + anchor)])
+        self.only("events #2: not a dismissal", "events #3: not a dismissal",
+                  edits=[(anchor, good + "\n- a note" + cite + "\n- b" + cite + "\n\n" + anchor)])
+        self.only("cite Events#1: no cite", edits=[(anchor, good.split(" | ")[0] + "\n\n" + anchor)])
+
+    def test_event_cites_are_checked_in_the_scope_of_the_event(self):
+        payload = line_starting("- payload:")
+        self.only("cite Events/orders.created#2: snippet not found on that line",
+                  edits=[(payload, with_part(payload, 2, "public class Missing {"))])
+        self.only("cite Events/orders.created#2: no cite", edits=[(payload, payload.split(" | ")[0])])
+
+    def test_event_lines_follow_the_entry_lines_and_precede_the_other_systems_lines(self):
+        stream = line_starting("- stream:")
+        _, out, _ = check(edits=[
+            ("- http POST /orders -> order |", "- http POST /orders -> orders |"),
+            (stream, stream.replace("- stream:", "- sink:")),
+            ("`PaymentsClient` `payments.charge`", "PaymentsClient payments.charge"),
+        ])
+        self.assertEqual(failures(out), [
+            "entry #10: flow orders not in Flows",
+            "event OrderPlacedEvent: missing stream",
+            "event OrderPlacedEvent #2: unknown key sink",
+            "fact Other systems#1: no handle in backticks",
+        ])
 
     def test_conventions_missing_topic_and_no_topic(self):
         wiring = line_starting("- wiring:")

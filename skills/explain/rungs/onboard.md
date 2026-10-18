@@ -167,7 +167,7 @@ YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target
 
 ## 3. The map
 
-Write the map to `map.md`. It has this skeleton. Keep the twelve level-2 sections,
+Write the map to `map.md`. It has this skeleton. Keep the thirteen level-2 sections,
 in this order, with these titles. Write `none found` as the one line of an empty section.
 
 ````
@@ -202,6 +202,16 @@ stateDiagram-v2
   ...
 ```
 - <state>: <fact> | <path>:<line> | <snippet>
+
+## Events
+- not an event: `<Name>`: <reason> | <path>:<line> | <snippet>
+
+### <event-name>
+- type: <fact> | <path>:<line> | <snippet>
+- payload: <fact> | <path>:<line> | <snippet>
+- stream: <fact> | <path>:<line> | <snippet>
+- emits: `<Component>` <fact> [-> <flow-id>] | <path>:<line> | <snippet>
+- consumes: `<Component>` <fact> [-> <flow-id>] | <path>:<line> | <snippet>
 
 ## Formats and transforms
 ## Routing config
