@@ -1,7 +1,13 @@
 # Map: docs-b
 
 ## Shape
-- a docs source: one Markdown page on the target API | docs-b/api.md:1 | Target API
+- language: Markdown docs, no build tool | docs-b/api.md:1 | # Target API
+- runtime: a docs library with no process to run | docs-b/api.md:1 | # Target API
+- artifact: the Markdown page, no deploy artifact | docs-b/api.md:1 | # Target API
+- purpose: a docs source: one Markdown page on the target API | docs-b/api.md:1 | Target API
+- build: none found
+- test: none found
+- run: none found
 
 ## Architecture
 none found

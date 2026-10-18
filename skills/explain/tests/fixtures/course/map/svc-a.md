@@ -1,7 +1,13 @@
 # Map: svc-a
 
 ## Shape
-- one Java handler takes each message from a queue | svc-a/Handler.java:3 | public class Handler {
+- language: Java, no build tool in the source | svc-a/Handler.java:1 | package demo;
+- runtime: a consumer of the queue IN_QUEUE | svc-a/Handler.java:4 | @Listener(queue = "IN_QUEUE")
+- artifact: the Handler class, no deploy artifact in the source | svc-a/Handler.java:3 | public class Handler {
+- purpose: one Java handler takes each message from a queue | svc-a/Handler.java:3 | public class Handler {
+- build: none found
+- test: none found
+- run: none found
 
 ## Architecture
 ```mermaid
