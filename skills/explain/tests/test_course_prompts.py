@@ -89,7 +89,7 @@ MAP_TEXTS = (
     "Fix the map for each failure line, and run the check again, until it prints `onboard: ok`.",
     "Stop after 3 rounds in which the same failure lines come back.",
     "If failure lines remain, end with `map: done` all the same. Write each failure line before it.",
-    "Write `none found` under `Architecture`, `Flows` and `State` when the source has no code to trace.",
+    "Write `none found` under `Architecture`, `Flows`, `State` and `Events` when the source has no code to trace.",
     # the exception of "The map": a docs source with a request sequence keeps its flow, so a hop can bind to it
     "A docs source that documents a request sequence still gets a flow, as \"The map\" says.",
     "`<n>` counts the fact lines of the map, the node lines included.",

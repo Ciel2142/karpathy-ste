@@ -45,7 +45,7 @@ directory.
 
 In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`.
 
-Follow these eight rules, in the order of the work. Write each fact into `map.md`, in the format of
+Follow these nine rules, in the order of the work. Write each fact into `map.md`, in the format of
 "The map".
 
 1. Shape first. Read the build files, the main config and the entry of the process. Write one
@@ -71,8 +71,9 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
 2. Inventory. Run `onboard.py inventory <service-dir> --root <root> --out inventory.txt`. It prints
    one line for each hit: `<path>:<line>`, a tab, the kind, a tab and the text of the line. It writes
    the same lines to `inventory.txt`. The last line of its output is `inventory: <n> entry points, <m> event types`.
-   Read each line. The map must account for each entry point of this list. The script finds patterns,
-   not truth. A hit can be false, and the list can miss a real entry point. Add each entry point that
+   Read each line. The map must account for each entry point of this list. A hit of the kind `event` is
+   not an entry point: rule 6 says what to do with it. The script finds patterns, not truth. A hit can be
+   false, and the list can miss a real entry point. Add each entry point that
    you find when you read the code. Dismiss a false hit with a reason, as a
    `-> not an entry point: <reason>` line.
 3. Architecture. Draw one `flowchart LR` of the parts at runtime. A part is a component inside the
@@ -100,7 +101,22 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
 5. State. Find the entities that a message changes, and each status field with its transitions. Draw
    them as one `stateDiagram-v2`. Write one cited fact for each state, from the line that sets it. If
    the service keeps no state, write `none found`.
-6. Formats and transforms, routing config, error paths and other systems. Write them as fact lines,
+6. Events. Find each event of the service. An event is a type or a name. One part publishes it
+   or appends it to an event store. It can also apply it, or send it to a topic or an exchange. Another
+   part handles it. Look for these:
+   - event classes and records;
+   - `apply(`, `AggregateLifecycle.apply`, event-store appends, `publishEvent` and
+     `ApplicationEventPublisher`;
+   - Kafka and RabbitMQ sends with an event payload;
+   - the routing keys and the event-type strings;
+   - the handlers `@EventHandler`, `@EventSourcingHandler`, `@SagaEventHandler` and `@EventListener`;
+   - projection handlers and stream subscriptions.
+
+   Write one entry for each event under `Events`, in the format of "The map". A service with no events
+   writes `none found`. The inventory lists event declarations as `event` hits. Each must be the cite of a
+   `type` line, of a `payload` line or of a `not an event` line. A flow node that emits or consumes an
+   event names the event, verbatim, in its fact.
+7. Formats and transforms, routing config, error paths and other systems. Write them as fact lines,
    each in its section of the map:
    - `Formats and transforms`: the format of each message, and each change to its format or its
      content. Examples are XML, JSON, a message class, a mapper and an XSLT file.
@@ -110,7 +126,7 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
      list. The flows show where, and the list shows what.
    - `Other systems`: each other system that the service sends to or receives from. Give its name,
      then its handles in backticks. Examples are queue names, endpoints, artifact ids and host names.
-7. Conventions and where to look. Write them as fact lines, each in its section of the map:
+8. Conventions and where to look. Write them as fact lines, each in its section of the map:
    - `Conventions`: one line for each of these topics. The cite of a line is one example line of the
      code. A topic with nothing to find is `- <topic>: none found` with no cite.
      - `tests`: where the tests live and what name a test file has, from one test file;
@@ -136,7 +152,7 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
      - `add-test`: when the `test` line of `Shape` is not `none found`.
 
      Other keys are free. A line of `Where to look` is never `none found`.
-8. Not covered. Write one line for each directory or module of the service that you did not read, with
+9. Not covered. Write one line for each directory or module of the service that you did not read, with
    the reason. Thus the map tells what it does not know.
 
 These reading rules apply to each step:
@@ -154,7 +170,10 @@ inventory without a line in `Entry points` fails the check. A reason to not trac
 sentence. It names the flow with the same shape ("the same path as `send`, with the `cancel` type").
 Or it says why the entry point is off any message path ("the admin health endpoint reads no message").
 
-`onboard.py inventory` finds entry points of five kinds. It reads Java, Kotlin and Go files, and the
+An `event` hit without a `type` line, a `payload` line or a dismissal in `Events` fails the check too.
+
+`onboard.py inventory` finds entry points of five kinds and event types of one kind. It reads Java,
+Kotlin and Go files, and the
 YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target`, `build`, `.git` and
 `vendor`.
 
@@ -241,10 +260,48 @@ give the format:
   "Explore the service". The `build`, `test` and `run` lines hold one command in backticks, or are
   `none found` with no cite.
 - A `Conventions` line is `- <topic>: <fact> | <path>:<line> | <snippet>`. Write a line for each of the
-  four topics of rule 7. A line for any other topic that matches `[a-z][a-z0-9_-]*` is free.
+  four topics of rule 8. A line for any other topic that matches `[a-z][a-z0-9_-]*` is free.
 - A `Where to look` line is `- <key>: `<path>` | <path>:<line> | <snippet>`. The path is relative to
   `<root>`, and it is the first text in backticks of the line. It is a file or a directory under
-  `<root>`. Rule 7 of "Explore the service" gives the keys and the cases for each key.
+  `<root>`. Rule 8 of "Explore the service" gives the keys and the cases for each key.
+- A dismissal of `Events` is `- not an event: `<Name>`: <reason> | <path>:<line> | <snippet>`. It stands
+  before the first entry. The reason is not empty. Its cite is the line that the inventory found.
+- An `Events` entry is a line `### <event-name>` and the keyed lines below it. The `<event-name>` is the
+  name exactly as the code writes it. Examples are `OrderPlaced`, `event.document.signature` and
+  `order-placed.v2`. Keep its case and its punctuation. The name is unique in the section. On the page, the
+  name becomes the anchor `event-<slug>`. To make the `<slug>`, write the name in lowercase. Replace each
+  run of characters outside `[a-z0-9]` with `-`. Remove a `-` at the start and at the end.
+- `type` is necessary, once. Its cite is the line that declares the name. That line is the class or
+  record, or the constant or string that holds the routing key or the event type. The code of a framework
+  event is outside `<root>`. An example is `ApplicationReadyEvent`. Then the cite is the first line under
+  the root that names it, and the fact says where the type comes from.
+- `payload` is optional, once. Use it when the name is not the payload class. An example is a routing key
+  that carries `BoxEvent`. Its cite is the declaration of the payload class. When the name is the class,
+  write no `payload` line.
+- `stream` is necessary, once. The fact says where the event goes: a stream of the event store, a topic, an
+  exchange or `in-process`. Use `in-process` for an application event inside one process.
+- `emits` is necessary, in one line or more. The cite is the line that publishes, applies, appends or sends
+  the event.
+- `consumes` is necessary, in one line or more. The cite is the line of the handler method, of the
+  `@EventSourcingHandler` or of the subscription. An aggregate that rebuilds its state from the event is a
+  consumer.
+- A line of `emits` or `consumes` has one of these forms:
+  - A component: the first text in backticks is the component name. It becomes a column of the matrix. Use
+    the label of a part in `Architecture`. The check does not enforce this. An optional ` -> <flow-id>` ends
+    the fact part. It links the line to the flow where the event happens. The flow id exists
+    under `Flows`.
+  - `outside: <system> `<handle>``: the event comes from a system outside the repository, or goes to it. The
+    `<handle>` is the topic, the exchange or the stream. For a framework event, the `<handle>` is the class
+    that publishes it (`outside: Spring Boot `SpringApplication``). The cite is the line of the config or
+    of the code that names the handle. The `<system>` becomes a column of the matrix.
+  - A catch-all consumer. An example is a binding `event.document.*` with a `default` branch that only logs
+    and acknowledges. Write one `consumes` line for each key that it receives and does not handle. After the
+    component, the fact starts with `ignores:`. The cite is the `default` line. On the page, the mark of such
+    a line is `(C)`.
+  - `none found`, with no cite: the map found no emitter or no consumer. Write at most one such line for a
+    key. Never write it next to another line of the same key.
+- `Events` with `none found` holds no entry. It can hold dismissals. An `event` hit still needs a dismissal.
+  The cite rules of every fact line apply to the lines of an entry.
 - A node fact line starts with the node id and a colon: `- <id>: <fact> | <path>:<line> | <snippet>`.
   Each node of the diagram above it has exactly one such line. Each such line names a node of that
   diagram.
@@ -286,7 +343,9 @@ The prefix of a line tells where the fault is:
 | `node <where>/<id>: no fact line` / `fact <where>/<id>: not a node` / `fact <where>/<id>: two lines` | The node lines and the fact lines. |
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: the path is not under the root, the line is beyond the end, the snippet is not on that line, or it has more than 12 words. |
 | `entry #<n>: unknown kind <kind>` / `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |
-| `inventory <path>:<line>: not in Entry points` | Only with `--inventory`: an inventory line that no `Entry points` line cites. |
+| `event <name>: twice` / `event <name>: missing <key>` / `event <name>: <key> twice` / `event <name> #<n>: unknown key <key>` / `event <name> #<n>: no component in backticks` / `event <name> #<n>: flow <id> not in Flows` / `event <name>: none found beside a line` | The entries of `Events`. |
+| `events #<n>: not a dismissal` | A line of `Events` before the first entry that is not a `not an event` line. |
+| `inventory <path>:<line>: not in Entry points` / `inventory <path>:<line>: not in Events` | Only with `--inventory`: an inventory line that no `Entry points` line cites, or an `event` line that no `type` line, no `payload` line and no dismissal cites. |
 | `shape: missing <key>` / `shape: <key> twice` / `shape #<n>: unknown key <key>` / `shape #<n>: no command in backticks` | The keyed `Shape` lines. |
 | `conventions: missing <topic>` / `conventions #<n>: no topic` | The `Conventions` lines. |
 | `where: missing <key>` / `where #<n>: no path in backticks` / `where #<n>: <path> not under root` | The `Where to look` lines. |
@@ -331,6 +390,26 @@ sections.
   - for each node that says `see <flow-id>`, one sentence with a link to the section of that flow.
 - `#state`, "Which states does a message go through?": the state diagram (`diagrams/state.mmd`) and
   one paragraph for each state. Omit the section when `State` is `none found`.
+- `#events`, "Which events move through <service>?": the events of the service and who emits and consumes
+  each one. Omit the section when `Events` has no entry. The section holds these parts, in this order:
+  - a lead paragraph: how many events there are, where they go, and the one or two events
+    that carry the main flows;
+  - one sentence that explains the matrix: `E`, `C` and the links;
+  - the matrix, a table (`.table-wrap > table.matrix`). It has one row for each entry of `Events`, in map
+    order. The first cell holds the event name in `<code>`, as a link to the detail of the event. It has
+    one column for each component and each outside system, in the order of their first appearance in the
+    map. A cell holds `E` (emits), `C` (consumes) or both. A cell with no line is empty. A consume with
+    `ignores:` shows `(C)`;
+  - the marks: each `E` or `C` is a link to `#flow-<flow-id>` when its line has a flow id. Else it is plain
+    text. Each mark has a `title` with the full sentence, for example "`OrderAggregate` emits
+    `OrderPlaced` when ...";
+  - the gaps: a row with a `none found` line shows `none found` and the key in an extra last column,
+    "gaps";
+  - a `div.cites` after the table. It holds the cites of the `type` lines, so that the section holds a
+    `<cite>` even if nobody opens a detail;
+  - the details: one `details.walk` for each event, with the id `event-<slug>`, after the table. Its
+    summary is the event name. It holds the payload type, the stream, and the emit lines and consume lines
+    in words, each with its cite.
 - `#formats`, `#config`, `#errors` and `#systems`: the reference sections. They come from
   `Formats and transforms`, `Routing config`, `Error paths` and `Other systems` of the map. Put the
   exact rules into `details.walk`. `#errors` is a list: each retry, dead letter, timeout and error
@@ -342,10 +421,12 @@ sections.
 - `#where`, "Where do I look to change something?": a table (`.table-wrap > table`) with one row for
   each `Where to look` line. A row gives the task in words, the path and the cite. Omit the section
   when `Where to look` is `none found`.
-- `#terms`: the glossary of `page.md` (`section#terms > dl.terms` of "Fill the template").
+- `#terms`: the glossary of `page.md` (`section#terms > dl.terms` of "Fill the template"). It defines
+  each event-sourcing term that the page uses. Examples are aggregate, event store, stream, projection
+  and saga.
 - `Not covered` in the footer: each `Not covered` line of the map, and each `not traced` entry point
   with its reason.
-- The nav has a link for each of `#run`, `#conventions` and `#where` that the page has.
+- The nav has a link for each of `#run`, `#events`, `#conventions` and `#where` that the page has.
 - Every section holds at least one `<cite>`, because the subject is a directory. The cites are the
   lines of the map, copied. `cite_check.py` checks them again on the page.
 - Each `.mmd` file is the fenced block of the map, copied verbatim.
@@ -369,7 +450,9 @@ These rules replace or add to the rules of those sections:
 - In the tiles of step 4, also look for cut text in a diagram, an empty figure and a false picture of
   a flow.
 - Compare the `#entry` table with `inventory.txt`. Each line of the inventory that the map traces, or
-  marks `not traced`, has a row.
+  marks `not traced`, has a row. The `event` lines of the inventory have no row in `#entry`.
+- Compare the matrix of `#events` with `Events`. Each entry has a row. Each component and each outside
+  system of an `emits` or `consumes` line has a column.
 - Do the handoff of convention 6 of `SKILL.md`. Print the path. When you run for the user directly, run
   `open index.html`. Never run `open` inside a subagent.
 
@@ -381,7 +464,7 @@ rung name `onboard`).
 | Path | Holds |
 |---|---|
 | `map.md` | The onboarding map ("The map"). The source of truth of the page. |
-| `inventory.txt` | The entry points that `onboard.py inventory` found. |
+| `inventory.txt` | The entry points and the event types that `onboard.py inventory` found. |
 | `diagrams/<id>.mmd` | One Mermaid diagram, copied verbatim from a fenced block of the map. |
 | `diagrams/<id>.svg` | Its render, written by `mermaid_svg.py`. |
 | `index.html` | The onboarding page, meta `<meta name="explain-rung" content="onboard">`. |

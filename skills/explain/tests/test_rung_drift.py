@@ -51,7 +51,7 @@ SKILL.md and the README rows of the lesson rung to the files that they name.
 HtmlLangCase pins the step of "Fill the template" in page.md and sheet.md that sets the `lang` of `<html>`.
 
 OnboardRungCase ties rungs/onboard.md to scripts/onboard.py: the six level-2 titles (ONBOARD_TITLES), the kinds
-table to the keys of PATTERNS, the map skeleton to TITLES, the prefix table to the seven failure prefixes of
+table to the keys of PATTERNS, the map skeleton to TITLES, the prefix table to the twelve failure prefixes of
 `check`, the section plan of spec 9.1, the page-rung overrides and the output directory; the file lints clean."""
 
 import ast
@@ -1037,19 +1037,25 @@ class OnboardRungCase(unittest.TestCase):
         kinds = limits_table(ONBOARD_MD, "| Kind | Finds |")
         self.assertEqual(list(kinds), ["`http`", "`listener`", "`route`", "`schedule`", "`main`", "`event`"])
         self.assertEqual(list(kinds), ["`%s`" % kind for kind in onboard.PATTERNS])
+        # The event kind is last, and it is not an entry kind (spec 16.4): five entry kinds, one declaration kind.
+        self.assertEqual(list(kinds)[:-1], ["`%s`" % kind for kind in onboard.ENTRY_KINDS])
+        self.assertEqual(len(onboard.ENTRY_KINDS), 5)
+        self.assertIn("A hit of this kind is a declaration, not an entry point.", kinds["`event`"])
+        self.assert_phrases("Explore the service", (
+            "finds entry points of five kinds and event types of one kind.",))
         for kind, finds in kinds.items():
             with self.subTest(kind=kind):
                 self.assertTrue(finds)
                 self.assertNotIn("\\", finds)
 
-    def test_explore_holds_the_eight_rules_in_order(self):
-        """Red when a rule of spec 5 or 15 is gone, out of order or not numbered, the words of onboard.SHAPE_KEYS,
+    def test_explore_holds_the_nine_rules_in_order(self):
+        """Red when a rule of spec 5, 15 or 16 is gone, out of order or not numbered, the words of onboard.SHAPE_KEYS,
         onboard.CONVENTION_TOPICS or the `add-<kind>` keys of onboard.WHERE_ENTRY_KINDS are not the head of a bullet of the rules,
         or the flow rules lose the decision node, the 25-node cap, the stage split or the `see <flow-id>` node."""
         text = section(read(ONBOARD_MD), "Explore the service")
         rules = re.findall(r"^(\d+)\. (.*)", text, re.M)
-        self.assertEqual([number for number, _ in rules], ["1", "2", "3", "4", "5", "6", "7", "8"])
-        starts = ("Shape first", "Inventory", "Architecture", "Flows", "State", "Formats and transforms",
+        self.assertEqual([number for number, _ in rules], ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+        starts = ("Shape first", "Inventory", "Architecture", "Flows", "State", "Events", "Formats and transforms",
                   "Conventions and where to look", "Not covered")
         for (number, rule), start in zip(rules, starts):
             with self.subTest(rule=number):
@@ -1069,6 +1075,12 @@ class OnboardRungCase(unittest.TestCase):
         for key in keys:
             with self.subTest(bullet=key):
                 self.assertTrue(re.search(r"^\s*- `%s`:" % re.escape(key), text, re.M), key)
+        # Rule 6 of spec 16.2: the event rule names what to look for and where the inventory stops.
+        self.assert_phrases("Explore the service", (
+            "6. Events. Find each event of the service", "`@EventSourcingHandler`", "`@SagaEventHandler`",
+            "`AggregateLifecycle.apply`", "`publishEvent`", "A service with no events writes `none found`.",
+            "Each must be the cite of a `type` line, of a `payload` line or of a `not an event` line.",
+            "A flow node that emits or consumes an event names the event, verbatim, in its fact."))
 
     def test_the_map_skeleton_lists_the_titles_of_onboard_py(self):
         """Red when the skeleton of "The map" loses its four-backtick fence or its title line, or drops, adds,
@@ -1078,12 +1090,16 @@ class OnboardRungCase(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("## ")], ["## " + t for t in onboard.TITLES])
         self.assertIn("### <flow-id>: <question>", lines)
         self.assertIn("### <event-name>", lines)
+        self.assertIn("- not an event: `<Name>`: <reason> | <path>:<line> | <snippet>", lines)
+        for key in onboard.EVENT_KEYS:  # each key of an event entry is a skeleton line of its own
+            with self.subTest(event_key=key):
+                self.assertTrue(any(line.startswith("- %s: " % key) for line in lines), key)
         self.assertIn("- <key>: <fact> | <path>:<line> | <snippet>", lines)
         self.assertEqual(len(onboard.TITLES), 13)
 
     def test_the_map_runs_the_check_and_names_its_prefixes(self):
         """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or
-        reorders one of the ten prefixes of spec 7."""
+        reorders one of the twelve prefixes of spec 7 and 16.3."""
         self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt",
                                         "onboard: ok", "onboard: <n> failures",
                                         "The path is relative to `<root>`, and it is the first text in backticks of "
@@ -1092,21 +1108,47 @@ class OnboardRungCase(unittest.TestCase):
                                         ", ".join("`%s`" % kind for kind in onboard.ENTRY_KINDS[:-1])
                                         + " or `%s`." % onboard.ENTRY_KINDS[-1]))
         prefixes = limits_table(ONBOARD_MD, "| Prefix | Meaning |")
-        starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`inventory ", "`shape", "`conventions",
-                  "`where", "`map: cannot read")
-        self.assertEqual(len(prefixes), 10, list(prefixes))
+        starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`event ", "`events ", "`inventory ",
+                  "`shape", "`conventions", "`where", "`map: cannot read")
+        self.assertEqual(len(prefixes), 12, list(prefixes))
         for key, start in zip(prefixes, starts):
             with self.subTest(prefix=start):
                 self.assertTrue(key.startswith(start), key)
         entry = next(key for key in prefixes if key.startswith("`entry "))
         self.assertIn("`entry #<n>: unknown kind <kind>`", entry)
+        # Spec 16.3: the seven `event` forms, the dismissal form and the inventory form of the Events floor.
+        event = next(key for key in prefixes if key.startswith("`event "))
+        for form in ("`event <name>: twice`", "`event <name>: missing <key>`", "`event <name>: <key> twice`",
+                     "`event <name> #<n>: unknown key <key>`", "`event <name> #<n>: no component in backticks`",
+                     "`event <name> #<n>: flow <id> not in Flows`", "`event <name>: none found beside a line`"):
+            with self.subTest(form=form):
+                self.assertIn(form, event)
+        self.assertIn("`events #<n>: not a dismissal`", next(key for key in prefixes if key.startswith("`events ")))
+        inventory = next(key for key in prefixes if key.startswith("`inventory "))
+        self.assertIn("`inventory <path>:<line>: not in Entry points`", inventory)
+        self.assertIn("`inventory <path>:<line>: not in Events`", inventory)
+
+    def test_the_map_names_the_format_rules_of_the_events_section(self):
+        """Red when "The map" loses a format rule of spec 16.3: the five keys as bullet heads, the verbatim name and
+        its slug, the cite of `type` (with the framework event), `payload`, `in-process`, the three forms of
+        `emits` and `consumes` with `outside:` and `ignores:`, or `none found` with no cite."""
+        text = section(read(ONBOARD_MD), "The map")
+        for key in onboard.EVENT_KEYS:
+            with self.subTest(bullet=key):
+                self.assertTrue(re.search(r"^\s*- `%s`" % re.escape(key), text, re.M), key)
+        self.assert_phrases("The map", (
+            "exactly as the code writes it", "`event-<slug>`", "each run of characters outside `[a-z0-9]` with `-`",
+            "`ApplicationReadyEvent`", "the first line under the root that names it", "`in-process`",
+            "`outside: <system> `<handle>``", "(`outside: Spring Boot `SpringApplication``)",
+            "`ignores:`", "`(C)`", "-> <flow-id>", "`none found`, with no cite", "unique in the section",
+            "`Events` with `none found` holds no entry"))
 
     def test_plan_the_sections_follows_spec_9_1(self):
         """Red when "Plan the sections" loses a section id (`#run`, `#conventions` and `#where` of spec 15.4
         too), the `figure.code` of a command, the rule that omits an empty `#conventions` or `#where`, a diagram file, the never-merge rule, the footer, the cite rule
         or the rule that drops the clip line."""
         self.assert_phrases("Plan the sections", (
-            "#whole", "#entry", "flow-<flow-id>", "#state", "#formats", "#config", "#errors", "#systems", "#terms",
+            "#whole", "#entry", "flow-<flow-id>", "#state", "#events", "#formats", "#config", "#errors", "#systems", "#terms",
             "`figure.code`", ".table-wrap > table", "diagrams/architecture.mmd",
             "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
             "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
@@ -1114,6 +1156,7 @@ class OnboardRungCase(unittest.TestCase):
         # A section id is also named in other sentences, so the test reads the start of each bullet and the order.
         text = self.words("Plan the sections")
         starts = ('- `#whole`, "What is', '- `#run`, "How do I build, test and run it?"', '- `#entry`, "Where does',
+                  '- `#state`, "Which states', '- `#events`, "Which events move through',
                   '- `#formats`, `#config`', '- `#conventions`, "How is the code written?"',
                   '- `#where`, "Where do I look to change something?"', '- `#terms`:')
         for start in starts:
@@ -1127,7 +1170,13 @@ class OnboardRungCase(unittest.TestCase):
                        "A `div.cites` after the table holds the cites of these lines",
                        "A `div.cites` after the figure holds the cite of the command",
                        "Omit the section when each `Conventions` line is `none found`",
-                       "Omit the section when `Where to look` is `none found`"):
+                       "Omit the section when `Where to look` is `none found`",
+                       # spec 16.5: the matrix, its marks and links, the gaps column, the details and the cites
+                       ".table-wrap > table.matrix", "`E` (emits), `C` (consumes) or both", "`(C)`",
+                       "a link to `#flow-<flow-id>`", "`title`", "gaps", "`details.walk`", "`event-<slug>`",
+                       "`div.cites` after the table", "Omit the section when `Events` has no entry",
+                       "The nav has a link for each of `#run`, `#events`, `#conventions` and `#where`",
+                       "aggregate, event store, stream, projection and saga"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 
