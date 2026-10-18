@@ -39,6 +39,7 @@ from unittest import mock
 
 from tests.bpmn_page import FIXTURES, bpmn_page
 from tests.mermaid_page import FIXTURES as MERMAID_FIXTURES, mermaid_page
+from tests.onboard_page import FIXTURES as ONBOARD_FIXTURES, onboard_page
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -756,6 +757,49 @@ class PageGuardTest(unittest.TestCase):
         self.assertGreater(int(re.search(r'\swidth="(\d+)"', root.group(0)).group(1)), 700)
         proc = self.verify(str(page))
         self.assertTrue(set(RENDER_OK) <= set(proc.stdout.splitlines()), proc.stdout + proc.stderr)
+
+    def test_matrix_rules_exist_and_keep_the_floor(self):
+        """Red: table.matrix is gone from the template, its first column does not stick to the left edge on
+        the page background, its marks are not centered, or a matrix rule sets a font-size under 14 px."""
+        rules = {sel: " ".join(body.split()) for sel, body in style_rules(self.template)}
+        self.assertIn("position: sticky", rules["table.matrix td:first-child, table.matrix th:first-child"])
+        self.assertIn("left: 0", rules["table.matrix td:first-child, table.matrix th:first-child"])
+        self.assertIn("background: var(--bg)", rules["table.matrix td:first-child, table.matrix th:first-child"])
+        self.assertIn("text-align: center", rules["table.matrix td"])
+        self.assertIn("text-align: center", rules["table.matrix th"])
+        self.assertNotIn("nowrap", rules["table.matrix th"])   # a header cell may wrap
+        for selector, body in rules.items():
+            if "matrix" in selector:
+                for size in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", body):
+                    self.assertGreaterEqual(float(size), 14, selector)
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_onboard_events_section_passes_the_guard_without_page_hscroll(self):
+        """Red: the onboard fixture page has no #events section with a table.matrix, a mark link, a (C) mark,
+        a details.walk with id event-<slug> and a div.cites; or a wider matrix (six components) widens the
+        500 px page instead of scrolling inside .table-wrap."""
+        section = (ONBOARD_FIXTURES / "section.html").read_text(encoding="utf-8")
+        events = re.search(r'<section id="events">(.*?)</section>', section, re.S)
+        self.assertTrue(events, "no #events section in the onboard fixture")
+        body = events.group(1)
+        self.assertIn('<div class="table-wrap">\n    <table class="matrix">', body)
+        self.assertRegex(body, r'<a href="#flow-order"[^>]*title="[^"]+">E</a>')
+        self.assertIn(">(C)<", body)
+        self.assertRegex(body, r'<details class="walk" id="event-[a-z0-9-]+">')
+        self.assertRegex(body, r'<div class="cites">\s*<cite data-path="diagrams/order.mmd"')
+        for slug in re.findall(r'<a href="#(event-[a-z0-9-]+)"', body):
+            self.assertIn('id="%s"' % slug, body)
+        self.assertEqual(body.count("<tr>") - 1, body.count('<details class="walk"'))
+        wide = self.edit(section, "<th><code>OrderProjection</code></th>",
+                         "<th><code>OrderProjection</code></th>" + "".join(
+            "<th>Wide component %d</th>" % n for n in range(6)))
+        wide = wide.replace("</tr>", "<td></td>" * 6 + "</tr>")
+        for html in (section, wide):
+            page = onboard_page(Path(self.work), html)
+            self.assertIn('<a href="#events">Events</a>', page.read_text(encoding="utf-8"))
+            self.inline_mermaid(page)
+            proc = self.verify(str(page))
+            self.assertTrue(set(RENDER_OK) <= set(proc.stdout.splitlines()), proc.stdout + proc.stderr)
 
     def test_script_budget_at_most_200_lines(self):
         self.assertLessEqual(script_lines(self.template), SCRIPT_BUDGET)

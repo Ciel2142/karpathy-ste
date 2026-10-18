@@ -12,7 +12,7 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "onboard-page"
 PAGE_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "page.html"
-NAV = (("entry", "Entry"), ("flow-order", "Order"))  # (section id, nav text), in page order
+NAV = (("entry", "Entry"), ("flow-order", "Order"), ("events", "Events"))  # (section id, nav text), in page order
 MMD = "order.mmd"
 
 
