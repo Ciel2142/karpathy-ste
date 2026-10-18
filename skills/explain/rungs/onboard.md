@@ -273,8 +273,9 @@ give the format:
   run of characters outside `[a-z0-9]` with `-`. Remove a `-` at the start and at the end.
 - `type` is necessary, once. Its cite is the line that declares the name. That line is the class or
   record, or the constant or string that holds the routing key or the event type. The code of a framework
-  event is outside `<root>`. An example is `ApplicationReadyEvent`. Then the cite is the first line under
-  the root that names it, and the fact says where the type comes from.
+  event is outside `<root>`. An example is `ApplicationReadyEvent`. Then the cite is the first line of
+  source code under the root that names it. A line of a document is not a cite for this. The fact says
+  where the type comes from.
 - `payload` is optional, once. Use it when the name is not the payload class. An example is a routing key
   that carries `BoxEvent`. Its cite is the declaration of the payload class. When the name is the class,
   write no `payload` line.
@@ -396,13 +397,16 @@ sections.
     that carry the main flows;
   - one sentence that explains the matrix: `E`, `C` and the links;
   - the matrix, a table (`.table-wrap > table.matrix`). It has one row for each entry of `Events`, in map
-    order. The first cell holds the event name in `<code>`, as a link to the detail of the event. It has
-    one column for each component and each outside system, in the order of their first appearance in the
-    map. A cell holds `E` (emits), `C` (consumes) or both. A cell with no line is empty. A consume with
-    `ignores:` shows `(C)`;
+    order. The first cell holds the event name in `<code>`, as a link to the detail of the event. Write a
+    `<wbr>` after each `.` and each `-` of the name, so that a long routing key breaks only at these
+    marks. It has one column for each component and each outside system, in the order of their first
+    appearance in the map. The header of such a column is vertical (the template sets it), so each mark
+    column is narrow. A cell holds `E` (emits), `C` (consumes) or both. A cell with no line is empty. A
+    consume with `ignores:` shows `(C)`;
   - the marks: each `E` or `C` is a link to `#flow-<flow-id>` when its line has a flow id. Else it is plain
     text. Each mark has a `title` with the full sentence, for example "`OrderAggregate` emits
-    `OrderPlaced` when ...";
+    `OrderPlaced` when ...". It has an `aria-label` with the same sentence, so that a screen reader says
+    the sentence and not only "E";
   - the gaps: a row with a `none found` line shows `none found` and the key in an extra last column,
     "gaps";
   - a `div.cites` after the table. It holds the cites of the `type` lines, so that the section holds a

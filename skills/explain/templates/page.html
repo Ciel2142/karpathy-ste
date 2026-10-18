@@ -230,18 +230,30 @@ figure.diagram figcaption { margin-top: 6px; }
 .status td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid var(--line); }
 .status td code { white-space: nowrap; }
 
-/* Matrix: rows are events, columns are components. The mark cells are centered; the first
-   column stays at the left edge while the table scrolls inside .table-wrap. A header cell may wrap. */
-table.matrix { border-collapse: collapse; }
+/* Matrix: rows are events, columns are components. The wrapper breaks out of the 72ch column
+   as figure.bpmn does (the same --bpmn-w), so a matrix of nine components fits at 1440 px. The
+   header of each mark column is vertical and reads from bottom to top (vertical-rl is the
+   fallback), so such a column is about two lines wide. The first column keeps the left edge
+   while the table scrolls inside .table-wrap; its right edge is a visible line and its cells
+   keep their own borders (the table does not collapse them). The event name breaks at a <wbr>,
+   after a "." or a "-", and the column has a cap, so that the marks stay near. */
+.table-wrap:has(> table.matrix) {
+  --bpmn-w: max(100%, min(1040px, 100vw - 64px)); width: var(--bpmn-w);
+  margin-left: calc((100% - var(--bpmn-w)) / 2);
+}
+table.matrix { border-collapse: separate; border-spacing: 0; }
 table.matrix th {
-  padding: 4px 8px; text-align: center; vertical-align: bottom; color: var(--muted); font-weight: 600;
+  padding: 4px 6px; text-align: center; vertical-align: bottom; color: var(--muted); font-weight: 600;
   border-bottom: 1.5px solid var(--ink);
 }
-table.matrix td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--line); }
-table.matrix td:first-child, table.matrix th:first-child {
-  position: sticky; left: 0; text-align: left; background: var(--bg);
+table.matrix th:not(:first-child) {
+  writing-mode: vertical-rl; writing-mode: sideways-lr; text-align: start;
 }
-table.matrix td:first-child code { white-space: nowrap; }
+table.matrix td { padding: 6px 6px; text-align: center; border-bottom: 1px solid var(--line); }
+table.matrix td:first-child, table.matrix th:first-child {
+  position: sticky; left: 0; z-index: 1; max-width: min(30ch, 45vw); text-align: left;
+  background: var(--bg); box-shadow: inset -1px 0 0 var(--line);
+}
 
 /* Footer: provenance cells. The fill and the border are on the cells, not on the
    grid, so an empty grid track shows the page background. */

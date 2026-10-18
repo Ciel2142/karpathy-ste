@@ -30,9 +30,11 @@ import io
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -760,31 +762,138 @@ class PageGuardTest(unittest.TestCase):
 
     def test_matrix_rules_exist_and_keep_the_floor(self):
         """Red: table.matrix is gone from the template, its first column does not stick to the left edge on
-        the page background, its marks are not centered, or a matrix rule sets a font-size under 14 px."""
+        the page background with a visible right edge, its mark cells are not centered, its mark headers are
+        not vertical, the wrapper does not break out of the column as figure.bpmn does, or a matrix rule sets a
+        font-size under 14 px."""
         rules = {sel: " ".join(body.split()) for sel, body in style_rules(self.template)}
-        self.assertIn("position: sticky", rules["table.matrix td:first-child, table.matrix th:first-child"])
-        self.assertIn("left: 0", rules["table.matrix td:first-child, table.matrix th:first-child"])
-        self.assertIn("background: var(--bg)", rules["table.matrix td:first-child, table.matrix th:first-child"])
+        first = rules["table.matrix td:first-child, table.matrix th:first-child"]
+        for part in ("position: sticky", "left: 0", "background: var(--bg)", "box-shadow: inset -1px 0 0 var(--line)"):
+            self.assertIn(part, first)
+        self.assertIn("max-width: min(30ch, 45vw)", first)
+        self.assertEqual(rules["table.matrix"], "border-collapse: separate; border-spacing: 0;")
         self.assertIn("text-align: center", rules["table.matrix td"])
         self.assertIn("text-align: center", rules["table.matrix th"])
-        self.assertNotIn("nowrap", rules["table.matrix th"])   # a header cell may wrap
+        self.assertIn("writing-mode: sideways-lr", rules["table.matrix th:not(:first-child)"])
+        wrap = rules[".table-wrap:has(> table.matrix)"]
+        self.assertIn("--bpmn-w: max(100%, min(1040px, 100vw - 64px))", wrap)
+        self.assertIn("width: var(--bpmn-w)", wrap)
+        self.assertIn("margin-left: calc((100% - var(--bpmn-w)) / 2)", wrap)
         for selector, body in rules.items():
             if "matrix" in selector:
                 for size in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", body):
                     self.assertGreaterEqual(float(size), 14, selector)
 
+    MEASURE = """<script>
+(function () {
+  var wrap = document.querySelector("#events .table-wrap"), table = wrap.querySelector("table.matrix");
+  var heads = table.querySelectorAll("thead th"), first = heads[0].getBoundingClientRect().width;
+  var marks = Array.prototype.slice.call(heads, 1).map(function (th) { return th.getBoundingClientRect().width; });
+  var name = table.querySelector("tbody td:first-child code").getBoundingClientRect();
+  var m = {wrapClient: wrap.clientWidth, wrapScroll: wrap.scrollWidth, table: table.getBoundingClientRect().width,
+           first: first, marks: marks, nameHeight: name.height, lineHeight: parseFloat(getComputedStyle(table.querySelector("td")).lineHeight),
+           pageClient: document.documentElement.clientWidth, pageScroll: document.documentElement.scrollWidth,
+           mode: getComputedStyle(heads[1]).writingMode};
+  document.documentElement.setAttribute("data-measure", JSON.stringify(m));
+})();
+</script>
+</body>"""
+
+    def measure(self, html, width, height=900):
+        """Dump the DOM of `html` at width x height with a script that measures the matrix of #events, and
+        return the measures as a dict (the dump of a fresh Chrome profile never exits: poll, then kill)."""
+        self.measured = getattr(self, "measured", 0) + 1
+        path = os.path.join(self.work, "measure-%d-%d.html" % (width, self.measured))
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(self.edit(html, "</body>", self.MEASURE))
+        dump = os.path.join(self.work, "measure-%d-%d.dump" % (width, self.measured))
+        with open(dump, "w", encoding="utf-8") as out:
+            proc = subprocess.Popen(
+                ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--headless=new", "--disable-gpu",
+                 "--dump-dom", "--hide-scrollbars", "--window-size=%d,%d" % (width, height),
+                 "--user-data-dir=" + os.path.join(self.tmp, "profile-%d-%d" % (width, self.measured)), "file://" + path],
+                stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            for _ in range(300):
+                text = read(dump)
+                if text.rstrip().endswith("</html>"):
+                    break
+                time.sleep(0.2)
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            subprocess.run(["pkill", "-KILL", "-f", self.tmp], capture_output=True)   # every Chrome has self.tmp
+            proc.wait()
+        found = re.search(r'data-measure="([^"]*)"', text)
+        self.assertTrue(found, "no measure in the dump")
+        return json.loads(found.group(1).replace("&quot;", '"'))
+
+    def stress_page(self, extra=0):
+        """The onboard fixture page with a service-sized matrix in #events: 21 events with long dotted routing
+        keys (a `<wbr>` after each dot and dash) and 9 components with long class names, plus `extra` more."""
+        components = ["DiadocReadinessCoordinator", "DocumentSignatureVerifier", "InboundMessageNormalizer",
+                      "OutboundRelayPublisher", "ReceiptAcknowledgementHandler", "RoutingTableProjection",
+                      "RetryScheduler", "AuditTrailWriter", "TenantQuotaGuard"]
+        components += ["ExtraComponent%d" % n for n in range(extra)]
+        head = "".join("<th><code>%s</code></th>" % name for name in components)
+        rows = []
+        for n in range(21):
+            name = "event.document.signature-verification-report" if n == 0 else "event.document.kind%d-changed" % n
+            shown = name.replace(".", ".<wbr>").replace("-", "-<wbr>")
+            cells = "".join("<td>%s</td>" % ('<span title="x emits it." aria-label="x emits it.">E</span>'
+                                              if (n + k) % 4 == 0 else "") for k in range(len(components)))
+            rows.append('<tr><td><a href="#event-%d"><code>%s</code></a></td>%s</tr>' % (n, shown, cells))
+        section = (ONBOARD_FIXTURES / "section.html").read_text(encoding="utf-8")
+        table = re.search(r'<table class="matrix">.*?</table>', section, re.S).group(0)
+        section = section.replace(table, '<table class="matrix"><thead><tr><th>Event</th>%s</tr></thead><tbody>%s</tbody></table>'
+                                  % (head, "".join(rows)))
+        page = onboard_page(Path(self.work), section)
+        return page.read_text(encoding="utf-8")
+
+    @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
+    def test_matrix_of_a_real_service_fits_at_1440_and_scrolls_inside_its_wrapper_at_500(self):
+        """Red: the matrix of 21 events and 9 components needs a scroll at 1440 px (the wrapper does not break
+        out, the mark headers are horizontal, or the first column has no cap), a mark column is wider than three
+        lines, the event name does not wrap at the <wbr>, or at 500 px the first column takes more than half the
+        viewport, a wider table (17 columns) does not scroll inside .table-wrap, or the page scrolls sideways."""
+        html = self.stress_page()
+        wide = self.measure(html, 1440)
+        self.assertLessEqual(wide["wrapScroll"], wide["wrapClient"], wide)       # no scroll at all
+        self.assertGreater(wide["wrapClient"], 726)                              # the breakout, not the column
+        self.assertEqual(wide["mode"], "sideways-lr")
+        for width in wide["marks"]:
+            self.assertLessEqual(width, 3 * wide["lineHeight"], wide)
+        self.assertLessEqual(wide["first"], wide["wrapClient"] / 2, wide)
+        self.assertGreater(wide["nameHeight"], 1.5 * wide["lineHeight"], wide)   # the long key wraps at a <wbr>
+        narrow = self.measure(html, 500)
+        self.assertLessEqual(narrow["first"], 250, narrow)
+        self.assertEqual(narrow["pageScroll"], narrow["pageClient"], narrow)     # the page does not scroll
+        more = self.measure(self.stress_page(extra=8), 500)
+        self.assertGreater(more["wrapScroll"], more["wrapClient"], more)         # the table scrolls in its wrapper
+        self.assertEqual(more["pageScroll"], more["pageClient"], more)
+
     @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
     def test_onboard_events_section_passes_the_guard_without_page_hscroll(self):
         """Red: the onboard fixture page has no #events section with a table.matrix, a mark link, a (C) mark,
-        a details.walk with id event-<slug> and a div.cites; or a wider matrix (six components) widens the
-        500 px page instead of scrolling inside .table-wrap."""
+        an E and C cell, a name with a <wbr>, an aria-label equal to the title on every mark, a details.walk
+        with id event-<slug> and a div.cites; or a wider matrix (six components) widens the 500 px page instead
+        of scrolling inside .table-wrap."""
         section = (ONBOARD_FIXTURES / "section.html").read_text(encoding="utf-8")
         events = re.search(r'<section id="events">(.*?)</section>', section, re.S)
         self.assertTrue(events, "no #events section in the onboard fixture")
         body = events.group(1)
         self.assertIn('<div class="table-wrap">\n    <table class="matrix">', body)
-        self.assertRegex(body, r'<a href="#flow-order"[^>]*title="[^"]+">E</a>')
+        self.assertRegex(body, r'<a href="#flow-order"[^>]*title="[^"]+"[^>]*>E</a>')
         self.assertIn(">(C)<", body)
+        self.assertRegex(body, r"<td><span[^>]*>E</span> <span[^>]*>C</span></td>")   # one cell with both marks
+        self.assertRegex(body, r"<code>[^<]*\.<wbr>[^<]*-<wbr>[^<]*</code>")
+        marks = re.findall(r"<(?:a|span) ([^>]*)>(?:E|C|\(C\))</(?:a|span)>", body)
+        self.assertGreaterEqual(len(marks), 8)
+        for attrs in marks:
+            title = re.search(r'title="([^"]+)"', attrs)
+            label = re.search(r'aria-label="([^"]+)"', attrs)
+            self.assertTrue(title and label and title.group(1) == label.group(1), attrs)
         self.assertRegex(body, r'<details class="walk" id="event-[a-z0-9-]+">')
         self.assertRegex(body, r'<div class="cites">\s*<cite data-path="diagrams/order.mmd"')
         for slug in re.findall(r'<a href="#(event-[a-z0-9-]+)"', body):
@@ -792,12 +901,12 @@ class PageGuardTest(unittest.TestCase):
         self.assertEqual(body.count("<tr>") - 1, body.count('<details class="walk"'))
         wide = self.edit(section, "<th><code>OrderProjection</code></th>",
                          "<th><code>OrderProjection</code></th>" + "".join(
-            "<th>Wide component %d</th>" % n for n in range(6)))
+                             "<th>Wide component %d</th>" % n for n in range(6)))
         wide = wide.replace("</tr>", "<td></td>" * 6 + "</tr>")
         for html in (section, wide):
             page = onboard_page(Path(self.work), html)
-            self.assertIn('<a href="#events">Events</a>', page.read_text(encoding="utf-8"))
             self.inline_mermaid(page)
+            self.assertIn('<a href="#events">Events</a>', page.read_text(encoding="utf-8"))
             proc = self.verify(str(page))
             self.assertTrue(set(RENDER_OK) <= set(proc.stdout.splitlines()), proc.stdout + proc.stderr)
 

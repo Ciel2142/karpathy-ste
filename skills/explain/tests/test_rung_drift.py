@@ -1138,7 +1138,7 @@ class OnboardRungCase(unittest.TestCase):
                 self.assertTrue(re.search(r"^\s*- `%s`" % re.escape(key), text, re.M), key)
         self.assert_phrases("The map", (
             "exactly as the code writes it", "`event-<slug>`", "each run of characters outside `[a-z0-9]` with `-`",
-            "`ApplicationReadyEvent`", "the first line under the root that names it", "`in-process`",
+            "`ApplicationReadyEvent`", "the first line of source code under the root that names it", "A line of a document is not a cite for this", "`in-process`",
             "`outside: <system> `<handle>``", "(`outside: Spring Boot `SpringApplication``)",
             "`ignores:`", "`(C)`", "-> <flow-id>", "`none found`, with no cite", "unique in the section",
             "`Events` with `none found` holds no entry"))
@@ -1173,7 +1173,7 @@ class OnboardRungCase(unittest.TestCase):
                        "Omit the section when `Where to look` is `none found`",
                        # spec 16.5: the matrix, its marks and links, the gaps column, the details and the cites
                        ".table-wrap > table.matrix", "`E` (emits), `C` (consumes) or both", "`(C)`",
-                       "a link to `#flow-<flow-id>`", "`title`", "gaps", "`details.walk`", "`event-<slug>`",
+                       "a link to `#flow-<flow-id>`", "`title`", "`aria-label`", "`<wbr>` after each `.` and each `-`", "gaps", "`details.walk`", "`event-<slug>`",
                        "`div.cites` after the table", "Omit the section when `Events` has no entry",
                        "The nav has a link for each of `#run`, `#events`, `#conventions` and `#where`",
                        "aggregate, event store, stream, projection and saga"):
