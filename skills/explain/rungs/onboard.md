@@ -45,15 +45,26 @@ directory.
 
 In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`.
 
-Follow these seven rules, in the order of the work. Write each fact into `map.md`, in the format of
+Follow these eight rules, in the order of the work. Write each fact into `map.md`, in the format of
 "The map".
 
-1. Shape first. Read the build files, the main config and the entry of the process. Write one fact
-   for each of these:
-   - the language and the build tool;
-   - the runtime kind: web server, consumer, scheduler, batch or library;
-   - the deploy artifact: image, jar, binary or chart;
-   - the purpose of the service, in one sentence.
+1. Shape first. Read the build files, the main config and the entry of the process. Write one
+   `Shape` line for each of these keys. A line starts with its key and a colon:
+   - `language`: the language and the build tool;
+   - `framework`: one framework or runtime library with its version, from the line that pins it. The
+     key is optional. Write one line for each library;
+   - `runtime`: the runtime kind: web server, consumer, scheduler, batch or library;
+   - `artifact`: the deploy artifact: image, jar, binary or chart;
+   - `purpose`: the purpose of the service, in one sentence;
+   - `build`: the command that builds the service;
+   - `test`: the command that runs its tests;
+   - `run`: the command that runs the service on a developer machine.
+
+   Write each key once, except `framework`. Put the command of `build`, `test` and `run` in backticks.
+   The cite is the line that defines the command. Examples are a Makefile target, a `scripts`
+   entry and a plugin line. More examples are a README line, a Dockerfile `ENTRYPOINT` and a CI job
+   line. If the source has no such command, write `- <key>: none found` with no cite. Only `build`,
+   `test` and `run` take `none found`.
 2. Inventory. Run `onboard.py inventory <service-dir> --root <root> --out inventory.txt`. It prints
    one line for each hit: `<path>:<line>`, a tab, the kind, a tab and the text of the line. It writes
    the same lines to `inventory.txt`. The last line of its output is `inventory: <n> entry points`.
@@ -96,7 +107,21 @@ Follow these seven rules, in the order of the work. Write each fact into `map.md
      list. The flows show where, and the list shows what.
    - `Other systems`: each other system that the service sends to or receives from. Give its name,
      then its handles in backticks. Examples are queue names, endpoints, artifact ids and host names.
-7. Not covered. Write one line for each directory or module of the service that you did not read, with
+7. Conventions and where to look. Write them as fact lines, each in its section of the map:
+   - `Conventions`: one line for each topic. The topics are `tests`, `errors`, `wiring` and `naming`.
+     Add a line for any other convention that a new member needs. The cite of a line is one example
+     line of the code. A topic with nothing to find is `- <topic>: none found` with no cite.
+   - `Where to look`: one line for each task of a new member. The fact part holds the path, in
+     backticks, where the task starts. The cite is one example line under that path. Write
+     these keys, each once:
+     - `add-http`, `add-listener`, `add-route` and `add-schedule`: one for each kind that has a
+       traced or a not-traced line in `Entry points`;
+     - `change-routing`: when `Routing config` is not `none found`;
+     - `add-transform`: when `Formats and transforms` is not `none found`;
+     - `add-test`: when the `test` line of `Shape` is not `none found`.
+
+     Other keys are free. A line of `Where to look` is never `none found`.
+8. Not covered. Write one line for each directory or module of the service that you did not read, with
    the reason. Thus the map tells what it does not know.
 
 These reading rules apply to each step:
@@ -128,14 +153,14 @@ YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target
 
 ## 3. The map
 
-Write the map to `map.md`. It has this skeleton. Keep the ten level-2 sections,
+Write the map to `map.md`. It has this skeleton. Keep the twelve level-2 sections,
 in this order, with these titles. Write `none found` as the one line of an empty section.
 
 ````
 # Map: <id>
 
 ## Shape
-- <fact> | <path>:<line> | <snippet>
+- <key>: <fact> | <path>:<line> | <snippet>
 
 ## Architecture
 ```mermaid
@@ -170,6 +195,12 @@ stateDiagram-v2
 ## Other systems
 - <system>: <handles> | <path>:<line> | <snippet>
 
+## Conventions
+- <topic>: <fact> | <path>:<line> | <snippet>
+
+## Where to look
+- <key>: `<path>` | <path>:<line> | <snippet>
+
 ## Not covered
 - <directory or module>: <reason>
 ````
@@ -180,6 +211,14 @@ give the format:
 - A fact line is `- <fact> | <path>:<line> | <snippet>`. `<path>` is relative to `<root>`. The snippet
   has at most 12 words, copied verbatim from that line (the cite rules of convention 2 of `SKILL.md`).
   A `Not covered` line has no cite.
+- A `Shape` line is `- <key>: <fact> | <path>:<line> | <snippet>`. The keys are those of rule 1 of
+  "Explore the service". The `build`, `test` and `run` lines hold one command in backticks, or are
+  `none found` with no cite.
+- A `Conventions` line is `- <topic>: <fact> | <path>:<line> | <snippet>`. Write a line for each of the
+  four topics of rule 7. A line for any other topic that matches `[a-z][a-z0-9_-]*` is free.
+- A `Where to look` line is `- <key>: `<path>` | <path>:<line> | <snippet>`. The path in backticks is
+  a file or a directory under `<root>`. Rule 7 of "Explore the service" gives the keys and
+  the cases for each key.
 - A node fact line starts with the node id and a colon: `- <id>: <fact> | <path>:<line> | <snippet>`.
   Each node of the diagram above it has exactly one such line. Each such line names a node of that
   diagram.
@@ -220,6 +259,9 @@ The prefix of a line tells where the fault is:
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: the path is not under the root, the line is beyond the end, the snippet is not on that line, or it has more than 12 words. |
 | `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |
 | `inventory <path>:<line>: not in Entry points` | Only with `--inventory`: an inventory line that no `Entry points` line cites. |
+| `shape: missing <key>` / `shape: <key> twice` / `shape #<n>: unknown key <key>` / `shape #<n>: no command in backticks` | The keyed `Shape` lines. |
+| `conventions: missing <topic>` / `conventions #<n>: no topic` | The `Conventions` lines. |
+| `where: missing <key>` / `where #<n>: no path in backticks` / `where #<n>: <path> not under root` | The `Where to look` lines. |
 | `map: cannot read` | The file is not Markdown with a `# Map:` title. The exit code is 2. |
 
 Each other line of the check starts with one of these prefixes too, for example
@@ -241,6 +283,10 @@ sections.
 - `#whole`, "What is <service> made of?": a lead paragraph, then the architecture diagram
   (`diagrams/architecture.mmd`). Then one paragraph for each other system and each store that the
   diagram shows.
+- `#run`, "How do I build, test and run it?": a stack table (`.table-wrap > table`) with one row for
+  each `language` and `framework` line. Then, for `build`, `test` and `run`, in this order, one
+  sentence and one `<pre>` block that holds the command alone. The sentence says what the command
+  does. A `none found` line becomes one sentence and no block. Never put a command inline in prose.
 - `#entry`, "Where does a message enter?": a table (`.table-wrap > table`) with one row for each
   `Entry points` line of the map with a flow id or a `not traced` reason. A row gives the kind, the
   name, and the flow as a link to its section, or "not traced" with the reason. The lines with
@@ -259,9 +305,14 @@ sections.
   exact rules into `details.walk`. `#errors` is a list: each retry, dead letter, timeout and error
   reply, with a link to the section of the flow where it occurs. `#systems` is a table of each system
   and its handles.
+- `#conventions`, "How is the code written?": one paragraph for each `Conventions` line, with its
+  cite. A `none found` topic is one sentence.
+- `#where`, "Where do I look to change something?": a table (`.table-wrap > table`) with one row for
+  each `Where to look` line. A row gives the task in words, the path and the cite.
 - `#terms`: the glossary of `page.md` (`section#terms > dl.terms` of "Fill the template").
 - `Not covered` in the footer: each `Not covered` line of the map, and each `not traced` entry point
   with its reason.
+- The nav has a link for each of `#run`, `#conventions` and `#where`.
 - Every section holds at least one `<cite>`, because the subject is a directory. The cites are the
   lines of the map, copied. `cite_check.py` checks them again on the page.
 - Each `.mmd` file is the fenced block of the map, copied verbatim.
