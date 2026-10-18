@@ -21,7 +21,8 @@ TREE = FIXTURES / "tree"
 GOOD = """# Map: demo
 
 ## Shape
-- Java 21 service built with Gradle | build.gradle.kts:3 | java toolchain 21
+- language: Java 21 service built with Gradle | build.gradle.kts:3 | java toolchain 21
+- build: none found
 ```text
 src/
 - main/java/demo
@@ -205,7 +206,7 @@ class ParseMapCase(unittest.TestCase):
     def test_fenced_text_block_is_not_a_diagram_and_hides_its_bullets(self):
         shape = self.doc.section("Shape")
         self.assertEqual(shape.diagrams, [])
-        self.assertEqual([f.fact for f in shape.facts], ["Java 21 service built with Gradle"])
+        self.assertEqual([f.fact for f in shape.facts], ["language: Java 21 service built with Gradle", "build: none found"])
 
     def test_flow_heading_without_an_id_keeps_the_heading(self):
         text = replace_once(GOOD, "### cancel: How is a send cancelled?", "### Order flow")
@@ -627,6 +628,42 @@ class CheckCase(unittest.TestCase):
     def test_fact_without_a_cite(self):
         self.only("cite Shape#1: no cite", edits=[(SHAPE_1, SHAPE_1.split(" | ")[0])])
 
+    def test_shape_missing_key(self):
+        self.only("shape: missing run", edits=[(line_starting("- run:") + "\n", "")])
+
+    def test_shape_unknown_key_and_old_form(self):
+        self.only("shape: missing language", "shape #1: unknown key stack", edits=[("- language:", "- stack:")])
+        old_form = SHAPE_1.replace("language: ", "")
+        self.only("shape: missing language", "shape #1: unknown key Java", edits=[(SHAPE_1, old_form)])
+
+    def test_shape_line_with_no_words_is_unknown_key_none(self):
+        self.only(
+            "shape: missing language", "shape #1: unknown key none", "cite Shape#1: no cite", edits=[(SHAPE_1, "- ")]
+        )
+
+    def test_shape_key_twice(self):
+        self.only("shape: language twice", edits=[(SHAPE_1, SHAPE_1 + "\n" + SHAPE_1)])
+        framework = line_starting("- framework:")
+        self.assertEqual(check(edits=[(framework, framework + "\n" + framework)]), OK)
+
+    def test_shape_command_needs_backticks(self):
+        build = line_starting("- build:")
+        self.only("shape #6: no command in backticks", edits=[(build, build.replace("`", ""))])
+
+    def test_shape_none_found_has_no_cite_failure(self):
+        run_line = line_starting("- run:")
+        self.assertEqual(check(edits=[(run_line, "- run: none found")]), OK)
+        shape = onboard.parse_map(GOOD).section("Shape")
+        build = next(f for f in shape.facts if f.fact.startswith("build:"))
+        self.assertIsNone(build.cite)
+
+    def test_shape_lines_come_before_cite_lines(self):
+        build = line_starting("- build:")
+        self.only(
+            "shape #6: no command in backticks", "cite Shape#1: no cite",
+            edits=[(build, build.replace("`", "")), (SHAPE_1, SHAPE_1.split(" | ")[0])],
+        )
+
     def test_not_covered_lines_need_no_cite(self):
         self.assertEqual(check(text=MAP + "- src/test: the tests are not read\n"), OK)
 
@@ -673,7 +710,8 @@ class CheckCase(unittest.TestCase):
     def test_inventory_matched_elsewhere_still_fails(self):
         path, _ = self.inventory_out()
         cite = GET_ENTRY.split(" | ", 1)[1]
-        moved = [(GET_ENTRY + "\n", ""), (SHAPE_1 + "\n", SHAPE_1 + "\n- serves one order by id | %s\n" % cite)]
+        formats = line_starting("- order bodies")
+        moved = [(GET_ENTRY + "\n", ""), (formats + "\n", formats + "\n- serves one order by id | %s\n" % cite)]
         self.only("inventory %s: not in Entry points" % GET_ENTRY.split(" | ")[1], edits=moved, inventory=path)
 
     def test_every_fault_is_listed_before_the_summary(self):

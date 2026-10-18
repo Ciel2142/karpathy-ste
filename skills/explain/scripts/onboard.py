@@ -34,6 +34,9 @@ TITLES = (
     "Other systems",
     "Not covered",
 )
+SHAPE_KEYS = ("language", "framework", "runtime", "artifact", "purpose", "build", "test", "run")
+SHAPE_REQUIRED = ("language", "runtime", "artifact", "purpose", "build", "test", "run")
+SHAPE_COMMANDS = ("build", "test", "run")
 NONE_FOUND = "none found"
 ID = re.compile(r"[a-z][a-z0-9_-]*")
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -532,6 +535,36 @@ def _handle_lines(doc: MapDoc) -> list[str]:
     return ["fact Other systems#%d: no handle in backticks" % f.n for f in facts if not HANDLE.search(f.fact)]
 
 
+def keyed(fact: Fact) -> tuple[str | None, str]:
+    """(key, rest) of a `<key>: <rest>` fact whose head is one token; (None, fact) when it has no such head."""
+    head, colon, rest = fact.fact.partition(":")
+    if colon and TOKEN.fullmatch(head):
+        return head, rest.strip()
+    return None, fact.fact
+
+
+def none_found(fact: Fact) -> bool:
+    """Whether a fact is `<key>: none found`."""
+    key, rest = keyed(fact)
+    return key is not None and rest == NONE_FOUND
+
+
+def _shape_lines(doc: MapDoc) -> list[str]:
+    """The `shape` lines: missing required keys, repeated keys, then per fact an unknown key or a command
+    without a handle in backticks."""
+    facts = [(fact, *keyed(fact)) for fact in _facts(doc, "Shape")]
+    keys = [key for _, key, _ in facts]
+    lines = ["shape: missing %s" % key for key in SHAPE_REQUIRED if key not in keys]
+    lines.extend("shape: %s twice" % key for key in SHAPE_KEYS if key != "framework" and keys.count(key) > 1)
+    for fact, key, rest in facts:
+        if key not in SHAPE_KEYS:
+            word = key or (fact.fact.split() or ["none"])[0]
+            lines.append("shape #%d: unknown key %s" % (fact.n, word))
+        elif key in SHAPE_COMMANDS and rest != NONE_FOUND and not HANDLE.search(rest):
+            lines.append("shape #%d: no command in backticks" % fact.n)
+    return lines
+
+
 def _cite_scopes(doc: MapDoc) -> list[tuple[str, list[Fact]]]:
     """(scope, facts) in canonical section order, each flow after the Flows facts; `Not covered` has no cites."""
     scopes = []
@@ -548,6 +581,8 @@ def _cite_lines(doc: MapDoc, root: str) -> list[str]:
     lines = []
     for scope, facts in _cite_scopes(doc):
         for fact in facts:
+            if scope == "Shape" and none_found(fact):
+                continue
             problems = ["no cite"] if fact.cite is None else cite_check.fact_problems(*fact.cite, root)
             lines.extend("cite %s#%d: %s" % (scope, fact.n, problem) for problem in problems)
     return lines
@@ -562,11 +597,11 @@ def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
 
 def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
     """The failure lines of a map, in order: sections, each place (architecture, the flows, state), entry
-    lines, Other systems handles, cites, then the inventory lines that no entry line cites."""
+    lines, Other systems handles, Shape keys, cites, then the inventory lines that no entry line cites."""
     lines = _section_lines(doc)
     for where, scope, needs in _places(doc):
         lines.extend(_place_lines(where, scope, needs))
-    lines.extend(_entry_lines(doc) + _handle_lines(doc) + _cite_lines(doc, root))
+    lines.extend(_entry_lines(doc) + _handle_lines(doc) + _shape_lines(doc) + _cite_lines(doc, root))
     return lines + _unlisted_lines(doc, inventory or [])
 
 

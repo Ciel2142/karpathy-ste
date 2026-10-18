@@ -1,10 +1,14 @@
 # Map: shop
 
 ## Shape
-- Java and Kotlin service built with Gradle Kotlin DSL | build.gradle.kts:2 | java
-- runs as one Spring Boot application | src/main/java/shop/ShopApplication.java:9 | SpringApplication.run(ShopApplication.class, args);
-- deploys as the Spring Boot jar of shop.ShopApplication | build.gradle.kts:7 | mainClass.set("shop.ShopApplication")
-- takes orders over HTTP, charges them and announces them on Kafka | src/main/java/shop/OrderController.java:7 | @RequestMapping("/orders")
+- language: Java and Kotlin service built with Gradle Kotlin DSL | build.gradle.kts:2 | java
+- framework: Spring Boot 3.3.0 | build.gradle.kts:3 | id("org.springframework.boot") version "3.3.0"
+- runtime: runs as one Spring Boot application | src/main/java/shop/ShopApplication.java:9 | SpringApplication.run(ShopApplication.class, args);
+- artifact: deploys as the Spring Boot jar of shop.ShopApplication | build.gradle.kts:7 | mainClass.set("shop.ShopApplication")
+- purpose: takes orders over HTTP, charges them and announces them on Kafka | src/main/java/shop/OrderController.java:7 | @RequestMapping("/orders")
+- build: `./gradlew build` | build.gradle.kts:1 | plugins {
+- test: `./gradlew test` | build.gradle.kts:2 | java
+- run: `./gradlew bootRun` | build.gradle.kts:7 | mainClass.set("shop.ShopApplication")
 
 ## Architecture
 ```mermaid
