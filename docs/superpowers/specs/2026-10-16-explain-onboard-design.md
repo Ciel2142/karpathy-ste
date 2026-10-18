@@ -681,3 +681,279 @@ sections", and `test_rung_drift.py` locks them.
 - Proof: the diadoc output of 2026-10-17 is extended by hand to the new format (keyed `Shape`, the
   two sections, the three page sections), `onboard.py check` prints `onboard: ok` and `verify.sh`
   prints all `ok`. The output stays untracked.
+
+## 16. Follow-up of 2026-10-18: events and the event matrix
+
+### 16.1 Problem and intent
+
+The user onboarded to a new service that "entirely follows event stream/store pattern". The
+onboarding page "gave some high level flow but didn't provide names of said events": the reader
+could not take an event name seen in a log, a topic or a table and find who emits it, what it
+carries, where it is stored and who reacts to it. That page came from an older version of the rung,
+but the current rules have the same gap: nothing asks for events by name. The diadoc map of
+2026-10-17 names its routing keys only because they happened to sit in `Routing config` and in the
+flow labels; no section lists them, and no line says which component emits or consumes each one.
+
+The intent: for an event-based service, the map holds one entry for each event with its exact name,
+and the page has a matrix, one row per event and one column per component, that lets the reader
+follow an event across the service by clicking.
+
+The user agreed to the playback below and gave no further detail ("ok"). Every other call is the
+author's and is listed in 16.8.
+
+Goals:
+
+- Each event of the service is named in the map, verbatim as the code names it (a class, a record, a
+  routing key, a stream or event-type string), with a cite of the line that declares the name.
+- For each event: its payload type, where it goes (event store stream, topic, exchange or
+  in-process), each component that emits it and each component that consumes it, each with a cite.
+  An aggregate that rebuilds its state from the event counts as a consumer.
+- A gap is visible, never silent: an event emitted or consumed outside the repository says so and
+  names the handle; an event with no consumer in the repository says `none found`.
+- A mechanical floor: the inventory finds event-type declarations by pattern, and the map must name
+  or dismiss each one, as it does for entry points.
+- The page gets an `#events` section with the matrix. Each mark in the matrix links to the flow
+  section where that emit or that consume happens, so the reader follows an event by clicking.
+
+Non-goals:
+
+- No matrix across repositories. The rung explores one service directory; an event that leaves
+  the repository ends in an `outside:` line. A cross-service view is a later project (the course
+  rung is the likely owner).
+- No command catalog. A command shows only as the trigger in the prose of an `emits` line.
+- No event choreography diagram generated from the map, and no new required diagram. `Architecture`
+  and the flows stay the diagrams.
+- No schema registry, Avro or protobuf parsing, and no upcaster or version tracking beyond what the
+  `type` fact says in prose.
+- No change to a map of a service with no events except one line: `## Events` with `none found`.
+
+Anti-goals (a failure even if it runs):
+
+- An event that the page names only in prose, or a flow label that holds an event name that the
+  `Events` section lacks.
+- A matrix mark with no cited line in the map behind it.
+- An event declaration that the inventory found and the map neither names nor dismisses.
+- A consumer or emitter written from a guess: every component in an `emits` or `consumes` line is
+  cited at the line that publishes, applies, appends or handles the event.
+
+### 16.2 The rule (rung file, "Explore the service")
+
+A new rule, after rule 5 "State", numbered 6; the later rules move down by one (Formats... becomes 7,
+Conventions and where to look 8, Not covered 9). Its content:
+
+- Events. Find each event of the service: a type or a name that one part publishes, appends to an
+  event store, applies, or sends to a topic or exchange, and that another part handles. Look for
+  event classes and records, `apply(`/`AggregateLifecycle.apply`, event-store appends,
+  `publishEvent`, `ApplicationEventPublisher`, Kafka and RabbitMQ sends with an event payload,
+  routing keys and event-type strings, `@EventHandler`, `@EventSourcingHandler`, `@SagaEventHandler`,
+  `@EventListener`, projection handlers and stream subscriptions. Write one entry for each event under
+  `Events`, in the format of 16.3. A service with no events writes `none found`.
+- The inventory lists event declarations as `event` hits (16.4). Each must be the cite of a `type`
+  line or of a `not an event` line.
+- A flow node that emits or consumes an event names the event, verbatim, in its fact.
+
+### 16.3 The `Events` section of the map
+
+A new level-2 section `Events`, after `State` and before `Formats and transforms`. `TITLES` has
+thirteen entries. The section holds an optional list of dismissals, then one level-3 entry for each
+event:
+
+````
+## Events
+- not an event: `<Name>`: <reason> | <path>:<line> | <snippet>
+
+### <event-name>
+- type: <what names the event, in prose with code names in backticks> | <path>:<line> | <snippet>
+- payload: <the payload type and its fields> | <path>:<line> | <snippet>
+- stream: <where it goes: the event store stream, topic, exchange or `in-process`> | <path>:<line> | <snippet>
+- emits: `<Component>` <when, in prose> [-> <flow-id>] | <path>:<line> | <snippet>
+- consumes: `<Component>` <what it does, in prose> [-> <flow-id>] | <path>:<line> | <snippet>
+````
+
+Rules:
+
+- `<event-name>` is the name exactly as the code writes it: `OrderPlaced`, `event.document.signature`,
+  `order-placed.v2`. It is unique in the section. On the page it becomes the anchor `event-<slug>`,
+  where `<slug>` is the name lowercased with each run of characters outside `[a-z0-9]` replaced by
+  `-`.
+- `type` is required, once. Its cite is the line that declares the name: the class or record
+  declaration, or the constant or string that holds the routing key or event type. When the
+  declaration is outside the root (a framework event such as Spring's `ApplicationReadyEvent`), the
+  cite is the first line under the root that names it, and the fact says where the type comes from.
+- `payload` is optional, once. It is for an event whose name is not its payload class: a routing key
+  or an event-type string that carries `BoxEvent` or a generic `DomainEvent`. Its cite is the
+  declaration of the payload class. When the name is the class, there is no `payload` line.
+- `stream` is required, once. `in-process` is a valid fact for an application event inside one
+  process.
+- `emits` and `consumes` are required, one or more each. Each line is one of three forms:
+  - a component: the first text in backticks is the component name, which becomes a matrix column.
+    The cite is the line that emits (publish, apply, append, send) or consumes (the handler method,
+    the `@EventSourcingHandler`, the subscription). An optional ` -> <flow-id>` at the end of the
+    fact part links to the flow where it happens; the flow id must exist under `Flows`.
+  - `outside: <system> `<handle>``: the event comes from, or goes to, a system outside the
+    repository. The handle is the topic, exchange or stream name; for an in-process framework event
+    it is the framework class that publishes it (`outside: Spring Boot `SpringApplication``). The cite is the line of the config
+    or code that names the handle. `<system>` becomes a matrix column.
+  - A catch-all consumer (a binding such as `event.document.*` whose `default` branch only logs and
+    acknowledges) is a `consumes` line for each key that it receives and does not handle. Its fact
+    starts with `ignores:` after the component (`- consumes: `DocumentEventConsumer` ignores: logs,
+    counts and acks`), and its cite is the `default` line. On the page the mark is `(C)`, not `C`.
+  - `none found`, with no cite: the map found no emitter or no consumer. Only one `none found` line
+    per key, and not next to another line of the same key.
+- A component name should be the name of a part in `Architecture` (its label), so the reader finds
+  it there. The check does not enforce this.
+- The cite rules of every fact line apply.
+
+The check (`scripts/onboard.py check`) adds the prefix `event`:
+
+| Line | When |
+|---|---|
+| `event <name>: twice` | Two entries have the same name. |
+| `event <name>: missing <key>` | No `type`, `stream`, `emits` or `consumes` line. |
+| `event <name>: <key> twice` | A second `type`, `payload` or `stream` line. |
+| `event <name> #<n>: unknown key <key>` | A line whose key is not one of the five, or a line with no key. |
+| `event <name> #<n>: no component in backticks` | An `emits` or `consumes` line that is not `none found` and has no text in backticks. |
+| `event <name> #<n>: flow <id> not in Flows` | A ` -> <flow-id>` that names no flow. |
+| `event <name>: none found beside a line` | A `none found` line of a key that has another line. |
+| `events #<n>: not a dismissal` | A line before the first entry that is not `not an event: ...`. |
+
+The cite lines of the entries use the scope `Events/<name>`, as the flows use `Flows/<id>`. With
+`--inventory`, each `event` hit adds `inventory <path>:<line>: not in Events` when no `type` line, no
+`payload` line and no dismissal cites its line. `Events` with `none found` has no entries and is checked for nothing
+else, but the inventory rule still applies (an event hit then needs a dismissal, so `none found`
+cannot hide a found declaration: the section holds the dismissals and no entry).
+
+`Where to look` gains the key `add-event`, required when `Events` has at least one entry: the path
+where new event types are declared.
+
+### 16.4 The inventory
+
+`onboard.py inventory` adds one kind, `event`, after the five entry kinds. An `event` hit is a
+declaration, not an entry point, so it is not one of `ENTRY_KINDS` and is not a kind of an
+`Entry points` line. The patterns:
+
+- Java and Kotlin: a class, record, interface, object or data class whose name ends in `Event`
+  (`class OrderPlacedEvent`, `record OrderPlaced...Event(`), a class that extends `ApplicationEvent`,
+  and the annotations `@DomainEvent` and `@Event` on a type.
+- Go: `type <Name>Event struct`.
+
+An annotation hit (`@DomainEvent`, `@Event`) is reported at the type declaration it annotates,
+found by a look-ahead like `_declares_type`, with the text of that declaration line. Thus one event
+gives one hit, and its line is the line that a `type` or `payload` line cites. A declaration that both
+an annotation and the name suffix match is one hit.
+
+Two patterns join the `listener` entry kind, because they are entry points of a flow: the Axon
+annotations `@EventHandler`, `@SagaEventHandler` and `@CommandHandler` (JVM), and
+`SubscribeTo\w*\(` (Go, the EventStoreDB client). `@EventSourcingHandler` is not an entry point
+(it rebuilds an aggregate); it is not in the inventory, and rule 6 lists it as a consumer.
+
+The last line of the inventory output becomes `inventory: <n> entry points, <m> event types`.
+`inventory.txt` keeps the same tab format; the kind column holds `event` for the new hits.
+
+### 16.5 The page
+
+A new section `#events`, "Which events move through <service>?", after `#state` and before the
+reference sections. It is omitted when `Events` has no entry. Its parts, in order:
+
+- A lead paragraph: how many events, where they are stored or sent, and the one or two that carry
+  the main flows.
+- The matrix: a table (`.table-wrap > table.matrix`). One row per event, in map order; the first
+  cell is the event name in `<code>`. One column per component and per outside system, in the order
+  of their first appearance in the map. A cell holds `E` (emits), `C` (consumes) or both, and is
+  empty otherwise. Each `E` or `C` is a link to the flow section of its line (`#flow-<flow-id>`)
+  when the line has a flow id, and plain text when it has none. Each mark has a `title` that says the
+  sentence in full ("`OrderAggregate` emits `OrderPlaced` when ..."). An `ignores:` consume shows
+  `(C)`. A row with a `none found`
+  key shows `none found` in an extra last column, "gaps", that names the key. A sentence above the
+  table explains `E`, `C` and the links.
+- The detail: one `details.walk` per event, with the id `event-<slug>`, after the table. Its
+  summary is the event name. It holds the payload type, the stream, and the emit and consume lines
+  in words with their cites. The event name in the first cell of the row links to it.
+- A `div.cites` after the table carries the cites of the `type` lines, so the section holds a
+  `<cite>` even when every detail is closed.
+
+`table.matrix` gets a style in `templates/page.html`: centered mark cells, a sticky first column,
+and the column headings written so a narrow screen scrolls the table, not the page. The `#entry`
+table lists the new `listener` hits like any other. The nav gets a link to `#events` when the page
+has it. The glossary defines each event-sourcing term that the page uses (aggregate, event store,
+stream, projection, saga).
+
+### 16.6 The course
+
+`course/map-task.md` names the sections of the rung file by title, so the map of a course source
+gets `Events` too. Its override line about `none found` (`Architecture`, `Flows` and `State`) adds
+`Events`. `course.py` reads only the flows, so it does not change.
+
+### 16.7 Files and tests of this follow-up
+
+- `scripts/onboard.py`: `TITLES` gains `Events` after `State` (thirteen titles); a constant of the
+  four event keys; `parse_map` reads `### <event-name>` entries under `Events` as it reads the flows
+  under `Flows`; new functions for the `event` lines and the `events` dismissal lines, called from
+  `check_map` after `_entry_lines`; `_cite_scopes` adds `Events/<name>`; `_unlisted_lines` covers
+  `event` hits; `PATTERNS` and the inventory summary as in 16.4, with `ENTRY_KINDS` excluding
+  `event`; `WHERE_KEYS` gains `add-event` with its condition.
+- `tests/test_onboard.py`: one case for each new check line and for the `none found` and `outside:`
+  forms; inventory cases for each new pattern and for the new summary line; the fixture
+  `tests/fixtures/onboard/map.md` and its `tree` gain an `Events` section with two events (one with
+  an `outside:` consumer), and the source files they cite.
+- `rungs/onboard.md`: rule 6 of "Explore the service" and the renumbering; the inventory table gains
+  the `event` row and the new `listener` patterns; the skeleton and the format rules of "The map";
+  the prefix table gains `event`, `events` and the new `inventory` form; "Plan the sections" adds
+  `#events`. `tests/test_rung_drift.py` follows: nine rules, thirteen titles, the new prefixes, the
+  `#events` id, the event keys and `add-event`.
+- `templates/page.html`: the `table.matrix` style. `tests/test_page_template.py` and the onboard
+  fixture page (`tests/onboard_page.py`, `tests/fixtures/onboard-page/section.html`) gain one small
+  matrix so the snapshot and the font guard see it.
+- `course/map-task.md`: the `none found` override line.
+- Proof: the diadoc output of 2026-10-17 is extended by hand: an `Events` section with every
+  routing key that `EventClassifier` returns (about nineteen, among them `event.document.signature`,
+  `event.document.rejection`, `event.document.revocation-request`, `event.document.nonformalized`,
+  `event.template.transformation`, `event.template.refusal`) plus `event.unknown`; the in-process
+  `DiadocAuthorizedEvent`, `DiadocDeauthorizedEvent` and `ApplicationReadyEvent`; `BoxEvent` as the
+  `payload` of the routing-key entries; `StaleEvent` named or dismissed by what the code does with
+  it; the `add-event` line; and the `#events` section of the page. `onboard.py check` prints `onboard: ok` and `verify.sh` prints all
+  `ok`. The output stays untracked.
+
+### 16.8 Calls made by the author (check these)
+
+1. One repository only. Reason: the rung explores one service directory; the user did not say
+   whether the system spans services, and `outside:` lines keep the edge visible.
+2. A matrix of events × components with `E`/`C` marks that link to the flows, plus one collapsed
+   detail per event. Reason: the user asked for "matrix or something that allows to follow such
+   systems easily"; a row follows one event, a column shows what one component touches, and the
+   links turn the matrix into a way to follow, not only to look up. The details keep the payload and
+   the cites out of the reading flow (memory: evidence on demand, not in the reading flow).
+3. `Events` is always present, `none found` when the service has no events, rather than a section
+   added only for event-based services. Reason: the check stays a fixed skeleton, and the inventory
+   rule makes `none found` impossible when a declaration is found.
+4. Event names are verbatim from the code, never normalized. Reason: the point is to search for the
+   name you see in a log or a topic.
+5. The inventory pattern for event types is a name suffix (`...Event`) plus a few annotations and
+   `ApplicationEvent`. Reason: cheap and Java/Kotlin/Go only (memory: no other ecosystems unless
+   asked); routing keys and event-type strings are not found by pattern, so rule 6 tells the explorer
+   to read for them. False hits are dismissed with a reason.
+6. `@EventHandler`, `@SagaEventHandler`, `@CommandHandler` and Go `SubscribeTo...(` become
+   `listener` entry points; `@EventSourcingHandler` does not. Reason: the first group starts a flow;
+   an event-sourcing handler only rebuilds an aggregate.
+7. No choreography diagram. Reason: with tens of events it exceeds the 25-node limit, and the matrix
+   with links carries the same information without layout work.
+8. A map written before this change fails the check (`section: missing Events`), as in 15. It is
+   rewritten, not grandfathered.
+
+After the builder check (2026-10-18), five more:
+
+9. A framework event (declared outside the root) is an entry. Its `type` cites the first line under
+   the root that names it, and its emitter is `outside:` with the framework class as the handle.
+   Reason: diadoc's readiness flow starts at `ApplicationReadyEvent`; leaving it out would break the
+   anti-goal on flow labels.
+10. The diadoc proof covers every event, not the examples of the first draft. Reason: goal 1 says
+    each event; a proof on a subset proves nothing about the floor.
+11. A new optional key `payload` holds the payload class when the event name is a routing key or a
+    type string. The inventory hit of the payload class is covered by that cite. Reason: dismissing
+    `BoxEvent` as "not an event" would put a false sentence on the page.
+12. A catch-all consumer is a `consumes ... ignores:` line for each key that it drops, shown as `(C)`.
+    Reason: it is true that the event reaches that consumer, and `(C)` keeps the reader from
+    thinking that the event is handled; `none found` would be false.
+13. An annotation hit is reported at the declaration line it annotates, and one declaration is one
+    hit. Reason: the hit and the `type` cite must be the same line, or a real event could only pass
+    with a false dismissal.
