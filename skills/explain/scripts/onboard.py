@@ -3,9 +3,9 @@
 
 Usage: onboard.py inventory <source-dir> --root <root> [--out <file>]
        onboard.py check <map.md> --root <root> [--inventory <file>]
-inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point, then
-`inventory: <n> entry points`. check prints one failure per line, then `onboard: ok` or
-`onboard: <n> failures`.
+inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point and per event
+type, then `inventory: <n> entry points, <m> event types`. check prints one failure per line, then
+`onboard: ok` or `onboard: <n> failures`.
 Exit 0 on success, 1 on failures found, 2 on a usage error or an unreadable source, map, root or
 inventory file. `map: cannot read ...` goes to stdout; every other exit-2 line goes to stderr.
 """
@@ -309,8 +309,9 @@ PATTERNS = {
     "listener": (
         _rule(JVM, r"@(Jms|Rabbit|Kafka|Sqs|Stream)Listener", r"@KafkaHandler", r"@ServiceActivator",
               r"@InboundChannelAdapter", r"@EventListener", r"@TransactionalEventListener",
-              r"@ExternalTaskSubscription", r"implements JavaDelegate", r": JavaDelegate"),
-        _rule(GO, r"\.Consume\(", r"NewReader\(", r"NewConsumer\(", r"Subscribe\("),
+              r"@ExternalTaskSubscription", r"implements JavaDelegate", r": JavaDelegate", r"@EventHandler\b",
+              r"@SagaEventHandler\b", r"@CommandHandler\b"),
+        _rule(GO, r"\.Consume\(", r"NewReader\(", r"NewConsumer\(", r"Subscribe\(", r"SubscribeTo\w*\("),
     ),
     "route": (
         _rule(JVM, r"\bfrom\(", r"routeTemplate", r"@GrpcService"),
@@ -327,8 +328,16 @@ PATTERNS = {
         _rule((".kt",), r"fun main\("),
         _rule(GO, r"func main\("),
     ),
+    # A declaration, not an entry point: the annotations `@DomainEvent` and `@Event` hit at the type they annotate.
+    "event": (
+        _rule(JVM, r"\b(?:class|record|interface|object)\s+\w*Event\b", r"\bextends ApplicationEvent\b",
+              r"@DomainEvent\b", r"@Event\b"),
+        _rule(GO, r"\btype\s+\w+Event\s+struct\b"),
+    ),
 }
-ENTRY_KINDS = tuple(PATTERNS)  # the kinds of the inventory: the first word of an `Entry points` line
+EVENT_ANNOTATIONS = ("@DomainEvent", "@Event")  # the event tokens that hit at the type declaration below them
+# The kinds of the inventory that are entry points: the first word of an `Entry points` line.
+ENTRY_KINDS = tuple(kind for kind in PATTERNS if kind != "event")
 SKIP_DIRS = frozenset({"node_modules", "target", "build", ".git", "vendor", "test", "tests"})
 SKIP_SUFFIXES = ("_test.go", "Test.java", "Test.kt", "Spec.kt")
 TEXT_MAX = 120
@@ -348,25 +357,31 @@ def squash(text: str) -> str:
     return " ".join(text.split())[:TEXT_MAX]
 
 
-def _declares_type(lines: list[str], index: int) -> bool:
-    """Whether a line after lines[index] declares a type, up to and with the first that is neither blank nor
-    starts with `@`; an annotation line such as `@Deprecated public class X {` counts."""
-    for line in lines[index + 1 :]:
-        text = line.strip()
+def _declaration_after(lines: list[str], index: int) -> int | None:
+    """The index of the line after lines[index] that declares a type, up to and with the first that is neither
+    blank nor starts with `@`; an annotation line such as `@Deprecated public class X {` counts."""
+    for number in range(index + 1, len(lines)):
+        text = lines[number].strip()
         if TYPE_DECL.match(text):
-            return True
+            return number
         if text and not text.startswith("@"):
-            return False
-    return False
+            return None
+    return None
+
+
+def _declares_type(lines: list[str], index: int) -> bool:
+    """Whether a line after lines[index] declares a type (see `_declaration_after`)."""
+    return _declaration_after(lines, index) is not None
 
 
 def _counts(token: str, lines: list[str], index: int, route_builder: bool) -> bool:
-    """Whether a rule match is an entry point: `from(` only in a RouteBuilder file, `@RequestMapping` on a method."""
+    """Whether a rule match is a hit at its own line: `from(` only in a RouteBuilder file, `@RequestMapping` on a
+    method, an event annotation never."""
     if token == "from(":
         return route_builder
     if token == "@RequestMapping":
         return not _declares_type(lines, index)
-    return True
+    return token not in EVENT_ANNOTATIONS  # an event annotation hits at its declaration, see `_annotated_events`
 
 
 def _kind_of(rules: list[tuple[str, Rule]], lines: list[str], index: int, route_builder: bool) -> str | None:
@@ -386,6 +401,21 @@ def _hit_text(lines: list[str], index: int) -> str:
     return text
 
 
+def _annotated_events(rules: list[tuple[str, Rule]], rel: str, lines: list[str], taken: set[int]) -> list[Hit]:
+    """The `event` hits of the lines that hold an event annotation: one at the type declaration that holds or
+    follows the annotation, with the text of that line; none when no type follows, or when that line is a hit."""
+    patterns = [rule.regex for kind, rule in rules if kind == "event"]
+    hits = []
+    for index, text in enumerate(lines):
+        if not any(found.group(0) in EVENT_ANNOTATIONS for regex in patterns for found in regex.finditer(text)):
+            continue
+        declared = index if TYPE_DECL.match(text.strip()) else _declaration_after(lines, index)
+        if declared is not None and declared not in taken:
+            taken.add(declared)
+            hits.append(Hit(rel, declared + 1, "event", _hit_text(lines, declared)))
+    return hits
+
+
 def scan_file(path: str, rel: str) -> list[Hit]:
     rules = [(kind, rule) for kind, group in PATTERNS.items() for rule in group if path.endswith(rule.suffixes)]
     if not rules:
@@ -402,7 +432,8 @@ def scan_file(path: str, rel: str) -> list[Hit]:
         kind = _kind_of(rules, lines, index, route_builder)
         if kind:
             hits.append(Hit(rel, index + 1, kind, _hit_text(lines, index)))
-    return hits
+    taken = {hit.line - 1 for hit in hits}
+    return sorted(hits + _annotated_events(rules, rel, lines, taken), key=lambda hit: hit.line)
 
 
 def _cannot_list(error: OSError) -> NoReturn:
@@ -445,7 +476,8 @@ class _Parser(argparse.ArgumentParser):
 
 def cmd_inventory(argv: list[str]) -> int:
     args = _Parser("source", "--out").parse_args(argv)
-    lines = [inventory_line(hit) for hit in inventory(args.source, args.root)]
+    hits = inventory(args.source, args.root)
+    lines = [inventory_line(hit) for hit in hits]
     body = "".join(line + "\n" for line in lines)
     if args.out is not None:
         try:
@@ -453,7 +485,8 @@ def cmd_inventory(argv: list[str]) -> int:
                 handle.write(body)
         except OSError as error:
             raise OnboardError("onboard: cannot write %s: %s" % (args.out, error.strerror or error), 2) from error
-    sys.stdout.write(body + "inventory: %d entry points\n" % len(lines))
+    events = sum(1 for hit in hits if hit.kind == "event")
+    sys.stdout.write(body + "inventory: %d entry points, %d event types\n" % (len(hits) - events, events))
     return 0
 
 
@@ -723,11 +756,33 @@ def _cite_lines(doc: MapDoc, root: str) -> list[str]:
     return lines
 
 
+def _event_cites(doc: MapDoc) -> set[str]:
+    """The `<path>:<line>` that a `type` or `payload` line of an Events entry or a dismissal of Events cites."""
+    section = doc.section("Events")
+    if section is None:
+        return set()
+    facts = list(section.facts)
+    for event in section.events:
+        facts.extend(fact for fact in event.facts if keyed(fact)[0] in ("type", "payload"))
+    return {"%s:%d" % fact.cite[:2] for fact in facts if fact.cite}
+
+
 def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
-    """The `inventory` lines: the `<path>:<line>` of each tabbed inventory line that no Entry points fact cites."""
-    cited = {"%s:%d" % fact.cite[:2] for fact in _facts(doc, "Entry points") if fact.cite}
-    wheres = [line.split("\t", 1)[0] for line in inventory_lines if "\t" in line]
-    return ["inventory %s: not in Entry points" % where for where in wheres if where not in cited]
+    """The `inventory` lines: the `<path>:<line>` of each tabbed inventory line that no fact cites. An `event`
+    line must be cited by a `type` or `payload` line of Events or a dismissal; any other kind by Entry points."""
+    cited_entry = {"%s:%d" % fact.cite[:2] for fact in _facts(doc, "Entry points") if fact.cite}
+    cited_event = _event_cites(doc)
+    lines = []
+    for line in inventory_lines:
+        where, tab, rest = line.partition("\t")
+        if not tab:
+            continue
+        if rest.split("\t", 1)[0] == "event":
+            if where not in cited_event:
+                lines.append("inventory %s: not in Events" % where)
+        elif where not in cited_entry:
+            lines.append("inventory %s: not in Entry points" % where)
+    return lines
 
 
 def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:

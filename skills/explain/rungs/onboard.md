@@ -70,7 +70,7 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
    cite shows that fact.
 2. Inventory. Run `onboard.py inventory <service-dir> --root <root> --out inventory.txt`. It prints
    one line for each hit: `<path>:<line>`, a tab, the kind, a tab and the text of the line. It writes
-   the same lines to `inventory.txt`. The last line of its output is `inventory: <n> entry points`.
+   the same lines to `inventory.txt`. The last line of its output is `inventory: <n> entry points, <m> event types`.
    Read each line. The map must account for each entry point of this list. The script finds patterns,
    not truth. A hit can be false, and the list can miss a real entry point. Add each entry point that
    you find when you read the code. Dismiss a false hit with a reason, as a
@@ -160,10 +160,11 @@ YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target
 | Kind | Finds |
 |---|---|
 | `http` | The Spring annotations `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping` and `@RequestMapping` on a method, the JAX-RS `@Path`, `@MessageMapping` and `@ServerEndpoint`. In Go, a router call whose first argument is a route string, and `http.HandleFunc`. |
-| `listener` | The annotations `@JmsListener`, `@RabbitListener`, `@KafkaListener`, `@KafkaHandler`, `@SqsListener`, `@StreamListener`, `@ServiceActivator`, `@InboundChannelAdapter`, `@EventListener`, `@TransactionalEventListener` and `@ExternalTaskSubscription`, and a class that implements `JavaDelegate`. In Go, the calls `Consume`, `NewReader`, `NewConsumer` and `Subscribe`. |
+| `listener` | The annotations `@JmsListener`, `@RabbitListener`, `@KafkaListener`, `@KafkaHandler`, `@SqsListener`, `@StreamListener`, `@ServiceActivator`, `@InboundChannelAdapter`, `@EventListener`, `@TransactionalEventListener`, `@ExternalTaskSubscription`, `@EventHandler`, `@SagaEventHandler` and `@CommandHandler`, and a class that implements `JavaDelegate`. In Go, the calls `Consume`, `NewReader`, `NewConsumer`, `Subscribe` and `SubscribeTo` with a suffix. |
 | `route` | A Camel `from(` in a `RouteBuilder` file, a `- from:` line of a `*.camel.yaml` or `*.camel.yml` file, a `<from uri=…>` element of an XML file, a `routeTemplate` and a `@GrpcService`. In Go, a gRPC call `Register<Service>Server(`. |
 | `schedule` | A `@Scheduled` method. In Go, a `cron.` call, `NewTicker` and `time.Tick`. |
 | `main` | `public static void main` in Java, `fun main(` in Kotlin and `func main(` in Go. |
+| `event` | A class, record, interface or object whose name ends in `Event`, a class that extends `ApplicationEvent`, and the annotations `@DomainEvent` and `@Event` on a type. In Go, a `struct` type whose name ends in `Event`. A hit of this kind is a declaration, not an entry point. |
 
 ## 3. The map
 

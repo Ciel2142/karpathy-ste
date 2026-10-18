@@ -288,6 +288,7 @@ PLANTED = [
     ("routes/stock.camel.yaml", "- from:", "route"),
     ("routes/stock.camel.yaml", "- from: {", "route"),
     ("config/camel-context.xml", '<from uri="jms:queue:legacy.in"/>', "route"),
+    (JAVA_DIR + "OrderPlacedEvent.java", "public record OrderPlacedEvent", "event"),
 ]
 
 
@@ -312,7 +313,7 @@ class InventoryCase(unittest.TestCase):
     def test_tree_lists_each_planted_entry_point_once_and_nothing_else(self):
         hits = onboard.inventory(TREE, TREE)
         expected = sorted((rel, line_of(rel, needle), kind) for rel, needle, kind in PLANTED)
-        self.assertEqual(len(expected), 18)
+        self.assertEqual(len(expected), 19)
         self.assertEqual(triples(hits), expected)
         for hit in hits:
             for skipped in ("Test.java", "_test.go", "Spec.kt", "src/test"):
@@ -362,6 +363,76 @@ class InventoryCase(unittest.TestCase):
             path.write_text('@RequestMapping("/orders")\n@Deprecated public class X {\n}\n', encoding="utf-8")
             self.assertEqual(onboard.scan_file(str(path), "X.java"), [])
 
+    def scan(self, name, source):
+        """The (line, kind, text) of each hit of a file `name` holding `source`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_text(source, encoding="utf-8")
+            return [(hit.line, hit.kind, hit.text) for hit in onboard.scan_file(str(path), name)]
+
+    def test_each_event_pattern_hits_once_with_the_kind_event(self):
+        cases = (
+            ("A.java", "public class OrderPlacedEvent {\n}\n", "public class OrderPlacedEvent {"),
+            ("A.java", "public record OrderPlacedEvent(String id) {\n}\n", "public record OrderPlacedEvent(String id) {"),
+            ("A.java", "public interface PaidEvent {\n}\n", "public interface PaidEvent {"),
+            ("A.kt", "data class StockMovedEvent(val id: String)\n", "data class StockMovedEvent(val id: String)"),
+            ("A.kt", "object ShippedEvent\n", "object ShippedEvent"),
+            ("A.java", "public class Custom extends ApplicationEvent {\n}\n", "public class Custom extends ApplicationEvent {"),
+            ("a.go", "type StockMovedEvent struct {\n}\n", "type StockMovedEvent struct {"),
+        )
+        for name, source, text in cases:
+            with self.subTest(source=source):
+                self.assertEqual(self.scan(name, source), [(1, "event", text)])
+
+    def test_each_new_listener_pattern_hits_once_with_the_kind_listener(self):
+        cases = (
+            ("A.java", "    @EventHandler\n    public void on(OrderPlaced event) {}\n", 1),
+            ("A.java", "    @SagaEventHandler(associationProperty = \"id\")\n    public void on(Paid p) {}\n", 1),
+            ("A.kt", "    @CommandHandler\n    fun handle(c: Place) {}\n", 1),
+            ("a.go", "\tsub := client.SubscribeToAll(ctx, opts)\n", 1),
+            ("a.go", "\tsub := client.SubscribeToStream(ctx, \"orders\", opts)\n", 1),
+        )
+        for name, source, line in cases:
+            with self.subTest(source=source):
+                hits = self.scan(name, source)
+                self.assertEqual([(found_line, kind) for found_line, kind, _ in hits], [(line, "listener")])
+
+    def test_names_that_only_start_with_event_and_the_sourcing_handler_are_no_hit(self):
+        cases = (
+            ("A.java", "public class EventPoller {\n}\n"),
+            ("A.java", "public class EventEnvelope {\n}\n"),
+            ("A.java", "public class OrderEventsConfig {\n}\n"),
+            ("A.java", "    @EventSourcingHandler\n    public void on(OrderPlaced event) {}\n"),
+            ("A.kt", "    @EventSourcingHandler\n    fun on(e: Paid) {}\n"),
+        )
+        for name, source in cases:
+            with self.subTest(source=source):
+                self.assertEqual(self.scan(name, source), [])
+
+    def test_event_listener_stays_a_listener_and_the_event_annotation_does_not_match_it(self):
+        source = "    @EventListener\n    public void on(Paid p) {}\n    @EventHandler\n    void h() {}\n"
+        hits = self.scan("A.java", source)
+        self.assertEqual([(line, kind) for line, kind, _ in hits], [(1, "listener"), (3, "listener")])
+
+    def test_annotation_on_its_own_line_hits_at_the_declaration_with_its_text(self):
+        for annotation in ("@DomainEvent", "@Event", '@Event(name = "placed")'):
+            with self.subTest(annotation=annotation):
+                source = "%s\n\n@Deprecated\npublic class Placed {\n}\n" % annotation
+                self.assertEqual(self.scan("A.java", source), [(4, "event", "public class Placed {")])
+
+    def test_annotation_and_name_suffix_on_one_declaration_are_one_hit(self):
+        source = "@DomainEvent\n@Event\npublic class OrderPlacedEvent {\n}\n"
+        self.assertEqual(self.scan("A.java", source), [(3, "event", "public class OrderPlacedEvent {")])
+
+    def test_annotation_and_declaration_on_one_line_are_one_hit(self):
+        source = "@DomainEvent public class Placed {\n}\n"
+        self.assertEqual(self.scan("A.java", source), [(1, "event", "@DomainEvent public class Placed {")])
+
+    def test_annotation_with_no_declaration_after_it_is_no_hit(self):
+        self.assertEqual(self.scan("A.java", "@Event\nprivate String name;\nclass Placed {\n}\n"), [])
+        self.assertEqual(self.scan("A.java", "@DomainEvent\n"), [])
+        self.assertEqual(self.scan("A.java", "@Event\n// the next class\nclass Placed {\n}\n"), [])
+
     def test_from_outside_a_route_builder_is_not_a_hit(self):
         self.assertEqual(hits_of(JAVA_DIR + "ReportQuery.java"), {})
         rel = JAVA_DIR + "ShopRoutes.java"
@@ -398,8 +469,8 @@ class InventoryCase(unittest.TestCase):
             code, stdout, stderr = run(["inventory", str(TREE), "--root", str(TREE), "--out", str(out)])
             written = out.read_text(encoding="utf-8")
         self.assertEqual(code, 0)
-        self.assertEqual(len(lines), 18)
-        self.assertEqual(stdout, "".join(line + "\n" for line in lines) + "inventory: 18 entry points\n")
+        self.assertEqual(len(lines), 19)
+        self.assertEqual(stdout, "".join(line + "\n" for line in lines) + "inventory: 18 entry points, 1 event types\n")
         self.assertEqual(written, "".join(line + "\n" for line in lines))
         self.assertEqual(stderr, "")
 
@@ -407,7 +478,7 @@ class InventoryCase(unittest.TestCase):
         code, stdout, _ = run(["inventory", str(TREE), "--root", str(TREE.parent)])
         hit_lines = [line for line in stdout.splitlines() if "\t" in line]
         self.assertEqual(code, 0)
-        self.assertEqual(len(hit_lines), 18)
+        self.assertEqual(len(hit_lines), 19)
         for line in hit_lines:
             self.assertTrue(line.startswith("tree/"), line)
 
@@ -936,9 +1007,40 @@ class CheckCase(unittest.TestCase):
             edits=[(GET_ENTRY + "\n", "")], inventory=path,
         )
 
+    def test_unnamed_event_hit_is_not_in_events_and_never_not_in_entry_points(self):
+        path, _ = self.inventory_out()
+        type_line = line_starting("- type: the record")
+        where = type_line.split(" | ")[1]
+        entry = ENTRY_1
+        self.only("inventory %s: not in Events" % where, edits=[(entry + "\n\n", "")], inventory=path)
+
+    def test_dismissal_clears_an_unnamed_event_hit(self):
+        path, _ = self.inventory_out()
+        cite = line_starting("- type: the record").split(" | ", 1)[1]
+        entry = ENTRY_1
+        dismissal = "- not an event: `OrderPlacedEvent`: a view of the record | " + cite
+        self.assertEqual(check(edits=[(entry + "\n\n", dismissal + "\n\n")], inventory=path), OK)
+
+    def test_payload_line_names_an_event_hit_as_a_type_line_does(self):
+        path, _ = self.inventory_out()
+        type_line = line_starting("- type: the record")
+        elsewhere = with_part(with_part(type_line, 1, "src/main/java/shop/Order.java:3"), 2, "public class Order {")
+        payload = "- payload: the id and the total | " + type_line.split(" | ", 1)[1]
+        self.assertEqual(check(edits=[(type_line, elsewhere + "\n" + payload)], inventory=path), OK)
+        self.only(
+            "inventory %s: not in Events" % type_line.split(" | ")[1],
+            edits=[(type_line, elsewhere)], inventory=path,
+        )
+
+    def test_events_none_found_still_reports_an_event_hit(self):
+        path, _ = self.inventory_out()
+        where = line_starting("- type: the record").split(" | ")[1]
+        edits = [(section_body("Events"), "none found\n\n")]
+        self.only("inventory %s: not in Events" % where, edits=edits, inventory=path)
+
     def test_inventory_summary_line_is_skipped(self):
         path, stdout = self.inventory_out()
-        self.assertTrue(stdout.endswith("\ninventory: 18 entry points\n"), stdout)
+        self.assertTrue(stdout.endswith("\ninventory: 18 entry points, 1 event types\n"), stdout)
         Path(path).write_text(stdout, encoding="utf-8")
         self.assertEqual(check(inventory=path), OK)
 

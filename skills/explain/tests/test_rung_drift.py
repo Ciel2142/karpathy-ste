@@ -1032,9 +1032,10 @@ class OnboardRungCase(unittest.TestCase):
         """Red when "Explore the service" loses the inventory command or its summary line, or when the kinds
         table drops, adds or reorders a kind of onboard.PATTERNS, or quotes a regular expression."""
         self.assert_phrases("Explore the service", (
-            "onboard.py inventory <service-dir> --root <root> --out inventory.txt", "inventory: <n> entry points"))
+            "onboard.py inventory <service-dir> --root <root> --out inventory.txt",
+            "inventory: <n> entry points, <m> event types"))
         kinds = limits_table(ONBOARD_MD, "| Kind | Finds |")
-        self.assertEqual(list(kinds), ["`http`", "`listener`", "`route`", "`schedule`", "`main`"])
+        self.assertEqual(list(kinds), ["`http`", "`listener`", "`route`", "`schedule`", "`main`", "`event`"])
         self.assertEqual(list(kinds), ["`%s`" % kind for kind in onboard.PATTERNS])
         for kind, finds in kinds.items():
             with self.subTest(kind=kind):
