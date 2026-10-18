@@ -52,5 +52,15 @@ none found
 ## Other systems
 - target: `sender.send` | svc-a/Handler.java:11 | sender.send(message);
 
+## Conventions
+- tests: none found
+- errors: none found
+- wiring: none found
+- naming: the class of the message path is named for its role | svc-a/Handler.java:3 | public class Handler {
+
+## Where to look
+- add-listener: `svc-a/` | svc-a/Handler.java:4 | @Listener(queue = "IN_QUEUE")
+- add-transform: `svc-a/` | svc-a/Handler.java:5 | public void receive(Message message) {
+
 ## Not covered
 none found

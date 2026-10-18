@@ -33,5 +33,14 @@ none found
 ## Other systems
 none found
 
+## Conventions
+- tests: none found
+- errors: none found
+- wiring: none found
+- naming: none found
+
+## Where to look
+- add-transform: `docs-b/` | docs-b/api.md:3 | accepts one message per call
+
 ## Not covered
 none found

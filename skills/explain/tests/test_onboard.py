@@ -73,6 +73,12 @@ none found
 ## Other systems
 - Kafka: `orders.cancel` | src/L.java:8 | @KafkaListener(topics = "orders.cancel")
 
+## Conventions
+- tests: none found
+
+## Where to look
+- add-http: `src/` | src/A.java:12 | @PostMapping
+
 ## Not covered
 - cmd/tools: generated code
 """
@@ -663,6 +669,68 @@ class CheckCase(unittest.TestCase):
             "shape #6: no command in backticks", "cite Shape#1: no cite",
             edits=[(build, build.replace("`", "")), (SHAPE_1, SHAPE_1.split(" | ")[0])],
         )
+
+    def test_shape_language_none_found_still_needs_a_cite(self):
+        self.only("cite Shape#1: no cite", edits=[(SHAPE_1, "- language: none found")])
+
+    def test_sections_now_twelve(self):
+        self.assertEqual(len(onboard.TITLES), 12)
+        self.only("section: missing Conventions", edits=[(section_text("Conventions"), "")])
+        where = section_text("Where to look")
+        moved = replace_once(MAP, where, "") + "\n" + where
+        self.only("section: Where to look out of order", text=moved)
+
+    def test_conventions_missing_topic_and_no_topic(self):
+        wiring = line_starting("- wiring:")
+        self.only("conventions: missing wiring", edits=[(wiring + "\n", "")])
+        example = "- an example | " + wiring.split(" | ", 1)[1]
+        self.only("conventions #4: no topic", edits=[(wiring, wiring + "\n" + example)])
+        upper = wiring.replace("- wiring:", "- Wiring:")
+        self.only("conventions: missing wiring", "conventions #3: no topic", edits=[(wiring, upper)])
+
+    def test_conventions_any_id_topic_is_allowed(self):
+        wiring = line_starting("- wiring:")
+        self.assertEqual(check(edits=[(wiring, wiring + "\n" + wiring.replace("- wiring:", "- logging:"))]), OK)
+
+    def test_conventions_none_found_has_no_cite_failure(self):
+        naming = line_starting("- naming:")
+        self.assertEqual(check(edits=[(naming, "- naming: none found")]), OK)
+
+    def test_where_required_keys_follow_the_map(self):
+        for key in ("add-route", "add-test"):
+            line = line_starting("- %s:" % key)
+            self.only("where: missing %s" % key, edits=[(line + "\n", "")])
+        routing = [(section_body("Routing config"), "none found\n\n"), (line_starting("- change-routing:") + "\n", "")]
+        self.assertEqual(check(edits=routing), OK)
+        test = [(line_starting("- test:"), "- test: none found"), (line_starting("- add-test:") + "\n", "")]
+        self.assertEqual(check(edits=test), OK)
+        transform = [(section_body("Formats and transforms"), "none found\n\n"),
+                     (line_starting("- add-transform:") + "\n", "")]
+        self.assertEqual(check(edits=transform), OK)
+        self.only("where: missing change-routing", edits=[(line_starting("- change-routing:") + "\n", "")])
+
+    def test_where_none_found_section_still_lists_the_required_keys(self):
+        keys = ("add-http", "add-listener", "add-route", "add-schedule", "change-routing", "add-transform", "add-test")
+        self.only(*("where: missing %s" % key for key in keys), edits=[(section_body("Where to look"), "none found\n\n")])
+
+    def test_where_none_found_line_is_not_a_fact(self):
+        http = line_starting("- add-http:")
+        self.only("where #1: no path in backticks", "cite Where to look#1: no cite", edits=[(http, "- add-http: none found")])
+
+    def test_where_not_an_entry_point_needs_no_row(self):
+        code, out, _ = check()
+        self.assertEqual(code, 0)
+        for kind in ("main", "grpc", "kafka"):
+            self.assertNotIn("add-%s" % kind, out)
+        listener = line_starting("- add-listener:")
+        self.only("where: missing add-listener", edits=[(listener + "\n", "")])
+
+    def test_where_path_in_backticks_under_root(self):
+        http = line_starting("- add-http:")
+        self.only("where #1: no path in backticks", edits=[(http, http.replace("`", ""))])
+        for path in ("nowhere/", "../", "/etc/", "src/main/java/shop/Missing.java"):
+            self.only("where #1: %s not under root" % path, edits=[(http, http.replace("src/main/java/shop/", path, 1))])
+        self.assertEqual(check(edits=[(http, http.replace("`src/main/java/shop/`", "`src/main/java/shop/OrderController.java`"))]), OK)
 
     def test_not_covered_lines_need_no_cite(self):
         self.assertEqual(check(text=MAP + "- src/test: the tests are not read\n"), OK)

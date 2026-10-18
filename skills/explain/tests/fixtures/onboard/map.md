@@ -110,5 +110,20 @@ stateDiagram-v2
 - Payments: `PaymentsClient` `payments.charge` | src/main/java/shop/OrderController.java:11 | private final PaymentsClient payments;
 - Kafka: `orders.created` `orders.cancel` | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
 
+## Conventions
+- tests: test classes sit under src/test/java in the package of the class, named <Class>Test | src/test/java/shop/OrderControllerTest.java:3 | class OrderControllerTest {
+- errors: an order over the limit is answered with a 400 through ResponseEntity | src/main/java/shop/OrderController.java:17 | return ResponseEntity.badRequest().body("over the limit");
+- wiring: a dependency is a private final field of the class | src/main/java/shop/OrderController.java:11 | private final PaymentsClient payments;
+- naming: a class is named for its role in the message path, such as Listener or Controller | src/main/java/shop/OrderListener.java:5 | public class OrderListener {
+
+## Where to look
+- add-http: `src/main/java/shop/` | src/main/java/shop/OrderController.java:14 | @PostMapping
+- add-listener: `src/main/java/shop/` | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
+- add-route: `routes/` | routes/stock.camel.yaml:1 | - from:
+- add-schedule: `src/main/kotlin/shop/` | src/main/kotlin/shop/StockJobs.kt:6 | @Scheduled(cron = "0 0 * * * *")
+- change-routing: `config/` | config/camel-context.xml:5 | <to uri="log:legacy"/>
+- add-transform: `src/main/java/shop/` | src/main/java/shop/OrderController.java:15 | @RequestBody Order order
+- add-test: `src/test/java/shop/` | src/test/java/shop/OrderControllerTest.java:3 | class OrderControllerTest {
+
 ## Not covered
 - cmd/shop-gw: the Go gateway; its entry points are listed, its flows not traced
