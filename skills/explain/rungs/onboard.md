@@ -64,7 +64,10 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
    The cite is the line that defines the command. Examples are a Makefile target, a `scripts`
    entry and a plugin line. More examples are a README line, a Dockerfile `ENTRYPOINT` and a CI job
    line. If the source has no such command, write `- <key>: none found` with no cite. Only `build`,
-   `test` and `run` take `none found`.
+   `test` and `run` take `none found`. `Shape` has no other key. Write a fact of another subject in
+   its own section. A port, a queue name or a URL goes in `Routing config`. A retry goes in
+   `Error paths`. A pipeline or a registry goes in `Other systems`. Each line holds one fact. Its
+   cite shows that fact.
 2. Inventory. Run `onboard.py inventory <service-dir> --root <root> --out inventory.txt`. It prints
    one line for each hit: `<path>:<line>`, a tab, the kind, a tab and the text of the line. It writes
    the same lines to `inventory.txt`. The last line of its output is `inventory: <n> entry points`.
@@ -120,9 +123,9 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
        each feature or for each layer.
 
      Add a line for any other convention that a new member needs.
-   - `Where to look`: one line for each task of a new member. The fact part holds the path, in
-     backticks, where the task starts. The cite is one example line under that path. Write
-     these keys, each once:
+   - `Where to look`: one line for each task of a new member. The fact part holds the path where the
+     task starts. The path is relative to `<root>`, and it is the first text in backticks of the
+     line. The cite is one example line under that path. Write these keys, each once:
      - `add-http`: when `Entry points` has an `http` line with a flow or with `not traced`;
      - `add-listener`: the same for a `listener` line;
      - `add-route`: the same for a `route` line;
@@ -227,9 +230,9 @@ give the format:
   `none found` with no cite.
 - A `Conventions` line is `- <topic>: <fact> | <path>:<line> | <snippet>`. Write a line for each of the
   four topics of rule 7. A line for any other topic that matches `[a-z][a-z0-9_-]*` is free.
-- A `Where to look` line is `- <key>: `<path>` | <path>:<line> | <snippet>`. The path in backticks is
-  a file or a directory under `<root>`. Rule 7 of "Explore the service" gives the keys and
-  the cases for each key.
+- A `Where to look` line is `- <key>: `<path>` | <path>:<line> | <snippet>`. The path is relative to
+  `<root>`, and it is the first text in backticks of the line. It is a file or a directory under
+  `<root>`. Rule 7 of "Explore the service" gives the keys and the cases for each key.
 - A node fact line starts with the node id and a colon: `- <id>: <fact> | <path>:<line> | <snippet>`.
   Each node of the diagram above it has exactly one such line. Each such line names a node of that
   diagram.
@@ -246,6 +249,8 @@ give the format:
   these three sections and applies no diagram rule to them. When a docs source documents a request
   sequence, draw it as a flow. An example is an API guide with "send, then poll". The node cites of
   that flow point to the lines of the docs.
+- The `<kind>` of an `Entry points` line is one of the five kinds of the table in "Explore the
+  service": `http`, `listener`, `route`, `schedule` or `main`.
 - An `Entry points` line ends its fact part with `-> <flow-id>`, `-> not traced: <reason>` or
   `-> not an entry point: <reason>`. Each flow id that it names exists under `Flows`. A reason is not
   empty.
@@ -268,7 +273,7 @@ The prefix of a line tells where the fault is:
 | `diagram <where>: none` / `diagram <where>: not flowchart or stateDiagram-v2` / `diagram <where>: <n> nodes, more than 25` | A diagram. `<where>` is `architecture`, `state` or the flow id. |
 | `node <where>/<id>: no fact line` / `fact <where>/<id>: not a node` / `fact <where>/<id>: two lines` | The node lines and the fact lines. |
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: the path is not under the root, the line is beyond the end, the snippet is not on that line, or it has more than 12 words. |
-| `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |
+| `entry #<n>: unknown kind <kind>` / `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |
 | `inventory <path>:<line>: not in Entry points` | Only with `--inventory`: an inventory line that no `Entry points` line cites. |
 | `shape: missing <key>` / `shape: <key> twice` / `shape #<n>: unknown key <key>` / `shape #<n>: no command in backticks` | The keyed `Shape` lines. |
 | `conventions: missing <topic>` / `conventions #<n>: no topic` | The `Conventions` lines. |
@@ -295,9 +300,12 @@ sections.
   (`diagrams/architecture.mmd`). Then one paragraph for each other system and each store that the
   diagram shows.
 - `#run`, "How do I build, test and run it?": a stack table (`.table-wrap > table`) with one row for
-  each `language` and `framework` line. A row gives the name and the version. Then, for `build`, `test` and `run`, in this order, one
-  sentence and one `<pre>` block that holds the command alone. The sentence says what the command
-  does. A `none found` line becomes one sentence that says the map found no such command, and no block. Never put a command inline in prose.
+  each `language` and `framework` line. A row gives the name and the version. A `div.cites` after the
+  table holds the cites of these lines. Then, for `build`, `test` and `run`, in this order, one
+  sentence and one `figure.code`. The `figcaption > code` of the figure holds the key (`build`, `test`
+  or `run`). Its `pre > code` holds the command alone. A `div.cites` after the figure holds the cite of
+  the command. The sentence says what the command does. A `none found` line becomes one sentence that
+  says the map found no such command, and no figure. Never put a command inline in prose.
 - `#entry`, "Where does a message enter?": a table (`.table-wrap > table`) with one row for each
   `Entry points` line of the map with a flow id or a `not traced` reason. A row gives the kind, the
   name, and the flow as a link to its section, or "not traced" with the reason. The lines with
@@ -317,13 +325,15 @@ sections.
   reply, with a link to the section of the flow where it occurs. `#systems` is a table of each system
   and its handles.
 - `#conventions`, "How is the code written?": one paragraph for each `Conventions` line, with its
-  cite. A `none found` topic is one sentence.
+  cite. A `none found` topic is one sentence. Omit the section when each `Conventions` line is
+  `none found`.
 - `#where`, "Where do I look to change something?": a table (`.table-wrap > table`) with one row for
-  each `Where to look` line. A row gives the task in words, the path and the cite.
+  each `Where to look` line. A row gives the task in words, the path and the cite. Omit the section
+  when `Where to look` is `none found`.
 - `#terms`: the glossary of `page.md` (`section#terms > dl.terms` of "Fill the template").
 - `Not covered` in the footer: each `Not covered` line of the map, and each `not traced` entry point
   with its reason.
-- The nav has a link for each of `#run`, `#conventions` and `#where`.
+- The nav has a link for each of `#run`, `#conventions` and `#where` that the page has.
 - Every section holds at least one `<cite>`, because the subject is a directory. The cites are the
   lines of the map, copied. `cite_check.py` checks them again on the page.
 - Each `.mmd` file is the fenced block of the map, copied verbatim.

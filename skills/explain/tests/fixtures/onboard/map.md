@@ -33,14 +33,14 @@ flowchart LR
 - http /metrics -> not traced: the gateway is not covered | cmd/shop-gw/main.go:13 | http.HandleFunc("/metrics", metrics)
 - listener consumer -> not traced: the gateway is not covered | cmd/shop-gw/main.go:14 | go consumer.Consume(ctx, handle)
 - schedule ticker every minute -> not traced: the gateway is not covered | cmd/shop-gw/main.go:15 | ticker := time.NewTicker(time.Minute)
-- grpc ShopServer -> not traced: the gateway is not covered | cmd/shop-gw/main.go:17 | pb.RegisterShopServer(grpcServer, &shopServer{})
+- route ShopServer -> not traced: the gateway is not covered | cmd/shop-gw/main.go:17 | pb.RegisterShopServer(grpcServer, &shopServer{})
 - route jms:queue:legacy.in -> not traced: it only logs | config/camel-context.xml:4 | <from uri="jms:queue:legacy.in"/>
 - route kafka:stock.updates -> not traced: it only logs | routes/stock.camel.yaml:1 | - from:
 - route timer:stock -> not traced: it has no steps | routes/stock.camel.yaml:5 | - from: { uri: "timer:stock" }
 - http POST /orders -> order | src/main/java/shop/OrderController.java:14 | @PostMapping
 - http GET /orders/{id} -> not traced: a plain read of one row | src/main/java/shop/OrderController.java:25 | @GetMapping("/{id}")
 - http DELETE /orders/{id} -> cancel | src/main/java/shop/OrderController.java:30 | @RequestMapping(method = RequestMethod.DELETE, path = "/{id}")
-- kafka orders.cancel -> cancel | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
+- listener orders.cancel -> cancel | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
 - main ShopApplication -> not an entry point: the Spring Boot start | src/main/java/shop/ShopApplication.java:8 | public static void main(String[] args) {
 - route jms:queue:shop.in -> not traced: it only logs | src/main/java/shop/ShopRoutes.java:8 | from("jms:queue:shop.in")
 - schedule StockJobs.refresh hourly -> not traced: stock is not covered | src/main/kotlin/shop/StockJobs.kt:6 | @Scheduled(cron = "0 0 * * * *")

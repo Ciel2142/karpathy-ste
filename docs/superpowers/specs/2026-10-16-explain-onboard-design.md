@@ -144,6 +144,9 @@ Reading rules that stay from `map-task.md`: read the source only, change nothing
 no test, cite only a line read from disk, never copy a secret into a snippet, use CodeGraph first
 when `.codegraph/` exists, `grep -rn` for a name.
 
+Section 15 adds the keyed `Shape` lines, the `Conventions` and `Where to look` sections and the
+rules of their facts; the rung file holds them as rules 1 and 7.
+
 Reading budget: the rules do not cap the lines read. They cap what leaves the map: an entry point
 in the inventory that has no line in `Entry points` fails the check. A reason to not trace a flow
 is one sentence that names the flow with the same shape ("the same path as `send`, with the
@@ -225,6 +228,8 @@ Rules of the format, which `onboard.py check` enforces (the rules of `Shape`, `C
   sequence (an API guide with "send, then poll") draws it as a flow; its node cites point to the
   lines of the docs. The check accepts `none found` in these three sections and then applies no
   diagram rule to them.
+- The `<kind>` of an `Entry points` line is one of the five kinds of the inventory (section 7):
+  `http`, `listener`, `route`, `schedule` or `main`.
 - An `Entry points` line ends its fact part with `-> <flow-id>`, `-> not traced: <reason>` or
   `-> not an entry point: <reason>`. A named flow id exists under `Flows`. A reason is not empty.
 - With `--inventory <file>`, every `<path>:<line>` of the inventory is the cite of one
@@ -269,7 +274,7 @@ root. The prefix of a line tells where the fault is:
 | `diagram <where>: none` / `diagram <where>: not flowchart or stateDiagram-v2` / `diagram <where>: <n> nodes, more than 25` | `<where>` is `architecture`, `state` or the flow id. |
 | `node <where>/<id>: no fact line` / `fact <where>/<id>: not a node` / `fact <where>/<id>: two lines` | Node and fact lines. |
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: path missing under root, line beyond the end, snippet not on that line, more than 12 words. Reuse `_cite_problems` of `course.py` (move it to `cite_check.py` if the import is awkward). |
-| `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | Entry lines. |
+| `entry #<n>: unknown kind <kind>` / `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | Entry lines. `<kind>` is the first word of the fact, or `none` when the fact is empty. |
 | `inventory <path>:<line>: not in Entry points` | Only with `--inventory`. |
 | `shape: missing <key>` / `shape: <key> twice` / `shape #<n>: unknown key <key>` / `shape #<n>: no command in backticks` | The keyed `Shape` lines (section 15). |
 | `conventions: missing <topic>` / `conventions #<n>: no topic` | The `Conventions` lines (section 15). |
@@ -392,6 +397,7 @@ subject: never merge flows to get under twelve sections.
   timeout and error reply, with a link to the flow section where it happens. `#systems` is a table
   of system and handles.
 - `#terms`: the glossary, by the page rule.
+- Section 15.4 adds `#run`, `#conventions` and `#where` to this plan.
 - `Not covered` in the footer: each `Not covered` line of the map, and each not-traced entry
   point with its reason.
 - Every section holds at least one `<cite>` (a directory subject). The cites are the map lines,
@@ -554,7 +560,9 @@ take. Four things: the commands to build, test and run the service; the framewor
 conventions of the code, each with an example; and a "where to look" table from a task to a place.
 The rest of that skill is covered by the map in a stricter form, and its starter `CLAUDE.md` output
 is out of scope. These rules extend sections 5, 6, 7 and 9.1. The ids and prefixes here are
-authoritative where the earlier sections are silent.
+authoritative where the earlier sections are silent. A map written before 2026-10-18 fails the check
+by design (`shape #<n>: unknown key`, `section: missing Conventions`). It is rewritten, not
+grandfathered.
 
 ### 15.1 `Shape` lines carry a key
 
@@ -584,6 +592,10 @@ source has no such command (a docs repository, a library with no entry), the lin
 
 A key other than `framework` that appears twice is reported as `shape: <key> twice`.
 
+`Shape` has no other key. A fact of another subject goes in its own section: a port, a queue name or
+a URL in `Routing config`, a retry in `Error paths`, a pipeline or a registry in `Other systems`.
+Each line holds one fact, and its cite shows that fact.
+
 ### 15.2 `Conventions`
 
 A new level-2 section after `Other systems`. Each line is `- <topic>: <fact> | <path>:<line> |
@@ -610,7 +622,7 @@ where that task starts, and one existing example line under that path as the cit
 
 | Key | Required when |
 |---|---|
-| `add-http`, `add-listener`, `add-route`, `add-schedule` | `Entry points` has a traced or not-traced line of that kind (`main` has no row). |
+| `add-http`, `add-listener`, `add-route`, `add-schedule` | `Entry points` has a traced or not-traced line of that kind (`main` has no row). A `not an entry point` line counts for no kind. |
 | `change-routing` | `Routing config` is not `none found`. |
 | `add-transform` | `Formats and transforms` is not `none found`. |
 | `add-test` | The `test` line of `Shape` is not `none found`. |
@@ -618,8 +630,13 @@ where that task starts, and one existing example line under that path as the cit
 
 The check: `where: missing <key>` for a required key with no line; `where #<n>: no path in
 backticks` when the fact part holds no backticked handle; `where #<n>: <path> not under root` when
-the first backticked handle, joined to the root, is not an existing file or directory. The cite rules
-apply as to every fact line.
+the first backticked handle, joined to the root, is not an existing file or directory. The path is
+relative to the root and is the first text in backticks of the line. The cite rules apply as to every
+fact line.
+
+`Entry points` gets one more check: `entry #<n>: unknown kind <kind>` when the first word of the fact
+is not one of the five kinds of the inventory (`http`, `listener`, `route`, `schedule`, `main`); an
+empty fact reports `none`. The check runs before the flow and reason checks of the same line.
 
 ### 15.4 The page
 
@@ -628,14 +645,19 @@ Three sections join the plan of section 9.1, and the nav gets a link for each:
 - `#run`, "How do I build, test and run it?", directly after `#whole`. A stack table
   (`.table-wrap > table`): one row per `language` and `framework` line, with the name and the
   version. Then, for `build`, `test` and `run` in this order, one sentence that says what the
-  command does and a `<pre>` block that holds the command alone. A `none found` line becomes one
-  sentence that says no such command was found, with no block. Commands never sit inline in
-  prose (the user's rule: code goes in a code block).
+  command does and a `figure.code` (the captioned code of `page.md`, "Fill the template"). Its
+  `figcaption > code` holds the key (`build`, `test` or `run`), and its `pre > code` holds the
+  command alone. The cites of the stack table go in a `div.cites` after the table, and the cite of
+  each command in a `div.cites` after its figure, as the page does after a paragraph. A `none found`
+  line becomes one sentence that says no such command was found, with no figure. Commands never sit
+  inline in prose (the user's rule: code goes in a code block).
 - `#conventions`, "How is the code written?", after `#systems`: one paragraph per `Conventions`
-  line, each with its cite; a `none found` topic becomes one sentence.
+  line, each with its cite; a `none found` topic becomes one sentence. The section is omitted when
+  every `Conventions` line is `none found`.
 - `#where`, "Where do I look to change something?", after `#conventions` and before `#terms`: a
   table (`.table-wrap > table`) with one row per `Where to look` line: the task in words, the
-  path, and the cite.
+  path, and the cite. The section is omitted when `Where to look` is `none found` (the rule of
+  `#state`).
 
 The answer box does not change. The rung file lists the three ids with the others in "Plan the
 sections", and `test_rung_drift.py` locks them.
@@ -643,7 +665,8 @@ sections", and `test_rung_drift.py` locks them.
 ### 15.5 Files and tests of this follow-up
 
 - `scripts/onboard.py`: `TITLES` gains `Conventions` and `Where to look` before `Not covered`;
-  `SHAPE_KEYS`, `SHAPE_REQUIRED`, `CONVENTION_TOPICS`, `WHERE_KEYS` are module constants; new
+  `SHAPE_KEYS`, `SHAPE_REQUIRED`, `CONVENTION_TOPICS`, `WHERE_ENTRY_KINDS`, `WHERE_KEYS` and
+  `ENTRY_KINDS` (the keys of `PATTERNS`) are module constants; new
   functions `_shape_lines(doc) -> list[str]`, `_convention_lines(doc) -> list[str]`,
   `_where_lines(doc, root) -> list[str]`, called from `check_map` after `_handle_lines` and before
   `_cite_lines`. `check_map` keeps its order otherwise.

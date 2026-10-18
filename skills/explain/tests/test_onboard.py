@@ -38,7 +38,7 @@ flowchart LR
 
 ## Entry points
 - http POST /send -> send | src/A.java:12 | @PostMapping
-- kafka orders.cancel -> cancel | src/L.java:8 | @KafkaListener(topics = "orders.cancel")
+- listener orders.cancel -> cancel | src/L.java:8 | @KafkaListener(topics = "orders.cancel")
 
 ## Flows
 ### send: What happens to a send?
@@ -648,7 +648,7 @@ class CheckCase(unittest.TestCase):
         )
 
     def test_shape_key_twice(self):
-        self.only("shape: language twice", edits=[(SHAPE_1, SHAPE_1 + "\n" + SHAPE_1)])
+        self.only("shape: language twice", edits=[(SHAPE_1, "\n".join([SHAPE_1] * 3))])
         framework = line_starting("- framework:")
         self.assertEqual(check(edits=[(framework, framework + "\n" + framework)]), OK)
 
@@ -718,12 +718,18 @@ class CheckCase(unittest.TestCase):
         self.only("where #1: no path in backticks", "cite Where to look#1: no cite", edits=[(http, "- add-http: none found")])
 
     def test_where_not_an_entry_point_needs_no_row(self):
-        code, out, _ = check()
-        self.assertEqual(code, 0)
-        for kind in ("main", "grpc", "kafka"):
-            self.assertNotIn("add-%s" % kind, out)
-        listener = line_starting("- add-listener:")
-        self.only("where: missing add-listener", edits=[(listener + "\n", "")])
+        """Every http line is dismissed, so Where to look needs no add-http row. Red when the check counts a
+        `not an entry point` line as an entry of its kind."""
+        http = [line for line in MAP.splitlines() if line.startswith("- http ") and " -> not an entry point:" not in line]
+        self.assertEqual(len(http), 4)
+        dismissed = []
+        for line in http:
+            head, _, rest = line.partition(" -> ")
+            dismissed.append((line, "%s -> not an entry point: dismissed | %s" % (head, rest.partition(" | ")[2])))
+        no_row = [(line_starting("- add-http:") + "\n", "")]
+        self.assertEqual(check(edits=dismissed + no_row), OK)
+        # One http line that is traced again brings the row back.
+        self.only("where: missing add-http", edits=dismissed[1:] + no_row)
 
     def test_where_path_in_backticks_under_root(self):
         http = line_starting("- add-http:")
@@ -744,6 +750,18 @@ class CheckCase(unittest.TestCase):
             "entry #1: no flow id and no reason",
             edits=[(" -> not an entry point: the start of the Go gateway process |", " |")],
         )
+
+    def test_entry_kind_is_one_of_the_five_kinds_of_the_inventory(self):
+        self.assertEqual(onboard.ENTRY_KINDS, ("http", "listener", "route", "schedule", "main"))
+        self.only("entry #13: unknown kind kafka", edits=[("- listener orders.cancel -> cancel", "- kafka orders.cancel -> cancel")])
+        self.only("entry #6: unknown kind grpc", edits=[("- route ShopServer ->", "- grpc ShopServer ->")])
+        no_kind = "-  | cmd/shop-gw/main.go:9 | func main() {"
+        self.only("entry #1: unknown kind none", "entry #1: no flow id and no reason",
+                  edits=[(line_starting("- main shop-gw"), no_kind)])
+
+    def test_where_keys_follow_the_entry_kinds(self):
+        self.assertEqual(onboard.WHERE_KEYS[:4], tuple("add-" + kind for kind in onboard.WHERE_ENTRY_KINDS))
+        self.assertEqual(onboard.WHERE_KEYS[4:], ("change-routing", "add-transform", "add-test"))
 
     def test_entry_flow_not_in_flows(self):
         self.only("entry #10: flow orders not in Flows", edits=[(" -> order |", " -> orders |")])

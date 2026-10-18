@@ -1055,10 +1055,16 @@ class OnboardRungCase(unittest.TestCase):
                 self.assertTrue(rule.startswith(start), rule)
         self.assert_phrases("Explore the service", ("decision node", "at most 25 nodes", "<flow>-<stage>",
                                                     "see <flow-id>"))
+        # Rule 1 and rule 7 of spec 15: the keys of Shape are closed, a line holds one fact, a path is a handle.
+        self.assert_phrases("Explore the service", (
+            "Only `build`, `test` and `run` take `none found`.",
+            "`Shape` has no other key.", "A port, a queue name or a URL goes in `Routing config`.",
+            "A retry goes in `Error paths`.", "A pipeline or a registry goes in `Other systems`.",
+            "Each line holds one fact. Its cite shows that fact.",
+            "The path is relative to `<root>`, and it is the first text in backticks of the line."))
         # Each key is the head of its own bullet. A bare word would also match the prose around it.
         keys = (onboard.SHAPE_KEYS + onboard.CONVENTION_TOPICS
-                + tuple("add-" + kind for kind in onboard.WHERE_ENTRY_KINDS)
-                + ("change-routing", "add-transform", "add-test"))
+                + onboard.WHERE_KEYS)
         for key in keys:
             with self.subTest(bullet=key):
                 self.assertTrue(re.search(r"^\s*- `%s`:" % re.escape(key), text, re.M), key)
@@ -1077,7 +1083,12 @@ class OnboardRungCase(unittest.TestCase):
         """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or
         reorders one of the ten prefixes of spec 7."""
         self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt",
-                                        "onboard: ok", "onboard: <n> failures"))
+                                        "onboard: ok", "onboard: <n> failures",
+                                        "The path is relative to `<root>`, and it is the first text in backticks of "
+                                        "the line.",
+                                        "The `<kind>` of an `Entry points` line is one of the five kinds of the table",
+                                        ", ".join("`%s`" % kind for kind in onboard.ENTRY_KINDS[:-1])
+                                        + " or `%s`." % onboard.ENTRY_KINDS[-1]))
         prefixes = limits_table(ONBOARD_MD, "| Prefix | Meaning |")
         starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`inventory ", "`shape", "`conventions",
                   "`where", "`map: cannot read")
@@ -1085,14 +1096,16 @@ class OnboardRungCase(unittest.TestCase):
         for key, start in zip(prefixes, starts):
             with self.subTest(prefix=start):
                 self.assertTrue(key.startswith(start), key)
+        entry = next(key for key in prefixes if key.startswith("`entry "))
+        self.assertIn("`entry #<n>: unknown kind <kind>`", entry)
 
     def test_plan_the_sections_follows_spec_9_1(self):
         """Red when "Plan the sections" loses a section id (`#run`, `#conventions` and `#where` of spec 15.4
-        too), the `<pre>` block of a command, a diagram file, the never-merge rule, the footer, the cite rule
+        too), the `figure.code` of a command, the rule that omits an empty `#conventions` or `#where`, a diagram file, the never-merge rule, the footer, the cite rule
         or the rule that drops the clip line."""
         self.assert_phrases("Plan the sections", (
             "#whole", "#entry", "flow-<flow-id>", "#state", "#formats", "#config", "#errors", "#systems", "#terms",
-            "<pre>", ".table-wrap > table", "diagrams/architecture.mmd",
+            "`figure.code`", ".table-wrap > table", "diagrams/architecture.mmd",
             "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
             "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
             "is not printed"))
@@ -1107,7 +1120,12 @@ class OnboardRungCase(unittest.TestCase):
         positions = [text.index(start) for start in starts]
         self.assertEqual(positions, sorted(positions), "the plan bullets are out of order")
         for phrase in ("one row for each `language` and `framework` line", "the name and the version",
-                       "the map found no such command", "one `<pre>` block that holds the command alone"):
+                       "the map found no such command", "one `figure.code`", "The `figcaption > code` of the figure holds",
+                       "the key (`build`, `test` or `run`)", "Its `pre > code` holds the command alone",
+                       "A `div.cites` after the table holds the cites of these lines",
+                       "A `div.cites` after the figure holds the cite of the command",
+                       "Omit the section when each `Conventions` line is `none found`",
+                       "Omit the section when `Where to look` is `none found`"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 

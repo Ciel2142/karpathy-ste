@@ -41,6 +41,7 @@ SHAPE_REQUIRED = ("language", "runtime", "artifact", "purpose", "build", "test",
 SHAPE_COMMANDS = ("build", "test", "run")
 CONVENTION_TOPICS = ("tests", "errors", "wiring", "naming")
 WHERE_ENTRY_KINDS = ("http", "listener", "route", "schedule")
+WHERE_KEYS = tuple("add-" + kind for kind in WHERE_ENTRY_KINDS) + ("change-routing", "add-transform", "add-test")
 NONE_FOUND = "none found"
 ID = re.compile(r"[a-z][a-z0-9_-]*")
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -311,6 +312,7 @@ PATTERNS = {
         _rule(GO, r"func main\("),
     ),
 }
+ENTRY_KINDS = tuple(PATTERNS)  # the kinds of the inventory: the first word of an `Entry points` line
 SKIP_DIRS = frozenset({"node_modules", "target", "build", ".git", "vendor", "test", "tests"})
 SKIP_SUFFIXES = ("_test.go", "Test.java", "Test.kt", "Spec.kt")
 TEXT_MAX = 120
@@ -519,11 +521,15 @@ def _facts(doc: MapDoc, title: str) -> list[Fact]:
 
 
 def _entry_lines(doc: MapDoc) -> list[str]:
-    """The `entry` lines: a fact part ends at its last ` -> ` with a reason or the id of a flow under Flows."""
+    """The `entry` lines: per fact an unknown kind, then a fact part that ends at its last ` -> ` with a reason
+    or the id of a flow under Flows."""
     flows = doc.section("Flows")
     idents = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
     lines = []
     for fact in _facts(doc, "Entry points"):
+        kind = (fact.fact.split() or ["none"])[0]
+        if kind not in ENTRY_KINDS:
+            lines.append("entry #%d: unknown kind %s" % (fact.n, kind))
         _, arrow, tail = fact.fact.rpartition(" -> ")
         if arrow and ID.fullmatch(tail):
             if tail not in idents:
@@ -582,22 +588,23 @@ def _convention_lines(doc: MapDoc) -> list[str]:
 
 
 def _where_required(doc: MapDoc) -> list[str]:
-    """The keys `Where to look` must hold, in a fixed order: one `add-<kind>` per entry kind with a traced or
-    not-traced `Entry points` line, then `change-routing`, `add-transform` and `add-test`."""
+    """The keys of WHERE_KEYS that `Where to look` must hold, in that order: one `add-<kind>` per entry kind with
+    a traced or not-traced `Entry points` line, `change-routing` and `add-transform` for a section that is not
+    `none found`, and `add-test` for a `test` line of `Shape` that is not `none found`."""
     kinds = set()
     for fact in _facts(doc, "Entry points"):
         _, arrow, tail = fact.fact.rpartition(" -> ")
         if arrow and (ID.fullmatch(tail) or tail.startswith("not traced:")):
             kinds.add(fact.fact.split()[0])
-    required = ["add-%s" % kind for kind in WHERE_ENTRY_KINDS if kind in kinds]
+    needed = {"add-%s" % kind for kind in kinds & set(WHERE_ENTRY_KINDS)}
     for title, key in (("Routing config", "change-routing"), ("Formats and transforms", "add-transform")):
         section = doc.section(title)
         if section is not None and not section.none_found:
-            required.append(key)
+            needed.add(key)
     tests = [fact for fact in _facts(doc, "Shape") if keyed(fact)[0] == "test"]
     if tests and not none_found(tests[0]):
-        required.append("add-test")
-    return required
+        needed.add("add-test")
+    return [key for key in WHERE_KEYS if key in needed]
 
 
 def _under_root(handle: str, root: str) -> bool:
