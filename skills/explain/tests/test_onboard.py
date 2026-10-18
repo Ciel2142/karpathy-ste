@@ -929,8 +929,22 @@ class CheckCase(unittest.TestCase):
         self.assertEqual(check(edits=transform), OK)
         self.only("where: missing change-routing", edits=[(line_starting("- change-routing:") + "\n", "")])
 
+    def test_where_add_event_is_required_when_events_has_an_entry(self):
+        """Red when `add-event` is not derived from the entries of Events, or is demanded for `none found`."""
+        add_event = line_starting("- add-event:")
+        self.only("where: missing add-event", edits=[(add_event + "\n", "")])
+        none_found = [(section_body("Events"), "none found\n\n")]
+        self.assertEqual(check(edits=none_found + [(add_event + "\n", "")]), OK)
+
+    def test_where_add_event_path_is_in_backticks_under_root(self):
+        add_event = line_starting("- add-event:")
+        self.only("where #7: no path in backticks", edits=[(add_event, add_event.replace("`", ""))])
+        self.only("where #7: nowhere/ not under root",
+                  edits=[(add_event, add_event.replace("src/main/java/shop/", "nowhere/", 1))])
+
     def test_where_none_found_section_still_lists_the_required_keys(self):
-        keys = ("add-http", "add-listener", "add-route", "add-schedule", "change-routing", "add-transform", "add-test")
+        keys = ("add-http", "add-listener", "add-route", "add-schedule", "change-routing", "add-transform", "add-event",
+                "add-test")
         self.only(*("where: missing %s" % key for key in keys), edits=[(section_body("Where to look"), "none found\n\n")])
 
     def test_where_none_found_line_is_not_a_fact(self):
@@ -981,7 +995,7 @@ class CheckCase(unittest.TestCase):
 
     def test_where_keys_follow_the_entry_kinds(self):
         self.assertEqual(onboard.WHERE_KEYS[:4], tuple("add-" + kind for kind in onboard.WHERE_ENTRY_KINDS))
-        self.assertEqual(onboard.WHERE_KEYS[4:], ("change-routing", "add-transform", "add-test"))
+        self.assertEqual(onboard.WHERE_KEYS[4:], ("change-routing", "add-transform", "add-event", "add-test"))
 
     def test_entry_flow_not_in_flows(self):
         self.only("entry #10: flow orders not in Flows", edits=[(" -> order |", " -> orders |")])

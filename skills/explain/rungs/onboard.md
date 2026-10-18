@@ -132,6 +132,7 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
      - `add-schedule`: the same for a `schedule` line. A `main` line has no key;
      - `change-routing`: when `Routing config` is not `none found`;
      - `add-transform`: when `Formats and transforms` is not `none found`;
+     - `add-event`: when `Events` has an entry. The path is the place where the code declares the event types;
      - `add-test`: when the `test` line of `Shape` is not `none found`.
 
      Other keys are free. A line of `Where to look` is never `none found`.

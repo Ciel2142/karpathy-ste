@@ -137,6 +137,7 @@ stateDiagram-v2
 - add-schedule: `src/main/kotlin/shop/` | src/main/kotlin/shop/StockJobs.kt:6 | @Scheduled(cron = "0 0 * * * *")
 - change-routing: `config/` | config/camel-context.xml:5 | <to uri="log:legacy"/>
 - add-transform: `src/main/java/shop/` | src/main/java/shop/OrderController.java:15 | @RequestBody Order order
+- add-event: `src/main/java/shop/` | src/main/java/shop/OrderPlacedEvent.java:3 | public record OrderPlacedEvent(String id, long total) {
 - add-test: `src/test/java/shop/` | src/test/java/shop/OrderControllerTest.java:3 | class OrderControllerTest {
 
 ## Not covered

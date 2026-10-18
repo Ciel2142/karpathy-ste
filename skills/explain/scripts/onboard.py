@@ -46,7 +46,7 @@ EVENT_ONCE = ("type", "payload", "stream")
 EVENT_COMPONENT_KEYS = ("emits", "consumes")  # the keys whose lines name a component or an outside system
 CONVENTION_TOPICS = ("tests", "errors", "wiring", "naming")
 WHERE_ENTRY_KINDS = ("http", "listener", "route", "schedule")
-WHERE_KEYS = tuple("add-" + kind for kind in WHERE_ENTRY_KINDS) + ("change-routing", "add-transform", "add-test")
+WHERE_KEYS = tuple("add-" + kind for kind in WHERE_ENTRY_KINDS) + ("change-routing", "add-transform", "add-event", "add-test")
 NONE_FOUND = "none found"
 ID = re.compile(r"[a-z][a-z0-9_-]*")
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -679,7 +679,8 @@ def _convention_lines(doc: MapDoc) -> list[str]:
 def _where_required(doc: MapDoc) -> list[str]:
     """The keys of WHERE_KEYS that `Where to look` must hold, in that order: one `add-<kind>` per entry kind with
     a traced or not-traced `Entry points` line, `change-routing` and `add-transform` for a section that is not
-    `none found`, and `add-test` for a `test` line of `Shape` that is not `none found`."""
+    `none found`, `add-event` for an `Events` section with an entry, and `add-test` for a `test` line of `Shape`
+    that is not `none found`."""
     kinds = set()
     for fact in _facts(doc, "Entry points"):
         _, arrow, tail = fact.fact.rpartition(" -> ")
@@ -690,6 +691,9 @@ def _where_required(doc: MapDoc) -> list[str]:
         section = doc.section(title)
         if section is not None and not section.none_found:
             needed.add(key)
+    events = doc.section("Events")
+    if events is not None and events.events:
+        needed.add("add-event")
     tests = [fact for fact in _facts(doc, "Shape") if keyed(fact)[0] == "test"]
     if tests and not none_found(tests[0]):
         needed.add("add-test")
