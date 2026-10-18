@@ -769,8 +769,8 @@ class PageGuardTest(unittest.TestCase):
         first = rules["table.matrix td:first-child, table.matrix th:first-child"]
         for part in ("position: sticky", "left: 0", "background: var(--bg)", "box-shadow: inset -1px 0 0 var(--line)"):
             self.assertIn(part, first)
-        self.assertIn("max-width: min(30ch, 45vw)", first)
-        self.assertEqual(rules["table.matrix"], "border-collapse: separate; border-spacing: 0;")
+        self.assertIn("max-width: min(54ch, 45vw)", first)
+        self.assertEqual(rules["table.matrix"], "border-collapse: separate; border-spacing: 0; margin: 0 auto;")
         self.assertIn("text-align: center", rules["table.matrix td"])
         self.assertIn("text-align: center", rules["table.matrix th"])
         self.assertIn("writing-mode: sideways-lr", rules["table.matrix th:not(:first-child)"])
@@ -789,7 +789,7 @@ class PageGuardTest(unittest.TestCase):
   var heads = table.querySelectorAll("thead th"), first = heads[0].getBoundingClientRect().width;
   var marks = Array.prototype.slice.call(heads, 1).map(function (th) { return th.getBoundingClientRect().width; });
   var name = table.querySelector("tbody td:first-child code").getBoundingClientRect();
-  var m = {wrapClient: wrap.clientWidth, wrapScroll: wrap.scrollWidth, table: table.getBoundingClientRect().width,
+  var m = {wrapLeft: wrap.getBoundingClientRect().left, tableLeft: table.getBoundingClientRect().left, wrapClient: wrap.clientWidth, wrapScroll: wrap.scrollWidth, table: table.getBoundingClientRect().width,
            first: first, marks: marks, nameHeight: name.height, lineHeight: parseFloat(getComputedStyle(table.querySelector("td")).lineHeight),
            pageClient: document.documentElement.clientWidth, pageScroll: document.documentElement.scrollWidth,
            mode: getComputedStyle(heads[1]).writingMode};
@@ -854,7 +854,7 @@ class PageGuardTest(unittest.TestCase):
     @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
     def test_matrix_of_a_real_service_fits_at_1440_and_scrolls_inside_its_wrapper_at_500(self):
         """Red: the matrix of 21 events and 9 components needs a scroll at 1440 px (the wrapper does not break
-        out, the mark headers are horizontal, or the first column has no cap), a mark column is wider than three
+        out, the mark headers are horizontal, or the first column has no cap, or the cap is so tight that the 44-character key wraps), a mark column is wider than three
         lines, the event name does not wrap at the <wbr>, or at 500 px the first column takes more than half the
         viewport, a wider table (17 columns) does not scroll inside .table-wrap, or the page scrolls sideways."""
         html = self.stress_page()
@@ -865,9 +865,11 @@ class PageGuardTest(unittest.TestCase):
         for width in wide["marks"]:
             self.assertLessEqual(width, 3 * wide["lineHeight"], wide)
         self.assertLessEqual(wide["first"], wide["wrapClient"] / 2, wide)
-        self.assertGreater(wide["nameHeight"], 1.5 * wide["lineHeight"], wide)   # the long key wraps at a <wbr>
+        self.assertLess(wide["nameHeight"], 1.5 * wide["lineHeight"], wide)      # the 44-character key fits on one line
+        self.assertGreater(wide["tableLeft"], wide["wrapLeft"] + 100, wide)      # a narrow table is centered in the wrapper
         narrow = self.measure(html, 500)
         self.assertLessEqual(narrow["first"], 250, narrow)
+        self.assertGreater(narrow["nameHeight"], 1.5 * narrow["lineHeight"], narrow)   # the long key wraps at a <wbr>
         self.assertEqual(narrow["pageScroll"], narrow["pageClient"], narrow)     # the page does not scroll
         more = self.measure(self.stress_page(extra=8), 500)
         self.assertGreater(more["wrapScroll"], more["wrapClient"], more)         # the table scrolls in its wrapper

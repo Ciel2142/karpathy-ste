@@ -236,12 +236,14 @@ figure.diagram figcaption { margin-top: 6px; }
    fallback), so such a column is about two lines wide. The first column keeps the left edge
    while the table scrolls inside .table-wrap; its right edge is a visible line and its cells
    keep their own borders (the table does not collapse them). The event name breaks at a <wbr>,
-   after a "." or a "-", and the column has a cap, so that the marks stay near. */
+   after a "." or a "-", and the column has a cap (54ch, and 45vw on a narrow screen), so that a
+   name stays on one line when there is room and the marks stay near. A table narrower than its
+   wrapper is centered in it; a wider one scrolls (an auto margin is 0 then). */
 .table-wrap:has(> table.matrix) {
   --bpmn-w: max(100%, min(1040px, 100vw - 64px)); width: var(--bpmn-w);
   margin-left: calc((100% - var(--bpmn-w)) / 2);
 }
-table.matrix { border-collapse: separate; border-spacing: 0; }
+table.matrix { border-collapse: separate; border-spacing: 0; margin: 0 auto; }
 table.matrix th {
   padding: 4px 6px; text-align: center; vertical-align: bottom; color: var(--muted); font-weight: 600;
   border-bottom: 1.5px solid var(--ink);
@@ -251,7 +253,7 @@ table.matrix th:not(:first-child) {
 }
 table.matrix td { padding: 6px 6px; text-align: center; border-bottom: 1px solid var(--line); }
 table.matrix td:first-child, table.matrix th:first-child {
-  position: sticky; left: 0; z-index: 1; max-width: min(30ch, 45vw); text-align: left;
+  position: sticky; left: 0; z-index: 1; max-width: min(54ch, 45vw); text-align: left;
   background: var(--bg); box-shadow: inset -1px 0 0 var(--line);
 }
 
