@@ -21,7 +21,8 @@ TREE = FIXTURES / "tree"
 GOOD = """# Map: demo
 
 ## Shape
-- Java 21 service built with Gradle | build.gradle.kts:3 | java toolchain 21
+- language: Java 21 service built with Gradle | build.gradle.kts:3 | java toolchain 21
+- build: none found
 ```text
 src/
 - main/java/demo
@@ -37,7 +38,7 @@ flowchart LR
 
 ## Entry points
 - http POST /send -> send | src/A.java:12 | @PostMapping
-- kafka orders.cancel -> cancel | src/L.java:8 | @KafkaListener(topics = "orders.cancel")
+- listener orders.cancel -> cancel | src/L.java:8 | @KafkaListener(topics = "orders.cancel")
 
 ## Flows
 ### send: What happens to a send?
@@ -71,6 +72,12 @@ none found
 
 ## Other systems
 - Kafka: `orders.cancel` | src/L.java:8 | @KafkaListener(topics = "orders.cancel")
+
+## Conventions
+- tests: none found
+
+## Where to look
+- add-http: `src/` | src/A.java:12 | @PostMapping
 
 ## Not covered
 - cmd/tools: generated code
@@ -205,7 +212,7 @@ class ParseMapCase(unittest.TestCase):
     def test_fenced_text_block_is_not_a_diagram_and_hides_its_bullets(self):
         shape = self.doc.section("Shape")
         self.assertEqual(shape.diagrams, [])
-        self.assertEqual([f.fact for f in shape.facts], ["Java 21 service built with Gradle"])
+        self.assertEqual([f.fact for f in shape.facts], ["language: Java 21 service built with Gradle", "build: none found"])
 
     def test_flow_heading_without_an_id_keeps_the_heading(self):
         text = replace_once(GOOD, "### cancel: How is a send cancelled?", "### Order flow")
@@ -627,6 +634,110 @@ class CheckCase(unittest.TestCase):
     def test_fact_without_a_cite(self):
         self.only("cite Shape#1: no cite", edits=[(SHAPE_1, SHAPE_1.split(" | ")[0])])
 
+    def test_shape_missing_key(self):
+        self.only("shape: missing run", edits=[(line_starting("- run:") + "\n", "")])
+
+    def test_shape_unknown_key_and_old_form(self):
+        self.only("shape: missing language", "shape #1: unknown key stack", edits=[("- language:", "- stack:")])
+        old_form = SHAPE_1.replace("language: ", "")
+        self.only("shape: missing language", "shape #1: unknown key Java", edits=[(SHAPE_1, old_form)])
+
+    def test_shape_line_with_no_words_is_unknown_key_none(self):
+        self.only(
+            "shape: missing language", "shape #1: unknown key none", "cite Shape#1: no cite", edits=[(SHAPE_1, "- ")]
+        )
+
+    def test_shape_key_twice(self):
+        self.only("shape: language twice", edits=[(SHAPE_1, "\n".join([SHAPE_1] * 3))])
+        framework = line_starting("- framework:")
+        self.assertEqual(check(edits=[(framework, framework + "\n" + framework)]), OK)
+
+    def test_shape_command_needs_backticks(self):
+        build = line_starting("- build:")
+        self.only("shape #6: no command in backticks", edits=[(build, build.replace("`", ""))])
+
+    def test_shape_none_found_has_no_cite_failure(self):
+        run_line = line_starting("- run:")
+        self.assertEqual(check(edits=[(run_line, "- run: none found")]), OK)
+        shape = onboard.parse_map(GOOD).section("Shape")
+        build = next(f for f in shape.facts if f.fact.startswith("build:"))
+        self.assertIsNone(build.cite)
+
+    def test_shape_lines_come_before_cite_lines(self):
+        build = line_starting("- build:")
+        self.only(
+            "shape #6: no command in backticks", "cite Shape#1: no cite",
+            edits=[(build, build.replace("`", "")), (SHAPE_1, SHAPE_1.split(" | ")[0])],
+        )
+
+    def test_shape_language_none_found_still_needs_a_cite(self):
+        self.only("cite Shape#1: no cite", edits=[(SHAPE_1, "- language: none found")])
+
+    def test_sections_now_twelve(self):
+        self.assertEqual(len(onboard.TITLES), 12)
+        self.only("section: missing Conventions", edits=[(section_text("Conventions"), "")])
+        where = section_text("Where to look")
+        moved = replace_once(MAP, where, "") + "\n" + where
+        self.only("section: Where to look out of order", text=moved)
+
+    def test_conventions_missing_topic_and_no_topic(self):
+        wiring = line_starting("- wiring:")
+        self.only("conventions: missing wiring", edits=[(wiring + "\n", "")])
+        example = "- an example | " + wiring.split(" | ", 1)[1]
+        self.only("conventions #4: no topic", edits=[(wiring, wiring + "\n" + example)])
+        upper = wiring.replace("- wiring:", "- Wiring:")
+        self.only("conventions: missing wiring", "conventions #3: no topic", edits=[(wiring, upper)])
+
+    def test_conventions_any_id_topic_is_allowed(self):
+        wiring = line_starting("- wiring:")
+        self.assertEqual(check(edits=[(wiring, wiring + "\n" + wiring.replace("- wiring:", "- logging:"))]), OK)
+
+    def test_conventions_none_found_has_no_cite_failure(self):
+        naming = line_starting("- naming:")
+        self.assertEqual(check(edits=[(naming, "- naming: none found")]), OK)
+
+    def test_where_required_keys_follow_the_map(self):
+        for key in ("add-route", "add-test"):
+            line = line_starting("- %s:" % key)
+            self.only("where: missing %s" % key, edits=[(line + "\n", "")])
+        routing = [(section_body("Routing config"), "none found\n\n"), (line_starting("- change-routing:") + "\n", "")]
+        self.assertEqual(check(edits=routing), OK)
+        test = [(line_starting("- test:"), "- test: none found"), (line_starting("- add-test:") + "\n", "")]
+        self.assertEqual(check(edits=test), OK)
+        transform = [(section_body("Formats and transforms"), "none found\n\n"),
+                     (line_starting("- add-transform:") + "\n", "")]
+        self.assertEqual(check(edits=transform), OK)
+        self.only("where: missing change-routing", edits=[(line_starting("- change-routing:") + "\n", "")])
+
+    def test_where_none_found_section_still_lists_the_required_keys(self):
+        keys = ("add-http", "add-listener", "add-route", "add-schedule", "change-routing", "add-transform", "add-test")
+        self.only(*("where: missing %s" % key for key in keys), edits=[(section_body("Where to look"), "none found\n\n")])
+
+    def test_where_none_found_line_is_not_a_fact(self):
+        http = line_starting("- add-http:")
+        self.only("where #1: no path in backticks", "cite Where to look#1: no cite", edits=[(http, "- add-http: none found")])
+
+    def test_where_not_an_entry_point_needs_no_row(self):
+        """Every http line is dismissed, so Where to look needs no add-http row. Red when the check counts a
+        `not an entry point` line as an entry of its kind."""
+        http = [line for line in MAP.splitlines() if line.startswith("- http ") and " -> not an entry point:" not in line]
+        self.assertEqual(len(http), 4)
+        dismissed = []
+        for line in http:
+            head, _, rest = line.partition(" -> ")
+            dismissed.append((line, "%s -> not an entry point: dismissed | %s" % (head, rest.partition(" | ")[2])))
+        no_row = [(line_starting("- add-http:") + "\n", "")]
+        self.assertEqual(check(edits=dismissed + no_row), OK)
+        # One http line that is traced again brings the row back.
+        self.only("where: missing add-http", edits=dismissed[1:] + no_row)
+
+    def test_where_path_in_backticks_under_root(self):
+        http = line_starting("- add-http:")
+        self.only("where #1: no path in backticks", edits=[(http, http.replace("`", ""))])
+        for path in ("nowhere/", "../", "/etc/", "src/main/java/shop/Missing.java"):
+            self.only("where #1: %s not under root" % path, edits=[(http, http.replace("src/main/java/shop/", path, 1))])
+        self.assertEqual(check(edits=[(http, http.replace("`src/main/java/shop/`", "`src/main/java/shop/OrderController.java`"))]), OK)
+
     def test_not_covered_lines_need_no_cite(self):
         self.assertEqual(check(text=MAP + "- src/test: the tests are not read\n"), OK)
 
@@ -639,6 +750,18 @@ class CheckCase(unittest.TestCase):
             "entry #1: no flow id and no reason",
             edits=[(" -> not an entry point: the start of the Go gateway process |", " |")],
         )
+
+    def test_entry_kind_is_one_of_the_five_kinds_of_the_inventory(self):
+        self.assertEqual(onboard.ENTRY_KINDS, ("http", "listener", "route", "schedule", "main"))
+        self.only("entry #13: unknown kind kafka", edits=[("- listener orders.cancel -> cancel", "- kafka orders.cancel -> cancel")])
+        self.only("entry #6: unknown kind grpc", edits=[("- route ShopServer ->", "- grpc ShopServer ->")])
+        no_kind = "-  | cmd/shop-gw/main.go:9 | func main() {"
+        self.only("entry #1: unknown kind none", "entry #1: no flow id and no reason",
+                  edits=[(line_starting("- main shop-gw"), no_kind)])
+
+    def test_where_keys_follow_the_entry_kinds(self):
+        self.assertEqual(onboard.WHERE_KEYS[:4], tuple("add-" + kind for kind in onboard.WHERE_ENTRY_KINDS))
+        self.assertEqual(onboard.WHERE_KEYS[4:], ("change-routing", "add-transform", "add-test"))
 
     def test_entry_flow_not_in_flows(self):
         self.only("entry #10: flow orders not in Flows", edits=[(" -> order |", " -> orders |")])
@@ -673,7 +796,8 @@ class CheckCase(unittest.TestCase):
     def test_inventory_matched_elsewhere_still_fails(self):
         path, _ = self.inventory_out()
         cite = GET_ENTRY.split(" | ", 1)[1]
-        moved = [(GET_ENTRY + "\n", ""), (SHAPE_1 + "\n", SHAPE_1 + "\n- serves one order by id | %s\n" % cite)]
+        formats = line_starting("- order bodies")
+        moved = [(GET_ENTRY + "\n", ""), (formats + "\n", formats + "\n- serves one order by id | %s\n" % cite)]
         self.only("inventory %s: not in Entry points" % GET_ENTRY.split(" | ")[1], edits=moved, inventory=path)
 
     def test_every_fault_is_listed_before_the_summary(self):

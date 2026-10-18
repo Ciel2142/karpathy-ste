@@ -5,7 +5,7 @@ Each prompt is a template. The orchestrator fills it by plain text replacement o
 the placeholders of PLACEHOLDERS and no other word in braces (every {name} counts, name = letters and "_").
 Each prompt ends its reply with one result line (RESULT_LINES): the orchestrator keeps its context small and
 reads that line, not the work. The map prompt points at "Explore the service" and "The map" of rungs/onboard.md
-(MAP_RUNG_SECTIONS): the onboarding rules and the skeleton of the ten sections of a map (MAP_SECTIONS, the titles
+(MAP_RUNG_SECTIONS): the onboarding rules and the skeleton of the twelve sections of a map (MAP_SECTIONS, the titles
 of onboard.TITLES) live there, so the prompt holds no skeleton. Its fenced blocks are the two onboard.py commands
 of a course map (MAP_COMMANDS), and its prose holds the course overrides (MAP_TEXTS): the two files, the first
 line, the fix loop of the check with its stop rule, and the fact count. The lesson prompt holds the overrides of
@@ -64,9 +64,9 @@ RESULT_LINES = {
     MAP: ("map: done {source_id} <n> facts", "map: failed <reason>"),
     LESSON: ("lesson: done <rung> <n> clips", "lesson: failed <reason>"),
 }
-# The ten level-2 sections of a map, in order: the titles of onboard.TITLES ("The map" of rungs/onboard.md).
+# The twelve level-2 sections of a map, in order: the titles of onboard.TITLES ("The map" of rungs/onboard.md).
 MAP_SECTIONS = ("Shape", "Architecture", "Entry points", "Flows", "State", "Formats and transforms",
-                "Routing config", "Error paths", "Other systems", "Not covered")
+                "Routing config", "Error paths", "Other systems", "Conventions", "Where to look", "Not covered")
 # The two sections of rungs/onboard.md that the map prompt points at.
 MAP_RUNG_SECTIONS = ("Explore the service", "The map")
 # The two commands of a course map, the inventory first and the check last: the fenced blocks of the prompt.

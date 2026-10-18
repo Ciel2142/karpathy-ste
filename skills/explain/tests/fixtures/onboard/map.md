@@ -1,10 +1,14 @@
 # Map: shop
 
 ## Shape
-- Java and Kotlin service built with Gradle Kotlin DSL | build.gradle.kts:2 | java
-- runs as one Spring Boot application | src/main/java/shop/ShopApplication.java:9 | SpringApplication.run(ShopApplication.class, args);
-- deploys as the Spring Boot jar of shop.ShopApplication | build.gradle.kts:7 | mainClass.set("shop.ShopApplication")
-- takes orders over HTTP, charges them and announces them on Kafka | src/main/java/shop/OrderController.java:7 | @RequestMapping("/orders")
+- language: Java and Kotlin service built with Gradle Kotlin DSL | build.gradle.kts:2 | java
+- framework: Spring Boot 3.3.0 | build.gradle.kts:3 | id("org.springframework.boot") version "3.3.0"
+- runtime: runs as one Spring Boot application | src/main/java/shop/ShopApplication.java:9 | SpringApplication.run(ShopApplication.class, args);
+- artifact: deploys as the Spring Boot jar of shop.ShopApplication | build.gradle.kts:7 | mainClass.set("shop.ShopApplication")
+- purpose: takes orders over HTTP, charges them and announces them on Kafka | src/main/java/shop/OrderController.java:7 | @RequestMapping("/orders")
+- build: `./gradlew build` | build.gradle.kts:1 | plugins {
+- test: `./gradlew test` | build.gradle.kts:2 | java
+- run: `./gradlew bootRun` | build.gradle.kts:7 | mainClass.set("shop.ShopApplication")
 
 ## Architecture
 ```mermaid
@@ -29,14 +33,14 @@ flowchart LR
 - http /metrics -> not traced: the gateway is not covered | cmd/shop-gw/main.go:13 | http.HandleFunc("/metrics", metrics)
 - listener consumer -> not traced: the gateway is not covered | cmd/shop-gw/main.go:14 | go consumer.Consume(ctx, handle)
 - schedule ticker every minute -> not traced: the gateway is not covered | cmd/shop-gw/main.go:15 | ticker := time.NewTicker(time.Minute)
-- grpc ShopServer -> not traced: the gateway is not covered | cmd/shop-gw/main.go:17 | pb.RegisterShopServer(grpcServer, &shopServer{})
+- route ShopServer -> not traced: the gateway is not covered | cmd/shop-gw/main.go:17 | pb.RegisterShopServer(grpcServer, &shopServer{})
 - route jms:queue:legacy.in -> not traced: it only logs | config/camel-context.xml:4 | <from uri="jms:queue:legacy.in"/>
 - route kafka:stock.updates -> not traced: it only logs | routes/stock.camel.yaml:1 | - from:
 - route timer:stock -> not traced: it has no steps | routes/stock.camel.yaml:5 | - from: { uri: "timer:stock" }
 - http POST /orders -> order | src/main/java/shop/OrderController.java:14 | @PostMapping
 - http GET /orders/{id} -> not traced: a plain read of one row | src/main/java/shop/OrderController.java:25 | @GetMapping("/{id}")
 - http DELETE /orders/{id} -> cancel | src/main/java/shop/OrderController.java:30 | @RequestMapping(method = RequestMethod.DELETE, path = "/{id}")
-- kafka orders.cancel -> cancel | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
+- listener orders.cancel -> cancel | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
 - main ShopApplication -> not an entry point: the Spring Boot start | src/main/java/shop/ShopApplication.java:8 | public static void main(String[] args) {
 - route jms:queue:shop.in -> not traced: it only logs | src/main/java/shop/ShopRoutes.java:8 | from("jms:queue:shop.in")
 - schedule StockJobs.refresh hourly -> not traced: stock is not covered | src/main/kotlin/shop/StockJobs.kt:6 | @Scheduled(cron = "0 0 * * * *")
@@ -105,6 +109,21 @@ stateDiagram-v2
 ## Other systems
 - Payments: `PaymentsClient` `payments.charge` | src/main/java/shop/OrderController.java:11 | private final PaymentsClient payments;
 - Kafka: `orders.created` `orders.cancel` | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
+
+## Conventions
+- tests: test classes sit under src/test/java in the package of the class, named <Class>Test | src/test/java/shop/OrderControllerTest.java:3 | class OrderControllerTest {
+- errors: an order over the limit is answered with a 400 through ResponseEntity | src/main/java/shop/OrderController.java:17 | return ResponseEntity.badRequest().body("over the limit");
+- wiring: a dependency is a private final field of the class | src/main/java/shop/OrderController.java:11 | private final PaymentsClient payments;
+- naming: a class is named for its role in the message path, such as Listener or Controller | src/main/java/shop/OrderListener.java:5 | public class OrderListener {
+
+## Where to look
+- add-http: `src/main/java/shop/` | src/main/java/shop/OrderController.java:14 | @PostMapping
+- add-listener: `src/main/java/shop/` | src/main/java/shop/OrderListener.java:12 | @KafkaListener(topics = "orders.cancel")
+- add-route: `routes/` | routes/stock.camel.yaml:1 | - from:
+- add-schedule: `src/main/kotlin/shop/` | src/main/kotlin/shop/StockJobs.kt:6 | @Scheduled(cron = "0 0 * * * *")
+- change-routing: `config/` | config/camel-context.xml:5 | <to uri="log:legacy"/>
+- add-transform: `src/main/java/shop/` | src/main/java/shop/OrderController.java:15 | @RequestBody Order order
+- add-test: `src/test/java/shop/` | src/test/java/shop/OrderControllerTest.java:3 | class OrderControllerTest {
 
 ## Not covered
 - cmd/shop-gw: the Go gateway; its entry points are listed, its flows not traced

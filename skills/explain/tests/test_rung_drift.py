@@ -1041,48 +1041,93 @@ class OnboardRungCase(unittest.TestCase):
                 self.assertTrue(finds)
                 self.assertNotIn("\\", finds)
 
-    def test_explore_holds_the_seven_rules_in_order(self):
-        """Red when a rule of spec 5 is gone, out of order or not numbered, or the flow rules lose the decision
-        node, the 25-node cap, the stage split or the `see <flow-id>` node."""
+    def test_explore_holds_the_eight_rules_in_order(self):
+        """Red when a rule of spec 5 or 15 is gone, out of order or not numbered, the words of onboard.SHAPE_KEYS,
+        onboard.CONVENTION_TOPICS or the `add-<kind>` keys of onboard.WHERE_ENTRY_KINDS are not the head of a bullet of the rules,
+        or the flow rules lose the decision node, the 25-node cap, the stage split or the `see <flow-id>` node."""
         text = section(read(ONBOARD_MD), "Explore the service")
         rules = re.findall(r"^(\d+)\. (.*)", text, re.M)
-        self.assertEqual([number for number, _ in rules], ["1", "2", "3", "4", "5", "6", "7"])
+        self.assertEqual([number for number, _ in rules], ["1", "2", "3", "4", "5", "6", "7", "8"])
         starts = ("Shape first", "Inventory", "Architecture", "Flows", "State", "Formats and transforms",
-                  "Not covered")
+                  "Conventions and where to look", "Not covered")
         for (number, rule), start in zip(rules, starts):
             with self.subTest(rule=number):
                 self.assertTrue(rule.startswith(start), rule)
         self.assert_phrases("Explore the service", ("decision node", "at most 25 nodes", "<flow>-<stage>",
                                                     "see <flow-id>"))
+        # Rule 1 and rule 7 of spec 15: the keys of Shape are closed, a line holds one fact, a path is a handle.
+        self.assert_phrases("Explore the service", (
+            "Only `build`, `test` and `run` take `none found`.",
+            "`Shape` has no other key.", "A port, a queue name or a URL goes in `Routing config`.",
+            "A retry goes in `Error paths`.", "A pipeline or a registry goes in `Other systems`.",
+            "Each line holds one fact. Its cite shows that fact.",
+            "The path is relative to `<root>`, and it is the first text in backticks of the line."))
+        # Each key is the head of its own bullet. A bare word would also match the prose around it.
+        keys = (onboard.SHAPE_KEYS + onboard.CONVENTION_TOPICS
+                + onboard.WHERE_KEYS)
+        for key in keys:
+            with self.subTest(bullet=key):
+                self.assertTrue(re.search(r"^\s*- `%s`:" % re.escape(key), text, re.M), key)
 
-    def test_the_map_skeleton_lists_the_ten_titles_of_onboard_py(self):
+    def test_the_map_skeleton_lists_the_titles_of_onboard_py(self):
         """Red when the skeleton of "The map" loses its four-backtick fence or its title line, or drops, adds,
-        renames or reorders a level-2 section of onboard.TITLES."""
+        renames or reorders a level-2 section of onboard.TITLES (twelve), or the `Shape` lines lose their key."""
         lines = skeleton_lines(section(read(ONBOARD_MD), "The map"))
         self.assertTrue(lines[0].startswith("# Map: <id>"), lines[0])
         self.assertEqual([line for line in lines if line.startswith("## ")], ["## " + t for t in onboard.TITLES])
         self.assertIn("### <flow-id>: <question>", lines)
+        self.assertIn("- <key>: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertEqual(len(onboard.TITLES), 12)
 
     def test_the_map_runs_the_check_and_names_its_prefixes(self):
         """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or
-        reorders one of the seven prefixes of spec 7."""
+        reorders one of the ten prefixes of spec 7."""
         self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt",
-                                        "onboard: ok", "onboard: <n> failures"))
+                                        "onboard: ok", "onboard: <n> failures",
+                                        "The path is relative to `<root>`, and it is the first text in backticks of "
+                                        "the line.",
+                                        "The `<kind>` of an `Entry points` line is one of the five kinds of the table",
+                                        ", ".join("`%s`" % kind for kind in onboard.ENTRY_KINDS[:-1])
+                                        + " or `%s`." % onboard.ENTRY_KINDS[-1]))
         prefixes = limits_table(ONBOARD_MD, "| Prefix | Meaning |")
-        starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`inventory ", "`map: cannot read")
-        self.assertEqual(len(prefixes), 7, list(prefixes))
+        starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`inventory ", "`shape", "`conventions",
+                  "`where", "`map: cannot read")
+        self.assertEqual(len(prefixes), 10, list(prefixes))
         for key, start in zip(prefixes, starts):
             with self.subTest(prefix=start):
                 self.assertTrue(key.startswith(start), key)
+        entry = next(key for key in prefixes if key.startswith("`entry "))
+        self.assertIn("`entry #<n>: unknown kind <kind>`", entry)
 
     def test_plan_the_sections_follows_spec_9_1(self):
-        """Red when "Plan the sections" loses a section id, a diagram file, the never-merge rule, the footer,
-        the cite rule or the rule that drops the clip line."""
+        """Red when "Plan the sections" loses a section id (`#run`, `#conventions` and `#where` of spec 15.4
+        too), the `figure.code` of a command, the rule that omits an empty `#conventions` or `#where`, a diagram file, the never-merge rule, the footer, the cite rule
+        or the rule that drops the clip line."""
         self.assert_phrases("Plan the sections", (
             "#whole", "#entry", "flow-<flow-id>", "#state", "#formats", "#config", "#errors", "#systems", "#terms",
-            ".table-wrap > table", "diagrams/architecture.mmd", "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
+            "`figure.code`", ".table-wrap > table", "diagrams/architecture.mmd",
+            "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
             "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
             "is not printed"))
+        # A section id is also named in other sentences, so the test reads the start of each bullet and the order.
+        text = self.words("Plan the sections")
+        starts = ('- `#whole`, "What is', '- `#run`, "How do I build, test and run it?"', '- `#entry`, "Where does',
+                  '- `#formats`, `#config`', '- `#conventions`, "How is the code written?"',
+                  '- `#where`, "Where do I look to change something?"', '- `#terms`:')
+        for start in starts:
+            with self.subTest(bullet=start):
+                self.assertEqual(text.count(start), 1, start)
+        positions = [text.index(start) for start in starts]
+        self.assertEqual(positions, sorted(positions), "the plan bullets are out of order")
+        for phrase in ("one row for each `language` and `framework` line", "the name and the version",
+                       "the map found no such command", "one `figure.code`", "The `figcaption > code` of the figure holds",
+                       "the key (`build`, `test` or `run`)", "Its `pre > code` holds the command alone",
+                       "A `div.cites` after the table holds the cites of these lines",
+                       "A `div.cites` after the figure holds the cite of the command",
+                       "Omit the section when each `Conventions` line is `none found`",
+                       "Omit the section when `Where to look` is `none found`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
 
     def test_write_the_page_reuses_page_md_and_the_two_scripts(self):
         """Red when "Write the page" stops pointing at the four sections of page.md, or loses the meta, the
