@@ -108,14 +108,25 @@ Follow these eight rules, in the order of the work. Write each fact into `map.md
    - `Other systems`: each other system that the service sends to or receives from. Give its name,
      then its handles in backticks. Examples are queue names, endpoints, artifact ids and host names.
 7. Conventions and where to look. Write them as fact lines, each in its section of the map:
-   - `Conventions`: one line for each topic. The topics are `tests`, `errors`, `wiring` and `naming`.
-     Add a line for any other convention that a new member needs. The cite of a line is one example
-     line of the code. A topic with nothing to find is `- <topic>: none found` with no cite.
+   - `Conventions`: one line for each of these topics. The cite of a line is one example line of the
+     code. A topic with nothing to find is `- <topic>: none found` with no cite.
+     - `tests`: where the tests live and what name a test file has, from one test file;
+     - `errors`: how the code raises and handles an error on a message path, from one line that does it.
+       Examples are an exception type, a `Result` and an error reply;
+     - `wiring`: how a dependency reaches a class, from one line that does it. Examples are
+       constructor injection, a factory and a global;
+     - `naming`: what names the classes or packages of the message path have, from one declaration
+       line. Examples are the suffixes `Listener`, `Service` and `Repository`, and one package for
+       each feature or for each layer.
+
+     Add a line for any other convention that a new member needs.
    - `Where to look`: one line for each task of a new member. The fact part holds the path, in
      backticks, where the task starts. The cite is one example line under that path. Write
      these keys, each once:
-     - `add-http`, `add-listener`, `add-route` and `add-schedule`: one for each kind that has a
-       traced or a not-traced line in `Entry points`;
+     - `add-http`: when `Entry points` has an `http` line with a flow or with `not traced`;
+     - `add-listener`: the same for a `listener` line;
+     - `add-route`: the same for a `route` line;
+     - `add-schedule`: the same for a `schedule` line. A `main` line has no key;
      - `change-routing`: when `Routing config` is not `none found`;
      - `add-transform`: when `Formats and transforms` is not `none found`;
      - `add-test`: when the `test` line of `Shape` is not `none found`.
@@ -284,9 +295,9 @@ sections.
   (`diagrams/architecture.mmd`). Then one paragraph for each other system and each store that the
   diagram shows.
 - `#run`, "How do I build, test and run it?": a stack table (`.table-wrap > table`) with one row for
-  each `language` and `framework` line. Then, for `build`, `test` and `run`, in this order, one
+  each `language` and `framework` line. A row gives the name and the version. Then, for `build`, `test` and `run`, in this order, one
   sentence and one `<pre>` block that holds the command alone. The sentence says what the command
-  does. A `none found` line becomes one sentence and no block. Never put a command inline in prose.
+  does. A `none found` line becomes one sentence that says the map found no such command, and no block. Never put a command inline in prose.
 - `#entry`, "Where does a message enter?": a table (`.table-wrap > table`) with one row for each
   `Entry points` line of the map with a flow id or a `not traced` reason. A row gives the kind, the
   name, and the flow as a link to its section, or "not traced" with the reason. The lines with

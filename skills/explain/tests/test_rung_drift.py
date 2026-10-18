@@ -1043,7 +1043,7 @@ class OnboardRungCase(unittest.TestCase):
 
     def test_explore_holds_the_eight_rules_in_order(self):
         """Red when a rule of spec 5 or 15 is gone, out of order or not numbered, the words of onboard.SHAPE_KEYS,
-        onboard.CONVENTION_TOPICS or the `add-<kind>` keys of onboard.WHERE_ENTRY_KINDS are gone from the rules,
+        onboard.CONVENTION_TOPICS or the `add-<kind>` keys of onboard.WHERE_ENTRY_KINDS are not the head of a bullet of the rules,
         or the flow rules lose the decision node, the 25-node cap, the stage split or the `see <flow-id>` node."""
         text = section(read(ONBOARD_MD), "Explore the service")
         rules = re.findall(r"^(\d+)\. (.*)", text, re.M)
@@ -1055,9 +1055,13 @@ class OnboardRungCase(unittest.TestCase):
                 self.assertTrue(rule.startswith(start), rule)
         self.assert_phrases("Explore the service", ("decision node", "at most 25 nodes", "<flow>-<stage>",
                                                     "see <flow-id>"))
-        self.assert_phrases("Explore the service", tuple("`%s`" % key for key in onboard.SHAPE_KEYS))
-        self.assert_phrases("Explore the service", tuple("`%s`" % topic for topic in onboard.CONVENTION_TOPICS))
-        self.assert_phrases("Explore the service", tuple("`add-%s`" % kind for kind in onboard.WHERE_ENTRY_KINDS))
+        # Each key is the head of its own bullet. A bare word would also match the prose around it.
+        keys = (onboard.SHAPE_KEYS + onboard.CONVENTION_TOPICS
+                + tuple("add-" + kind for kind in onboard.WHERE_ENTRY_KINDS)
+                + ("change-routing", "add-transform", "add-test"))
+        for key in keys:
+            with self.subTest(bullet=key):
+                self.assertTrue(re.search(r"^\s*- `%s`:" % re.escape(key), text, re.M), key)
 
     def test_the_map_skeleton_lists_the_titles_of_onboard_py(self):
         """Red when the skeleton of "The map" loses its four-backtick fence or its title line, or drops, adds,
@@ -1088,10 +1092,24 @@ class OnboardRungCase(unittest.TestCase):
         or the rule that drops the clip line."""
         self.assert_phrases("Plan the sections", (
             "#whole", "#entry", "flow-<flow-id>", "#state", "#formats", "#config", "#errors", "#systems", "#terms",
-            "#run", "#conventions", "#where", "<pre>", ".table-wrap > table", "diagrams/architecture.mmd",
+            "<pre>", ".table-wrap > table", "diagrams/architecture.mmd",
             "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
             "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
             "is not printed"))
+        # A section id is also named in other sentences, so the test reads the start of each bullet and the order.
+        text = self.words("Plan the sections")
+        starts = ('- `#whole`, "What is', '- `#run`, "How do I build, test and run it?"', '- `#entry`, "Where does',
+                  '- `#formats`, `#config`', '- `#conventions`, "How is the code written?"',
+                  '- `#where`, "Where do I look to change something?"', '- `#terms`:')
+        for start in starts:
+            with self.subTest(bullet=start):
+                self.assertEqual(text.count(start), 1, start)
+        positions = [text.index(start) for start in starts]
+        self.assertEqual(positions, sorted(positions), "the plan bullets are out of order")
+        for phrase in ("one row for each `language` and `framework` line", "the name and the version",
+                       "the map found no such command", "one `<pre>` block that holds the command alone"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
 
     def test_write_the_page_reuses_page_md_and_the_two_scripts(self):
         """Red when "Write the page" stops pointing at the four sections of page.md, or loses the meta, the
