@@ -173,9 +173,8 @@ Or it says why the entry point is off any message path ("the admin health endpoi
 An `event` hit without a `type` line, a `payload` line or a dismissal in `Events` fails the check too.
 
 `onboard.py inventory` finds entry points of five kinds and event types of one kind. It reads Java,
-Kotlin and Go files, and the
-YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target`, `build`, `.git` and
-`vendor`.
+Kotlin and Go files, and the YAML and XML files of Camel routes. It skips test trees, `node_modules`,
+`target`, `build`, `.git` and `vendor`.
 
 | Kind | Finds |
 |---|---|
@@ -184,7 +183,7 @@ YAML and XML files of Camel routes. It skips test trees, `node_modules`, `target
 | `route` | A Camel `from(` in a `RouteBuilder` file, a `- from:` line of a `*.camel.yaml` or `*.camel.yml` file, a `<from uri=…>` element of an XML file, a `routeTemplate` and a `@GrpcService`. In Go, a gRPC call `Register<Service>Server(`. |
 | `schedule` | A `@Scheduled` method. In Go, a `cron.` call, `NewTicker` and `time.Tick`. |
 | `main` | `public static void main` in Java, `fun main(` in Kotlin and `func main(` in Go. |
-| `event` | A class, record, interface or object whose name ends in `Event`, a class that extends `ApplicationEvent`, and the annotations `@DomainEvent` and `@Event` on a type. In Go, a `struct` type whose name ends in `Event`. A hit of this kind is a declaration, not an entry point. |
+| `event` | A class, record, interface or object whose name ends in `Event`, a class that extends `ApplicationEvent` (in Kotlin, `: ApplicationEvent(`), and the annotations `@DomainEvent` and `@Event` on a type. In Go, a `struct` type whose name ends in `Event`. A hit of this kind is a declaration, not an entry point. |
 
 ## 3. The map
 
@@ -270,7 +269,9 @@ give the format:
   name exactly as the code writes it. Examples are `OrderPlaced`, `event.document.signature` and
   `order-placed.v2`. Keep its case and its punctuation. The name is unique in the section. On the page, the
   name becomes the anchor `event-<slug>`. To make the `<slug>`, write the name in lowercase. Replace each
-  run of characters outside `[a-z0-9]` with `-`. Remove a `-` at the start and at the end.
+  run of characters outside `[a-z0-9]` with `-`. Remove a `-` at the start and at the end. When two names
+  give the same `<slug>`, the second gets `-2` at its end and the third gets `-3`. A name with no character
+  in `[a-z0-9]` has the slug `e<n>`, where `<n>` is the number of its entry in the section, counted from 1.
 - `type` is necessary, once. Its cite is the line that declares the name. That line is the class or
   record, or the constant or string that holds the routing key or the event type. The code of a framework
   event is outside `<root>`. An example is `ApplicationReadyEvent`. Then the cite is the first line of
@@ -290,7 +291,7 @@ give the format:
   - A component: the first text in backticks is the component name. It becomes a column of the matrix. Use
     the label of a part in `Architecture`. The check does not enforce this. An optional ` -> <flow-id>` ends
     the fact part. It links the line to the flow where the event happens. The flow id exists
-    under `Flows`.
+    under `Flows`. A tail after ` -> ` that is not a flow id fails in the same way.
   - `outside: <system> `<handle>``: the event comes from a system outside the repository, or goes to it. The
     `<handle>` is the topic, the exchange or the stream. For a framework event, the `<handle>` is the class
     that publishes it (`outside: Spring Boot `SpringApplication``). The cite is the line of the config or
@@ -319,12 +320,13 @@ give the format:
   these three sections and applies no diagram rule to them. When a docs source documents a request
   sequence, draw it as a flow. An example is an API guide with "send, then poll". The node cites of
   that flow point to the lines of the docs.
-- The `<kind>` of an `Entry points` line is one of the five kinds of the table in "Explore the
-  service": `http`, `listener`, `route`, `schedule` or `main`.
+- The `<kind>` of an `Entry points` line is one of the five entry kinds of the table,
+  without `event`: `http`, `listener`, `route`, `schedule` or `main`.
 - An `Entry points` line ends its fact part with `-> <flow-id>`, `-> not traced: <reason>` or
   `-> not an entry point: <reason>`. Each flow id that it names exists under `Flows`. A reason is not
   empty.
-- With `--inventory`, each `<path>:<line>` of the inventory is the cite of one `Entry points` line.
+- With `--inventory`, each entry hit of the inventory is the cite of one `Entry points` line. Each `event`
+  hit is the cite of a `type` line, a `payload` line or a dismissal of `Events`.
 - `Other systems` keeps the shape that `course_discover.py` reads: the handles in backticks in the fact
   part. Keep the title of this section.
 
@@ -345,7 +347,7 @@ The prefix of a line tells where the fault is:
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: the path is not under the root, the line is beyond the end, the snippet is not on that line, or it has more than 12 words. |
 | `entry #<n>: unknown kind <kind>` / `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |
 | `event <name>: twice` / `event <name>: missing <key>` / `event <name>: <key> twice` / `event <name> #<n>: unknown key <key>` / `event <name> #<n>: no component in backticks` / `event <name> #<n>: flow <id> not in Flows` / `event <name>: none found beside a line` | The entries of `Events`. |
-| `events #<n>: not a dismissal` | A line of `Events` before the first entry that is not a `not an event` line. |
+| `events #<n>: not a dismissal` / `events: none found beside an entry` | A line of `Events` before the first entry that is not a `not an event` line, or a `none found` line in a section with an entry. |
 | `inventory <path>:<line>: not in Entry points` / `inventory <path>:<line>: not in Events` | Only with `--inventory`: an inventory line that no `Entry points` line cites, or an `event` line that no `type` line, no `payload` line and no dismissal cites. |
 | `shape: missing <key>` / `shape: <key> twice` / `shape #<n>: unknown key <key>` / `shape #<n>: no command in backticks` | The keyed `Shape` lines. |
 | `conventions: missing <topic>` / `conventions #<n>: no topic` | The `Conventions` lines. |
@@ -404,9 +406,9 @@ sections.
     column is narrow. A cell holds `E` (emits), `C` (consumes) or both. A cell with no line is empty. A
     consume with `ignores:` shows `(C)`;
   - the marks: each `E` or `C` is a link to `#flow-<flow-id>` when its line has a flow id. Else it is plain
-    text. Each mark has a `title` with the full sentence, for example "`OrderAggregate` emits
-    `OrderPlaced` when ...". It has an `aria-label` with the same sentence, so that a screen reader says
-    the sentence and not only "E";
+    text in a `span` with `role="img"`. Each mark has a `title` with the full sentence, for example
+    "`OrderAggregate` emits `OrderPlaced` when ...". It has an `aria-label` with the same sentence, so that
+    a screen reader says the sentence and not only "E";
   - the gaps: a row with a `none found` line shows `none found` and the key in an extra last column,
     "gaps";
   - a `div.cites` after the table. It holds the cites of the `type` lines, so that the section holds a

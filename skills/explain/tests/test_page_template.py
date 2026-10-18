@@ -841,7 +841,7 @@ class PageGuardTest(unittest.TestCase):
         for n in range(21):
             name = "event.document.signature-verification-report" if n == 0 else "event.document.kind%d-changed" % n
             shown = name.replace(".", ".<wbr>").replace("-", "-<wbr>")
-            cells = "".join("<td>%s</td>" % ('<span title="x emits it." aria-label="x emits it.">E</span>'
+            cells = "".join("<td>%s</td>" % ('<span role="img" title="x emits it." aria-label="x emits it.">E</span>'
                                               if (n + k) % 4 == 0 else "") for k in range(len(components)))
             rows.append('<tr><td><a href="#event-%d"><code>%s</code></a></td>%s</tr>' % (n, shown, cells))
         section = (ONBOARD_FIXTURES / "section.html").read_text(encoding="utf-8")
@@ -878,7 +878,7 @@ class PageGuardTest(unittest.TestCase):
     @unittest.skipUnless(HAVE_BUNDLE, NO_BUNDLE)
     def test_onboard_events_section_passes_the_guard_without_page_hscroll(self):
         """Red: the onboard fixture page has no #events section with a table.matrix, a mark link, a (C) mark,
-        an E and C cell, a name with a <wbr>, an aria-label equal to the title on every mark, a details.walk
+        an E and C cell, a name with a <wbr>, an aria-label equal to the title on every mark and a role="img" on a plain-text mark, a details.walk
         with id event-<slug> and a div.cites; or a wider matrix (six components) widens the 500 px page instead
         of scrolling inside .table-wrap."""
         section = (ONBOARD_FIXTURES / "section.html").read_text(encoding="utf-8")
@@ -890,9 +890,11 @@ class PageGuardTest(unittest.TestCase):
         self.assertIn(">(C)<", body)
         self.assertRegex(body, r"<td><span[^>]*>E</span> <span[^>]*>C</span></td>")   # one cell with both marks
         self.assertRegex(body, r"<code>[^<]*\.<wbr>[^<]*-<wbr>[^<]*</code>")
-        marks = re.findall(r"<(?:a|span) ([^>]*)>(?:E|C|\(C\))</(?:a|span)>", body)
+        marks = re.findall(r"<(a|span) ([^>]*)>(?:E|C|\(C\))</(?:a|span)>", body)
         self.assertGreaterEqual(len(marks), 8)
-        for attrs in marks:
+        for tag, attrs in marks:
+            if tag == "span":   # ARIA 1.2 prohibits aria-label on a role-less span
+                self.assertIn(' role="img"', " " + attrs, attrs)
             title = re.search(r'title="([^"]+)"', attrs)
             label = re.search(r'aria-label="([^"]+)"', attrs)
             self.assertTrue(title and label and title.group(1) == label.group(1), attrs)

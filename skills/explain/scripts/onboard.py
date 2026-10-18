@@ -185,6 +185,7 @@ class Section(NamedTuple):
     flows: list[Flow]  # empty for every section but Flows
     events: list[Event]  # empty for every section but Events
     none_found: bool
+    marked: bool = False  # a bare `none found` line stands in the section, beside other lines or alone
 
 
 class MapDoc(NamedTuple):
@@ -262,10 +263,11 @@ def parse_map(text: str) -> MapDoc:
             scope.facts.append(_fact(len(scope.facts) + 1, number, line[2:]))
     if fence is not None:
         _close_fence(fence, flow or (sections[-1] if sections else None))
-    marks = ([NONE_FOUND], ["- " + NONE_FOUND])
+    bare = (NONE_FOUND, "- " + NONE_FOUND)
     return MapDoc(
         title.group(1).strip(),
-        [section._replace(none_found=content in marks) for section, content in zip(sections, contents)],
+        [section._replace(none_found=content in ([bare[0]], [bare[1]]), marked=any(line in bare for line in content))
+         for section, content in zip(sections, contents)],
     )
 
 
@@ -640,7 +642,7 @@ def _event_flaws(event: Event, idents: set[str]) -> list[str]:
             if not HANDLE.search(rest):
                 lines.append("%s #%d: no component in backticks" % (head, fact.n))
             _, arrow, tail = fact.fact.rpartition(" -> ")
-            if arrow and ID.fullmatch(tail) and tail not in idents:
+            if arrow and not (ID.fullmatch(tail) and tail in idents):
                 lines.append("%s #%d: flow %s not in Flows" % (head, fact.n, tail))
     for key in EVENT_KEYS:
         if keys.count(key) > 1 and any(none_found(fact) for fact, k, _ in facts if k == key):
@@ -649,14 +651,15 @@ def _event_flaws(event: Event, idents: set[str]) -> list[str]:
 
 
 def _event_lines(doc: MapDoc) -> list[str]:
-    """The `events` and `event` lines: a line before the first entry that is not a dismissal, then the lines of
-    each entry in map order, a repeated name reported once, at its second entry."""
+    """The `events` and `event` lines: a `none found` beside an entry, a line before the first entry that is not
+    a dismissal, then the lines of each entry in map order, a repeated name reported once, at its second entry."""
     section = doc.section("Events")
     if section is None:
         return []
     flows = doc.section("Flows")
     idents = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
-    lines = ["events #%d: not a dismissal" % fact.n for fact in section.facts if not DISMISSAL.fullmatch(fact.fact)]
+    lines = ["events: none found beside an entry"] if section.marked and section.events else []
+    lines.extend("events #%d: not a dismissal" % fact.n for fact in section.facts if not DISMISSAL.fullmatch(fact.fact))
     names = [event.name for event in section.events]
     for index, event in enumerate(section.events):
         if names[:index].count(event.name) == 1:

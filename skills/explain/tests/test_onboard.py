@@ -798,6 +798,17 @@ class CheckCase(unittest.TestCase):
     def test_events_none_found_is_checked_for_nothing_else(self):
         self.assertEqual(check(edits=[(section_body("Events"), "none found\n\n")]), OK)
 
+    def test_events_none_found_beside_an_entry_fails(self):
+        anchor = "### OrderPlacedEvent"
+        for mark in ("none found", "- none found"):
+            with self.subTest(mark=mark):
+                self.only("events: none found beside an entry", edits=[(anchor, mark + "\n\n" + anchor)])
+
+    def test_events_none_found_beside_a_dismissal_only_is_ok(self):
+        cite = " | src/main/java/shop/Order.java:3 | public class Order {"
+        dismissal = "- not an event: `Order`: a plain row, not a message" + cite
+        self.assertEqual(check(edits=[(section_body("Events"), "none found\n\n" + dismissal + "\n\n")]), OK)
+
     def test_event_name_twice_is_reported_once_for_a_repeated_name(self):
         entry = ENTRY_1
         self.only("event OrderPlacedEvent: twice", edits=[(entry, entry + "\n" + entry)])
@@ -857,6 +868,11 @@ class CheckCase(unittest.TestCase):
         self.only("event OrderPlacedEvent #3: flow orders not in Flows",
                   edits=[(emits, emits.replace(" -> order |", " -> orders |"))])
         self.assertEqual(check(edits=[(emits, emits.replace(" -> order |", " |"))]), OK)
+
+    def test_event_arrow_tail_that_is_not_a_flow_id_fails_like_a_flow_not_in_flows(self):
+        emits = line_starting("- emits:")
+        self.only("event OrderPlacedEvent #3: flow poll events not in Flows",
+                  edits=[(emits, emits.replace(" -> order |", " -> poll events |"))])
 
     def test_event_none_found_needs_no_cite_for_emits_and_consumes(self):
         self.assertEqual(check(edits=[(line_starting("- consumes:"), "- consumes: none found")]), OK)

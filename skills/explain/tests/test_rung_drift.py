@@ -1104,9 +1104,13 @@ class OnboardRungCase(unittest.TestCase):
                                         "onboard: ok", "onboard: <n> failures",
                                         "The path is relative to `<root>`, and it is the first text in backticks of "
                                         "the line.",
-                                        "The `<kind>` of an `Entry points` line is one of the five kinds of the table",
-                                        ", ".join("`%s`" % kind for kind in onboard.ENTRY_KINDS[:-1])
-                                        + " or `%s`." % onboard.ENTRY_KINDS[-1]))
+                                        "The `<kind>` of an `Entry points` line is one of the five entry kinds of the table, "
+                                        "without `event`: "
+                                        + ", ".join("`%s`" % kind for kind in onboard.ENTRY_KINDS[:-1])
+                                        + " or `%s`." % onboard.ENTRY_KINDS[-1],
+                                        "With `--inventory`, each entry hit of the inventory is the cite of one "
+                                        "`Entry points` line. Each `event` hit is the cite of a `type` line, a "
+                                        "`payload` line or a dismissal of `Events`."))
         prefixes = limits_table(ONBOARD_MD, "| Prefix | Meaning |")
         starts = ("`section: ", "`diagram ", "`node ", "`cite ", "`entry ", "`event ", "`events ", "`inventory ",
                   "`shape", "`conventions", "`where", "`map: cannot read")
@@ -1123,7 +1127,9 @@ class OnboardRungCase(unittest.TestCase):
                      "`event <name> #<n>: flow <id> not in Flows`", "`event <name>: none found beside a line`"):
             with self.subTest(form=form):
                 self.assertIn(form, event)
-        self.assertIn("`events #<n>: not a dismissal`", next(key for key in prefixes if key.startswith("`events ")))
+        events = next(key for key in prefixes if key.startswith("`events "))
+        self.assertIn("`events #<n>: not a dismissal`", events)
+        self.assertIn("`events: none found beside an entry`", events)
         inventory = next(key for key in prefixes if key.startswith("`inventory "))
         self.assertIn("`inventory <path>:<line>: not in Entry points`", inventory)
         self.assertIn("`inventory <path>:<line>: not in Events`", inventory)
@@ -1141,7 +1147,11 @@ class OnboardRungCase(unittest.TestCase):
             "`ApplicationReadyEvent`", "the first line of source code under the root that names it", "A line of a document is not a cite for this", "`in-process`",
             "`outside: <system> `<handle>``", "(`outside: Spring Boot `SpringApplication``)",
             "`ignores:`", "`(C)`", "-> <flow-id>", "`none found`, with no cite", "unique in the section",
-            "`Events` with `none found` holds no entry"))
+            "`Events` with `none found` holds no entry",
+            # a tail after ` -> ` that is not a flow id, the slug of a name that repeats and the slug of a name with no letter
+            "A tail after ` -> ` that is not a flow id fails in the same way",
+            "When two names give the same `<slug>`, the second gets `-2` at its end and the third gets `-3`",
+            "A name with no character in `[a-z0-9]` has the slug `e<n>`"))
 
     def test_plan_the_sections_follows_spec_9_1(self):
         """Red when "Plan the sections" loses a section id (`#run`, `#conventions` and `#where` of spec 15.4
@@ -1173,7 +1183,7 @@ class OnboardRungCase(unittest.TestCase):
                        "Omit the section when `Where to look` is `none found`",
                        # spec 16.5: the matrix, its marks and links, the gaps column, the details and the cites
                        ".table-wrap > table.matrix", "`E` (emits), `C` (consumes) or both", "`(C)`",
-                       "a link to `#flow-<flow-id>`", "`title`", "`aria-label`", "`<wbr>` after each `.` and each `-`", "gaps", "`details.walk`", "`event-<slug>`",
+                       "a link to `#flow-<flow-id>`", "`title`", "`aria-label`", "`role=\"img\"`", "`<wbr>` after each `.` and each `-`", "gaps", "`details.walk`", "`event-<slug>`",
                        "`div.cites` after the table", "Omit the section when `Events` has no entry",
                        "The nav has a link for each of `#run`, `#events`, `#conventions` and `#where`",
                        "aggregate, event store, stream, projection and saga"):
