@@ -4,8 +4,10 @@
 Usage: sdr.py skeleton <sdr-dir> --question <text> --root <root> [--code <dir>]...
        sdr.py check <sdr-dir> [--root <root>]
        sdr.py check-facts <file> --root <root>
+       sdr.py matrix <sdr-dir>
 skeleton writes <sdr-dir>/sdr.md at stage intake and refuses to overwrite it. check and check-facts print one
-finding per line, then `sdr: ok` or `sdr: <n> findings`.
+finding per line, then `sdr: ok` or `sdr: <n> findings`. matrix writes the requirement x option table into the
+`<div class="sdr-matrix">` block of <sdr-dir>/index.html; from stage `page` on, check finds a table that is stale.
 Exit 0 on success, 1 on findings, 2 on a usage error or an unreadable file, root or code dir. Usage text and
 every exit-2 line go to stderr; findings and the summary go to stdout.
 """
@@ -14,6 +16,7 @@ import argparse
 import os
 import re
 import sys
+from html import escape
 from typing import NamedTuple, NoReturn
 
 # The scripts of `explain` sit beside this skill; the real path of this file makes a symlinked install work.
@@ -94,6 +97,15 @@ WHY_NOT_LINE = re.compile(r"- why not (opt-[a-z]): \S.*")
 DISSENT_PREFIX = "- dissent"
 DISSENT_LINE = re.compile(r"- dissent: (\S+) preferred (opt-[a-z]): \S.*")
 REVISIT_LINE = re.compile(r"- revisit when: \S.*")
+PAGE = "index.html"  # the page beside sdr.md
+PAGE_STAGE = "page"  # from this stage on, check compares the matrix of the page with the record
+MATRIX_OPEN = '<div class="sdr-matrix">'
+MATRIX_TOKEN = re.compile(r"<div\b|</div>")
+BACKTICK_SPAN = re.compile(r"`([^`]+)`")
+SYMBOLS = {"meets": "✓", "partial": "◐", "fails": "✗"}
+# The page's `--fill` is the background of inline `code`; the chosen column gets it, and its header gets weight.
+CHOSEN_CSS = ("table.matrix .chosen { background: var(--fill); }\n"
+              "table.matrix th.chosen { color: var(--ink); font-weight: 700; }")
 
 
 class SdrError(Exception):
@@ -789,6 +801,64 @@ def check_record(record: Record, root: str) -> list[str]:
     return lines
 
 
+def _cell_text(text: str) -> str:
+    """Text for a cell: HTML-escaped, then each backtick span becomes <code>."""
+    return BACKTICK_SPAN.sub(r"<code>\1</code>", escape(text, quote=True))
+
+
+def render_matrix(record: Record) -> str:
+    """The inner content of the matrix block, which starts and ends with a newline: the chosen-column style, then
+    the table with one head row (the options in record order) and one body row for each requirement. One element
+    for each line, so the same record always gives the same bytes. The record must pass `check_record` at stage
+    `decide` or later."""
+    found, chosen = options(record), choice(record)
+
+    def mark_class(ident: str) -> str:
+        return ' class="chosen"' if ident == chosen else ""
+
+    lines = ["", "<style>%s</style>" % CHOSEN_CSS, '<div class="table-wrap"><table class="matrix">', "<thead>",
+             "<tr>", "<th>Requirement</th>"]
+    lines += ["<th%s>%s: %s%s</th>" % (mark_class(option.ident), option.ident, _cell_text(option.name),
+                                      " (chosen)" if option.ident == chosen else "") for option in found]
+    lines += ["</tr>", "</thead>", "<tbody>"]
+    for requirement in requirements(record):
+        lines += ["<tr>", "<td><code>%s</code> %s</td>" % (requirement.ident, _cell_text(requirement.text))]
+        for option in found:
+            mark = option.fits[requirement.ident]
+            lines.append('<td%s><span role="img" aria-label="%s">%s</span></td>' % (
+                mark_class(option.ident), mark, SYMBOLS[mark]))
+        lines.append("</tr>")
+    return "\n".join(lines + ["</tbody>", "</table></div>", ""])
+
+
+def _matrix_block(html: str) -> tuple[tuple[int, int] | None, list[str]]:
+    """((start, end), []) of the inner content of the one matrix block of a page: the text between its open tag
+    and the `</div>` that matches it. (None, [line]) when the page has no block, more than one, or no end."""
+    count = html.count(MATRIX_OPEN)
+    if count == 0:
+        return None, ["page: no " + MATRIX_OPEN]
+    if count > 1:
+        return None, ["page: %d %s blocks, more than 1" % (count, MATRIX_OPEN)]
+    start = html.index(MATRIX_OPEN) + len(MATRIX_OPEN)
+    depth = 1
+    for token in MATRIX_TOKEN.finditer(html, start):
+        depth += -1 if token.group() == "</div>" else 1
+        if depth == 0:
+            return (start, token.start()), []
+    return None, ["page: %s is not closed" % MATRIX_OPEN]
+
+
+def page_lines(record: Record, html: str | None) -> list[str]:
+    """The `page:` lines of a record at stage `page` or later: no page, a fault of the matrix block, or a block
+    that differs from render_matrix(record). `html` is the text of the page, None when there is none."""
+    if html is None:
+        return ["page: no " + PAGE]
+    span, lines = _matrix_block(html)
+    if span is None:
+        return lines
+    return ["page: matrix stale"] if html[span[0] : span[1]] != render_matrix(record) else []
+
+
 def _facts_of(lines: list[tuple[int, str]], skip: str | None = None) -> list[Fact]:
     """The facts of the `- ` lines of a fact file scope, except the line `skip`; n counts the facts."""
     facts = []
@@ -897,18 +967,36 @@ def _report(found: list[str]) -> int:
     return 1 if found else 0
 
 
+def _root_dir(record: Record, flag: str | None) -> str:
+    """The root of the cites: the flag, else the record's `root:` line; it must be a directory."""
+    root = flag if flag is not None else record.root
+    if root is None:
+        raise SdrError('sdr: no root: give --root or a "root:" line')
+    if not os.path.isdir(root):
+        raise SdrError("sdr: cannot read root %s" % root)
+    return root
+
+
+def _read_page(sdr_dir: str) -> str | None:
+    """The text of <sdr-dir>/index.html; None when there is no such file, an SdrError when it cannot be read."""
+    try:
+        return _read_text(os.path.join(sdr_dir, PAGE))
+    except SdrError as error:
+        if isinstance(error.__cause__, FileNotFoundError):
+            return None
+        raise
+
+
 def cmd_check(argv: list[str]) -> int:
     parser = _Parser()
     parser.add_argument("sdr_dir")
     parser.add_argument("--root")
     args = parser.parse_args(argv)
     record = read_record(args.sdr_dir)
-    root = args.root if args.root is not None else record.root
-    if root is None:
-        raise SdrError('sdr: no root: give --root or a "root:" line')
-    if not os.path.isdir(root):
-        raise SdrError("sdr: cannot read root %s" % root)
-    return _report(check_record(record, root))
+    found = check_record(record, _root_dir(record, args.root))
+    if not found and reached(record.stage, PAGE_STAGE):  # no findings: the stage is known
+        found = page_lines(record, _read_page(args.sdr_dir))
+    return _report(found)
 
 
 def cmd_check_facts(argv: list[str]) -> int:
@@ -922,13 +1010,40 @@ def cmd_check_facts(argv: list[str]) -> int:
     return _report(check_facts(text, args.root))
 
 
+def _write_text(path: str, text: str) -> None:
+    try:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+    except OSError as error:
+        raise SdrError("sdr: cannot write %s: %s" % (path, error.strerror or error)) from error
+
+
+def cmd_matrix(argv: list[str]) -> int:
+    parser = _Parser()
+    parser.add_argument("sdr_dir")
+    args = parser.parse_args(argv)
+    record = read_record(args.sdr_dir)
+    found = check_record(record, _root_dir(record, None))
+    if not found and not reached(record.stage, "decide"):  # no findings: the stage is known
+        found = ["page: stage %s is before decide" % record.stage]
+    if found:
+        return _report(found)
+    path = os.path.join(args.sdr_dir, PAGE)
+    html = _read_text(path)
+    span, found = _matrix_block(html)
+    if span is None:
+        return _report(found)
+    _write_text(path, html[: span[0]] + render_matrix(record) + html[span[1] :])
+    return _report([])
+
+
 def _usage() -> int:
     sys.stderr.write(USAGE)
     return 2
 
 
 def main(argv: list[str]) -> int:
-    commands = {"skeleton": cmd_skeleton, "check": cmd_check, "check-facts": cmd_check_facts}
+    commands = {"skeleton": cmd_skeleton, "check": cmd_check, "check-facts": cmd_check_facts, "matrix": cmd_matrix}
     command = commands.get(argv[0]) if argv else None
     if command is None:
         return _usage()

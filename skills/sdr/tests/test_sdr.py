@@ -1,5 +1,5 @@
 """Tests for sdr.py: the record reader, the skeleton command, the header and section rules, the cited lines,
-the option blocks, the consilium and the decision (spec sections 5, 6 and 9)."""
+the option blocks, the consilium, the decision, the matrix and the page check (spec sections 5, 6, 8 and 9)."""
 
 import os
 import re
@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 from unittest import mock
@@ -20,6 +21,10 @@ import sdr  # noqa: E402
 RECORDS = Path(__file__).resolve().parent / "fixtures" / "records"
 TREE = RECORDS / "tree"  # the root that every fixture cite resolves under
 PAGES = Path(__file__).resolve().parent / "fixtures" / "pages"
+EXPLAIN = Path(__file__).resolve().parent.parent.parent / "explain"  # the sibling skill, never changed here
+PAGE_TEMPLATE = EXPLAIN / "templates" / "page.html"
+VERIFY = EXPLAIN / "scripts" / "verify.sh"
+CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")  # the path that verify.sh uses
 
 VALID = "valid-intake.md"
 FRAME = "valid-frame.md"
@@ -178,6 +183,94 @@ def record_dir(text: str, root: Path | None = None) -> Path:
 def run_sdr(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-B", str(SCRIPTS / "sdr.py"), *args],
                           capture_output=True, text=True, timeout=60)
+
+
+def template_page(out: Path) -> Path:
+    """Write explain's page.html to out/index.html with the compare section before the provenance section and
+    its nav link before the Provenance link (each anchor must occur once); the rung meta stays `page`."""
+    section = (PAGES / "compare-section.html").read_text(encoding="utf-8")
+    edits = (
+        ('<section id="provenance-facet">', section.rstrip("\n") + '\n\n<section id="provenance-facet">'),
+        ('<a href="#provenance-facet">Provenance</a>',
+         '<a href="#compare">Compare</a>\n  <a href="#provenance-facet">Provenance</a>'),
+    )
+    page = PAGE_TEMPLATE.read_text(encoding="utf-8")
+    for anchor, text in edits:
+        if page.count(anchor) != 1:
+            raise AssertionError("%r occurs %d times in page.html, not once" % (anchor, page.count(anchor)))
+        page = page.replace(anchor, text)
+    path = Path(out) / "index.html"
+    path.write_text(page, encoding="utf-8")
+    return path
+
+
+def page_dir(text: str | None = None, page: str | None = "before.html") -> Path:
+    """A record dir with `root: <TREE>` (valid-decide unless `text` is given) and, unless `page` is None, the
+    page fixture `page` as index.html."""
+    target = record_dir(fixture_text(DECIDE) if text is None else text, root=TREE)
+    if page is not None:
+        (target / "index.html").write_bytes((PAGES / page).read_bytes())
+    return target
+
+
+def set_stage(target: Path, stage: str) -> None:
+    """Rewrite line 2 of <target>/sdr.md."""
+    path = target / "sdr.md"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    lines[1] = "stage: " + stage
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def filled_page(target: Path) -> str:
+    """Run `matrix` on <target> (it must succeed) and return the text of its index.html."""
+    run = run_sdr("matrix", str(target))
+    if (run.returncode, run.stdout, run.stderr) != (0, "sdr: ok\n", ""):
+        raise AssertionError("matrix: %r %r %r" % (run.returncode, run.stdout, run.stderr))
+    return (target / "index.html").read_text(encoding="utf-8")
+
+
+class MatrixCells(HTMLParser):
+    """The matrix of a page as data: `rows` (a list of cells for each <tr>) and `styles` (the text of each <style>).
+    A cell is {"tag", "class", "text", "marks"}; a mark is [role, aria-label, text] of a <span> in the cell."""
+
+    def __init__(self, page: str) -> None:
+        super().__init__()
+        self.rows: list[list[dict]] = []
+        self.styles: list[str] = []
+        self._cell = self._mark = None
+        self._in_style = False
+        self.feed(page)
+        self.close()
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "tr":
+            self.rows.append([])
+        elif tag in ("th", "td"):
+            self._cell = {"tag": tag, "class": attrs.get("class"), "text": "", "marks": []}
+            self.rows[-1].append(self._cell)
+        elif tag == "span" and self._cell is not None:
+            self._mark = [attrs.get("role"), attrs.get("aria-label"), ""]
+            self._cell["marks"].append(self._mark)
+        elif tag == "style":
+            self.styles.append("")
+            self._in_style = True
+
+    def handle_endtag(self, tag):
+        if tag in ("th", "td"):
+            self._cell = None
+        elif tag == "span":
+            self._mark = None
+        elif tag == "style":
+            self._in_style = False
+
+    def handle_data(self, data):
+        if self._in_style:
+            self.styles[-1] += data
+        elif self._mark is not None:
+            self._mark[2] += data
+        elif self._cell is not None:
+            self._cell["text"] += data
 
 
 def skeleton(question: str = QUESTION, root: Path = TREE, code: tuple[Path, ...] = (TREE / "orchestrator",),
@@ -1055,6 +1148,237 @@ class DecisionCase(unittest.TestCase):
         choice = decide_line("- choice:")
         fence = "```text\n- choice: opt-z\n- dissent: nobody\n- why not opt-z: x\n```"
         self.assertEqual(decide_findings((choice, choice + "\n" + fence)), [])
+
+
+# valid-decide.md: the mark of each option for FR-1, FR-2, FR-3, NFR-1 and NFR-2; the choice is opt-b
+MARK_GRID = {
+    "opt-a": ("meets", "fails", "meets", "meets", "partial"),
+    "opt-b": ("meets", "meets", "meets", "fails", "meets"),
+    "opt-c": ("meets", "meets", "partial", "partial", "meets"),
+}
+REQUIREMENT_IDS = ["FR-1", "FR-2", "FR-3", "NFR-1", "NFR-2"]
+FR_1_TEXT = "The end user is told about every block, unblock and confiscation"
+ESCAPE_EDITS = (
+    (FR_1_TEXT, '<b> & "q" `x`'),
+    ("### opt-a: Notify per warrant total", "### opt-a: A < B"),
+)
+OPT_A_HEADING = "opt-a: Notify per warrant total"
+OPT_B_HEADING = "opt-b: Executor emits one event per claim action"
+NO_WHY_NOT_C = ("- why not opt-c: a second store must stay in step with the claim map, and a rollback leaves its "
+                "data behind\n", "")
+NO_REVISIT = ("- revisit when: the arrival time of the last claim event of an action is known\n", "")
+VERIFY_LINES = ["self-contained: ok", "render 1440x900: ok", "render 500x844: ok", "citations: ok", "prose: ok",
+                "bpmn: none"]
+BLOCK = '<div class="sdr-matrix">'
+EMPTY_BLOCK = BLOCK + "</div>"
+
+
+def run_verify(page: Path, tmp: Path) -> subprocess.CompletedProcess:
+    """Run explain's verify.sh as its own test does: TMPDIR set to a test dir, no VERIFY_TIMEOUT, 240 s."""
+    env = dict(os.environ, TMPDIR=str(tmp) + "/")
+    env.pop("VERIFY_TIMEOUT", None)
+    return subprocess.run([str(VERIFY), str(page)], capture_output=True, text=True, env=env, timeout=240)
+
+
+class MatrixCase(unittest.TestCase):
+    def test_matrix_fills_before_page_as_after(self):
+        target = page_dir()
+        run = run_sdr("matrix", str(target))
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "sdr: ok\n", ""))
+        self.assertEqual((target / "index.html").read_bytes(), (PAGES / "after.html").read_bytes())
+
+    def test_matrix_second_run_is_byte_identical(self):
+        target = page_dir()
+        filled_page(target)
+        first = (target / "index.html").read_bytes()
+        filled_page(target)
+        self.assertEqual((target / "index.html").read_bytes(), first)
+
+    def test_matrix_marks_chosen_column(self):
+        cells = MatrixCells(filled_page(page_dir()))
+        heads = cells.rows[0]
+        self.assertEqual([cell["tag"] for cell in heads], ["th"] * 4)
+        self.assertEqual([cell["class"] for cell in heads], [None, None, "chosen", None])
+        self.assertEqual(heads[0]["text"], "Requirement")
+        self.assertEqual(heads[1]["text"], OPT_A_HEADING)
+        self.assertTrue(heads[2]["text"].startswith("opt-b:"), heads[2]["text"])
+        self.assertTrue(heads[2]["text"].endswith("(chosen)"), heads[2]["text"])
+        self.assertEqual(heads[2]["text"], OPT_B_HEADING + " (chosen)")
+        for row in cells.rows[1:]:
+            self.assertEqual([cell["class"] for cell in row], [None, None, "chosen", None])
+
+    def test_matrix_cells_have_aria_labels(self):
+        cells = MatrixCells(filled_page(page_dir()))
+        self.assertEqual(sdr.SYMBOLS, {"meets": "✓", "partial": "◐", "fails": "✗"})
+        body = cells.rows[1:]
+        self.assertEqual(len(body), 5)
+        self.assertEqual([row[0]["text"].split()[0] for row in body], REQUIREMENT_IDS)
+        for row in body:
+            self.assertEqual((len(row), row[0]["marks"]), (4, []))
+        for column, ident in enumerate(MARK_GRID, 1):
+            for row, mark in zip(body, MARK_GRID[ident]):
+                self.assertEqual(row[column]["marks"], [["img", mark, sdr.SYMBOLS[mark]]], (ident, row[0]["text"]))
+        self.assertEqual(body[3][2]["marks"], [["img", "fails", "✗"]])  # opt-b / NFR-1
+
+    def test_matrix_holds_its_style(self):
+        cells = MatrixCells(filled_page(page_dir()))
+        self.assertEqual(cells.styles, [sdr.CHOSEN_CSS])
+        self.assertEqual(sdr.CHOSEN_CSS, "table.matrix .chosen { background: var(--fill); }\n"
+                                         "table.matrix th.chosen { color: var(--ink); font-weight: 700; }")
+        self.assertEqual(sdr.MATRIX_OPEN, BLOCK)
+
+    def test_matrix_escapes_html(self):
+        target = page_dir(fixture_text(DECIDE, edits=ESCAPE_EDITS))
+        page = filled_page(target)
+        self.assertIn("<td><code>FR-1</code> &lt;b&gt; &amp; &quot;q&quot; <code>x</code></td>", page)
+        self.assertIn("<th>opt-a: A &lt; B</th>", page)
+        self.assertNotIn("<b>", page)
+        self.assertEqual(MatrixCells(page).rows[0][1]["text"], "opt-a: A < B")
+        first = (target / "index.html").read_bytes()
+        filled_page(target)
+        self.assertEqual((target / "index.html").read_bytes(), first)
+        set_stage(target, "page")
+        run = run_sdr("check", str(target))
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "sdr: ok\n", ""))
+
+    def test_matrix_refuses_invalid_record(self):
+        target = page_dir(fixture_text(DECIDE, edits=(NO_WHY_NOT_C,)))
+        run = run_sdr("matrix", str(target))
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("decision: no why not opt-c", run.stdout.splitlines())
+        self.assertEqual(run.stdout.splitlines()[-1], "sdr: 1 findings")
+        self.assertEqual((target / "index.html").read_bytes(), (PAGES / "before.html").read_bytes())
+
+    def test_matrix_refuses_stage_before_decide(self):
+        target = page_dir(fixture_text(CONSILIUM))
+        run = run_sdr("matrix", str(target))
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stdout.splitlines(), ["page: stage consilium is before decide", "sdr: 1 findings"])
+        self.assertEqual((target / "index.html").read_bytes(), (PAGES / "before.html").read_bytes())
+
+    def test_matrix_block_errors(self):
+        before = (PAGES / "before.html").read_text(encoding="utf-8")
+        self.assertEqual(before.count(EMPTY_BLOCK), 1)
+        cases = (
+            (before.replace(EMPTY_BLOCK, ""), 'page: no <div class="sdr-matrix">'),
+            (before.replace(EMPTY_BLOCK, EMPTY_BLOCK * 2),
+             'page: 2 <div class="sdr-matrix"> blocks, more than 1'),
+            (before.replace(EMPTY_BLOCK, BLOCK), 'page: <div class="sdr-matrix"> is not closed'),
+            (before.replace(EMPTY_BLOCK, BLOCK + "<div></div>"), 'page: <div class="sdr-matrix"> is not closed'),
+        )
+        for page, wanted in cases:
+            with self.subTest(wanted=wanted, page=page[page.index("<section") :][:80]):
+                target = page_dir(page=None)
+                (target / "index.html").write_text(page, encoding="utf-8")
+                run = run_sdr("matrix", str(target))
+                self.assertEqual(run.returncode, 1)
+                self.assertEqual(run.stdout.splitlines(), [wanted, "sdr: 1 findings"])
+                self.assertEqual((target / "index.html").read_text(encoding="utf-8"), page)
+                record = sdr.read_record(str(target))
+                self.assertEqual(sdr.page_lines(record, page), [wanted])
+
+    def test_matrix_replaces_only_the_block_content(self):
+        before = (PAGES / "before.html").read_text(encoding="utf-8")
+        nested = before.replace(EMPTY_BLOCK, BLOCK + "<div><div>old</div></div></div>")
+        target = page_dir(page=None)
+        (target / "index.html").write_text(nested, encoding="utf-8")
+        page = filled_page(target)
+        self.assertEqual(page, (PAGES / "after.html").read_text(encoding="utf-8"))
+
+    def test_matrix_needs_index_html(self):
+        target = page_dir(page=None)
+        run = run_sdr("matrix", str(target))
+        self.assertEqual((run.returncode, run.stdout), (2, ""))
+        self.assertTrue(run.stderr.startswith("sdr: cannot read %s" % (target / "index.html")), run.stderr)
+
+    def test_matrix_exit_2_cases(self):
+        run = run_sdr("matrix")
+        self.assertEqual(run.returncode, 2)
+        self.assertTrue(run.stderr.startswith("usage: sdr.py"), run.stderr)
+        run = run_sdr("matrix", str(page_dir()), "extra")
+        self.assertEqual(run.returncode, 2)
+        self.assertTrue(run.stderr.startswith("usage: sdr.py"), run.stderr)
+        run = run_sdr("matrix", str(temp_dir()))  # no sdr.md
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("sdr: cannot read", run.stderr)
+        target = record_dir(fixture_text(DECIDE))  # root: /fixture-root, which does not exist
+        run = run_sdr("matrix", str(target))
+        self.assertEqual((run.returncode, run.stdout), (2, ""))
+        self.assertEqual(run.stderr, "sdr: cannot read root /fixture-root\n")
+        target = record_dir(fixture_text(DECIDE, edits=(("root: /fixture-root", "root: relative"),)))
+        run = run_sdr("matrix", str(target))
+        self.assertEqual(run.returncode, 2)
+        self.assertTrue(run.stderr.startswith("sdr: no root"), run.stderr)
+
+
+class PageCheckCase(unittest.TestCase):
+    def test_page_review_done_records_are_ok(self):
+        for stage in ("page", "review", "done"):
+            with self.subTest(stage=stage):
+                target = page_dir(fixture_text(DECIDE, stage=stage), page="after.html")
+                run = run_sdr("check", str(target))
+                self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "sdr: ok\n", ""))
+
+    def test_stale_page_fixture(self):
+        target = page_dir(fixture_text(DECIDE, stage="page"), page="stale.html")
+        run = run_sdr("check", str(target))
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stdout.splitlines(), ["page: matrix stale", "sdr: 1 findings"])
+
+    def test_stale_fixture_differs_from_after_in_one_cell(self):
+        after = MatrixCells((PAGES / "after.html").read_text(encoding="utf-8"))
+        stale = MatrixCells((PAGES / "stale.html").read_text(encoding="utf-8"))
+        self.assertEqual(after.rows[4][1]["marks"], [["img", "meets", "✓"]])  # opt-a / NFR-1
+        self.assertEqual(stale.rows[4][1]["marks"], [["img", "fails", "✗"]])
+        stale.rows[4][1]["marks"] = after.rows[4][1]["marks"]
+        self.assertEqual(stale.rows, after.rows)
+
+    def test_page_stage_without_index_html(self):
+        target = page_dir(fixture_text(DECIDE, stage="page"), page=None)
+        run = run_sdr("check", str(target))
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stdout.splitlines(), ["page: no index.html", "sdr: 1 findings"])
+
+    def test_page_lines_wait_for_a_clean_record(self):
+        target = page_dir(fixture_text(DECIDE, stage="page", edits=(NO_REVISIT,)), page="stale.html")
+        run = run_sdr("check", str(target))
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stdout.splitlines(), ["decision: no revisit when", "sdr: 1 findings"])
+
+    def test_check_before_page_ignores_the_page(self):
+        for page in (None, "stale.html"):
+            with self.subTest(page=page):
+                target = page_dir(page=page)  # stage decide
+                run = run_sdr("check", str(target))
+                self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "sdr: ok\n", ""))
+
+    def test_check_reports_an_unreadable_index_html(self):
+        target = page_dir(fixture_text(DECIDE, stage="page"), page=None)
+        (target / "index.html").mkdir()
+        run = run_sdr("check", str(target))
+        self.assertEqual((run.returncode, run.stdout), (2, ""))
+        self.assertTrue(run.stderr.startswith("sdr: cannot read %s: " % (target / "index.html")), run.stderr)
+
+    def test_page_lines_function(self):
+        record = sdr.parse_record(fixture_text(DECIDE, stage="page"))
+        after = (PAGES / "after.html").read_text(encoding="utf-8")
+        stale = (PAGES / "stale.html").read_text(encoding="utf-8")
+        self.assertEqual(sdr.page_lines(record, None), ["page: no index.html"])
+        self.assertEqual(sdr.page_lines(record, after), [])
+        self.assertEqual(sdr.page_lines(record, stale), ["page: matrix stale"])
+        self.assertEqual(sdr.page_lines(record, after.replace("\n</div>", "</div>")), ["page: matrix stale"])
+
+    @unittest.skipUnless(CHROME.exists(), "Chrome is not installed")
+    def test_filled_template_page_passes_verify(self):
+        target = page_dir(page=None)
+        page = template_page(target)
+        filled_page(target)
+        tmp = Path(os.path.realpath(temp_dir())) / "chrome"
+        tmp.mkdir()
+        self.addCleanup(lambda: subprocess.run(["pkill", "-KILL", "-f", str(tmp)], capture_output=True))
+        proc = run_verify(page, tmp)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), VERIFY_LINES, proc.stdout)
 
 
 class CheckFactsCase(unittest.TestCase):
