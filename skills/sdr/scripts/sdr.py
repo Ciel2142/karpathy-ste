@@ -84,6 +84,16 @@ OPTION_KEY_LINES = {key: re.compile(r"- %s:(.*)" % key) for key in OPTION_KEYS}
 FIT_PREFIX = "- fit "
 FIT_LINE = re.compile(r"- fit (?P<id>[^:\s]+): (?P<mark>\S+)(?P<rest>.*)")
 FIT_REASON = re.compile(r" — \S")
+PREFERRED_LINE = re.compile(r"- preferred:\s*(\S.*)")
+VERDICT_LINE = re.compile(r"- verdict:\s*(\S.*)")
+CORRECTION_PREFIX = "- correction"
+CORRECTION_LINE = re.compile(r"- correction (opt-[a-z]) (\S+): (\S+) -> (\S+) — (accepted|rejected): \S.*")
+CHOICE_LINE = re.compile(r"- choice:\s*(\S.*)")
+WHY_LINE = re.compile(r"- why:\s*(\S.*)")
+WHY_NOT_LINE = re.compile(r"- why not (opt-[a-z]): \S.*")
+DISSENT_PREFIX = "- dissent"
+DISSENT_LINE = re.compile(r"- dissent: (\S+) preferred (opt-[a-z]): \S.*")
+REVISIT_LINE = re.compile(r"- revisit when: \S.*")
 
 
 class SdrError(Exception):
@@ -468,6 +478,11 @@ def options(record: Record) -> list[Option]:
     return list(found.values())
 
 
+def _requirement_ids(record: Record) -> list[str]:
+    """The ids of requirements(record), each once, in order."""
+    return list(dict.fromkeys(requirement.ident for requirement in requirements(record)))
+
+
 def _is_pending_block(block: Block) -> bool:
     return not block.diagrams and [text for _, text in block.lines] == [PENDING]
 
@@ -568,20 +583,209 @@ def _options_lines(record: Record) -> list[str]:
             lines.append("option %s: twice" % head.group(1))
         else:
             seen.add(head.group(1))
-    wanted = list(dict.fromkeys(requirement.ident for requirement in requirements(record)))
+    wanted = _requirement_ids(record)
     for option in found:
         lines += _option_lines(option, record.stage, wanted)
     return lines
 
 
+def _values(lines: list[tuple[int, str]], pattern: re.Pattern) -> list[str]:
+    """Group 1 of `pattern` for each line of `lines` that it fully matches, in order."""
+    return [found.group(1) for _, text in lines if (found := pattern.fullmatch(text))]
+
+
+def _role_blocks(section: Section) -> dict[str, Block]:
+    """The first block of each role of Consilium, in record order."""
+    found: dict[str, Block] = {}
+    for block in section.blocks:
+        if block.heading in ROLES:
+            found.setdefault(block.heading, block)
+    return found
+
+
+def _role_block_lines(section: Section) -> list[str]:
+    """The faults of the role blocks of Consilium: unknown, repeated and misplaced blocks in record order, then
+    each missing role in ROLES order."""
+    lines, seen, highest = [], set(), -1
+    for block in section.blocks:
+        role = block.heading
+        if role not in ROLES:
+            lines.append("consilium %s: unknown role" % role)
+        elif role in seen:
+            lines.append("consilium %s: twice" % role)
+        else:
+            seen.add(role)
+            if ROLES.index(role) < highest:
+                lines.append("consilium %s: out of order" % role)
+            highest = max(highest, ROLES.index(role))
+    return lines + ["consilium %s: missing" % role for role in ROLES if role not in seen]
+
+
+def _correction_lines(prefix: str, k: int, text: str, found: list[Option], ids: list[str]) -> list[str]:
+    """The faults of the k-th correction line of a role: its form, the option and the requirement it names, its
+    marks, and, for an accepted one, whether the fit line of the option now holds the new mark."""
+    parts = CORRECTION_LINE.fullmatch(text)
+    prefix = "%scorrection #%d " % (prefix, k)
+    if parts is None:
+        return [prefix + 'is not "correction opt-<x> <id>: <old> -> <new> — accepted|rejected: <reason>"']
+    ident, requirement, old, new, verdict = parts.groups()
+    option = next((option for option in found if option.ident == ident), None)
+    lines = [] if option is not None else ["%snames %s, not an option" % (prefix, ident)]
+    if requirement not in ids:
+        lines.append("%snames %s, not a requirement" % (prefix, requirement))
+    bad = [mark for mark in (old, new) if mark not in MARKS]
+    lines += ["%smark %s is not meets, partial or fails" % (prefix, mark) for mark in bad]
+    if lines or verdict != "accepted":
+        return lines
+    current = option.fits.get(requirement)  # a requirement without a mark in the option is left to the option rules
+    if current is not None and current != new:
+        lines.append("%saccepted, but fit %s/%s is %s, not %s" % (prefix, ident, requirement, current, new))
+    return lines
+
+
+def _role_lines(role: str, block: Block, found: list[Option], ids: list[str]) -> list[str]:
+    """The faults of the first block of a role: `preferred`, `verdict`, then the corrections in order."""
+    prefix = "consilium %s: " % role
+    lines = []
+    preferred = _values(block.lines, PREFERRED_LINE)
+    if not preferred:
+        lines.append(prefix + "no preferred")
+    else:
+        if len(preferred) > 1:
+            lines.append(prefix + "preferred twice")
+        if preferred[0] not in [option.ident for option in found]:
+            lines.append("%spreferred %s is not an option" % (prefix, preferred[0]))
+    if not _values(block.lines, VERDICT_LINE):
+        lines.append(prefix + "no verdict")
+    corrections = [text for _, text in block.lines if text.startswith(CORRECTION_PREFIX)]
+    for k, text in enumerate(corrections, 1):
+        lines += _correction_lines(prefix, k, text, found, ids)
+    return lines
+
+
+def _consilium_lines(record: Record) -> list[str]:
+    """The consilium rules from stage `consilium` on: the role blocks, then each present role in record order.
+    A missing, pending or empty Consilium has nothing to check; `none` is no exemption."""
+    section = record.section("Consilium")
+    if section is None or _is_pending(section) or _is_empty(section):
+        return []
+    lines = _role_block_lines(section)
+    found, ids = options(record), _requirement_ids(record)
+    for role, block in _role_blocks(section).items():
+        lines += _role_lines(role, block, found, ids)
+    return lines
+
+
+def _preferred(record: Record) -> dict[str, str]:
+    """The option each role of Consilium prefers (its first `preferred` line); a role without one is absent."""
+    section = record.section("Consilium")
+    found = {}
+    for role, block in (_role_blocks(section) if section is not None else {}).items():
+        values = _values(block.lines, PREFERRED_LINE)
+        if values:
+            found[role] = values[0]
+    return found
+
+
+def choice(record: Record) -> str | None:
+    """The value of the first `- choice:` line of Decision, an option id in a right record; None without one."""
+    section = record.section("Decision")
+    values = _values(section.lines, CHOICE_LINE) if section is not None else []
+    return values[0] if values else None
+
+
+def _why_not_lines(lines: list[tuple[int, str]], chosen: Option, found: list[Option]) -> list[str]:
+    """The faults of the `why not` lines: a line that names the choice, a non-option or a repeat, in line order;
+    then each option other than the choice that no line names, in option order."""
+    out, seen = [], []
+    for ident in _values(lines, WHY_NOT_LINE):
+        if ident == chosen.ident:
+            out.append("decision: why not %s names the choice" % ident)
+        elif ident not in [option.ident for option in found]:
+            out.append("decision: why not %s is not an option" % ident)
+        if ident in seen:
+            out.append("decision: why not %s twice" % ident)
+        seen.append(ident)
+    return out + ["decision: no why not %s" % option.ident
+                  for option in found if option.ident != chosen.ident and option.ident not in seen]
+
+
+def _dissent_lines(lines: list[tuple[int, str]], chosen: Option, record: Record) -> list[str]:
+    """The faults of the `dissent` lines in line order, then `no dissent for <role>` in ROLES order for each role
+    whose consilium `preferred` differs from the choice and that has no well-formed dissent line. A role without
+    a `preferred` is left to the consilium rules."""
+    preferred, out, dissented = _preferred(record), [], set()
+    texts = [text for _, text in lines if text.startswith(DISSENT_PREFIX)]
+    for k, text in enumerate(texts, 1):
+        parts = DISSENT_LINE.fullmatch(text)
+        if parts is None or parts.group(1) not in ROLES:
+            out.append('decision: dissent #%d is not "dissent: <role> preferred opt-<y>: <reason>"' % k)
+            continue
+        role, ident = parts.groups()
+        dissented.add(role)
+        if preferred.get(role) == chosen.ident:
+            out.append("decision: dissent for %s, who preferred the choice" % role)
+        elif role in preferred and ident != preferred[role]:
+            out.append("decision: dissent %s names %s, consilium says %s" % (role, ident, preferred[role]))
+    return out + ["decision: no dissent for %s" % role for role in ROLES
+                  if role in preferred and preferred[role] != chosen.ident and role not in dissented]
+
+
+def _why_name_lines(why: str, chosen: Option, found: list[Option], ids: list[str]) -> list[str]:
+    """For each requirement the choice fails and another option meets, the `why` text must hold its id as a whole
+    token: NFR-12 does not name NFR-1."""
+    out = []
+    for ident in ids:
+        if chosen.fits.get(ident) != "fails":
+            continue
+        meets = next((option for option in found if option.fits.get(ident) == "meets"), None)
+        if meets is not None and not re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(ident), why):
+            out.append("decision: why does not name %s (%s fails it, %s meets it)" % (ident, chosen.ident, meets.ident))
+    return out
+
+
+def _decision_lines(record: Record) -> list[str]:
+    """The decision rules from stage `decide` on: the choice, the `why`, then, when the choice is an option, the
+    `why not` lines, the dissents and the requirements the `why` must name; last, `revisit when`. A missing,
+    pending or empty Decision has nothing to check; `none` is no exemption. `next steps` has no rule."""
+    section = record.section("Decision")
+    if section is None or _is_pending(section) or _is_empty(section):
+        return []
+    lines, found = section.lines, options(record)
+    choices, whys = _values(lines, CHOICE_LINE), _values(lines, WHY_LINE)
+    out, chosen = [], None
+    if not choices:
+        out.append("decision: no choice")
+    else:
+        chosen = next((option for option in found if option.ident == choices[0]), None)
+        if len(choices) > 1:
+            out.append("decision: choice twice")
+        if chosen is None:
+            out.append("decision: choice %s is not an option" % choices[0])
+    if not whys:
+        out.append("decision: no why")
+    if chosen is not None:
+        out += _why_not_lines(lines, chosen, found) + _dissent_lines(lines, chosen, record)
+        if whys:  # the first `why` line counts; without one `no why` is the only fault
+            out += _why_name_lines(whys[0], chosen, found, _requirement_ids(record))
+    if not any(REVISIT_LINE.fullmatch(text) for _, text in lines):
+        out.append("decision: no revisit when")
+    return out
+
+
 def check_record(record: Record, root: str) -> list[str]:
     """The finding lines of a record, in order: the header, the sections, then, when the stage is known, the
-    rules of the stage (from `frame` on: the cited lines, then the options). `root` is where the cites resolve."""
+    rules of the stage (from `frame` on: the cited lines and the options; from `consilium` on: the consilium;
+    from `decide` on: the decision). `root` is where the cites resolve."""
     lines = _header_lines(record) + _section_lines(record.sections, SECTIONS, SECTIONS)
     if record.stage in STAGES:
         lines += _stage_lines(record)
         if reached(record.stage, "frame"):
             lines += _cited_lines(record, root) + _options_lines(record)
+        if reached(record.stage, "consilium"):
+            lines += _consilium_lines(record)
+        if reached(record.stage, "decide"):
+            lines += _decision_lines(record)
     return lines
 
 

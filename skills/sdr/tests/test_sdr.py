@@ -1,5 +1,5 @@
-"""Tests for sdr.py: the record reader, the skeleton command, the header and section rules, the cited lines
-and the option blocks (spec sections 5, 6 and 9)."""
+"""Tests for sdr.py: the record reader, the skeleton command, the header and section rules, the cited lines,
+the option blocks, the consilium and the decision (spec sections 5, 6 and 9)."""
 
 import os
 import re
@@ -24,6 +24,8 @@ PAGES = Path(__file__).resolve().parent / "fixtures" / "pages"
 VALID = "valid-intake.md"
 FRAME = "valid-frame.md"
 OPTIONS = "valid-options.md"
+CONSILIUM = "valid-consilium.md"
+DECIDE = "valid-decide.md"
 CODE_GOOD = "facts/code-good.md"
 FACTS = RECORDS / "facts"
 CONTEXT_1 = ("- One source system maps many claims to one warrant | orchestrator/ClaimRouter.java:8 "
@@ -54,6 +56,11 @@ FEWER_THAN_THREE = "section: Options has 2 options, fewer than 3"
 CHAIN = "flowchart LR\n" + "".join("  n%d --> n%d\n" % (number, number + 1) for number in range(1, 26))  # 26 nodes
 QUESTION = "How do we notify the end user of each warrant action?"
 FRAME_SECTIONS = sdr.SECTIONS[:7]  # the sections that stage `frame` reaches
+CORRECTION_FORM = ('consilium sceptic: correction #%d is not "correction opt-<x> <id>: <old> -> <new> — '
+                   'accepted|rejected: <reason>"')
+DISSENT_FORM = 'decision: dissent #%d is not "dissent: <role> preferred opt-<y>: <reason>"'
+NO_DISSENT_SCEPTIC = "decision: no dissent for sceptic"
+WHY_NFR_1 = "decision: why does not name NFR-1 (opt-b fails it, opt-a meets it)"
 FENCED = """### opt-a: first
 ```mermaid
 flowchart LR
@@ -117,6 +124,44 @@ def option_findings(ident: str, change: Callable[[str], str], stage: str = "opti
 def option_line(ident: str, prefix: str) -> str:
     """The line of option `ident` in valid-options.md that starts with `prefix`."""
     return next(line for line in option_body(ident).splitlines() if line.startswith(prefix))
+
+
+def role_body(role: str) -> str:
+    """The text under the heading of role `role` in valid-consilium.md, up to the next heading."""
+    text = fixture_text(CONSILIUM)
+    start = text.index("\n", text.index("### %s\n" % role)) + 1
+    return text[start : start + re.search(r"^#{2,3} ", text[start:], re.M).start()]
+
+
+def role_block(role: str) -> str:
+    return "### %s\n%s" % (role, role_body(role))
+
+
+def role_line(role: str, prefix: str) -> str:
+    """The line of role `role` in valid-consilium.md that starts with `prefix`."""
+    return next(line for line in role_body(role).splitlines() if line.startswith(prefix))
+
+
+def role_findings(role: str, change: Callable[[str], str], stage: str = "consilium") -> list[str]:
+    """The findings of valid-consilium.md when `change` rewrites the body of role `role`."""
+    body = role_body(role)
+    return findings(fixture_text(CONSILIUM, stage=stage, edits=((body, change(body)),)))
+
+
+def decide_line(prefix: str) -> str:
+    """The line of the Decision section of valid-decide.md that starts with `prefix`."""
+    return next(line for line in fixture_text(DECIDE).splitlines() if line.startswith(prefix))
+
+
+def decide_findings(*edits: tuple[str, str]) -> list[str]:
+    """The findings of valid-decide.md with the edits applied."""
+    return findings(fixture_text(DECIDE, edits=edits))
+
+
+def decision_section(name: str = DECIDE) -> str:
+    """The body of the Decision section of a fixture: the text from `## Decision` to `## Open questions`."""
+    text = fixture_text(name)
+    return text[text.index("## Decision") : text.index("## Open questions")]
 
 
 def record_dir(text: str, root: Path | None = None) -> Path:
@@ -650,6 +695,366 @@ class OptionCase(unittest.TestCase):
             ("opt-c", "Orchestrator keeps a claim ledger")])
         self.assertEqual(found[0].fits["FR-1"], "fails")
         self.assertEqual(sdr.options(sdr.parse_record(fixture_text(VALID))), [])
+
+
+class ConsiliumCase(unittest.TestCase):
+    def test_valid_consilium_record_is_ok(self):
+        self.assertEqual(findings(fixture_text(CONSILIUM)), [])
+
+    def test_bad_consilium_fixture(self):
+        self.assertEqual(findings(fixture_text("bad-consilium.md")),
+                         ["consilium sceptic: preferred opt-z is not an option"])
+
+    def test_consilium_roles(self):
+        operator, sceptic = role_block("operator"), role_block("sceptic")
+        critic = "### critic\n\n- preferred: opt-a\n\n"
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=((operator, ""),))), ["consilium operator: missing"])
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=((operator + sceptic, sceptic + operator),))),
+                         ["consilium operator: out of order"])
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=((sceptic, critic + sceptic),))),
+                         ["consilium critic: unknown role"])
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=((operator, role_block("architect") + operator),))),
+                         ["consilium architect: twice"])
+
+    def test_consilium_missing_roles_come_in_role_order(self):
+        edits = ((role_block("operator"), ""), (role_block("architect"), ""))
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=edits)),
+                         ["consilium architect: missing", "consilium operator: missing"])
+
+    def test_consilium_block_lines_come_before_the_missing_lines(self):
+        sceptic, operator = role_block("sceptic"), role_block("operator")
+        edits = ((operator + sceptic, "### critic\n\n- verdict: x\n\n" + sceptic + role_block("architect")),)
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=edits)),
+                         ["consilium critic: unknown role", "consilium architect: twice",
+                          "consilium operator: missing"])
+
+    def test_the_body_of_an_unknown_or_repeated_role_block_is_not_read(self):
+        sceptic = role_block("sceptic")
+        extra = "### critic\n\n- preferred: opt-z\n- correction nothing\n\n"
+        again = "### sceptic\n\n- preferred: opt-z\n- correction nothing\n\n"
+        self.assertEqual(findings(fixture_text(CONSILIUM, edits=((sceptic, sceptic + extra + again),))),
+                         ["consilium critic: unknown role", "consilium sceptic: twice"])
+
+    def test_consilium_none_has_no_exemption(self):
+        text = fixture_text(CONSILIUM)
+        start, end = text.index("### architect"), text.index("## Decision")
+        self.assertEqual(findings(text[:start] + "none\n\n" + text[end:]),
+                         ["consilium %s: missing" % role for role in sdr.ROLES])
+
+    def test_consilium_waits_for_the_section_and_the_stage(self):
+        text = fixture_text(CONSILIUM)
+        start, end = text.index("## Consilium"), text.index("## Decision")
+        self.assertEqual(findings(text[:start] + "## Consilium\n\npending\n\n" + text[end:]),
+                         ["section: Consilium pending at stage consilium"])
+        self.assertEqual(findings(text[:start] + text[end:]), ["section: missing Consilium"])
+        self.assertEqual(findings(text[:start] + "## Consilium\n\n" + text[end:]),
+                         ["section: Consilium empty, write none"])
+        bad = fixture_text("bad-consilium.md", stage="options")
+        self.assertEqual(findings(bad), ["section: Consilium not pending at stage options"])
+        self.assertIn("consilium sceptic: preferred opt-z is not an option",
+                      findings(fixture_text("bad-consilium.md", stage="review")))
+
+    def test_consilium_preferred_and_verdict(self):
+        preferred, verdict = role_line("operator", "- preferred:"), role_line("operator", "- verdict:")
+        self.assertEqual(role_findings("operator", lambda body: body.replace(preferred + "\n", "")),
+                         ["consilium operator: no preferred"])
+        self.assertEqual(role_findings("operator", lambda body: body.replace(preferred, "- preferred:  ")),
+                         ["consilium operator: no preferred"])
+        self.assertEqual(role_findings("operator", lambda body: body.replace(preferred, preferred + "\n" + preferred)),
+                         ["consilium operator: preferred twice"])
+        self.assertEqual(role_findings("operator", lambda body: body.replace(verdict + "\n", "")),
+                         ["consilium operator: no verdict"])
+        self.assertEqual(role_findings("operator", lambda body: body.replace(verdict, "- verdict:   ")),
+                         ["consilium operator: no verdict"])
+        self.assertEqual(role_findings("operator", lambda body: "\n"), [
+            "consilium operator: no preferred", "consilium operator: no verdict"])
+
+    def test_consilium_preferred_must_be_an_option(self):
+        preferred = role_line("operator", "- preferred:")
+        for value in ("opt-z", "opt-d", "banana", "opt-b because"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    role_findings("operator", lambda body: body.replace(preferred, "- preferred: " + value)),
+                    ["consilium operator: preferred %s is not an option" % value])
+        self.assertEqual(role_findings("operator", lambda body: body.replace(preferred, "- preferred: opt-c")), [])
+
+    def test_consilium_findings_come_in_record_order(self):
+        operator, sceptic = role_block("operator"), role_block("sceptic")
+        swapped = fixture_text(CONSILIUM, edits=((operator + sceptic, sceptic + operator),)).replace(
+            "- preferred: opt-b\n- verdict: opt-b is the only", "- verdict: opt-b is the only", 1)
+        self.assertEqual(findings(swapped),
+                         ["consilium operator: out of order", "consilium operator: no preferred"])
+
+    def test_corrections(self):
+        accepted = role_line("sceptic", "- correction opt-c")
+
+        def change(new: str) -> list[str]:
+            return role_findings("sceptic", lambda body: body.replace(accepted, new))
+
+        self.assertEqual(change("- correction opt-c FR-3 meets partial"), [CORRECTION_FORM % 1])
+        self.assertEqual(change(accepted.replace("opt-c", "opt-z")),
+                         ["consilium sceptic: correction #1 names opt-z, not an option"])
+        self.assertEqual(change(accepted.replace("FR-3", "FR-9")),
+                         ["consilium sceptic: correction #1 names FR-9, not a requirement"])
+        self.assertEqual(change(accepted.replace("-> partial", "-> good")),
+                         ["consilium sceptic: correction #1 mark good is not meets, partial or fails"])
+        self.assertEqual(change(accepted.replace("-> partial", "-> fails")),
+                         ["consilium sceptic: correction #1 accepted, but fit opt-c/FR-3 is partial, not fails"])
+        self.assertEqual(change(accepted.replace("-> partial", "-> fails").replace("accepted", "rejected")), [])
+        self.assertEqual(change(accepted), [])
+
+    def test_correction_form(self):
+        accepted = role_line("sceptic", "- correction opt-c")
+        bad = (accepted.replace(" — ", " - "), accepted.replace("accepted:", "approved:"),
+               accepted[: accepted.index("accepted:") + len("accepted:")], accepted.replace("meets ->", "->"),
+               accepted.replace("opt-c FR-3:", "opt-c FR-3"), "- correction")
+        for line in bad:
+            with self.subTest(line=line):
+                self.assertEqual(role_findings("sceptic", lambda body: body.replace(accepted, line)),
+                                 [CORRECTION_FORM % 1])
+        # a line that does not start with "- correction" is not a correction
+        self.assertEqual(role_findings("sceptic", lambda body: body.replace(
+            accepted, accepted.replace("- correction", "- correct"))), [])
+
+    def test_corrections_are_numbered_in_order(self):
+        accepted, rejected = role_line("sceptic", "- correction opt-c"), role_line("sceptic", "- correction opt-b")
+        self.assertEqual(role_findings("sceptic", lambda body: body.replace(
+            accepted, "- correction x").replace(rejected, rejected.replace("opt-b", "opt-z"))),
+            [CORRECTION_FORM % 1, "consilium sceptic: correction #2 names opt-z, not an option"])
+
+    def test_correction_faults_are_reported_in_rule_order(self):
+        accepted = role_line("sceptic", "- correction opt-c")
+        line = accepted.replace("opt-c", "opt-z").replace("FR-3", "FR-9").replace("meets -> partial", "good -> bad")
+        self.assertEqual(role_findings("sceptic", lambda body: body.replace(accepted, line)), [
+            "consilium sceptic: correction #1 names opt-z, not an option",
+            "consilium sceptic: correction #1 names FR-9, not a requirement",
+            "consilium sceptic: correction #1 mark good is not meets, partial or fails",
+            "consilium sceptic: correction #1 mark bad is not meets, partial or fails"])
+
+    def test_accepted_correction_skips_the_fit_check_on_a_fault(self):
+        accepted = role_line("sceptic", "- correction opt-c")
+        for line, expected in (
+            (accepted.replace("opt-c", "opt-z").replace("-> partial", "-> fails"),
+             ["consilium sceptic: correction #1 names opt-z, not an option"]),
+            (accepted.replace("FR-3", "FR-9").replace("-> partial", "-> fails"),
+             ["consilium sceptic: correction #1 names FR-9, not a requirement"]),
+            (accepted.replace("meets ->", "good ->").replace("-> partial", "-> fails"),
+             ["consilium sceptic: correction #1 mark good is not meets, partial or fails"]),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(role_findings("sceptic", lambda body: body.replace(accepted, line)), expected)
+
+    def test_accepted_correction_is_checked_in_any_role(self):
+        line = "- correction opt-a FR-2: fails -> meets — accepted: the event carries the claim id"
+        self.assertEqual(role_findings("architect", lambda body: body + line + "\n"),
+                         ["consilium architect: correction #1 accepted, but fit opt-a/FR-2 is fails, not meets"])
+        self.assertEqual(role_findings("architect", lambda body: body + line.replace("accepted", "rejected") + "\n"),
+                         [])
+
+    def test_accepted_correction_without_a_mark_in_the_option_is_left_to_the_option_rules(self):
+        fit = option_line("opt-c", "- fit FR-3:")
+        text = fixture_text(CONSILIUM, edits=((fit + "\n", ""),))
+        self.assertEqual(findings(text), ["fit opt-c/FR-3: missing"])
+
+    def test_fenced_consilium_lines_are_not_read(self):
+        preferred = role_line("operator", "- preferred:")
+        fence = "```text\n- preferred: opt-z\n- correction nothing\n### architect\n```\n"
+        self.assertEqual(role_findings("operator", lambda body: body.replace(preferred, preferred + "\n" + fence)), [])
+
+
+class DecisionCase(unittest.TestCase):
+    def test_valid_decide_record_is_ok(self):
+        self.assertEqual(findings(fixture_text(DECIDE)), [])
+
+    def test_bad_decision_fixture(self):
+        self.assertEqual(findings(fixture_text("bad-decision.md")), [NO_DISSENT_SCEPTIC])
+
+    def test_decision_choice(self):
+        choice, why = decide_line("- choice:"), decide_line("- why:")
+        self.assertEqual(decide_findings((choice + "\n", "")), ["decision: no choice"])
+        self.assertEqual(decide_findings((choice, choice + "\n" + choice)), ["decision: choice twice"])
+        self.assertEqual(decide_findings((choice, "- choice: opt-z")), ["decision: choice opt-z is not an option"])
+        self.assertEqual(decide_findings((why + "\n", "")), ["decision: no why"])
+
+    def test_decision_choice_forms(self):
+        choice, why = decide_line("- choice:"), decide_line("- why:")
+        self.assertEqual(decide_findings((choice, "- choice:")), ["decision: no choice"])
+        self.assertEqual(decide_findings((choice, "- choice: opt-b because")),
+                         ["decision: choice opt-b because is not an option"])
+        self.assertEqual(decide_findings((choice, choice + "\n- choice: opt-z")), ["decision: choice twice"])
+        self.assertEqual(decide_findings((why, "- why:")), ["decision: no why"])
+        self.assertEqual(decide_findings((why, "- why: " + why[len("- why: "):] + "\n- why:")), [])
+
+    def test_decision_none_has_no_exemption(self):
+        text = fixture_text(DECIDE)
+        self.assertEqual(findings(text.replace(decision_section(), "## Decision\n\nnone\n\n")),
+                         ["decision: no choice", "decision: no why", "decision: no revisit when"])
+
+    def test_decision_waits_for_the_section_and_the_stage(self):
+        text = fixture_text(DECIDE)
+        self.assertEqual(findings(text.replace(decision_section(), "## Decision\n\npending\n\n")),
+                         ["section: Decision pending at stage decide"])
+        self.assertEqual(findings(text.replace(decision_section(), "## Decision\n\n")),
+                         ["section: Decision empty, write none"])
+        self.assertEqual(findings(text.replace(decision_section(), "")), ["section: missing Decision"])
+        self.assertEqual(findings(fixture_text(DECIDE, stage="consilium")), [
+            "section: Decision not pending at stage consilium",
+            "section: Open questions not pending at stage consilium",
+            "section: Not covered not pending at stage consilium"])
+        self.assertIn(NO_DISSENT_SCEPTIC, findings(fixture_text("bad-decision.md", stage="review")))
+
+    def test_decision_why_not(self):
+        not_c = decide_line("- why not opt-c:")
+        self.assertEqual(decide_findings((not_c + "\n", "")), ["decision: no why not opt-c"])
+        self.assertEqual(decide_findings((not_c, not_c + "\n- why not opt-b: it is the choice")),
+                         ["decision: why not opt-b names the choice"])
+        self.assertEqual(decide_findings((not_c, not_c + "\n- why not opt-z: it is nothing")),
+                         ["decision: why not opt-z is not an option"])
+        not_a = decide_line("- why not opt-a:")
+        self.assertEqual(decide_findings((not_a, not_a + "\n" + not_a)), ["decision: why not opt-a twice"])
+
+    def test_decision_why_not_forms(self):
+        not_a, not_c = decide_line("- why not opt-a:"), decide_line("- why not opt-c:")
+        for line in ("- why not opt-c", "- why not opt-c:", "- why not opt-c:  ", "- why not Option C: x",
+                     "- why not opt-ab: x", "- why not: x"):
+            with self.subTest(line=line):  # a line of another form names no option: the option has no why not
+                self.assertEqual(decide_findings((not_c, line)), ["decision: no why not opt-c"])
+        self.assertEqual(decide_findings((not_a + "\n" + not_c, "")),
+                         ["decision: no why not opt-a", "decision: no why not opt-c"])
+        self.assertEqual(decide_findings((not_c, "- why not opt-b: x\n- why not opt-b: y")),
+                         ["decision: why not opt-b names the choice", "decision: why not opt-b names the choice",
+                          "decision: why not opt-b twice", "decision: no why not opt-c"])
+
+    def test_decision_dissent(self):
+        dissent = decide_line("- dissent:")
+        architect = "- dissent: architect preferred opt-b: it is the choice"
+        self.assertEqual(decide_findings((dissent, dissent + "\n" + architect)),
+                         ["decision: dissent for architect, who preferred the choice"])
+        self.assertEqual(decide_findings((dissent, dissent.replace("preferred opt-a", "preferred opt-c"))),
+                         ["decision: dissent sceptic names opt-c, consilium says opt-a"])
+        self.assertEqual(decide_findings((dissent, "- dissent: nobody")), [DISSENT_FORM % 1, NO_DISSENT_SCEPTIC])
+
+    def test_decision_dissent_forms(self):
+        dissent = decide_line("- dissent:")
+        for line in ("- dissent: critic preferred opt-a: r", "- dissent: sceptic preferred opt-a:",
+                     "- dissent: sceptic preferred opt-a", "- dissent: sceptic preferred Option A: r",
+                     "- dissent: sceptic prefers opt-a: r", "- dissent sceptic preferred opt-a: r", "- dissent:"):
+            with self.subTest(line=line):
+                self.assertEqual(decide_findings((dissent, line)), [DISSENT_FORM % 1, NO_DISSENT_SCEPTIC])
+
+    def test_decision_dissent_lines_are_numbered_in_order(self):
+        dissent = decide_line("- dissent:")
+        self.assertEqual(decide_findings((dissent, "- dissent: x\n" + dissent + "\n- dissent: y")),
+                         [DISSENT_FORM % 1, DISSENT_FORM % 3])
+
+    def test_dissent_rules_are_exclusive_for_a_role_that_preferred_the_choice(self):
+        dissent = decide_line("- dissent:")
+        self.assertEqual(decide_findings((dissent, dissent + "\n- dissent: operator preferred opt-c: r")),
+                         ["decision: dissent for operator, who preferred the choice"])  # not "names opt-c"
+
+    def test_dissent_is_missing_for_each_role_in_role_order(self):
+        dissent = decide_line("- dissent:")
+        text = fixture_text(DECIDE, edits=((dissent + "\n", ""),))
+        self.assertEqual(findings(text), [NO_DISSENT_SCEPTIC])
+        operator, architect = role_block("operator"), role_block("architect")
+        # the architect, the operator and the sceptic all differ from the choice: a dissent line is missing for each
+        text = fixture_text(DECIDE, edits=((dissent + "\n", ""),
+                                           (operator, operator.replace("preferred: opt-b", "preferred: opt-c")),
+                                           (architect, architect.replace("preferred: opt-b", "preferred: opt-a"))))
+        self.assertEqual(findings(text), ["decision: no dissent for architect", "decision: no dissent for operator",
+                                          NO_DISSENT_SCEPTIC])
+
+    def test_dissent_waits_for_the_consilium_of_the_role(self):
+        preferred, dissent = role_line("sceptic", "- preferred:"), decide_line("- dissent:")
+        self.assertEqual(decide_findings((preferred + "\n", "")), ["consilium sceptic: no preferred"])
+        self.assertEqual(decide_findings((preferred + "\n", ""), (dissent + "\n", "")),
+                         ["consilium sceptic: no preferred"])
+        self.assertEqual(decide_findings((role_block("sceptic"), "")), ["consilium sceptic: missing"])
+
+    def test_decision_revisit(self):
+        revisit = decide_line("- revisit when:")
+        self.assertEqual(decide_findings((revisit + "\n", "")), ["decision: no revisit when"])
+        self.assertEqual(decide_findings((revisit, "- revisit when:")), ["decision: no revisit when"])
+        self.assertEqual(decide_findings((revisit, revisit + "\n- revisit when: or when the volume doubles")), [])
+
+    def test_next_steps_have_no_rule(self):
+        steps = decide_line("- next steps:")
+        self.assertEqual(decide_findings((steps + "\n", "")), [])
+        self.assertEqual(decide_findings((steps, "- next steps:")), [])
+
+    def test_why_must_name_failed_requirement(self):
+        why = decide_line("- why:")
+        self.assertEqual(decide_findings((why, why.replace("NFR-1", "the target"))), [WHY_NFR_1])
+
+    def test_why_token_match_is_exact(self):
+        why = decide_line("- why:")
+        self.assertEqual(decide_findings((why, why.replace("NFR-1", "NFR-12"))), [WHY_NFR_1])
+        for form in ("(NFR-1)", "NFR-1,", "NFR-1.", "[NFR-1]"):
+            with self.subTest(form=form):
+                self.assertEqual(decide_findings((why, why.replace("NFR-1", form))), [])
+        for form in ("NFR-10", "ANFR-1", "NFR-1-b", "xNFR-1", "_NFR-1", "NFR-1_", "-NFR-1"):
+            with self.subTest(form=form):
+                self.assertEqual(decide_findings((why, why.replace("NFR-1", form))), [WHY_NFR_1])
+        self.assertEqual(decide_findings((why, why.replace("NFR-1", "NFR-12 and NFR-1"))), [])
+
+    def test_why_reads_only_the_why_line(self):
+        why = decide_line("- why:")
+        for other in ("- why not opt-a:", "- dissent:", "- revisit when:"):
+            line = decide_line(other)
+            with self.subTest(other=other):  # NFR-1 on another line does not satisfy the why rule
+                self.assertEqual(decide_findings((why, why.replace("NFR-1", "the target")),
+                                                 (line, line + " NFR-1")), [WHY_NFR_1])
+
+    def test_why_rule_follows_the_choice(self):
+        body = (
+            "## Decision\n\n- choice: opt-a\n- why: opt-a meets NFR-1%s\n"
+            "- why not opt-b: it waits for a grouping window\n- why not opt-c: a second store\n"
+            "- dissent: architect preferred opt-b: it names the claims; the decision stands\n"
+            "- dissent: operator preferred opt-b: it traces a stuck case; the decision stands\n"
+            "- revisit when: the claims matter\n- next steps: build the notifier\n\n")
+        text = fixture_text(DECIDE)
+        self.assertEqual(findings(text.replace(decision_section(), body % "")),
+                         ["decision: why does not name FR-2 (opt-a fails it, opt-b meets it)"])
+        self.assertEqual(findings(text.replace(decision_section(), body % " but fails FR-2")), [])
+
+    def test_why_rule_needs_another_option_that_meets_the_requirement(self):
+        why, fit = decide_line("- why:"), option_line("opt-a", "- fit NFR-1:")
+        self.assertEqual(decide_findings((why, why.replace("NFR-1", "the target")),
+                                         (fit, fit.replace("meets", "partial", 1))), [])
+        self.assertEqual(decide_findings((why, why.replace("NFR-1", "the target")),
+                                         (fit, fit.replace("meets", "fails", 1))), [])
+
+    def test_why_rule_names_an_option_that_meets_it(self):
+        why = decide_line("- why:")
+        fit = option_line("opt-c", "- fit NFR-1:")
+        self.assertEqual(decide_findings((why, why.replace("NFR-1", "the target")),
+                                         (option_line("opt-a", "- fit NFR-1:"),
+                                          option_line("opt-a", "- fit NFR-1:").replace("meets", "partial", 1)),
+                                         (fit, fit.replace("partial", "meets", 1))),
+                         ["decision: why does not name NFR-1 (opt-b fails it, opt-c meets it)"])
+
+    def test_why_rule_is_not_run_without_a_valid_choice_or_a_why(self):
+        choice, why = decide_line("- choice:"), decide_line("- why:")
+        self.assertEqual(decide_findings((choice, "- choice: opt-z"), (why, why.replace("NFR-1", "the target"))),
+                         ["decision: choice opt-z is not an option"])
+        self.assertEqual(decide_findings((why + "\n", "")), ["decision: no why"])
+
+    def test_choice_helper(self):
+        self.assertEqual(sdr.choice(sdr.parse_record(fixture_text(DECIDE))), "opt-b")
+        self.assertIsNone(sdr.choice(sdr.parse_record(fixture_text(CONSILIUM))))
+        self.assertIsNone(sdr.choice(sdr.parse_record(fixture_text(OPTIONS))))
+        self.assertIsNone(sdr.choice(sdr.parse_record("# SDR: q\nstage: intake\nroot: /r\ncode: none\n")))
+
+    def test_choice_helper_reads_the_first_choice_line(self):
+        choice = decide_line("- choice:")
+        record = sdr.parse_record(fixture_text(DECIDE, edits=((choice, "- choice: opt-c\n- choice: opt-a"),)))
+        self.assertEqual(sdr.choice(record), "opt-c")
+        self.assertIsNone(sdr.choice(sdr.parse_record(fixture_text(DECIDE, edits=((choice + "\n", ""),)))))
+
+    def test_fenced_decision_lines_are_not_read(self):
+        choice = decide_line("- choice:")
+        fence = "```text\n- choice: opt-z\n- dissent: nobody\n- why not opt-z: x\n```"
+        self.assertEqual(decide_findings((choice, choice + "\n" + fence)), [])
 
 
 class CheckFactsCase(unittest.TestCase):
