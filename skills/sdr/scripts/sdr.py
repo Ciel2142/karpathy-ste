@@ -62,6 +62,7 @@ REACHED = {
 ROLES = ("architect", "operator", "sceptic")
 SOURCES = ("user", "code", "web", "assumption")  # "consilium <role>" is the fifth form
 PENDING = "pending"
+NONE = "none"  # a section that holds only this line has nothing to check
 HEADER_LINES = 4  # the title, `stage:`, `root:` and `code:` lines; the sections follow
 FENCE = "```"
 TITLE_PREFIX = "# SDR: "
@@ -231,7 +232,7 @@ def _code_of(line: str) -> list[str] | None:
 
 def parse_record(text: str) -> Record:
     """The record of a text; a byte order mark and CRLF line ends read as in an LF file."""
-    lines = text.removeprefix("﻿").splitlines()
+    lines = text.removeprefix("\ufeff").splitlines()
     header = (lines[:HEADER_LINES] + [""] * HEADER_LINES)[:HEADER_LINES]
     return Record(
         _question_of(header[0]), _stage_of(header[1]), _root_of(header[2]), _code_of(header[3]),
@@ -302,6 +303,10 @@ def _is_empty(section: Section) -> bool:
     return not section.lines and not section.blocks
 
 
+def _is_none(section: Section) -> bool:
+    return not section.blocks and [text for _, text in section.lines] == [NONE]
+
+
 def _stage_lines(record: Record) -> list[str]:
     """The `section:` lines of the stage: a section the stage has not reached must be pending, a reached one
     must not be pending or empty. Only the first section of a title counts."""
@@ -349,6 +354,16 @@ def cite_problems(where: str, snippet: str, root: str) -> list[str]:
     if not found:
         return ["no cite"]
     return cite_check.fact_problems(found.group(1), int(found.group(2)), snippet, root)
+
+
+def _form_lines(section: Section, allowed: tuple[str, ...] = ()) -> list[str]:
+    """The `section:` lines of the content a rule cannot read: each own line (outside the blocks) that is not
+    `- <text>` and not one of `allowed`, then each `### ` block, whose lines are not read. The own lines of a
+    section all come before its first block, so this is record order."""
+    title = section.title
+    lines = ['section: %s line %d is not a "- <text>" line' % (title, number)
+             for number, text in section.lines if not text.startswith("- ") and text not in allowed]
+    return lines + ['section: %s has a "### %s" block' % (title, block.heading) for block in section.blocks]
 
 
 def _bullets(lines: list[tuple[int, str]]) -> list[tuple[int, int, str]]:
@@ -424,10 +439,12 @@ def _requirement_lines(section: Section, kind: str, root: str) -> list[str]:
         fields = parts[1:]
         problems = ["expected %s-%d" % (kind, count)] if ident != "%s-%d" % (kind, count) else []
         problems += [] if words else ["no text"]
+        target = TARGET_FIELD.fullmatch(fields[0]) if fields else None
+        fields = fields[1:] if target else fields  # the field is consumed, so the source rules read the next one
         if kind == "NFR":
-            target = TARGET_FIELD.fullmatch(fields[0]) if fields else None
-            fields = fields[1:] if target else fields
             problems += [] if target and target.group(1).strip() else ["no target"]
+        elif target:
+            problems.append("target is only for NFR lines")
         source, cite = _source_problems(fields)
         lines += ["req %s: %s" % (ident, problem) for problem in problems + source]
         if cite:
@@ -449,12 +466,14 @@ def _constraint_lines(section: Section, root: str) -> list[str]:
 
 def _cited_lines(record: Record, root: str) -> list[str]:
     """The cited-line rules of the frame stage: Context, both requirement sections and Constraints, in that
-    order. Only `- ` lines are read, so a section that is missing, pending, empty or `none` has nothing to check."""
+    order. For each section the `section:` lines of what is not a `- <text>` line come first, then the cite,
+    requirement or constraint lines. A section that is missing, pending, empty or `none` has nothing to check."""
     lines = []
     for title in ("Context", "Functional requirements", "Non-functional requirements", "Constraints"):
         section = record.section(title)
-        if section is None:
+        if section is None or _is_pending(section) or _is_empty(section) or _is_none(section):
             continue
+        lines += _form_lines(section)
         if title == "Context":
             lines += _context_lines(section, root)
         elif title == "Constraints":
@@ -868,6 +887,20 @@ def _facts_of(lines: list[tuple[int, str]], skip: str | None = None) -> list[Fac
     return facts
 
 
+def _facts_section_lines(section: Section, root: str) -> list[str]:
+    """The lines of Shape or Facts: what it holds besides `- ` lines, then the cites. `none` alone and `- none`
+    are no fact and no fault."""
+    form = [] if _is_none(section) else _form_lines(section, (NONE_BULLET,))
+    return form + _cite_lines(section.title, _facts_of(section.lines, NONE_BULLET), root)
+
+
+def _flows_form_lines(section: Section) -> list[str]:
+    """The `section:` lines of the own lines of Relevant flows, which belong in a `### ` flow block; `none` and
+    `- none` are no fault."""
+    return ['section: Relevant flows line %d is not in a "### <flow-id>: <question>" block' % number
+            for number, line in section.lines if line not in (NONE, NONE_BULLET)]
+
+
 def check_facts(text: str, root: str) -> list[str]:
     """The finding lines of a searcher's fact file: the title, the sections, then the cites of Shape, the flows
     and Facts. `root` is where the cites resolve."""
@@ -881,8 +914,10 @@ def check_facts(text: str, root: str) -> list[str]:
     found += _section_lines(sections, FACTS_TITLES, FACTS_REQUIRED)
     by_title = {section.title: section for section in reversed(sections)}  # the first section of a title wins
     if "Shape" in by_title:
-        found += _cite_lines("Shape", _facts_of(by_title["Shape"].lines, NONE_BULLET), root)
-    for block in by_title["Relevant flows"].blocks if "Relevant flows" in by_title else []:
+        found += _facts_section_lines(by_title["Shape"], root)
+    flows = by_title.get("Relevant flows")
+    found += _flows_form_lines(flows) if flows is not None else []
+    for block in flows.blocks if flows is not None else []:
         ident, colon, question = block.heading.partition(":")
         if not (colon and onboard.ID.fullmatch(ident)):
             found.append("flow %s: no flow id" % block.heading)
@@ -892,7 +927,7 @@ def check_facts(text: str, root: str) -> list[str]:
         found += onboard._place_lines(ident, flow, onboard.FLOWCHART)
         found += _cite_lines("Relevant flows/" + ident, flow.facts, root)
     if "Facts" in by_title:
-        found += _cite_lines("Facts", _facts_of(by_title["Facts"].lines, NONE_BULLET), root)
+        found += _facts_section_lines(by_title["Facts"], root)
     return found
 
 

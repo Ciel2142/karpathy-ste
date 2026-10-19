@@ -415,10 +415,12 @@ class HeaderAndSectionCase(unittest.TestCase):
 
     def test_reached_section_with_content_or_none_is_quiet(self):
         shortlist = "".join("### opt-%s: name\npending\n" % letter for letter in "abc")  # Options needs three options
+        content = {"Problem": "A line.", "Context": CONTEXT_1,
+                   "Functional requirements": "- FR-1: A line. | source: user",
+                   "Non-functional requirements": "- NFR-1: A line. | target: unknown | source: user",
+                   "Constraints": "- A line. | source: user", "Non-goals": "none", "Options": shortlist}
         text = fixture_text(VALID, stage="frame", edits=tuple(
-            ("## %s\n\npending\n" % title, "## %s\n\n%s\n" % (
-                title, "none" if title == "Non-goals" else shortlist if title == "Options" else "A line."))
-            for title in FRAME_SECTIONS))
+            ("## %s\n\npending\n" % title, "## %s\n\n%s\n" % (title, content[title])) for title in FRAME_SECTIONS))
         self.assertEqual(findings(text), [])
 
     def test_unreached_section_with_blocks_is_not_pending(self):
@@ -497,6 +499,25 @@ class CitedLineCase(unittest.TestCase):
             with self.subTest(new=new):
                 self.assertEqual(frame_findings((old, new)), wanted)
 
+    def test_fr_target_field_is_named(self):
+        fr_1 = "- FR-1: The end user is told about every block, unblock and confiscation | source: user"
+        target = fr_1.replace(" | source", " | target: 60 s | source")
+        named = ["req FR-1: target is only for NFR lines"]
+        self.assertEqual(frame_findings((fr_1, target)), named)
+        self.assertEqual(frame_findings((fr_1, fr_1.replace(" | source", " | target: | source"))), named)
+        self.assertEqual(frame_findings((fr_1, target.replace("source: user", "source: boss"))),
+                         named + ["req FR-1: unknown source boss"])
+        self.assertEqual(frame_findings((FR_2, FR_2.replace(" | source", " | target: 60 s | source"))),
+                         ["req FR-2: target is only for NFR lines"])
+        self.assertEqual(frame_findings((FR_2, FR_2.replace(" | source", " | target: 60 s | source").replace(
+            "Many claims, one warrant", "One claim, many warrants"))),
+            ["req FR-2: target is only for NFR lines",
+             "cite Functional requirements#2: snippet not found on that line"])
+        self.assertEqual(frame_findings((fr_1, fr_1.replace(" | source: user", " | target: 60 s"))),
+                         named + ["req FR-1: no source"])
+        self.assertEqual(frame_findings((fr_1, fr_1.replace("source: user", "source: user | target: 60 s"))),
+                         ["req FR-1: source user takes no cite"])
+
     def test_requirement_sources(self):
         fr_1 = "- FR-1: The end user is told about every block, unblock and confiscation | source: user"
         cite = "orchestrator/ClaimRouter.java:8 | Many claims, one warrant"
@@ -563,6 +584,48 @@ class CitedLineCase(unittest.TestCase):
             body = "\n".join(line for line in text.splitlines() if line.startswith("- %s-" % kind))
             with self.subTest(title=title):
                 self.assertEqual(frame_findings((body, "none")), [])
+
+    def test_cited_sections_read_only_dash_bullets(self):
+        context = 'section: Context line %d is not a "- <text>" line'
+        for old, new, wanted in (
+            (CONTEXT_1, "* " + CONTEXT_1[2:], [context % 12]),
+            (CONTEXT_3, CONTEXT_3 + "\n-", [context % 15]),
+            (CONTEXT_3, CONTEXT_3 + "\n- ", [context % 15]),
+            (CONTEXT_2, "1. " + CONTEXT_2[2:], [context % 13]),
+            (FR_2, FR_2 + "\n1. The end user can mute the notifications | source: user",
+             ['section: Functional requirements line 20 is not a "- <text>" line']),
+            (NFR_1, NFR_1 + "\n* NFR-9: an extra target | target: unknown | source: user",
+             ['section: Non-functional requirements line 25 is not a "- <text>" line']),
+            (CONSTRAINT, CONSTRAINT + "\nThe executor is owned by another team",
+             ['section: Constraints line 30 is not a "- <text>" line']),
+        ):
+            with self.subTest(new=new):
+                self.assertEqual(frame_findings((old, new)), wanted)
+
+    def test_cited_section_block_is_reported(self):
+        block = '### Code facts\n\n- Wrong | orchestrator/ClaimRouter.java:8 | not on that line\n\n'
+        self.assertEqual(frame_findings((CONTEXT_3 + "\n\n", CONTEXT_3 + "\n\n" + block)),
+                         ['section: Context has a "### Code facts" block'])
+        for title, following in (("Functional requirements", "## Non-functional requirements"),
+                                 ("Non-functional requirements", "## Constraints"),
+                                 ("Constraints", "## Non-goals")):
+            with self.subTest(title=title):
+                self.assertEqual(frame_findings((following, block + following)),
+                                 ['section: %s has a "### Code facts" block' % title])
+
+    def test_cited_section_form_lines_come_before_their_cite_lines(self):
+        block = "### Code facts\n\n- x | orchestrator/ClaimRouter.java:8 | y\n\n"
+        self.assertEqual(
+            frame_findings((CONTEXT_1, "prose\n" + CONTEXT_1.replace("Many claims, one warrant", "No claims")),
+                           (CONTEXT_3 + "\n\n", CONTEXT_3 + "\n\n" + block),
+                           (CONSTRAINT, CONSTRAINT + "\n* x\n- y | source: boss")),
+            ['section: Context line 12 is not a "- <text>" line', 'section: Context has a "### Code facts" block',
+             "cite Context#1: snippet not found on that line",
+             'section: Constraints line 35 is not a "- <text>" line', "constraint #2: unknown source boss"])
+
+    def test_none_marks_a_cited_section_only_when_it_is_the_whole_section(self):
+        self.assertEqual(frame_findings((CONTEXT_3, "none\n" + CONTEXT_3)),
+                         ['section: Context line 14 is not a "- <text>" line'])
 
     def test_cite_rules_wait_for_stage_frame_and_for_content(self):
         self.assertEqual(findings(fixture_text(FRAME, stage="explore", edits=((CONTEXT_1, "- no cite"),))),
@@ -1455,6 +1518,41 @@ class CheckFactsCase(unittest.TestCase):
         self.assertEqual(facts_findings((SHAPE_FACT, "- none"), (FACTS_FIRST, "- none\n" + FACTS_FIRST)), [])
         self.assertEqual(facts_findings((FACTS_FIRST, "- none\n- no cite here")), ["cite Facts#1: no cite"])
 
+    def test_check_facts_reads_only_dash_bullets(self):
+        flow = 'section: Relevant flows line %d is not in a "### <flow-id>: <question>" block'
+        section = 'section: %s line %d is not a "- <text>" line'
+        data = "### Data\n\n- x | orchestrator/ClaimRouter.java:8 | not on that line\n\n"
+        for old, new, wanted in (
+            (FACTS_FIRST, "* " + FACTS_FIRST[2:], [section % ("Facts", 23)]),
+            (FACTS_FIRST, "1. " + FACTS_FIRST[2:], [section % ("Facts", 23)]),
+            (FACTS_FIRST, FACTS_FIRST + "\n-", [section % ("Facts", 24)]),
+            (FACTS_FIRST, FACTS_FIRST + "\nThe map is a plain Map", [section % ("Facts", 24)]),
+            ("## Unknowns", data + "## Unknowns", ['section: Facts has a "### Data" block']),
+            (SHAPE_FACT, "* " + SHAPE_FACT[2:], [section % ("Shape", 5)]),
+            ("## Relevant flows", data + "## Relevant flows", ['section: Shape has a "### Data" block']),
+            ("## Relevant flows\n\n", "## Relevant flows\n\n- x | a.java:1 | y\n\n", [flow % 9]),
+            ("## Relevant flows\n\n", "## Relevant flows\n\nNo flow yet\n\n", [flow % 9]),
+        ):
+            with self.subTest(new=new):
+                self.assertEqual(facts_findings((old, new)), wanted)
+                target = temp_dir() / "facts.md"
+                target.write_text(fixture_text(CODE_GOOD, edits=((old, new),)), encoding="utf-8")
+                run = run_sdr("check-facts", str(target), "--root", str(TREE))
+                self.assertEqual((run.returncode, run.stdout.splitlines()), (1, wanted + ["sdr: 1 findings"]))
+
+    def test_check_facts_none_lines_stay_allowed(self):
+        self.assertEqual(facts_findings(("## Relevant flows\n\n", "## Relevant flows\n\nnone\n- none\n\n")), [])
+        self.assertEqual(facts_findings((SHAPE_FACT, "none"), (FACTS_FIRST, "- none\n" + FACTS_FIRST)), [])
+        self.assertEqual(facts_findings((FACTS_FIRST, FACTS_FIRST + "\nnone")),
+                         ['section: Facts line 24 is not a "- <text>" line'])
+
+    def test_check_facts_form_lines_come_before_the_cite_lines_of_their_section(self):
+        self.assertEqual(
+            facts_findings((SHAPE_FACT, "* x\n" + SHAPE_FACT.replace("class ClaimRouter", "class Nothing")),
+                           (FACTS_FIRST, "prose\n" + FACTS_FIRST.replace("Many claims", "Few claims"))),
+            ['section: Shape line 5 is not a "- <text>" line', "cite Shape#1: snippet not found on that line",
+             'section: Facts line 24 is not a "- <text>" line', "cite Facts#1: snippet not found on that line"])
+
     def test_check_facts_cli_errors(self):
         good = str(FACTS / "code-good.md")
         run = run_sdr("check-facts", good)
@@ -1535,8 +1633,11 @@ class ReaderCase(unittest.TestCase):
         self.assertEqual((record.question, record.stage, record.root, record.code), ("q", None, None, None))
 
     def test_bom_and_crlf_read_as_lf(self):
-        text = "﻿" + fixture_text(VALID).replace("\n", "\r\n")
+        text = "\ufeff" + fixture_text(VALID).replace("\n", "\r\n")
         self.assertEqual(sdr.parse_record(text).stage, "intake")
+        self.assertEqual(findings(text), [])
+        text = "\ufeff" + fixture_text(DECIDE).replace("\n", "\r\n")  # fences, blocks and fit lines
+        self.assertEqual(sdr.parse_record(text).stage, "decide")
         self.assertEqual(findings(text), [])
 
     def test_reached_compares_stage_positions(self):
