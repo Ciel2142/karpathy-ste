@@ -61,6 +61,15 @@ flowchart TD
 ## State
 none found
 
+## Events
+- not an event: `Order`: a plain row, not a message | src/Order.java:3 | class Order
+
+### event.document.signature
+- type: the routing key `event.document.signature` | src/E.java:2 | KEY = "event.document.signature"
+- stream: the exchange `documents` | src/E.java:3 | EXCHANGE = "documents"
+- emits: `Signer` sends it after signing -> send | src/S.java:5 | rabbit.send(KEY)
+- consumes: outside: Archive `documents` | src/E.java:3 | EXCHANGE = "documents"
+
 ## Formats and transforms
 - JSON bodies by Jackson | src/A.java:2 | import com.fasterxml.jackson
 
@@ -220,6 +229,21 @@ class ParseMapCase(unittest.TestCase):
         self.assertIsNone(flow.ident)
         self.assertEqual(flow.heading, "Order flow")
 
+    def test_event_entry_keeps_its_name_verbatim_and_owns_its_lines(self):
+        events = self.doc.section("Events")
+        self.assertEqual([e.name for e in events.events], ["event.document.signature"])
+        event = events.events[0]
+        self.assertEqual([f.n for f in event.facts], [1, 2, 3, 4])
+        self.assertEqual(event.facts[0].cite, ("src/E.java", 2, 'KEY = "event.document.signature"'))
+        self.assertEqual([f.fact for f in events.facts], ["not an event: `Order`: a plain row, not a message"])
+
+    def test_only_events_and_flows_open_a_level_3_scope(self):
+        text = replace_once(GOOD, "## Error paths\n", "## Error paths\n### Not an event\n- a fault | src/A.java:1 | x\n")
+        doc = onboard.parse_map(text)
+        self.assertEqual([len(s.events) for s in doc.sections if s.title != "Events"], [0] * 12)
+        self.assertIn("a fault", [f.fact for f in doc.section("Error paths").facts])
+        self.assertEqual(len(doc.section("Events").events), 1)
+
     def test_flow_nodes_maps_each_flow_to_its_node_ids(self):
         self.assertEqual(onboard.flow_nodes(self.doc), {"send": ["recv", "check", "store"], "cancel": ["listen"]})
 
@@ -264,6 +288,7 @@ PLANTED = [
     ("routes/stock.camel.yaml", "- from:", "route"),
     ("routes/stock.camel.yaml", "- from: {", "route"),
     ("config/camel-context.xml", '<from uri="jms:queue:legacy.in"/>', "route"),
+    (JAVA_DIR + "OrderPlacedEvent.java", "public record OrderPlacedEvent", "event"),
 ]
 
 
@@ -288,7 +313,7 @@ class InventoryCase(unittest.TestCase):
     def test_tree_lists_each_planted_entry_point_once_and_nothing_else(self):
         hits = onboard.inventory(TREE, TREE)
         expected = sorted((rel, line_of(rel, needle), kind) for rel, needle, kind in PLANTED)
-        self.assertEqual(len(expected), 18)
+        self.assertEqual(len(expected), 19)
         self.assertEqual(triples(hits), expected)
         for hit in hits:
             for skipped in ("Test.java", "_test.go", "Spec.kt", "src/test"):
@@ -338,6 +363,84 @@ class InventoryCase(unittest.TestCase):
             path.write_text('@RequestMapping("/orders")\n@Deprecated public class X {\n}\n', encoding="utf-8")
             self.assertEqual(onboard.scan_file(str(path), "X.java"), [])
 
+    def scan(self, name, source):
+        """The (line, kind, text) of each hit of a file `name` holding `source`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_text(source, encoding="utf-8")
+            return [(hit.line, hit.kind, hit.text) for hit in onboard.scan_file(str(path), name)]
+
+    def test_each_event_pattern_hits_once_with_the_kind_event(self):
+        cases = (
+            ("A.java", "public class OrderPlacedEvent {\n}\n", "public class OrderPlacedEvent {"),
+            ("A.java", "public record OrderPlacedEvent(String id) {\n}\n", "public record OrderPlacedEvent(String id) {"),
+            ("A.java", "public interface PaidEvent {\n}\n", "public interface PaidEvent {"),
+            ("A.kt", "data class StockMovedEvent(val id: String)\n", "data class StockMovedEvent(val id: String)"),
+            ("A.kt", "object ShippedEvent\n", "object ShippedEvent"),
+            ("A.java", "public class Custom extends ApplicationEvent {\n}\n", "public class Custom extends ApplicationEvent {"),
+            ("A.kt", "class UserRegistered(source: Any) : ApplicationEvent(source)\n",
+             "class UserRegistered(source: Any) : ApplicationEvent(source)"),
+            ("A.kt", "class UserRegistered(source: Any) : ApplicationEvent(source), Serializable\n",
+             "class UserRegistered(source: Any) : ApplicationEvent(source), Serializable"),
+            # a multi-line declaration gives one hit, at its first line
+            ("A.kt", "class XEvent(\n    val id: String,\n) : ApplicationEvent(id)\n", "class XEvent("),
+            ("a.go", "type StockMovedEvent struct {\n}\n", "type StockMovedEvent struct {"),
+        )
+        for name, source, text in cases:
+            with self.subTest(source=source):
+                self.assertEqual(self.scan(name, source), [(1, "event", text)])
+
+    def test_each_new_listener_pattern_hits_once_with_the_kind_listener(self):
+        cases = (
+            ("A.java", "    @EventHandler\n    public void on(OrderPlaced event) {}\n", 1),
+            ("A.java", "    @SagaEventHandler(associationProperty = \"id\")\n    public void on(Paid p) {}\n", 1),
+            ("A.kt", "    @CommandHandler\n    fun handle(c: Place) {}\n", 1),
+            ("a.go", "\tsub := client.SubscribeToAll(ctx, opts)\n", 1),
+            ("a.go", "\tsub := client.SubscribeToStream(ctx, \"orders\", opts)\n", 1),
+        )
+        for name, source, line in cases:
+            with self.subTest(source=source):
+                hits = self.scan(name, source)
+                self.assertEqual([(found_line, kind) for found_line, kind, _ in hits], [(line, "listener")])
+
+    def test_names_that_only_start_with_event_and_the_sourcing_handler_are_no_hit(self):
+        cases = (
+            ("A.java", "public class EventPoller {\n}\n"),
+            ("A.java", "public class EventEnvelope {\n}\n"),
+            ("A.kt", "fun <T : ApplicationEvent> publish(event: T) {}\n"),
+            ("A.kt", "class Relay(val ev: ApplicationEvent) : Bar()\n"),
+            ("A.java", "public class OrderEventsConfig {\n}\n"),
+            ("A.java", "    @EventSourcingHandler\n    public void on(OrderPlaced event) {}\n"),
+            ("A.kt", "    @EventSourcingHandler\n    fun on(e: Paid) {}\n"),
+        )
+        for name, source in cases:
+            with self.subTest(source=source):
+                self.assertEqual(self.scan(name, source), [])
+
+    def test_event_listener_stays_a_listener_and_the_event_annotation_does_not_match_it(self):
+        source = "    @EventListener\n    public void on(Paid p) {}\n    @EventHandler\n    void h() {}\n"
+        hits = self.scan("A.java", source)
+        self.assertEqual([(line, kind) for line, kind, _ in hits], [(1, "listener"), (3, "listener")])
+
+    def test_annotation_on_its_own_line_hits_at_the_declaration_with_its_text(self):
+        for annotation in ("@DomainEvent", "@Event", '@Event(name = "placed")'):
+            with self.subTest(annotation=annotation):
+                source = "%s\n\n@Deprecated\npublic class Placed {\n}\n" % annotation
+                self.assertEqual(self.scan("A.java", source), [(4, "event", "public class Placed {")])
+
+    def test_annotation_and_name_suffix_on_one_declaration_are_one_hit(self):
+        source = "@DomainEvent\n@Event\npublic class OrderPlacedEvent {\n}\n"
+        self.assertEqual(self.scan("A.java", source), [(3, "event", "public class OrderPlacedEvent {")])
+
+    def test_annotation_and_declaration_on_one_line_are_one_hit(self):
+        source = "@DomainEvent public class Placed {\n}\n"
+        self.assertEqual(self.scan("A.java", source), [(1, "event", "@DomainEvent public class Placed {")])
+
+    def test_annotation_with_no_declaration_after_it_is_no_hit(self):
+        self.assertEqual(self.scan("A.java", "@Event\nprivate String name;\nclass Placed {\n}\n"), [])
+        self.assertEqual(self.scan("A.java", "@DomainEvent\n"), [])
+        self.assertEqual(self.scan("A.java", "@Event\n// the next class\nclass Placed {\n}\n"), [])
+
     def test_from_outside_a_route_builder_is_not_a_hit(self):
         self.assertEqual(hits_of(JAVA_DIR + "ReportQuery.java"), {})
         rel = JAVA_DIR + "ShopRoutes.java"
@@ -374,8 +477,8 @@ class InventoryCase(unittest.TestCase):
             code, stdout, stderr = run(["inventory", str(TREE), "--root", str(TREE), "--out", str(out)])
             written = out.read_text(encoding="utf-8")
         self.assertEqual(code, 0)
-        self.assertEqual(len(lines), 18)
-        self.assertEqual(stdout, "".join(line + "\n" for line in lines) + "inventory: 18 entry points\n")
+        self.assertEqual(len(lines), 19)
+        self.assertEqual(stdout, "".join(line + "\n" for line in lines) + "inventory: 18 entry points, 1 event types\n")
         self.assertEqual(written, "".join(line + "\n" for line in lines))
         self.assertEqual(stderr, "")
 
@@ -383,7 +486,7 @@ class InventoryCase(unittest.TestCase):
         code, stdout, _ = run(["inventory", str(TREE), "--root", str(TREE.parent)])
         hit_lines = [line for line in stdout.splitlines() if "\t" in line]
         self.assertEqual(code, 0)
-        self.assertEqual(len(hit_lines), 18)
+        self.assertEqual(len(hit_lines), 19)
         for line in hit_lines:
             self.assertTrue(line.startswith("tree/"), line)
 
@@ -491,6 +594,8 @@ OK = (0, "onboard: ok\n", "")
 SHAPE_1 = section_text("Shape").splitlines()[1]
 RECV = line_starting("- recv:")
 GET_ENTRY = line_starting("- http GET /orders/{id}")
+ENTRY_1 = section_text("Events").split("\n\n")[0].split("\n", 1)[1]  # the first entry, heading line included
+CONSUME_CITE = line_starting("- consumes: `OrderProjection`").split(" | ", 1)[1]
 THIRTEEN = " ".join("w%d" % n for n in range(1, 14))
 
 
@@ -592,7 +697,7 @@ class CheckCase(unittest.TestCase):
     def test_flows_none_found_skips_the_flows(self):
         later = " -> not traced: later |"
         edits = [(section_body("Flows"), "none found\n\n"), (" -> order |", later), (" -> cancel |", later),
-                 (" -> cancel |", later)]
+                 (" -> cancel |", later)] + [(" -> order |", " |")] * 3  # the flow links of the three event lines
         self.assertEqual(check(edits=edits), OK)
 
     def tmp(self, name):
@@ -673,12 +778,151 @@ class CheckCase(unittest.TestCase):
     def test_shape_language_none_found_still_needs_a_cite(self):
         self.only("cite Shape#1: no cite", edits=[(SHAPE_1, "- language: none found")])
 
-    def test_sections_now_twelve(self):
-        self.assertEqual(len(onboard.TITLES), 12)
+    def test_sections_now_thirteen(self):
+        self.assertEqual(len(onboard.TITLES), 13)
+        self.assertEqual(onboard.TITLES[4:7], ("State", "Events", "Formats and transforms"))
         self.only("section: missing Conventions", edits=[(section_text("Conventions"), "")])
         where = section_text("Where to look")
         moved = replace_once(MAP, where, "") + "\n" + where
         self.only("section: Where to look out of order", text=moved)
+
+    def test_events_section_follows_state_and_precedes_formats(self):
+        events = section_text("Events")
+        moved = replace_once(MAP, events, "")
+        moved = replace_once(moved, "## Not covered\n", events + "## Not covered\n")
+        self.only("section: Events out of order", text=moved)
+
+    def test_map_without_an_events_section_reports_only_the_missing_section(self):
+        self.only("section: missing Events", edits=[(section_text("Events"), "")])
+
+    def test_events_none_found_is_checked_for_nothing_else(self):
+        self.assertEqual(check(edits=[(section_body("Events"), "none found\n\n")]), OK)
+
+    def test_events_none_found_beside_an_entry_fails(self):
+        anchor = "### OrderPlacedEvent"
+        for mark in ("none found", "- none found"):
+            with self.subTest(mark=mark):
+                self.only("events: none found beside an entry", edits=[(anchor, mark + "\n\n" + anchor)])
+
+    def test_events_none_found_beside_a_dismissal_only_is_ok(self):
+        cite = " | src/main/java/shop/Order.java:3 | public class Order {"
+        dismissal = "- not an event: `Order`: a plain row, not a message" + cite
+        self.assertEqual(check(edits=[(section_body("Events"), "none found\n\n" + dismissal + "\n\n")]), OK)
+
+    def test_event_name_twice_is_reported_once_for_a_repeated_name(self):
+        entry = ENTRY_1
+        self.only("event OrderPlacedEvent: twice", edits=[(entry, entry + "\n" + entry)])
+        self.only("event OrderPlacedEvent: twice", edits=[(entry, "\n".join([entry] * 3))])
+        lower = entry.replace("### OrderPlacedEvent", "### orderplacedevent", 1)
+        self.assertEqual(check(edits=[(entry, entry + "\n" + lower)]), OK)
+
+    def test_event_missing_key(self):
+        for key in onboard.EVENT_REQUIRED:
+            with self.subTest(key=key):
+                line = next(l for l in ENTRY_1.splitlines() if l.startswith("- %s:" % key))
+                self.only("event OrderPlacedEvent: missing %s" % key, edits=[(line + "\n", "")])
+        payload = line_starting("- payload:")
+        self.assertEqual(check(edits=[(payload + "\n", "")]), OK)
+
+    def test_event_missing_keys_follow_the_required_order(self):
+        lines = [l for l in ENTRY_1.splitlines()[1:]]
+        self.only(*("event OrderPlacedEvent: missing %s" % key for key in onboard.EVENT_REQUIRED),
+                  edits=[("\n".join(lines) + "\n", "")])
+
+    def test_event_type_payload_and_stream_once(self):
+        for key, line in (("type", line_starting("- type:")), ("payload", line_starting("- payload:")),
+                          ("stream", line_starting("- stream:"))):
+            with self.subTest(key=key):
+                name = "orders.created" if key == "payload" else "OrderPlacedEvent"
+                self.only("event %s: %s twice" % (name, key), edits=[(line, line + "\n" + line)])
+        emits = line_starting("- emits:")
+        self.assertEqual(check(edits=[(emits, emits + "\n" + emits)]), OK)
+
+    def test_event_unknown_key(self):
+        stream = line_starting("- stream:")
+        self.only("event OrderPlacedEvent: missing stream", "event OrderPlacedEvent #2: unknown key sink",
+                  edits=[(stream, stream.replace("- stream:", "- sink:"))])
+        keyless = stream.replace("- stream: ", "- the ")
+        self.only("event OrderPlacedEvent: missing stream", "event OrderPlacedEvent #2: unknown key the",
+                  edits=[(stream, keyless)])
+        self.only("event OrderPlacedEvent: missing stream", "event OrderPlacedEvent #2: unknown key none",
+                  "cite Events/OrderPlacedEvent#2: no cite", edits=[(stream, "- ")])
+
+    def test_event_emits_and_consumes_need_a_component_in_backticks(self):
+        emits, outside = line_starting("- emits:"), line_starting("- consumes: outside:")
+        self.only("event OrderPlacedEvent #3: no component in backticks",
+                  edits=[(emits, emits.replace("`OrderPublisher`", "OrderPublisher"))])
+        self.only("event orders.created #5: no component in backticks",
+                  edits=[(outside, outside.replace("`orders.created`", "orders.created", 1))])
+        ignores = "- consumes: `OrderProjection` ignores: it only logs and acks"
+        self.assertEqual(check(edits=[(line_starting("- consumes:"), ignores + " | " + CONSUME_CITE)]), OK)
+        self.only("event OrderPlacedEvent #4: no component in backticks",
+                  edits=[(line_starting("- consumes:"), "- consumes: OrderProjection ignores: logs | " + CONSUME_CITE)])
+
+    def test_event_type_and_stream_need_no_backticks(self):
+        stream = line_starting("- stream:")
+        self.assertEqual(check(edits=[(stream, stream.replace("`in-process`", "in-process"))]), OK)
+
+    def test_event_flow_must_be_under_flows(self):
+        emits = line_starting("- emits:")
+        self.only("event OrderPlacedEvent #3: flow orders not in Flows",
+                  edits=[(emits, emits.replace(" -> order |", " -> orders |"))])
+        self.assertEqual(check(edits=[(emits, emits.replace(" -> order |", " |"))]), OK)
+
+    def test_event_arrow_tail_that_is_not_a_flow_id_fails_like_a_flow_not_in_flows(self):
+        emits = line_starting("- emits:")
+        self.only("event OrderPlacedEvent #3: flow poll events not in Flows",
+                  edits=[(emits, emits.replace(" -> order |", " -> poll events |"))])
+
+    def test_event_none_found_needs_no_cite_for_emits_and_consumes(self):
+        self.assertEqual(check(edits=[(line_starting("- consumes:"), "- consumes: none found")]), OK)
+        self.assertEqual(check(edits=[(line_starting("- emits:"), "- emits: none found")]), OK)
+        type_line = line_starting("- type:")
+        self.only("cite Events/OrderPlacedEvent#1: no cite", edits=[(type_line, "- type: none found")])
+
+    def test_event_none_found_beside_a_line_fails(self):
+        emits = line_starting("- emits:")
+        self.only("event OrderPlacedEvent: none found beside a line", edits=[(emits, emits + "\n- emits: none found")])
+        both = emits + "\n- emits: none found\n- emits: none found"
+        self.only("event OrderPlacedEvent: none found beside a line", edits=[(emits, both)])
+
+    def test_event_outside_without_a_handle_fails(self):
+        outside = line_starting("- consumes: outside:")
+        self.only("event orders.created #5: no component in backticks",
+                  edits=[(outside, outside.replace(" `orders.created`", "", 1))])
+
+    def test_events_line_before_the_first_entry_must_be_a_dismissal(self):
+        cite = " | src/main/java/shop/Order.java:3 | public class Order {"
+        good = "- not an event: `Order`: a plain row, not a message" + cite
+        anchor = "### OrderPlacedEvent"
+        self.assertEqual(check(edits=[(anchor, good + "\n\n" + anchor)]), OK)
+        for bad in ("- an Order is not an event", "- not an event: Order: a plain row", "- not an event: `Order`",
+                    "- not an event: `Order`: ", "- an event: `Order`: a row"):
+            with self.subTest(line=bad):
+                self.only("events #1: not a dismissal", edits=[(anchor, bad + cite + "\n\n" + anchor)])
+        self.only("events #2: not a dismissal", "events #3: not a dismissal",
+                  edits=[(anchor, good + "\n- a note" + cite + "\n- b" + cite + "\n\n" + anchor)])
+        self.only("cite Events#1: no cite", edits=[(anchor, good.split(" | ")[0] + "\n\n" + anchor)])
+
+    def test_event_cites_are_checked_in_the_scope_of_the_event(self):
+        payload = line_starting("- payload:")
+        self.only("cite Events/orders.created#2: snippet not found on that line",
+                  edits=[(payload, with_part(payload, 2, "public class Missing {"))])
+        self.only("cite Events/orders.created#2: no cite", edits=[(payload, payload.split(" | ")[0])])
+
+    def test_event_lines_follow_the_entry_lines_and_precede_the_other_systems_lines(self):
+        stream = line_starting("- stream:")
+        _, out, _ = check(edits=[
+            ("- http POST /orders -> order |", "- http POST /orders -> orders |"),
+            (stream, stream.replace("- stream:", "- sink:")),
+            ("`PaymentsClient` `payments.charge`", "PaymentsClient payments.charge"),
+        ])
+        self.assertEqual(failures(out), [
+            "entry #10: flow orders not in Flows",
+            "event OrderPlacedEvent: missing stream",
+            "event OrderPlacedEvent #2: unknown key sink",
+            "fact Other systems#1: no handle in backticks",
+        ])
 
     def test_conventions_missing_topic_and_no_topic(self):
         wiring = line_starting("- wiring:")
@@ -709,8 +953,22 @@ class CheckCase(unittest.TestCase):
         self.assertEqual(check(edits=transform), OK)
         self.only("where: missing change-routing", edits=[(line_starting("- change-routing:") + "\n", "")])
 
+    def test_where_add_event_is_required_when_events_has_an_entry(self):
+        """Red when `add-event` is not derived from the entries of Events, or is demanded for `none found`."""
+        add_event = line_starting("- add-event:")
+        self.only("where: missing add-event", edits=[(add_event + "\n", "")])
+        none_found = [(section_body("Events"), "none found\n\n")]
+        self.assertEqual(check(edits=none_found + [(add_event + "\n", "")]), OK)
+
+    def test_where_add_event_path_is_in_backticks_under_root(self):
+        add_event = line_starting("- add-event:")
+        self.only("where #7: no path in backticks", edits=[(add_event, add_event.replace("`", ""))])
+        self.only("where #7: nowhere/ not under root",
+                  edits=[(add_event, add_event.replace("src/main/java/shop/", "nowhere/", 1))])
+
     def test_where_none_found_section_still_lists_the_required_keys(self):
-        keys = ("add-http", "add-listener", "add-route", "add-schedule", "change-routing", "add-transform", "add-test")
+        keys = ("add-http", "add-listener", "add-route", "add-schedule", "change-routing", "add-transform", "add-event",
+                "add-test")
         self.only(*("where: missing %s" % key for key in keys), edits=[(section_body("Where to look"), "none found\n\n")])
 
     def test_where_none_found_line_is_not_a_fact(self):
@@ -761,7 +1019,7 @@ class CheckCase(unittest.TestCase):
 
     def test_where_keys_follow_the_entry_kinds(self):
         self.assertEqual(onboard.WHERE_KEYS[:4], tuple("add-" + kind for kind in onboard.WHERE_ENTRY_KINDS))
-        self.assertEqual(onboard.WHERE_KEYS[4:], ("change-routing", "add-transform", "add-test"))
+        self.assertEqual(onboard.WHERE_KEYS[4:], ("change-routing", "add-transform", "add-event", "add-test"))
 
     def test_entry_flow_not_in_flows(self):
         self.only("entry #10: flow orders not in Flows", edits=[(" -> order |", " -> orders |")])
@@ -787,9 +1045,40 @@ class CheckCase(unittest.TestCase):
             edits=[(GET_ENTRY + "\n", "")], inventory=path,
         )
 
+    def test_unnamed_event_hit_is_not_in_events_and_never_not_in_entry_points(self):
+        path, _ = self.inventory_out()
+        type_line = line_starting("- type: the record")
+        where = type_line.split(" | ")[1]
+        entry = ENTRY_1
+        self.only("inventory %s: not in Events" % where, edits=[(entry + "\n\n", "")], inventory=path)
+
+    def test_dismissal_clears_an_unnamed_event_hit(self):
+        path, _ = self.inventory_out()
+        cite = line_starting("- type: the record").split(" | ", 1)[1]
+        entry = ENTRY_1
+        dismissal = "- not an event: `OrderPlacedEvent`: a view of the record | " + cite
+        self.assertEqual(check(edits=[(entry + "\n\n", dismissal + "\n\n")], inventory=path), OK)
+
+    def test_payload_line_names_an_event_hit_as_a_type_line_does(self):
+        path, _ = self.inventory_out()
+        type_line = line_starting("- type: the record")
+        elsewhere = with_part(with_part(type_line, 1, "src/main/java/shop/Order.java:3"), 2, "public class Order {")
+        payload = "- payload: the id and the total | " + type_line.split(" | ", 1)[1]
+        self.assertEqual(check(edits=[(type_line, elsewhere + "\n" + payload)], inventory=path), OK)
+        self.only(
+            "inventory %s: not in Events" % type_line.split(" | ")[1],
+            edits=[(type_line, elsewhere)], inventory=path,
+        )
+
+    def test_events_none_found_still_reports_an_event_hit(self):
+        path, _ = self.inventory_out()
+        where = line_starting("- type: the record").split(" | ")[1]
+        edits = [(section_body("Events"), "none found\n\n")]
+        self.only("inventory %s: not in Events" % where, edits=edits, inventory=path)
+
     def test_inventory_summary_line_is_skipped(self):
         path, stdout = self.inventory_out()
-        self.assertTrue(stdout.endswith("\ninventory: 18 entry points\n"), stdout)
+        self.assertTrue(stdout.endswith("\ninventory: 18 entry points, 1 event types\n"), stdout)
         Path(path).write_text(stdout, encoding="utf-8")
         self.assertEqual(check(inventory=path), OK)
 

@@ -35,7 +35,7 @@ Follow "Explore the service" and then "The map" of `{skill_dir}/rungs/onboard.md
   python3 {skill_dir}/scripts/onboard.py check {course_dir}/map/{source_id}.md --root {root} --inventory {course_dir}/map/{source_id}.inventory.txt
   ```
 
-- Write `none found` under `Architecture`, `Flows` and `State` when the source has no code to trace.
+- Write `none found` under `Architecture`, `Flows`, `State` and `Events` when the source has no code to trace.
   A docs source that documents a request sequence still gets a flow, as "The map" says.
 - Write the map in the language `{lang}`: `en` for English, `ru` for Russian. Keep each code name in
   backticks in the two languages.

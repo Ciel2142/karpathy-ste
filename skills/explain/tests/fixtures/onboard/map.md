@@ -97,6 +97,20 @@ stateDiagram-v2
 - SHIPPED: a shipped order is not cancelled | src/main/java/shop/Order.java:4 | SHIPPED
 - CANCELLED: set by the cancel listener | src/main/java/shop/Order.java:13 | public void setStatus(Status status) { this.status = status; }
 
+## Events
+### OrderPlacedEvent
+- type: the record `OrderPlacedEvent` carries a placed order | src/main/java/shop/OrderPlacedEvent.java:3 | public record OrderPlacedEvent(String id, long total) {
+- stream: `in-process`, a Spring application event | src/main/java/shop/OrderPublisher.java:7 | events.publishEvent(new OrderPlacedEvent(order.id(), order.total()));
+- emits: `OrderPublisher` publishes it for a placed order -> order | src/main/java/shop/OrderPublisher.java:7 | events.publishEvent(new OrderPlacedEvent(order.id(), order.total()));
+- consumes: `OrderProjection` reads the order back when it is placed -> order | src/main/java/shop/OrderProjection.java:6 | public void on(OrderPlacedEvent event) {
+
+### orders.created
+- type: the Kafka topic key `orders.created` sent for a created order | src/main/java/shop/OrderController.java:21 | kafka.send("orders.created", order.id());
+- payload: the order id, a string taken from the `Order` class | src/main/java/shop/Order.java:3 | public class Order {
+- stream: the Kafka topic `orders.created` | src/main/java/shop/OrderController.java:21 | kafka.send("orders.created", order.id());
+- emits: `OrderController` sends it after the order row is saved -> order | src/main/java/shop/OrderController.java:21 | kafka.send("orders.created", order.id());
+- consumes: outside: Billing `orders.created` | src/main/java/shop/OrderController.java:21 | kafka.send("orders.created", order.id());
+
 ## Formats and transforms
 - order bodies are JSON bound by Spring | src/main/java/shop/OrderController.java:15 | @RequestBody Order order
 
@@ -123,6 +137,7 @@ stateDiagram-v2
 - add-schedule: `src/main/kotlin/shop/` | src/main/kotlin/shop/StockJobs.kt:6 | @Scheduled(cron = "0 0 * * * *")
 - change-routing: `config/` | config/camel-context.xml:5 | <to uri="log:legacy"/>
 - add-transform: `src/main/java/shop/` | src/main/java/shop/OrderController.java:15 | @RequestBody Order order
+- add-event: `src/main/java/shop/` | src/main/java/shop/OrderPlacedEvent.java:3 | public record OrderPlacedEvent(String id, long total) {
 - add-test: `src/test/java/shop/` | src/test/java/shop/OrderControllerTest.java:3 | class OrderControllerTest {
 
 ## Not covered

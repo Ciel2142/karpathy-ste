@@ -21,6 +21,9 @@ none found
 ## State
 none found
 
+## Events
+none found
+
 ## Formats and transforms
 - the target takes one message per call | docs-b/api.md:3 | accepts one message per call
 

@@ -3,9 +3,9 @@
 
 Usage: onboard.py inventory <source-dir> --root <root> [--out <file>]
        onboard.py check <map.md> --root <root> [--inventory <file>]
-inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point, then
-`inventory: <n> entry points`. check prints one failure per line, then `onboard: ok` or
-`onboard: <n> failures`.
+inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point and per event
+type, then `inventory: <n> entry points, <m> event types`. check prints one failure per line, then
+`onboard: ok` or `onboard: <n> failures`.
 Exit 0 on success, 1 on failures found, 2 on a usage error or an unreadable source, map, root or
 inventory file. `map: cannot read ...` goes to stdout; every other exit-2 line goes to stderr.
 """
@@ -28,6 +28,7 @@ TITLES = (
     "Entry points",
     "Flows",
     "State",
+    "Events",
     "Formats and transforms",
     "Routing config",
     "Error paths",
@@ -39,9 +40,14 @@ TITLES = (
 SHAPE_KEYS = ("language", "framework", "runtime", "artifact", "purpose", "build", "test", "run")
 SHAPE_REQUIRED = ("language", "runtime", "artifact", "purpose", "build", "test", "run")
 SHAPE_COMMANDS = ("build", "test", "run")
+EVENT_KEYS = ("type", "payload", "stream", "emits", "consumes")
+EVENT_REQUIRED = ("type", "stream", "emits", "consumes")
+EVENT_ONCE = ("type", "payload", "stream")
+EVENT_COMPONENT_KEYS = ("emits", "consumes")  # the keys whose lines name a component or an outside system
 CONVENTION_TOPICS = ("tests", "errors", "wiring", "naming")
 WHERE_ENTRY_KINDS = ("http", "listener", "route", "schedule")
-WHERE_KEYS = tuple("add-" + kind for kind in WHERE_ENTRY_KINDS) + ("change-routing", "add-transform", "add-test")
+WHERE_KEYS = (tuple("add-" + kind for kind in WHERE_ENTRY_KINDS)
+              + ("change-routing", "add-transform", "add-event", "add-test"))
 NONE_FOUND = "none found"
 ID = re.compile(r"[a-z][a-z0-9_-]*")
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -66,6 +72,7 @@ MAP_TITLE = re.compile(r"# Map:(.*)")
 CITE = re.compile(r"(.+):([0-9]+)")
 FENCE = "```"
 REASON = re.compile(r"not (?:traced|an entry point):\s*\S.*")
+DISMISSAL = re.compile(r"not an event:\s*`[^`\n]+`:\s*\S.*")
 HANDLE = re.compile(r"`[^`\n]+`")
 
 
@@ -164,13 +171,21 @@ class Flow(NamedTuple):
     facts: list[Fact]
 
 
+class Event(NamedTuple):
+    name: str  # the `### ` heading text, kept verbatim
+    line: int
+    facts: list[Fact]
+
+
 class Section(NamedTuple):
     title: str
     line: int
     diagrams: list[Diagram]
     facts: list[Fact]
-    flows: list[Flow]
+    flows: list[Flow]  # empty for every section but Flows
+    events: list[Event]  # empty for every section but Events
     none_found: bool
+    marked: bool = False  # a bare `none found` line stands in the section, beside other lines or alone
 
 
 class MapDoc(NamedTuple):
@@ -215,7 +230,7 @@ def parse_map(text: str) -> MapDoc:
     if not title or not title.group(1).strip():
         raise ValueError('no "# Map:" title')
     sections, contents = [], []  # contents: each section's non-blank lines outside fences and its opening fences
-    flow = fence = None  # fence: (line, info, body) of the open fenced block
+    flow = event = fence = None  # fence: (line, info, body) of the open fenced block
     for number, line in enumerate(lines[start + 1 :], start + 2):
         if fence is not None:
             if line.startswith(FENCE):
@@ -230,9 +245,9 @@ def parse_map(text: str) -> MapDoc:
                 contents[-1].append(line.strip())
             continue
         if line.startswith("## "):
-            sections.append(Section(line[3:].strip(), number, [], [], [], False))
+            sections.append(Section(line[3:].strip(), number, [], [], [], [], False))
             contents.append([])
-            flow = None
+            flow = event = None
             continue
         if not sections or not line.strip():
             continue
@@ -240,15 +255,19 @@ def parse_map(text: str) -> MapDoc:
         if line.startswith("### ") and sections[-1].title == "Flows":
             flow = _flow(line[4:].strip(), number)
             sections[-1].flows.append(flow)
+        elif line.startswith("### ") and sections[-1].title == "Events":
+            event = Event(line[4:].strip(), number, [])
+            sections[-1].events.append(event)
         elif line.startswith("- ") and line.strip() != "- " + NONE_FOUND:
-            scope = flow or sections[-1]
+            scope = flow or event or sections[-1]
             scope.facts.append(_fact(len(scope.facts) + 1, number, line[2:]))
     if fence is not None:
         _close_fence(fence, flow or (sections[-1] if sections else None))
-    marks = ([NONE_FOUND], ["- " + NONE_FOUND])
+    bare = (NONE_FOUND, "- " + NONE_FOUND)
     return MapDoc(
         title.group(1).strip(),
-        [section._replace(none_found=content in marks) for section, content in zip(sections, contents)],
+        [section._replace(none_found=content in ([bare[0]], [bare[1]]), marked=any(line in bare for line in content))
+         for section, content in zip(sections, contents)],
     )
 
 
@@ -293,8 +312,9 @@ PATTERNS = {
     "listener": (
         _rule(JVM, r"@(Jms|Rabbit|Kafka|Sqs|Stream)Listener", r"@KafkaHandler", r"@ServiceActivator",
               r"@InboundChannelAdapter", r"@EventListener", r"@TransactionalEventListener",
-              r"@ExternalTaskSubscription", r"implements JavaDelegate", r": JavaDelegate"),
-        _rule(GO, r"\.Consume\(", r"NewReader\(", r"NewConsumer\(", r"Subscribe\("),
+              r"@ExternalTaskSubscription", r"implements JavaDelegate", r": JavaDelegate", r"@EventHandler\b",
+              r"@SagaEventHandler\b", r"@CommandHandler\b"),
+        _rule(GO, r"\.Consume\(", r"NewReader\(", r"NewConsumer\(", r"Subscribe\(", r"SubscribeTo\w*\("),
     ),
     "route": (
         _rule(JVM, r"\bfrom\(", r"routeTemplate", r"@GrpcService"),
@@ -311,8 +331,16 @@ PATTERNS = {
         _rule((".kt",), r"fun main\("),
         _rule(GO, r"func main\("),
     ),
+    # A declaration, not an entry point: the annotations `@DomainEvent` and `@Event` hit at the type they annotate.
+    "event": (
+        _rule(JVM, r"\b(?:class|record|interface|object)\s+\w*Event\b", r"\bextends ApplicationEvent\b",
+              r"\bclass\s+\w+\b[^{]*:\s*ApplicationEvent\(", r"@DomainEvent\b", r"@Event\b"),
+        _rule(GO, r"\btype\s+\w+Event\s+struct\b"),
+    ),
 }
-ENTRY_KINDS = tuple(PATTERNS)  # the kinds of the inventory: the first word of an `Entry points` line
+EVENT_ANNOTATIONS = ("@DomainEvent", "@Event")  # the event tokens that hit at the type declaration below them
+# The kinds of the inventory that are entry points: the first word of an `Entry points` line.
+ENTRY_KINDS = tuple(kind for kind in PATTERNS if kind != "event")
 SKIP_DIRS = frozenset({"node_modules", "target", "build", ".git", "vendor", "test", "tests"})
 SKIP_SUFFIXES = ("_test.go", "Test.java", "Test.kt", "Spec.kt")
 TEXT_MAX = 120
@@ -332,25 +360,31 @@ def squash(text: str) -> str:
     return " ".join(text.split())[:TEXT_MAX]
 
 
-def _declares_type(lines: list[str], index: int) -> bool:
-    """Whether a line after lines[index] declares a type, up to and with the first that is neither blank nor
-    starts with `@`; an annotation line such as `@Deprecated public class X {` counts."""
-    for line in lines[index + 1 :]:
-        text = line.strip()
+def _declaration_after(lines: list[str], index: int) -> int | None:
+    """The index of the line after lines[index] that declares a type, up to and with the first that is neither
+    blank nor starts with `@`; an annotation line such as `@Deprecated public class X {` counts."""
+    for number in range(index + 1, len(lines)):
+        text = lines[number].strip()
         if TYPE_DECL.match(text):
-            return True
+            return number
         if text and not text.startswith("@"):
-            return False
-    return False
+            return None
+    return None
+
+
+def _declares_type(lines: list[str], index: int) -> bool:
+    """Whether a line after lines[index] declares a type (see `_declaration_after`)."""
+    return _declaration_after(lines, index) is not None
 
 
 def _counts(token: str, lines: list[str], index: int, route_builder: bool) -> bool:
-    """Whether a rule match is an entry point: `from(` only in a RouteBuilder file, `@RequestMapping` on a method."""
+    """Whether a rule match is a hit at its own line: `from(` only in a RouteBuilder file, `@RequestMapping` on a
+    method, an event annotation never."""
     if token == "from(":
         return route_builder
     if token == "@RequestMapping":
         return not _declares_type(lines, index)
-    return True
+    return token not in EVENT_ANNOTATIONS  # an event annotation hits at its declaration, see `_annotated_events`
 
 
 def _kind_of(rules: list[tuple[str, Rule]], lines: list[str], index: int, route_builder: bool) -> str | None:
@@ -370,6 +404,21 @@ def _hit_text(lines: list[str], index: int) -> str:
     return text
 
 
+def _annotated_events(rules: list[tuple[str, Rule]], rel: str, lines: list[str], taken: set[int]) -> list[Hit]:
+    """The `event` hits of the lines that hold an event annotation: one at the type declaration that holds or
+    follows the annotation, with the text of that line; none when no type follows, or when that line is a hit."""
+    patterns = [rule.regex for kind, rule in rules if kind == "event"]
+    hits = []
+    for index, text in enumerate(lines):
+        if not any(found.group(0) in EVENT_ANNOTATIONS for regex in patterns for found in regex.finditer(text)):
+            continue
+        declared = index if TYPE_DECL.match(text.strip()) else _declaration_after(lines, index)
+        if declared is not None and declared not in taken:
+            taken.add(declared)
+            hits.append(Hit(rel, declared + 1, "event", _hit_text(lines, declared)))
+    return hits
+
+
 def scan_file(path: str, rel: str) -> list[Hit]:
     rules = [(kind, rule) for kind, group in PATTERNS.items() for rule in group if path.endswith(rule.suffixes)]
     if not rules:
@@ -386,7 +435,8 @@ def scan_file(path: str, rel: str) -> list[Hit]:
         kind = _kind_of(rules, lines, index, route_builder)
         if kind:
             hits.append(Hit(rel, index + 1, kind, _hit_text(lines, index)))
-    return hits
+    taken = {hit.line - 1 for hit in hits}
+    return sorted(hits + _annotated_events(rules, rel, lines, taken), key=lambda hit: hit.line)
 
 
 def _cannot_list(error: OSError) -> NoReturn:
@@ -429,7 +479,8 @@ class _Parser(argparse.ArgumentParser):
 
 def cmd_inventory(argv: list[str]) -> int:
     args = _Parser("source", "--out").parse_args(argv)
-    lines = [inventory_line(hit) for hit in inventory(args.source, args.root)]
+    hits = inventory(args.source, args.root)
+    lines = [inventory_line(hit) for hit in hits]
     body = "".join(line + "\n" for line in lines)
     if args.out is not None:
         try:
@@ -437,7 +488,8 @@ def cmd_inventory(argv: list[str]) -> int:
                 handle.write(body)
         except OSError as error:
             raise OnboardError("onboard: cannot write %s: %s" % (args.out, error.strerror or error), 2) from error
-    sys.stdout.write(body + "inventory: %d entry points\n" % len(lines))
+    events = sum(1 for hit in hits if hit.kind == "event")
+    sys.stdout.write(body + "inventory: %d entry points, %d event types\n" % (len(hits) - events, events))
     return 0
 
 
@@ -575,6 +627,47 @@ def _shape_lines(doc: MapDoc) -> list[str]:
     return lines
 
 
+def _event_flaws(event: Event, idents: set[str]) -> list[str]:
+    """The lines of one `Events` entry: missing and repeated keys, then per fact an unknown key, a missing
+    component or a flow id that is not under Flows, then a `none found` beside another line of its key."""
+    facts = [(fact, *keyed(fact)) for fact in event.facts]
+    keys = [key for _, key, _ in facts]
+    head = "event %s" % event.name
+    lines = ["%s: missing %s" % (head, key) for key in EVENT_REQUIRED if key not in keys]
+    lines.extend("%s: %s twice" % (head, key) for key in EVENT_ONCE if keys.count(key) > 1)
+    for fact, key, rest in facts:
+        if key not in EVENT_KEYS:
+            lines.append("%s #%d: unknown key %s" % (head, fact.n, key or (fact.fact.split() or ["none"])[0]))
+        elif key in EVENT_COMPONENT_KEYS and rest != NONE_FOUND:
+            if not HANDLE.search(rest):
+                lines.append("%s #%d: no component in backticks" % (head, fact.n))
+            _, arrow, tail = fact.fact.rpartition(" -> ")
+            if arrow and not (ID.fullmatch(tail) and tail in idents):
+                lines.append("%s #%d: flow %s not in Flows" % (head, fact.n, tail))
+    for key in EVENT_KEYS:
+        if keys.count(key) > 1 and any(none_found(fact) for fact, k, _ in facts if k == key):
+            lines.append("%s: none found beside a line" % head)
+    return lines
+
+
+def _event_lines(doc: MapDoc) -> list[str]:
+    """The `events` and `event` lines: a `none found` beside an entry, a line before the first entry that is not
+    a dismissal, then the lines of each entry in map order, a repeated name reported once, at its second entry."""
+    section = doc.section("Events")
+    if section is None:
+        return []
+    flows = doc.section("Flows")
+    idents = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
+    lines = ["events: none found beside an entry"] if section.marked and section.events else []
+    lines.extend("events #%d: not a dismissal" % fact.n for fact in section.facts if not DISMISSAL.fullmatch(fact.fact))
+    names = [event.name for event in section.events]
+    for index, event in enumerate(section.events):
+        if names[:index].count(event.name) == 1:
+            lines.append("event %s: twice" % event.name)
+        lines.extend(_event_flaws(event, idents))
+    return lines
+
+
 def _convention_lines(doc: MapDoc) -> list[str]:
     """The `conventions` lines: required topics with no line, then per fact a head that is not one id."""
     section = doc.section("Conventions")
@@ -590,7 +683,8 @@ def _convention_lines(doc: MapDoc) -> list[str]:
 def _where_required(doc: MapDoc) -> list[str]:
     """The keys of WHERE_KEYS that `Where to look` must hold, in that order: one `add-<kind>` per entry kind with
     a traced or not-traced `Entry points` line, `change-routing` and `add-transform` for a section that is not
-    `none found`, and `add-test` for a `test` line of `Shape` that is not `none found`."""
+    `none found`, `add-event` for an `Events` section with an entry, and `add-test` for a `test` line of `Shape`
+    that is not `none found`."""
     kinds = set()
     for fact in _facts(doc, "Entry points"):
         _, arrow, tail = fact.fact.rpartition(" -> ")
@@ -601,6 +695,9 @@ def _where_required(doc: MapDoc) -> list[str]:
         section = doc.section(title)
         if section is not None and not section.none_found:
             needed.add(key)
+    events = doc.section("Events")
+    if events is not None and events.events:
+        needed.add("add-event")
     tests = [fact for fact in _facts(doc, "Shape") if keyed(fact)[0] == "test"]
     if tests and not none_found(tests[0]):
         needed.add("add-test")
@@ -633,21 +730,26 @@ def _where_lines(doc: MapDoc, root: str) -> list[str]:
 
 
 def _cite_scopes(doc: MapDoc) -> list[tuple[str, list[Fact]]]:
-    """(scope, facts) in canonical section order, each flow after the Flows facts; `Not covered` has no cites."""
+    """(scope, facts) in canonical section order, each flow after the Flows facts and each event after the
+    dismissals of Events; `Not covered` has no cites."""
     scopes = []
     for title in TITLES:
         section = doc.section(title)
         if section is not None and title != "Not covered":
             scopes.append((title, section.facts))
             scopes.extend(("Flows/%s" % (flow.ident or flow.heading), flow.facts) for flow in section.flows)
+            scopes.extend(("Events/%s" % event.name, event.facts) for event in section.events)
     return scopes
 
 
 def _may_lack_cite(scope: str, fact: Fact) -> bool:
-    """Whether a `none found` fact needs no cite: a Shape command or any Conventions topic."""
+    """Whether a `none found` fact needs no cite: a Shape command, any Conventions topic or an emits or
+    consumes line of an event."""
     if not none_found(fact):
         return False
-    return scope == "Conventions" or (scope == "Shape" and keyed(fact)[0] in SHAPE_COMMANDS)
+    key = keyed(fact)[0]
+    return (scope == "Conventions" or (scope == "Shape" and key in SHAPE_COMMANDS)
+            or (scope.startswith("Events/") and key in EVENT_COMPONENT_KEYS))
 
 
 def _cite_lines(doc: MapDoc, root: str) -> list[str]:
@@ -662,21 +764,43 @@ def _cite_lines(doc: MapDoc, root: str) -> list[str]:
     return lines
 
 
+def _event_cites(doc: MapDoc) -> set[str]:
+    """The `<path>:<line>` that a `type` or `payload` line of an Events entry or a dismissal of Events cites."""
+    section = doc.section("Events")
+    if section is None:
+        return set()
+    facts = list(section.facts)
+    for event in section.events:
+        facts.extend(fact for fact in event.facts if keyed(fact)[0] in ("type", "payload"))
+    return {"%s:%d" % fact.cite[:2] for fact in facts if fact.cite}
+
+
 def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
-    """The `inventory` lines: the `<path>:<line>` of each tabbed inventory line that no Entry points fact cites."""
-    cited = {"%s:%d" % fact.cite[:2] for fact in _facts(doc, "Entry points") if fact.cite}
-    wheres = [line.split("\t", 1)[0] for line in inventory_lines if "\t" in line]
-    return ["inventory %s: not in Entry points" % where for where in wheres if where not in cited]
+    """The `inventory` lines: the `<path>:<line>` of each tabbed inventory line that no fact cites. An `event`
+    line must be cited by a `type` or `payload` line of Events or a dismissal; any other kind by Entry points."""
+    cited_entry = {"%s:%d" % fact.cite[:2] for fact in _facts(doc, "Entry points") if fact.cite}
+    cited_event = _event_cites(doc)
+    lines = []
+    for line in inventory_lines:
+        where, tab, rest = line.partition("\t")
+        if not tab:
+            continue
+        if rest.split("\t", 1)[0] == "event":
+            if where not in cited_event:
+                lines.append("inventory %s: not in Events" % where)
+        elif where not in cited_entry:
+            lines.append("inventory %s: not in Entry points" % where)
+    return lines
 
 
 def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
     """The failure lines of a map, in order: sections, each place (architecture, the flows, state), entry
-    lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths, cites, then
-    the inventory lines that no entry line cites."""
+    lines, event lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths,
+    cites, then the inventory lines that no entry line cites."""
     lines = _section_lines(doc)
     for where, scope, needs in _places(doc):
         lines.extend(_place_lines(where, scope, needs))
-    lines.extend(_entry_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
+    lines.extend(_entry_lines(doc) + _event_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
     lines.extend(_convention_lines(doc) + _where_lines(doc, root) + _cite_lines(doc, root))
     return lines + _unlisted_lines(doc, inventory or [])
 
