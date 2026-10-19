@@ -11,7 +11,9 @@ coverage: waived
 # (setup rule 4); it runs interactively after the two waves close. The user described the need,
 # then wrote "do as you see fit … prepare spec, go ahead with planning, use ralph loop if more
 # than 1 wave, i am off to bed" (2026-10-20); the author took that as the confirmation of the
-# split screen with the default rules and no override.
+# split screen with the default rules and no override. The explain suite is not in the run's
+# suite: no wave may change skills/explain (spec section 2), a git diff guards that, and its
+# test_mermaid_fixes EarlyExitCase is a timing test that fails about one run in three.
 waves:
   - id: sdr-record
     slice: domain
@@ -36,7 +38,7 @@ waves:
       reports, and a fixture page that `matrix` fills (chosen column, `aria-label` marks) and a
       second run leaves byte-identical; a filled fixture page passes explain's `verify.sh`
       (`rung=page`) with the matrix block and its `<style>`, or the rule moves to the page style
-      as section 9 allows; the explain suite still passes.
+      as section 9 allows; `skills/explain/` is unchanged against the merge base with `main`.
     status: pending
     depends_on: []
     owns:
@@ -46,7 +48,7 @@ waves:
     plan: null
     acceptance:
       - cd skills/sdr && python3 -B -m unittest discover -s tests
-      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - git diff --quiet "$(git merge-base main HEAD)" -- skills/explain
 
   - id: sdr-procedure
     slice: domain
