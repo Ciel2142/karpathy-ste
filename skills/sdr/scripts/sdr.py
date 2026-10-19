@@ -76,6 +76,14 @@ FACTS_PREFIX = "# Facts: "
 FACTS_TITLES = ("Shape", "Relevant flows", "Facts", "Unknowns")
 FACTS_REQUIRED = ("Facts", "Unknowns")
 NONE_BULLET = "- none"
+MARKS = ("meets", "partial", "fails")
+OPTION_KEYS = ("changes", "pros", "cons", "risks", "effort", "reversibility")
+MIN_OPTIONS = 3
+OPTION_HEADING = re.compile(r"(opt-[a-z]): (\S.*)")
+OPTION_KEY_LINES = {key: re.compile(r"- %s:(.*)" % key) for key in OPTION_KEYS}
+FIT_PREFIX = "- fit "
+FIT_LINE = re.compile(r"- fit (?P<id>[^:\s]+): (?P<mark>\S+)(?P<rest>.*)")
+FIT_REASON = re.compile(r" — \S")
 
 
 class SdrError(Exception):
@@ -126,6 +134,13 @@ class Requirement(NamedTuple):
     text: str  # the words after `<ident>: `, without the `|` fields
     n: int  # 1-based index of the bullet in its section
     line: int  # 1-based line in the record
+
+
+class Option(NamedTuple):
+    ident: str  # opt-<letter>
+    name: str  # the words after `opt-<letter>: `
+    block: Block
+    fits: dict[str, str]  # requirement id -> mark of its first fit line with a mark in MARKS
 
 
 def _close_fence(fence: tuple, scope: Block | Section | None) -> None:
@@ -427,14 +442,146 @@ def _cited_lines(record: Record, root: str) -> list[str]:
     return lines
 
 
+def _fit_lines(block: Block) -> list[tuple[int, re.Match | None]]:
+    """(k, match) of each `- fit ` line of a block, k from 1; the match is None for a line of the wrong form."""
+    texts = [text for _, text in block.lines if text.startswith(FIT_PREFIX)]
+    return [(k, FIT_LINE.match(text)) for k, text in enumerate(texts, 1)]
+
+
+def _fits(block: Block) -> dict[str, str]:
+    """The mark of the first fit line with a mark in MARKS, for each requirement id the lines name."""
+    fits: dict[str, str] = {}
+    for _, found in _fit_lines(block):
+        if found and found.group("mark") in MARKS:
+            fits.setdefault(found.group("id"), found.group("mark"))
+    return fits
+
+
+def options(record: Record) -> list[Option]:
+    """The blocks of Options with a heading `opt-<letter>: <name>`, in record order; a repeated id keeps its first."""
+    section = record.section("Options")
+    found: dict[str, Option] = {}
+    for block in section.blocks if section is not None else []:
+        head = OPTION_HEADING.fullmatch(block.heading)
+        if head and head.group(1) not in found:
+            found[head.group(1)] = Option(head.group(1), head.group(2), block, _fits(block))
+    return list(found.values())
+
+
+def _is_pending_block(block: Block) -> bool:
+    return not block.diagrams and [text for _, text in block.lines] == [PENDING]
+
+
+def _diagram_lines(prefix: str, block: Block) -> list[str]:
+    """The faults of the Mermaid blocks of an option: one flowchart of at most MAX_NODES nodes."""
+    if not block.diagrams:
+        return ["%s: no Mermaid flowchart" % prefix]
+    lines = []
+    if len(block.diagrams) > 1:
+        lines.append("%s: %d Mermaid blocks, more than 1" % (prefix, len(block.diagrams)))
+    diagram = block.diagrams[0]
+    if diagram.kind != onboard.FLOWCHART:
+        lines.append("%s: diagram is not a flowchart" % prefix)
+    elif len(diagram.nodes) > onboard.MAX_NODES:
+        lines.append("%s: diagram has %d nodes, more than %d" % (prefix, len(diagram.nodes), onboard.MAX_NODES))
+    return lines
+
+
+def _key_empty(key: str, value: str) -> bool:
+    """Whether a key line holds nothing; `pros` and `cons` hold nothing without one non-blank `;` item."""
+    if key in ("pros", "cons"):
+        return not any(item.strip() for item in value.split(";"))
+    return not value.strip()
+
+
+def _key_lines(prefix: str, block: Block) -> list[str]:
+    """The faults of the keys of an option, in OPTION_KEYS order: missing, twice, empty."""
+    lines = []
+    for key in OPTION_KEYS:
+        values = [found.group(1) for _, text in block.lines if (found := OPTION_KEY_LINES[key].fullmatch(text))]
+        if not values:
+            lines.append("%s: missing %s" % (prefix, key))
+            continue
+        if len(values) > 1:
+            lines.append("%s: %s twice" % (prefix, key))
+        if any(_key_empty(key, value) for value in values):
+            lines.append("%s: %s empty" % (prefix, key))
+    return lines
+
+
+def _fit_rule_lines(name: str, block: Block, wanted: list[str]) -> list[str]:
+    """The faults of the fit lines of option `name`: the lines of the wrong form, then each well-formed line
+    in order, then each requirement id in `wanted` that no such line names."""
+    parsed = _fit_lines(block)
+    lines = ['option %s: fit line #%d is not "fit <id>: <mark> — <reason>"' % (name, k)
+             for k, found in parsed if found is None]
+    seen = []
+    for _, found in parsed:
+        if found is None:
+            continue
+        ident, mark = found.group("id"), found.group("mark")
+        where = "fit %s/%s" % (name, ident)
+        if ident not in wanted:
+            lines.append("%s: not a requirement" % where)
+        if mark not in MARKS:
+            lines.append("%s: mark %s is not meets, partial or fails" % (where, mark))
+        if not FIT_REASON.match(found.group("rest")):
+            lines.append('%s: no " — <reason>" after the mark' % where)
+        if ident in seen:
+            lines.append("%s: twice" % where)
+        seen.append(ident)
+    return lines + ["fit %s/%s: missing" % (name, ident) for ident in wanted if ident not in seen]
+
+
+def _option_lines(option: Option, stage: str, wanted: list[str]) -> list[str]:
+    """The faults of one option: at stage `frame` it must be pending; from `options` on it must be a full block."""
+    prefix = "option " + option.ident
+    block = option.block
+    if not reached(stage, "options"):
+        return [] if _is_pending_block(block) else ["%s: not pending at stage frame" % prefix]
+    if _is_pending_block(block):
+        return ["%s: pending at stage %s" % (prefix, stage)]
+    lines = []
+    if all(text.startswith("- ") for _, text in block.lines):
+        lines.append("%s: no lead paragraph" % prefix)
+    return lines + _diagram_lines(prefix, block) + _key_lines(prefix, block) + _fit_rule_lines(
+        option.ident, block, wanted)
+
+
+def _options_lines(record: Record) -> list[str]:
+    """The option rules from stage frame on. A missing, pending or empty Options section has nothing to check
+    (the stage lines report pending and empty). The `section:` count line comes first, then the heading and
+    repeat faults of each block in record order, then the faults of each option in record order."""
+    section = record.section("Options")
+    if section is None or _is_pending(section) or _is_empty(section):
+        return []
+    found = options(record)
+    lines = []
+    if len(found) < MIN_OPTIONS:
+        lines.append("section: Options has %d options, fewer than %d" % (len(found), MIN_OPTIONS))
+    seen = set()
+    for n, block in enumerate(section.blocks, 1):
+        head = OPTION_HEADING.fullmatch(block.heading)
+        if head is None:
+            lines.append('option #%d: heading is not "opt-<letter>: <name>"' % n)
+        elif head.group(1) in seen:
+            lines.append("option %s: twice" % head.group(1))
+        else:
+            seen.add(head.group(1))
+    wanted = list(dict.fromkeys(requirement.ident for requirement in requirements(record)))
+    for option in found:
+        lines += _option_lines(option, record.stage, wanted)
+    return lines
+
+
 def check_record(record: Record, root: str) -> list[str]:
     """The finding lines of a record, in order: the header, the sections, then, when the stage is known, the
-    rules of the stage. `root` is where the cites of the record resolve."""
+    rules of the stage (from `frame` on: the cited lines, then the options). `root` is where the cites resolve."""
     lines = _header_lines(record) + _section_lines(record.sections, SECTIONS, SECTIONS)
     if record.stage in STAGES:
         lines += _stage_lines(record)
         if reached(record.stage, "frame"):
-            lines += _cited_lines(record, root)
+            lines += _cited_lines(record, root) + _options_lines(record)
     return lines
 
 
