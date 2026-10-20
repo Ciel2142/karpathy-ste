@@ -324,7 +324,8 @@ Then write these sections of `sdr.md`:
 - `Functional requirements` and `Non-functional requirements`.
 - `Constraints` and `Non-goals`.
 - `Options`: the shortlist. Write at least three `### opt-<letter>: <name>` headers, each with the one line
-  `pending`. One option of the shortlist is the smallest change that could work.
+  `pending`. Keep each option name short, at most 40 characters: the matrix headers render vertically. One
+  option of the shortlist is the smallest change that could work.
 
 Write `stage: frame` and run the check.
 
@@ -343,8 +344,7 @@ Write each option of the shortlist in full, in place of its `pending` line:
 - the six keys `changes`, `pros`, `cons`, `risks`, `effort` and `reversibility`, in the form of "The record";
 - one `fit <id>:` line for each requirement, with `meets`, `partial` or `fails`, then ` — ` and the reason.
 
-Keep each option name short, at most 40 characters: the matrix headers render vertically. No option is a
-strawman: each pro is real, and the cited facts support each con.
+No option is a strawman: each pro is real, and the cited facts support each con.
 
 Write `stage: options` and run the check.
 
@@ -358,6 +358,9 @@ Each reviewer writes `consilium/<role>.md`. The report ends with two lines: `ver
 
 A report must end with a `preferred:` line that names an option of the record. If it does not, start that
 reviewer again once, as a fresh subagent. A second failure stops the run: print the name of the role, and stop.
+
+Read the verdicts and the `Preferred` paragraph of each report. When a report proposes an option that nobody
+wrote, keep it for `Open questions`. Keep each requirement that a report calls wrong for `Open questions` too.
 
 Copy each report into `Consilium`, in place of its `pending` line. Write one `### <role>` block for each role, in
 the order `architect`, `operator`, `sceptic`:
@@ -393,7 +396,8 @@ Choose the option that the fit marks support, with the consilium in mind. Write 
 - `- next steps: <step>; <step>`.
 
 Write `Open questions`: one `- <question>` line for each question that is still open. Each `target: unknown`
-is an open question.
+is an open question. Each option and each requirement that you kept from a consilium report is an open
+question too.
 
 Write `Not covered`: one `- <topic>: <reason>` line for each topic that the review does not cover. Each
 `facts: failed` searcher is a topic here, with its reason.
@@ -406,7 +410,7 @@ Write `stage: decide` and run the check.
 
 Write the page from the record. The page reports `sdr.md`: it states no requirement, mark, verdict or reason
 that the record does not hold. Take each cite from `sdr.md` or from a fact file. Its path is relative to the
-root.
+root. A URL cite holds the URL in `data-path`, as convention 2 of `<skill-dir>/../explain/SKILL.md` says.
 
 Copy `<skill-dir>/../explain/templates/page.html` to `<sdr-dir>/index.html`. Then follow these sections of
 `<skill-dir>/../explain/rungs/page.md`: "Fill the template", "Diagram patterns", "Provenance",
@@ -471,7 +475,8 @@ Run this command until each line shows `ok`, and the `bpmn` line shows `none`:
 ```
 
 Then take the snapshots and read the tiles, as "Verify and export" says. Skip its handoff step: "Done" does
-the handoff.
+the handoff. In step 4 of "Verify and export", the diagram that supports the answer is the matrix of
+`#compare`, not the diagram of `#why`.
 
 Write `stage: page` and run the check. `page: matrix stale` means that `sdr.md` changed after the matrix: run
 the matrix command again, then the check.

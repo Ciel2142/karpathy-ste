@@ -89,6 +89,9 @@ These rules of form apply:
   disputed fit mark, and none when you dispute none.
 - Write `- none` under `Missing requirements` when there is none.
 - `Preferred` is one paragraph: why you prefer that option over the others.
+- `preferred:` names one option of the record. Never name an option that the record does not hold.
+- Write an option that nobody wrote, or a requirement that you think is wrong, in a verdict and in
+  `Preferred`.
 - The last two lines of the file are `verdict:` and then `preferred: opt-<x>`. Write nothing after them.
 
 Your reply ends with the same two lines.

@@ -27,8 +27,9 @@ The files, one absolute path per line:
 
 They are `index.html`, the page; `sdr.md`, the record; and then the fact files.
 
-The root of the review is `{root}`. Each `<cite>` of the page has a `data-path` that is relative to it, a
-`data-line` and a `data-snippet`. Read the cited file under the root, not a copy.
+The root of the review is `{root}`. Each `<cite>` of the page has a `data-path`, a `data-line` and a
+`data-snippet`. A `data-path` is relative to the root, or it is a URL. Read the cited file under the root, not
+a copy. For a cite whose `data-path` is a URL, fetch the page, or read the fact file that holds the cite.
 
 ## Hunt
 
@@ -50,7 +51,7 @@ against the cited lines.
 
 Make these five checks, in this order.
 
-1. No sentence makes a claim that its cited lines, read from `{root}`, do not support.
+1. No sentence makes a claim that its cited lines, read from `{root}` or from the cited page, do not support.
 2. `sdr.md` holds each claim of the page. The page states no requirement, mark, verdict or reason that the
    record does not hold.
 3. The matrix supports the recommendation. When the choice fails a requirement that another option meets, the
@@ -89,7 +90,7 @@ Write the report to `{report}`. It holds the rulings of round 2, if any, and a n
 - the file that holds the claim;
 - the location: a line of that file;
 - the claim, quoted;
-- the source lines, quoted verbatim as read from `{root}`;
+- the source lines, quoted verbatim as read from `{root}` or from the cited page;
 - what is wrong;
 - a fix in one line.
 

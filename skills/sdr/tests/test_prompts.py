@@ -36,8 +36,8 @@ plain text replacement of each `{name}`, so the names in braces are pinned for e
 inside a fenced block. Both prompts hold the level-2 sections SEARCH_SECTIONS in order. The skeleton of the fact file
 is a fenced block: four backticks in the code prompt, which nests the Mermaid fence, so a section helper must not
 mistake its `## ` lines for a heading of the prompt. The rules of form are those that `check-facts` reads: a fact is
-one `- ` line, and a fact inside a `~~~` fence or a fenced block outside `Relevant flows` is lost with no finding
-(wave 1 ruling R9).
+one `- ` line, and a fact inside a fenced block outside `Relevant flows` is lost with no finding (wave 1 ruling R9).
+A `~~~` line is no fence for `check-facts`: it reports each `~~~` line as a line that is not a `- ` line.
 
 - test_each_search_prompt_has_exactly_its_placeholders: add or drop a name in braces in a prompt, rename one, or
   write a Mermaid rhombus node such as `a{x}`.
@@ -67,7 +67,10 @@ gate 1 reviewer of the lesson (explain/lesson/review-page.md): it holds the sect
 the round rules REVIEW_ROUND_2. Its verification read keys on `-round-2.md` alone, because an sdr review has three
 rounds at most (spec 7.6). The three consilium reviewers run in parallel into one directory, and the cold reviewer
 runs after them, so each reviewer prompt closes the directory of `sdr.md` and its parent (CLOSED_TEXT, CLOSED_TAILS):
-a reviewer reads no report of another reviewer, and the cold reviewer reads no consilium report.
+a reviewer reads no report of another reviewer, and the cold reviewer reads no consilium report. `sdr.py check`
+reports a `preferred:` line that names no option of the record, and SKILL.md stops the run on the second such report
+of one role. So the report form keeps `preferred:` to an option of the record, and sends an option that nobody wrote
+(the sceptic's brief asks for one) to a verdict and to `Preferred` (CONSILIUM_PREFERRED).
 
 - test_each_reviewer_prompt_has_exactly_its_placeholders: add or drop a name in braces in either prompt, rename one,
   or write a Mermaid rhombus node such as `a{x}`.
@@ -78,6 +81,8 @@ a reviewer reads no report of another reviewer, and the cold reviewer reads no c
   starts with the title line.
 - test_the_consilium_needs_evidence: drop or reword the sentence `A finding without evidence is not a finding.`, or
   move it out of the section Judge.
+- test_the_consilium_prefers_an_option_of_the_record: drop or reword a sentence of CONSILIUM_PREFERRED, or move it out
+  of the section Report.
 - test_the_consilium_role_is_filled: drop `{brief}` from the section Your role, or `{role}` from the section Your
   task.
 - test_the_review_lists_five_checks: add or drop a numbered check in the section Checks, or number them out of
@@ -105,7 +110,10 @@ into CORRECTION_FORM. SKILL_TEXTS pins the exact texts: among them ID_SUFFIX, wh
 one basename apart, RESUME_STOP, which asks for Stop 1 again after a session that died at Stop 1, ROOT_PARENT, which
 moves the root of one code directory to its parent, as the course rung of `explain` does (spec section 9), and
 UNTRACKED, which runs the `untracked` test of a cite in the code directory that holds the file, because the
-`data-root` of the page is the root of the run, not the root of a repository. The section Page (spec section 8)
+`data-root` of the page is the root of the run, not the root of a repository, NEW_OPTION, which keeps an option that
+a consilium report proposes and nobody wrote for `Open questions`, and MATRIX_DIAGRAM, which makes the matrix the
+diagram of the answer check of page.md, because the first section of an sdr page, `#why`, shows the current state
+and not the choice. The section Page (spec section 8)
 points at the sections of explain/rungs/page.md (PAGE_MD) by their titles in double quotes (PAGE_MD_TITLES), never
 by number, so a renumbered page.md cannot send the author to the wrong section. It holds the section plan of the
 page (PAGE_IDS, PAGE_PLAN) and the three commands of the page, MATRIX, MERMAID and VERIFY, pinned line by line.
@@ -216,6 +224,9 @@ REVIEW_ROUND_2 = ("If `{previous}` is `none`, this is round 1: skip this section
                   "and quote the current source line.",
                   "If the name of `{previous}` ends in `-round-2.md`, this is a verification read: "
                   "rule its findings and hunt for nothing new.")
+CONSILIUM_PREFERRED = ("`preferred:` names one option of the record.",
+                       "Write an option that nobody wrote, or a requirement that you think is wrong, in a verdict "
+                       "and in `Preferred`.")  # sdr.py check: `preferred opt-d is not an option`
 CONSILIUM_REPORT = """# Consilium: {role}
 ## opt-<x>
 - verdict: <one sentence>
@@ -261,6 +272,9 @@ RESUME_SENTENCE = "One argument that is a directory holding `sdr.md` resumes tha
 ROOT_PARENT = "If that directory is a code directory, use its parent directory."  # spec 9, as explain's course rung
 UNTRACKED = ("For the word `untracked`, run `git -C <code-dir> ls-files --error-unmatch <path>`, with `<path>` "
              "relative to the code directory that holds the file.")  # data-root is the run root, not a repo root
+NEW_OPTION = "When a report proposes an option that nobody wrote, keep it for `Open questions`."
+MATRIX_DIAGRAM = ('In step 4 of "Verify and export", the diagram that supports the answer is the matrix of '
+                  "`#compare`, not the diagram of `#why`.")  # page.md checks the diagram of the first section
 RECORD_RULES = ("Put no fenced block outside `Options`.",
                 "Never use `~~~`.",
                 "Write a `### ` heading only under `Options` and `Consilium`.",
@@ -272,7 +286,7 @@ SKILL_TEXTS = (
     "consilium/<role>.md", "review/review-round-<k>.md", "diagrams/<id>.mmd", "Stop 1", "Stop 2",
     "target: unknown", "source: assumption", "source: consilium <role>", "`task`", "`general`", "never a fork",
     "A filled prompt holds no name in braces.", *RECORD_RULES, RESUME_SENTENCE, ID_SUFFIX, RESUME_STOP, ROOT_PARENT,
-    UNTRACKED,
+    UNTRACKED, NEW_OPTION, MATRIX_DIAGRAM,
 )
 SDR_COMMAND = re.compile(r"sdr\.py (\S+)")
 PAGE_MD_TITLES = ("Fill the template", "Diagram patterns", "Provenance", "Write the prose", "Verify and export")
@@ -541,6 +555,11 @@ class ReviewerPromptCase(unittest.TestCase):
     def test_the_consilium_needs_evidence(self):
         judge = squash(section(read(PROMPTS / "consilium.md"), "Judge"))
         self.assertIn("A finding without evidence is not a finding.", judge)
+
+    def test_the_consilium_prefers_an_option_of_the_record(self):
+        report = squash(section(read(PROMPTS / "consilium.md"), "Report"))
+        for rule in CONSILIUM_PREFERRED:
+            self.assertIn(rule, report)
 
     def test_the_consilium_role_is_filled(self):
         text = read(PROMPTS / "consilium.md")

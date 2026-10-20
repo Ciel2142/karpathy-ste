@@ -70,7 +70,8 @@ These rules of form apply:
 - Write each fact as one `- ` line. A fact holds one statement and no ` | ` (a bar with a space on each
   side).
 - A cite is `<url> | <snippet>`. The URL is the address of a page that you fetched. The snippet has at
-  most 12 words, copied verbatim from that page.
+  most 12 words, copied verbatim from that page. A snippet holds no ` | `. End it before the bar, or cite
+  another line.
 - Never use `~~~`.
 - Put no fenced block and no `### ` heading in the fact file.
 - The file holds the sections `Facts` and `Unknowns`, and no other section.

@@ -94,7 +94,8 @@ These rules of form apply:
 - Write each fact as one `- ` line. A fact holds one statement and no ` | ` (a bar with a space on each
   side).
 - A cite is `<path>:<line> | <snippet>`. The path is relative to `{root}`. The line is a line that you
-  read. The snippet is on that line, and it has at most 12 words, copied verbatim.
+  read. The snippet is on that line, and it has at most 12 words, copied verbatim. A snippet holds no ` | `.
+  End it before the bar, or cite another line.
 - Never use `~~~`.
 - Put no fenced block outside `Relevant flows`.
 - Write a `### ` heading only under `Relevant flows`.
