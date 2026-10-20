@@ -252,8 +252,10 @@ read.
 
 ## Intake
 
-1. Make each code directory an absolute path. Find the root of the run. The root is the deepest common
-   ancestor directory of the code directories. With no code directory, the root is the current directory.
+1. Make each code directory an absolute path. Find the root of the run, as the course rung of `explain` finds
+   it. The root is the deepest common ancestor directory of the code directories. If that directory is a code
+   directory, use its parent directory. This is so for one code directory, and for a code directory that holds
+   another. With no code directory, the root is the current directory.
 2. Make the output directory (see "Output directory").
 3. Run this command, with one `--code` for each code directory:
 

@@ -101,8 +101,9 @@ ROLE_HEADER gives the briefs of spec section 7.4 word for word (ROLE_BRIEFS). Ea
 of sdr.USAGE (sdr_commands), and the three commands that the author runs before the page are pinned line by line.
 The consilium section turns the last two lines of CONSILIUM_REPORT into the `- preferred:` and `- verdict:` lines
 that sdr.py reads, and a `dispute` line into CORRECTION_FORM. SKILL_TEXTS pins the exact texts: among them
-ID_SUFFIX, which keeps two code directories with one basename apart, and RESUME_STOP, which asks for Stop 1 again
-after a session that died at Stop 1.
+ID_SUFFIX, which keeps two code directories with one basename apart, RESUME_STOP, which asks for Stop 1 again
+after a session that died at Stop 1, and ROOT_PARENT, which moves the root of one code directory to its parent, as
+the course rung of `explain` does (spec section 9).
 
 - test_frontmatter: change, drop or add a line of the frontmatter, or put a line before it.
 - test_titles: rename, drop, add or reorder a level-2 section, or put a `## ` line of the record outside its fence.
@@ -226,6 +227,7 @@ ID_SUFFIX = ("When two code directories give the same `<id>`, add `-2`, `-3` and
              "in argument order.")
 RESUME_STOP = "On a resume at stage `frame`, do Stop 1 again before the options stage."
 RESUME_SENTENCE = "One argument that is a directory holding `sdr.md` resumes that run. It is never a code directory."
+ROOT_PARENT = "If that directory is a code directory, use its parent directory."  # spec 9, as explain's course rung
 RECORD_RULES = ("Put no fenced block outside `Options`.",
                 "Never use `~~~`.",
                 "Write a `### ` heading only under `Options` and `Consilium`.",
@@ -236,7 +238,7 @@ SKILL_TEXTS = (
     "~/karpathy/out/YYYY-MM-DD-HHMMSS-sdr-<slug>/", "explore/code-<id>.md", "explore/web-<n>.md",
     "consilium/<role>.md", "review/review-round-<k>.md", "diagrams/<id>.mmd", "Stop 1", "Stop 2",
     "target: unknown", "source: assumption", "source: consilium <role>", "`task`", "`general`", "never a fork",
-    "A filled prompt holds no name in braces.", *RECORD_RULES, RESUME_SENTENCE, ID_SUFFIX, RESUME_STOP,
+    "A filled prompt holds no name in braces.", *RECORD_RULES, RESUME_SENTENCE, ID_SUFFIX, RESUME_STOP, ROOT_PARENT,
 )
 SDR_COMMAND = re.compile(r"sdr\.py (\S+)")
 INSTALL_BASH = "/bin/bash"  # the bash of macOS is 3.2; install.sh must run there too
