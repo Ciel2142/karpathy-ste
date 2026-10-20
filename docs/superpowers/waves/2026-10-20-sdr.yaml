@@ -1,0 +1,104 @@
+version: 2
+feature: sdr
+spec: docs/superpowers/specs/2026-10-20-sdr-design.md
+coverage: waived
+# One feature branch `feat/sdr`, cut from `main`, driven by ralph in the worktree
+# /Users/valukin/karpathy-wt/sdr (the main working tree holds unrelated uncommitted edits to
+# bpmn_svg.py and its test). Two waves to ralph, each with a plan of at most five tasks: the
+# record and its checks (a stable CLI contract fixed by spec sections 6, 7.1 and 9), then the
+# procedure that names those commands. The third wave, sdr-live-run, has no epic on purpose: its
+# frame stage is a conversation with the user and its done_when is the user's reading of the page
+# (setup rule 4); it runs interactively after the two waves close. The user described the need,
+# then wrote "do as you see fit … prepare spec, go ahead with planning, use ralph loop if more
+# than 1 wave, i am off to bed" (2026-10-20); the author took that as the confirmation of the
+# split screen with the default rules and no override. The explain suite is not in the run's
+# suite: no wave may change skills/explain (spec section 2), a git diff guards that, and its
+# test_mermaid_fixes EarlyExitCase is a timing test that fails about one run in three.
+waves:
+  - id: sdr-record
+    slice: domain
+    goal: >-
+      The mechanical floor of a design review (spec sections 6, 7.1 and 9): `skills/sdr/scripts/sdr.py`
+      with four commands. `skeleton <sdr-dir> --question <text>` writes `sdr.md` at stage `intake`
+      with every level-2 section `pending` and refuses to overwrite. `check <sdr-dir> [--root <root>]`
+      enforces the record rules of section 6 for the sections that the recorded stage has reached
+      (stage line, section order, cites under the root via explain's `cite_check.fact_problems`,
+      requirement ids and sources and NFR targets, at least three options with one Mermaid
+      flowchart of at most 25 nodes and every key and exactly one fit line per requirement, the
+      three consilium roles with `preferred` and accepted corrections that match the fit lines,
+      the decision's choice, one `why not` per other option, one `dissent` per differing role,
+      `revisit when`, and the `why` naming a requirement the choice fails that another option
+      meets). `check-facts <file> --root <root>` checks a searcher's fact file (section 7.1).
+      `matrix <sdr-dir>` fills `<div class="sdr-matrix">` of `index.html` with the requirements x
+      options `table.matrix`, the chosen column marked, and replaces it on a second run.
+    done_when: >-
+      `cd skills/sdr && python3 -B -m unittest discover -s tests` passes, with one fixture record
+      per finding prefix of section 9 that produces exactly that finding, one valid record at each
+      stage that prints `sdr: ok`, a fact-file fixture with a bad snippet that `check-facts`
+      reports, and a fixture page that `matrix` fills (chosen column, `aria-label` marks) and a
+      second run leaves byte-identical; a filled fixture page passes explain's `verify.sh`
+      (`rung=page`) with the matrix block and its `<style>`, or the rule moves to the page style
+      as section 9 allows; `skills/explain/` is unchanged against the merge base with `main`.
+    status: done
+    depends_on: []
+    owns:
+      - skills/sdr/scripts/ (new)
+      - skills/sdr/tests/test_sdr.py (new), skills/sdr/tests/fixtures/records/ (new), skills/sdr/tests/fixtures/pages/ (new)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/sdr && python3 -B -m unittest discover -s tests
+      - git diff --quiet "$(git merge-base main HEAD)" -- skills/explain
+
+  - id: sdr-procedure
+    slice: domain
+    goal: >-
+      The `/sdr` skill a user can invoke (spec sections 3, 4, 5, 7, 8 and 10): `skills/sdr/SKILL.md`
+      (user-invoked only, `disable-model-invocation: true`) with the command forms, the output
+      directory, the nine stages with the two stops, the frame-stage conversation rules, the
+      subagent dispatch and the page section plan, naming the exact `sdr.py` commands of wave
+      sdr-record; the four prompt templates `prompts/search-code.md`, `search-web.md`,
+      `consilium.md` and `review.md`; a `README.md` entry for the third skill; and the synthetic
+      two-service fixture `skills/sdr/tests/fixtures/warrants/` (an orchestrator that maps claims to
+      one warrant, many-to-one for one source system, and an executor that publishes
+      warrant-total block, unblock and confiscate events) for the live run of spec section 12.
+    done_when: >-
+      `cd skills/sdr && python3 -B -m unittest discover -s tests` passes, including a prompt test
+      that each prompt names only the braces that `SKILL.md` says the author fills and that
+      `SKILL.md` names each prompt file and each `sdr.py` command that exists; `ste_lint.py` prints
+      `0 errors` for `SKILL.md` and each prompt; `install.sh --claude` in a temporary HOME links
+      `sdr` (tests/test_install.py still passes); a hand-written record of the warrants example at
+      stage `decide`, kept as a fixture, passes `sdr.py check` with the fixture services as root.
+    status: done
+    depends_on: [sdr-record]
+    owns:
+      - skills/sdr/SKILL.md (new), skills/sdr/prompts/ (new)
+      - skills/sdr/tests/test_prompts.py (new), skills/sdr/tests/fixtures/warrants/ (new)
+      - README.md (the sdr entry and its requirements row)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/sdr && python3 -B -m unittest discover -s tests
+      - python3 -B -m unittest discover -s tests
+
+  - id: sdr-live-run
+    slice: vertical
+    goal: >-
+      One live `/sdr` run from the installed skill on the warrants fixture (spec section 12), with
+      the user (or the author standing in with the answers of spec section 1) in the frame stage.
+    done_when: >-
+      `sdr.py check` prints `sdr: ok` at stage `done`, `verify.sh` passes the page, the review ends
+      `verdict: ok` or its open findings are listed at the handoff, and the user has read the page
+      and accepts it.
+    status: pending
+    depends_on: [sdr-procedure]
+    owns:
+      - out/ (discardable, never committed)
+    risk: low
+    plan: null
+    acceptance:
+      - the user reads the page of the live run
+deferred: []
+approval:
+  required: false
+  reason: null

@@ -1,6 +1,6 @@
 # karpathy-ste
 
-Two skills for [Claude Code](https://claude.com/claude-code) and [OpenCode](https://opencode.ai),
+Three skills for [Claude Code](https://claude.com/claude-code) and [OpenCode](https://opencode.ai),
 kept in one repository and linked into each tool's skills directory:
 
 - **`/ste`** — rewrite text, or answer a request, in STE-80: a fixed profile of ASD-STE100
@@ -22,8 +22,14 @@ kept in one repository and linked into each tool's skills directory:
   claim carries a `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails
   the build when a cite does not match the file, the page does not render, or the prose breaks
   the STE profile.
+- **`/sdr <question> [<code-dir> ...]`** — run one system design review of a change to a system;
+  `/sdr <sdr-dir>` resumes a run. Searchers read the code and the web, the session settles the
+  requirements with you and writes at least three options, and a consilium of three reviewers
+  judges them. A run makes a decision record (`sdr.md`) that `sdr.py check` checks at each stage,
+  and an `explain` page with a requirement-by-option matrix that a cold reviewer reads. It stops
+  for you twice: to approve the frame, and at the handoff.
 
-Both skills are user-invoked only (`disable-model-invocation: true`).
+All three skills are user-invoked only (`disable-model-invocation: true`).
 
 ## Install
 
@@ -32,8 +38,8 @@ git clone https://github.com/Ciel2142/karpathy-ste.git ~/karpathy
 ~/karpathy/install.sh --claude --opencode   # or only one of the two flags
 ```
 
-`install.sh` symlinks `skills/ste` and `skills/explain` into `~/.claude/skills/` (`--claude`)
-and `${XDG_CONFIG_HOME:-~/.config}/opencode/skills/` (`--opencode`). It never replaces an
+`install.sh` symlinks `skills/ste`, `skills/explain` and `skills/sdr` into `~/.claude/skills/`
+(`--claude`) and `${XDG_CONFIG_HOME:-~/.config}/opencode/skills/` (`--opencode`). It never replaces an
 existing entry, and a second run changes nothing. OpenCode also reads `~/.claude/skills/`, so
 with both flags it links each skill once, under `~/.claude/skills/`.
 
@@ -49,7 +55,8 @@ same as in Claude Code. From a script, pass the arguments as separate words afte
 quotes. The `--review` gates of a lesson start their reviewers with the
 `task` tool and the built-in `general` agent, which runs on the model of your session; any
 provider works, a local one included. Rungs that search the web need a provider that
-offers OpenCode's web search tool.
+offers OpenCode's web search tool. `/sdr` starts its searchers and reviewers with the `task` tool
+and the `general` agent.
 
 ## Requirements
 
@@ -61,6 +68,7 @@ offers OpenCode's web search tool.
 | `lesson` | the needs of `page` and of `video` together |
 | `course` | the needs of `lesson` |
 | `onboard` | the needs of `page` |
+| `sdr` | the needs of `page`, and the web tools of your session for the web searchers |
 
 As written the `sheet`, `page` and `video` rungs are macOS-specific (the Chrome path, `say`,
 `afinfo`). `ste` runs anywhere.
@@ -94,6 +102,8 @@ skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brai
                    scripts/{onboard,mermaid_svg}.py,
                    video/ (Remotion app + pipeline; video/src/kit/ is the film kit,
                    video/src/film/ the worked example), tests/
+skills/sdr/        SKILL.md (the review procedure), prompts/ (the searcher and reviewer prompts),
+                   scripts/sdr.py, tests/
 install.sh         links the skills into Claude Code and/or OpenCode; tests/ tests it
 docs/superpowers/  the spec, wave map, plans and live-run notes behind the skills
 ```
@@ -104,6 +114,7 @@ docs/superpowers/  the spec, wave map, plans and live-run notes behind the skill
 python3 -B -m unittest discover -s tests   # install.sh, from the repo root
 cd skills/ste     && python3 -B -m unittest discover -s tests
 cd skills/explain && python3 -B -m unittest discover -s tests
+cd skills/sdr     && python3 -B -m unittest discover -s tests
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render tests.test_check_render  # renders once, needs the workspace
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_brainrot  # two brainrot renders (generated loop, fixture clip), needs the workspace
 EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_render_film  # renders the worked film and its planted faults, needs the workspace
