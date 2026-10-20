@@ -56,6 +56,39 @@ one `- ` line, and a fact inside a `~~~` fence or a fenced block outside `Releva
   `.codegraph/`.
 - test_the_web_searcher_cites_fetched_pages: reword or drop a line of WEB_RULES in the web prompt.
 - test_each_search_prompt_lints_clean: write a sentence of 26 words or more outside a fenced block, a heading and a
+  table row.
+
+ReviewerPromptCase ties the two reviewer prompts, consilium.md and review.md, to spec sections 7.4 and 7.6. Both are
+templates, so PLACEHOLDERS pins their names in braces too (all four prompts have a key after this case). consilium.md
+holds the sections CONSILIUM_SECTIONS. Its report form, CONSILIUM_REPORT, is one fenced block that the main session
+copies into the record, so the block is pinned line by line, with `{role}` in its title line. review.md adapts the
+gate 1 reviewer of the lesson (explain/lesson/review-page.md): it holds the sections REVIEW_SECTIONS, five checks and
+the round rules REVIEW_ROUND_2. Its verification read keys on `-round-2.md` alone, because an sdr review has three
+rounds at most (spec 7.6). The three consilium reviewers run in parallel into one directory, and the cold reviewer
+runs after them, so each reviewer prompt closes the directory of `sdr.md` and its parent (CLOSED_TEXT, CLOSED_TAILS):
+a reviewer reads no report of another reviewer, and the cold reviewer reads no consilium report.
+
+- test_each_reviewer_prompt_has_exactly_its_placeholders: add or drop a name in braces in either prompt, rename one,
+  or write a Mermaid rhombus node such as `a{x}`.
+- test_each_reviewer_prompt_has_its_sections: rename, drop, add or reorder a level-2 section, or put a `## ` line of
+  the report form outside a fence.
+- test_the_consilium_report_form: change a line of the report form (the title with `{role}`, an `## opt-<x>` line, a
+  `dispute` or `missing` line, `## Preferred`, or either last line), drop one, or write a second fenced block that
+  starts with the title line.
+- test_the_consilium_needs_evidence: drop or reword the sentence `A finding without evidence is not a finding.`, or
+  move it out of the section Judge.
+- test_the_consilium_role_is_filled: drop `{brief}` from the section Your role, or `{role}` from the section Your
+  task.
+- test_the_review_lists_five_checks: add or drop a numbered check in the section Checks, or number them out of
+  order.
+- test_round_2_rules_before_it_hunts: reword or drop one of the three sentences of REVIEW_ROUND_2, move one out of
+  the section Round 2, or name `-round-3.md` there.
+- test_each_reviewer_reads_only_its_inputs: reword or drop CLOSED_TEXT, or its tail in CLOSED_TAILS, in either
+  prompt, or move it out of the section Inputs.
+- test_the_review_report_needs_a_quoted_line: drop or reword the sentence `A finding without a quoted source line is
+  not a finding.` or the verdict pair from the section Report.
+- test_the_review_hunts_with_an_exit: drop the words `zero findings` from the section Hunt.
+- test_each_reviewer_prompt_lints_clean: write a sentence of 26 words or more outside a fenced block, a heading and a
   table row."""
 
 import os
@@ -87,6 +120,8 @@ PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)\}")
 PLACEHOLDERS = {  # prompt file name -> the names in braces that it holds, braces removed
     "search-code.md": frozenset({"skill_dir", "question", "code_dir", "root", "fact_id", "facts"}),
     "search-web.md": frozenset({"skill_dir", "question", "topic", "root", "fact_id", "facts"}),
+    "consilium.md": frozenset({"role", "brief", "files", "root", "report"}),
+    "review.md": frozenset({"question", "files", "root", "report", "previous"}),
 }
 FENCE_LINE = re.compile(r"\s*(`{3,})")
 SEARCH_PROMPTS = ("search-code.md", "search-web.md")
@@ -102,6 +137,28 @@ READ_RULES = ("Read the source only. Change no file of the source.",
               "Cite only a line that you read from the disk.",
               "Never copy a password, a token or a key into a snippet or a fact.")
 WEB_RULES = ("Cite only a page that you fetched.", "Copy the snippet from the fetched page.")
+
+REVIEWER_PROMPTS = ("consilium.md", "review.md")
+CONSILIUM_SECTIONS = ("Your task", "Inputs", "Your role", "Judge", "Report")
+REVIEW_SECTIONS = ("Your task", "Inputs", "Hunt", "Checks", "Round 2", "Report")
+CLOSED_TEXT = "Under the directory of `sdr.md`, and under its parent directory, read no file except"
+CLOSED_TAILS = {"consilium.md": "the files listed below.",
+                "review.md": "the files listed below and the report that Round 2 names."}
+REVIEW_ROUND_2 = ("If `{previous}` is `none`, this is round 1: skip this section.",
+                  "Before you hunt, rule each finding of that report `resolved` or `open`, "
+                  "and quote the current source line.",
+                  "If the name of `{previous}` ends in `-round-2.md`, this is a verification read: "
+                  "rule its findings and hunt for nothing new.")
+CONSILIUM_REPORT = """# Consilium: {role}
+## opt-<x>
+- verdict: <one sentence>
+- dispute <id>: <old> -> <new> — <evidence>
+## Missing requirements
+- missing <FR|NFR>: <requirement> — <evidence>
+## Preferred
+<why, in one paragraph>
+verdict: <one sentence>
+preferred: opt-<x>"""
 
 
 def read(path: Path) -> str:
@@ -292,6 +349,61 @@ class SearchPromptCase(unittest.TestCase):
 
     def test_each_search_prompt_lints_clean(self):
         for name in SEARCH_PROMPTS:
+            run = lint(PROMPTS / name)
+            lines = run.stdout.strip().splitlines()
+            self.assertTrue(lines and lines[-1].startswith("0 errors"), (name, run.stdout, run.stderr))
+
+
+class ReviewerPromptCase(unittest.TestCase):
+    def test_each_reviewer_prompt_has_exactly_its_placeholders(self):
+        for name in REVIEWER_PROMPTS:
+            self.assertEqual(set(PLACEHOLDER.findall(read(PROMPTS / name))), PLACEHOLDERS[name], name)
+
+    def test_each_reviewer_prompt_has_its_sections(self):
+        wanted = {"consilium.md": CONSILIUM_SECTIONS, "review.md": REVIEW_SECTIONS}
+        for name, titles in wanted.items():
+            self.assertEqual(headings(read(PROMPTS / name)), list(titles), name)
+
+    def test_the_consilium_report_form(self):
+        text = read(PROMPTS / "consilium.md")
+        forms = [body for body in fenced_blocks(text) if body.lstrip().startswith("# Consilium: {role}")]
+        self.assertEqual(len(forms), 1, forms)
+        self.assertEqual([line.strip() for line in forms[0].splitlines()], CONSILIUM_REPORT.splitlines())
+
+    def test_the_consilium_needs_evidence(self):
+        judge = squash(section(read(PROMPTS / "consilium.md"), "Judge"))
+        self.assertIn("A finding without evidence is not a finding.", judge)
+
+    def test_the_consilium_role_is_filled(self):
+        text = read(PROMPTS / "consilium.md")
+        self.assertIn("{brief}", squash(section(text, "Your role")))
+        self.assertIn("{role}", section(text, "Your task"))
+
+    def test_the_review_lists_five_checks(self):
+        checks = section(read(PROMPTS / "review.md"), "Checks")
+        self.assertEqual(re.findall(r"^(\d+)\. ", checks, re.M), ["1", "2", "3", "4", "5"])
+
+    def test_round_2_rules_before_it_hunts(self):
+        rules = squash(section(read(PROMPTS / "review.md"), "Round 2"))
+        for sentence in REVIEW_ROUND_2:
+            self.assertIn(sentence, rules)
+        self.assertNotIn("-round-3.md", rules)
+
+    def test_each_reviewer_reads_only_its_inputs(self):
+        for name in REVIEWER_PROMPTS:
+            inputs = squash(section(read(PROMPTS / name), "Inputs"))
+            self.assertIn(CLOSED_TEXT + " " + CLOSED_TAILS[name], inputs, name)
+
+    def test_the_review_report_needs_a_quoted_line(self):
+        report = squash(section(read(PROMPTS / "review.md"), "Report"))
+        self.assertIn("A finding without a quoted source line is not a finding.", report)
+        self.assertIn("`verdict: ok` or `verdict: fix`", report)
+
+    def test_the_review_hunts_with_an_exit(self):
+        self.assertIn("zero findings", squash(section(read(PROMPTS / "review.md"), "Hunt")))
+
+    def test_each_reviewer_prompt_lints_clean(self):
+        for name in REVIEWER_PROMPTS:
             run = lint(PROMPTS / name)
             lines = run.stdout.strip().splitlines()
             self.assertTrue(lines and lines[-1].startswith("0 errors"), (name, run.stdout, run.stderr))
