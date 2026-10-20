@@ -39,7 +39,7 @@ waves:
       second run leaves byte-identical; a filled fixture page passes explain's `verify.sh`
       (`rung=page`) with the matrix block and its `<style>`, or the rule moves to the page style
       as section 9 allows; `skills/explain/` is unchanged against the merge base with `main`.
-    status: pending
+    status: done
     depends_on: []
     owns:
       - skills/sdr/scripts/ (new)
@@ -69,7 +69,7 @@ waves:
       `0 errors` for `SKILL.md` and each prompt; `install.sh --claude` in a temporary HOME links
       `sdr` (tests/test_install.py still passes); a hand-written record of the warrants example at
       stage `decide`, kept as a fixture, passes `sdr.py check` with the fixture services as root.
-    status: pending
+    status: done
     depends_on: [sdr-record]
     owns:
       - skills/sdr/SKILL.md (new), skills/sdr/prompts/ (new)
