@@ -102,15 +102,17 @@ PLACEHOLDERS cannot drift. The role table under ROLE_HEADER gives the briefs of 
 commands that the author runs before the page are pinned line by line. The consilium section turns the last two
 lines of CONSILIUM_REPORT into the `- preferred:` and `- verdict:` lines that sdr.py reads, and a `dispute` line
 into CORRECTION_FORM. SKILL_TEXTS pins the exact texts: among them ID_SUFFIX, which keeps two code directories with
-one basename apart, RESUME_STOP, which asks for Stop 1 again after a session that died at Stop 1, and ROOT_PARENT,
-which moves the root of one code directory to its parent, as the course rung of `explain` does (spec section 9). The
-section Page (spec section 8) points at the sections of explain/rungs/page.md (PAGE_MD) by their titles in double
-quotes (PAGE_MD_TITLES), never by number, so a renumbered page.md cannot send the author to the wrong section. It
-holds the section plan of the page (PAGE_IDS, PAGE_PLAN) and the three commands of the page, MATRIX, MERMAID and
-VERIFY, pinned line by line. `sdr.py` counts each `<div class="sdr-matrix">` of the page, an HTML comment too, so
-MATRIX_COMMENT forbids one there. The section Review (spec section 7.6) holds STALE_RULE, because from stage `page`
-on `sdr.py check` reports a matrix that the record no longer gives. The section Done holds the handoff of spec
-section 10: one numbered list of five items, in the order of HANDOFF.
+one basename apart, RESUME_STOP, which asks for Stop 1 again after a session that died at Stop 1, ROOT_PARENT, which
+moves the root of one code directory to its parent, as the course rung of `explain` does (spec section 9), and
+UNTRACKED, which runs the `untracked` test of a cite in the code directory that holds the file, because the
+`data-root` of the page is the root of the run, not the root of a repository. The section Page (spec section 8)
+points at the sections of explain/rungs/page.md (PAGE_MD) by their titles in double quotes (PAGE_MD_TITLES), never
+by number, so a renumbered page.md cannot send the author to the wrong section. It holds the section plan of the
+page (PAGE_IDS, PAGE_PLAN) and the three commands of the page, MATRIX, MERMAID and VERIFY, pinned line by line.
+`sdr.py` counts each `<div class="sdr-matrix">` of the page, an HTML comment too, so MATRIX_COMMENT forbids one
+there. The section Review (spec section 7.6) holds STALE_RULE, because from stage `page` on `sdr.py check` reports a
+matrix that the record no longer gives. The section Done holds the handoff of spec section 10: one numbered list of
+five items, in the order of HANDOFF.
 
 - test_frontmatter: change, drop or add a line of the frontmatter, or put a line before it.
 - test_titles: rename, drop, add or reorder a level-2 section, or put a `## ` line of the record outside its fence.
@@ -257,6 +259,8 @@ ID_SUFFIX = ("When two code directories give the same `<id>`, add `-2`, `-3` and
 RESUME_STOP = "On a resume at stage `frame`, do Stop 1 again before the options stage."
 RESUME_SENTENCE = "One argument that is a directory holding `sdr.md` resumes that run. It is never a code directory."
 ROOT_PARENT = "If that directory is a code directory, use its parent directory."  # spec 9, as explain's course rung
+UNTRACKED = ("For the word `untracked`, run `git -C <code-dir> ls-files --error-unmatch <path>`, with `<path>` "
+             "relative to the code directory that holds the file.")  # data-root is the run root, not a repo root
 RECORD_RULES = ("Put no fenced block outside `Options`.",
                 "Never use `~~~`.",
                 "Write a `### ` heading only under `Options` and `Consilium`.",
@@ -268,6 +272,7 @@ SKILL_TEXTS = (
     "consilium/<role>.md", "review/review-round-<k>.md", "diagrams/<id>.mmd", "Stop 1", "Stop 2",
     "target: unknown", "source: assumption", "source: consilium <role>", "`task`", "`general`", "never a fork",
     "A filled prompt holds no name in braces.", *RECORD_RULES, RESUME_SENTENCE, ID_SUFFIX, RESUME_STOP, ROOT_PARENT,
+    UNTRACKED,
 )
 SDR_COMMAND = re.compile(r"sdr\.py (\S+)")
 PAGE_MD_TITLES = ("Fill the template", "Diagram patterns", "Provenance", "Write the prose", "Verify and export")

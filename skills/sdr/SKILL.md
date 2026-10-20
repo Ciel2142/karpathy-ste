@@ -442,8 +442,9 @@ The section plan, in document order:
   of a repository. The Source cell names the root and each URL that the page cites. Write one Commit and one
   Dirty value for each code directory, with its basename in the `<dt>`. Commit is the output of
   `git -C <code-dir> rev-parse --short HEAD`. Dirty is `dirty` when `git -C <code-dir> status --porcelain`
-  prints a line, else `no`. With no code directory, Commit is `none` and Dirty is `no`. `Not covered` lists
-  each topic of `Not covered` of the record.
+  prints a line, else `no`. With no code directory, Commit is `none` and Dirty is `no`. For the word
+  `untracked`, run `git -C <code-dir> ls-files --error-unmatch <path>`, with `<path>` relative to the code
+  directory that holds the file. `Not covered` lists each topic of `Not covered` of the record.
 
 Copy each Mermaid block of `sdr.md` verbatim to `diagrams/<id>.mmd`, with the option id as `<id>`. Write the
 diagram of `#why` to `diagrams/why.mmd`. Then run this command:
