@@ -401,3 +401,121 @@ Write `Not covered`: one `- <topic>: <reason>` line for each topic that the revi
 Write `none` in a section that has no line.
 
 Write `stage: decide` and run the check.
+
+## Page
+
+Write the page from the record. The page reports `sdr.md`: it states no requirement, mark, verdict or reason
+that the record does not hold. Take each cite from `sdr.md` or from a fact file. Its path is relative to the
+root.
+
+Copy `<skill-dir>/../explain/templates/page.html` to `<sdr-dir>/index.html`. Then follow these sections of
+`<skill-dir>/../explain/rungs/page.md`: "Fill the template", "Diagram patterns", "Provenance",
+"Write the prose" and "Verify and export". In that file, `<skill-dir>` is the directory of `explain`, here
+`<skill-dir>/../explain`, and `<output-dir>` is `<sdr-dir>`. Use the section plan below in place of
+"Plan the sections".
+
+Keep `<meta name="explain-rung" content="page">`, so that `verify.sh` checks the page as a page of `explain`.
+Write the prose in the STE profile of `<skill-dir>/../ste/SKILL.md`. Write it in English, or in Russian when
+the user asks, by convention 7 of `<skill-dir>/../explain/SKILL.md`.
+
+The section plan, in document order:
+
+- `<h1>`: the question, from line 1 of `sdr.md`. The answer box gives the choice and its two strongest reasons,
+  by requirement id, in at most 70 words.
+- `#why` "Why does this need a decision?": the problem, and one Mermaid diagram of the current state, from the
+  fact files. A node of the class `gap` marks the gap, and `classDef gap` in the diagram defines the class.
+  This line is the one style in a diagram: "Diagram patterns" forbids each other style.
+- `#requirements` "What must the solution do?": two tables, functional and non-functional, with the columns id,
+  requirement, target and source. Then the constraints, the non-goals, and a list headed "To confirm" with
+  each requirement that keeps `source: assumption`.
+- `#compare` "How do the options compare?": one sentence that explains the three marks, then an empty
+  `<div class="sdr-matrix"></div>`. Cover the prose: the matrix alone must support the answer box.
+- One section for each option, with the id `opt-<x>`. Its `<h2>` asks the name of the option as a question.
+  It holds the lead paragraph, the diagram of the option and the six keys. A `details.walk`
+  "Fit by requirement" ends it, with the reason of each fit line.
+- `#consilium` "What did the reviewers say?": a table of role, preferred option and verdict. Then one paragraph
+  for each role, with its strongest argument. A dissent gets its own paragraph.
+- `#decision` "What do we choose, and when do we revisit it?": the choice, why, why not each other option, the
+  revisit conditions, the next steps and the open questions.
+- `#terms`: the glossary, as "Plan the sections" defines it.
+- The footer: the provenance, with `data-kind="topic"` and the root of the run in `data-root`, not the root
+  of a repository. The Source cell names the root and each URL that the page cites. Write one Commit and one
+  Dirty value for each code directory, with its basename in the `<dt>`. Commit is the output of
+  `git -C <code-dir> rev-parse --short HEAD`. Dirty is `dirty` when `git -C <code-dir> status --porcelain`
+  prints a line, else `no`. With no code directory, Commit is `none` and Dirty is `no`. `Not covered` lists
+  each topic of `Not covered` of the record.
+
+Copy each Mermaid block of `sdr.md` verbatim to `diagrams/<id>.mmd`, with the option id as `<id>`. Write the
+diagram of `#why` to `diagrams/why.mmd`. Then run this command:
+
+```
+python3 <skill-dir>/../explain/scripts/mermaid_svg.py inline <sdr-dir>/index.html
+```
+
+Then run this command until it prints `sdr: ok`:
+
+```
+python3 <skill-dir>/scripts/sdr.py matrix <sdr-dir>
+```
+
+It writes the matrix into the `sdr-matrix` block: one row for each requirement, one column for each option,
+and the chosen column marked. The block holds its own `<style>`, so add no CSS for it.
+Never quote `<div class="sdr-matrix">` in an HTML comment. `sdr.py` counts each copy of that tag, in a
+comment too.
+
+Run this command until each line shows `ok`, and the `bpmn` line shows `none`:
+
+```
+<skill-dir>/../explain/scripts/verify.sh <sdr-dir>/index.html
+```
+
+Then take the snapshots and read the tiles, as "Verify and export" says. Skip its handoff step: "Done" does
+the handoff.
+
+Write `stage: page` and run the check. `page: matrix stale` means that `sdr.md` changed after the matrix: run
+the matrix command again, then the check.
+
+## Review
+
+A cold reviewer reads the page and the record, with no context of the run. Start it as a fresh subagent with
+the prompt `<skill-dir>/prompts/review.md`, filled as "Subagents" says. In round 1, `{previous}` is `none`.
+
+The reviewer writes `review/review-round-<k>.md`, where `<k>` is the number of the round. The last line of the
+report is `verdict: ok` or `verdict: fix`. Fix each finding that its quoted source lines support. Then append
+`## Author` to the report. For each finding, write `fixed` with what changed, or `not fixed` with why.
+
+After each change to `sdr.md`, run `sdr.py matrix` again, then `sdr.py check`. Run `verify.sh` again after each
+change to the page, until each line shows `ok`.
+
+The rounds:
+
+- Round 2 runs when round 1 says `verdict: fix`. A fresh reviewer gets the round-1 report as `{previous}`. It
+  rules each round-1 finding `resolved` or `open`, then hunts for new faults.
+- A finding first made in round 2 and fixed gets one verification read: round 3. A fresh reviewer gets the
+  round-2 report as `{previous}`. It rules each finding of that report, and hunts for nothing new.
+- There are three rounds at most.
+
+After the last round, a finding is `open` unless its last ruling is `resolved`. Never overrule an `open`
+finding alone: keep it for the handoff.
+
+Write `stage: review` and run the check.
+
+## Done
+
+Write `stage: done` and run the check.
+
+Then do Stop 2. Print the absolute path of `<sdr-dir>`, and run `open index.html` in it. Never run `open`
+inside a subagent.
+
+Then write one numbered list in chat, with exactly these five items, in this order:
+
+1. The choice, in one sentence.
+2. Each assumption still marked `To confirm`: each requirement that keeps `source: assumption`.
+3. Each requirement with `source: consilium <role>`.
+4. Each `open` finding of the review. For a finding that you dispute, add your reason.
+5. Each open question of `Open questions`.
+
+Write `none` in an item that has nothing. Read the items from `sdr.md` and the reports in `review/`, so that a
+resume at stage `done` gives the same list.
+
+Stop 2 prints the path, opens the page and writes this list. Nothing else.

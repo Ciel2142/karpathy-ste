@@ -1,9 +1,10 @@
 """The texts of the `sdr` skill and the fixture that its live run reads (spec sections 7, 11 and 12).
 
 This module is the one place that ties SKILL.md, the four prompts under prompts/, sdr.py (USAGE, STAGES, SECTIONS,
-ROLES, FACTS_TITLES) and the page rung of `explain` together, so that they cannot drift. It also checks the warrants
-fixture with `sdr.py check`. It imports no module of skills/explain/tests/; the helpers are its own. It puts
-skills/sdr/scripts on sys.path and does `import sdr`. Each test names the mutation that turns it red.
+ROLES, FACTS_TITLES), the page rung of `explain` and the sdr entry of README.md together, so that they cannot drift. It
+also checks the warrants fixture with `sdr.py check`. It imports no module of skills/explain/tests/; the helpers are
+its own. It puts skills/sdr/scripts on sys.path and does `import sdr`. Each test names the mutation that turns it
+red.
 
 WarrantsFixtureCase ties the fixture tree under tests/fixtures/warrants/ to the record that the live run of spec
 section 12 imitates by hand. The tree has two code directories, services/orchestrator and services/executor (plain
@@ -92,22 +93,29 @@ a reviewer reads no report of another reviewer, and the cold reviewer reads no c
   table row.
 
 SkillCase ties SKILL.md, the procedure that the main session follows for `/sdr`, to sdr.py and to the four prompts.
-Its level-2 sections are SKILL_TITLES: five sections of rules, then one section for each stage of sdr.STAGES that
-it covers, in order. Task 5 of the plan appends the last three. The section The record shows the record in one
-fenced block with a four-backtick outer fence, which nests the Mermaid fence, so a `## ` line of the record is no
-heading of SKILL.md. The fill table under FILL_HEADER has one row for each name in braces of the prompts, and its
-Prompts cell names the prompts that hold the name, so the table and PLACEHOLDERS cannot drift. The role table under
-ROLE_HEADER gives the briefs of spec section 7.4 word for word (ROLE_BRIEFS). Each word after `sdr.py ` is a command
-of sdr.USAGE (sdr_commands), and the three commands that the author runs before the page are pinned line by line.
-The consilium section turns the last two lines of CONSILIUM_REPORT into the `- preferred:` and `- verdict:` lines
-that sdr.py reads, and a `dispute` line into CORRECTION_FORM. SKILL_TEXTS pins the exact texts: among them
-ID_SUFFIX, which keeps two code directories with one basename apart, RESUME_STOP, which asks for Stop 1 again
-after a session that died at Stop 1, and ROOT_PARENT, which moves the root of one code directory to its parent, as
-the course rung of `explain` does (spec section 9).
+Its level-2 sections are SKILL_TITLES: five sections of rules, then one section for each stage of sdr.STAGES, in
+order. The section The record shows the record in one fenced block with a four-backtick outer fence, which nests the
+Mermaid fence, so a `## ` line of the record is no heading of SKILL.md. The fill table under FILL_HEADER has one row
+for each name in braces of the prompts, and its Prompts cell names the prompts that hold the name, so the table and
+PLACEHOLDERS cannot drift. The role table under ROLE_HEADER gives the briefs of spec section 7.4 word for word
+(ROLE_BRIEFS). The words after `sdr.py ` are the commands of sdr.USAGE, each one named (sdr_commands), and the three
+commands that the author runs before the page are pinned line by line. The consilium section turns the last two
+lines of CONSILIUM_REPORT into the `- preferred:` and `- verdict:` lines that sdr.py reads, and a `dispute` line
+into CORRECTION_FORM. SKILL_TEXTS pins the exact texts: among them ID_SUFFIX, which keeps two code directories with
+one basename apart, RESUME_STOP, which asks for Stop 1 again after a session that died at Stop 1, and ROOT_PARENT,
+which moves the root of one code directory to its parent, as the course rung of `explain` does (spec section 9). The
+section Page (spec section 8) points at the sections of explain/rungs/page.md (PAGE_MD) by their titles in double
+quotes (PAGE_MD_TITLES), never by number, so a renumbered page.md cannot send the author to the wrong section. It
+holds the section plan of the page (PAGE_IDS, PAGE_PLAN) and the three commands of the page, MATRIX, MERMAID and
+VERIFY, pinned line by line. `sdr.py` counts each `<div class="sdr-matrix">` of the page, an HTML comment too, so
+MATRIX_COMMENT forbids one there. The section Review (spec section 7.6) holds STALE_RULE, because from stage `page`
+on `sdr.py check` reports a matrix that the record no longer gives. The section Done holds the handoff of spec
+section 10: one numbered list of five items, in the order of HANDOFF.
 
 - test_frontmatter: change, drop or add a line of the frontmatter, or put a line before it.
 - test_titles: rename, drop, add or reorder a level-2 section, or put a `## ` line of the record outside its fence.
-- test_stage_sections_follow_the_stages: give a stage section a title that is not its stage, or swap two of them.
+- test_stage_sections_follow_the_stages: give a stage section a title that is not its stage, swap two of them, or drop
+  the section of a stage.
 - test_stages_table_lists_the_nine_stages: drop, add or reorder a row of the stages table, or change the stage
   name in its first cell.
 - test_the_record_block_has_the_sections: drop, rename or reorder a `## ` line of the record block, change its line
@@ -118,13 +126,32 @@ the course rung of `explain` does (spec section 9).
   prompt file that does not exist, or add a prompt file that PLACEHOLDERS does not list.
 - test_role_briefs: change a word of a brief, or rename, drop, add or reorder a role.
 - test_skill_names_only_real_sdr_commands: write a word after `sdr.py ` that is not a command of sdr.USAGE.
+- test_skill_names_each_sdr_command: drop the last `sdr.py <command>` of a command of sdr.USAGE from SKILL.md, or write
+  a word after `sdr.py ` that is not a command.
 - test_skill_commands: change a word of SKELETON, CHECK or CHECK_FACTS_AUTHOR, or take it out of its fenced block.
 - test_the_consilium_copies_the_report: drop the word `dispute` or `missing` from the section Consilium, change
   CORRECTION_FORM there, or drop either last line of the report form or its copy with `- ` in front.
 - test_skill_texts: reword or drop one of SKILL_TEXTS.
 - test_skill_lints_clean: write a sentence of 26 words or more outside the frontmatter, a fenced block, a heading
   and a table row.
-- test_install_links_sdr: rename SKILL.md, or change install.sh so that it links no skills/sdr."""
+- test_install_links_sdr: rename SKILL.md, or change install.sh so that it links no skills/sdr.
+- test_page_points_at_page_md_by_title: drop a title of PAGE_MD_TITLES from the section Page or its double quotes,
+  rename that section of explain/rungs/page.md, or point at a section by its number (`section 3`).
+- test_page_section_plan: drop a section id of PAGE_IDS or a text of PAGE_PLAN from the section Page.
+- test_page_commands: change a word of MATRIX, MERMAID or VERIFY, or take it out of its fenced block.
+- test_page_and_review_rules: reword or drop MATRIX_COMMENT from the section Page, or STALE_RULE or `## Author` from
+  the section Review.
+- test_handoff_list: add, drop or reorder an item of the handoff list, split it in two lists, or drop
+  `open index.html` or `Nothing else.` from the section Done.
+
+ReadmeCase ties the sdr entry of README.md to the skill: the two command forms of the section Contract, the count of
+skills, the Requirements row (README_ROW), the install sentence, the line of the Layout block and the line of the
+Tests block (README_TEST). The README lines that skills/explain/tests/test_rung_drift.py pins are its own tests.
+
+- test_readme_names_sdr: drop either command form of `/sdr` from README.md, or leave `Two skills` in it.
+- test_readme_requirements_row: reword, drop or repeat the Requirements row of `sdr`.
+- test_readme_installs_and_tests_sdr: drop `skills/sdr` from the install sentence, the `skills/sdr/` line from the
+  Layout block, or README_TEST from the Tests block."""
 
 import os
 import re
@@ -142,6 +169,8 @@ import sdr  # noqa: E402
 
 PROMPTS = SDR / "prompts"
 SKILL_MD = SDR / "SKILL.md"
+PAGE_MD = REPO / "skills" / "explain" / "rungs" / "page.md"  # read only: the page rung that the page follows
+README_MD = REPO / "README.md"
 WARRANTS = SDR / "tests" / "fixtures" / "warrants"
 SERVICES = WARRANTS / "services"  # the root of the cites of the record and of the live run
 RECORD_DIR = WARRANTS / "record"  # holds sdr.md, outside the root
@@ -206,7 +235,7 @@ FRONTMATTER = (
     "---",
 )
 SKILL_TITLES = ("Contract", "Output directory", "Stages", "The record", "Subagents",
-                "Intake", "Explore", "Frame", "Options", "Consilium", "Decide")
+                "Intake", "Explore", "Frame", "Options", "Consilium", "Decide", "Page", "Review", "Done")
 STAGES_HEADER = "| Stage | Who | What | Ends with |"
 FILL_HEADER = "| Name | Prompts | Fill with |"
 ROLE_HEADER = "| Role | Brief |"
@@ -241,6 +270,21 @@ SKILL_TEXTS = (
     "A filled prompt holds no name in braces.", *RECORD_RULES, RESUME_SENTENCE, ID_SUFFIX, RESUME_STOP, ROOT_PARENT,
 )
 SDR_COMMAND = re.compile(r"sdr\.py (\S+)")
+PAGE_MD_TITLES = ("Fill the template", "Diagram patterns", "Provenance", "Write the prose", "Verify and export")
+PAGE_MD_TITLE = re.compile(r"^## \d+\. (.+?)\s*$", re.M)  # a section line of page.md: `## <n>. <title>`
+SECTION_NUMBER = re.compile(r"\bsection \d", re.I)
+PAGE_IDS = ("#why", "#requirements", "#compare", "#consilium", "#decision", "#terms", "opt-<x>")
+PAGE_PLAN = ('<meta name="explain-rung" content="page">', '<div class="sdr-matrix"></div>', "classDef gap",
+             "details.walk", "Fit by requirement", "To confirm", 'data-kind="topic"')
+MATRIX = "python3 <skill-dir>/scripts/sdr.py matrix <sdr-dir>"
+VERIFY = "<skill-dir>/../explain/scripts/verify.sh <sdr-dir>/index.html"
+MERMAID = "python3 <skill-dir>/../explain/scripts/mermaid_svg.py inline <sdr-dir>/index.html"
+MATRIX_COMMENT = 'Never quote `<div class="sdr-matrix">` in an HTML comment.'
+STALE_RULE = "After each change to `sdr.md`, run `sdr.py matrix` again, then `sdr.py check`."
+HANDOFF = ("choice", "`To confirm`", "`source: consilium <role>`", "`open`", "open question")  # spec 10, in order
+NUMBERED_ITEM = re.compile(r"(\d+)\. (.*)")
+README_ROW = "| `sdr` | the needs of `page`, and the web tools of your session for the web searchers |"
+README_TEST = "cd skills/sdr     && python3 -B -m unittest discover -s tests"
 INSTALL_BASH = "/bin/bash"  # the bash of macOS is 3.2; install.sh must run there too
 
 
@@ -316,6 +360,23 @@ def fenced_blocks(text: str) -> list[str]:
 def sdr_commands(text: str) -> set[str]:
     """The words after each `sdr.py ` of text, without the backticks and punctuation around them."""
     return {word.strip("`.,;:()") for word in SDR_COMMAND.findall(text)}
+
+
+def numbered_items(text: str) -> list[tuple[str, str]]:
+    """(number, text) of each item of the numbered lists of text. An item is a `<n>. ` line at column 0 and the
+    indented lines after it, joined with spaces; a blank line or a line at column 0 ends it."""
+    items: list[tuple[str, list[str]]] = []
+    open_item = False
+    for line in text.splitlines():
+        found = NUMBERED_ITEM.match(line)
+        if found:
+            items.append((found.group(1), [found.group(2)]))
+            open_item = True
+        elif open_item and line[:1].isspace() and line.strip():
+            items[-1][1].append(line.strip())
+        else:
+            open_item = False
+    return [(number, " ".join(parts)) for number, parts in items]
 
 
 def table_rows(text: str, header: str) -> list[tuple[str, ...]]:
@@ -523,7 +584,7 @@ class SkillCase(unittest.TestCase):
 
     def test_stage_sections_follow_the_stages(self):
         titles = headings(self.text)
-        self.assertEqual([title.lower() for title in titles[5:]], list(sdr.STAGES[: len(titles) - 5]))
+        self.assertEqual([title.lower() for title in titles[5:]], list(sdr.STAGES))
 
     def test_stages_table_lists_the_nine_stages(self):
         rows = table_rows(section(self.text, "Stages"), STAGES_HEADER)
@@ -568,6 +629,9 @@ class SkillCase(unittest.TestCase):
         self.assertTrue(found)
         self.assertLessEqual(found, sdr_commands(sdr.USAGE), found - sdr_commands(sdr.USAGE))
 
+    def test_skill_names_each_sdr_command(self):
+        self.assertEqual(sdr_commands(self.text), sdr_commands(sdr.USAGE))
+
     def test_skill_commands(self):
         commands = [line.strip() for body in fenced_blocks(self.text) for line in body.splitlines()]
         for command in (SKELETON, CHECK, CHECK_FACTS_AUTHOR):
@@ -600,6 +664,58 @@ class SkillCase(unittest.TestCase):
             link = Path(home) / ".claude" / "skills" / "sdr"
             self.assertTrue(link.is_symlink(), (link, run.stdout))
             self.assertEqual(link.resolve(), SDR)
+
+    def test_page_points_at_page_md_by_title(self):
+        page = squash(section(self.text, "Page"))
+        rung_titles = PAGE_MD_TITLE.findall(read(PAGE_MD))
+        for title in PAGE_MD_TITLES:
+            self.assertIn('"%s"' % title, page)
+            self.assertIn(title, rung_titles)
+        self.assertIsNone(SECTION_NUMBER.search(page), page)
+
+    def test_page_section_plan(self):
+        page = squash(section(self.text, "Page"))
+        for text in PAGE_IDS + PAGE_PLAN:
+            self.assertIn(text, page)
+
+    def test_page_commands(self):
+        commands = [line.strip() for body in fenced_blocks(self.text) for line in body.splitlines()]
+        for command in (MATRIX, MERMAID, VERIFY):
+            self.assertIn(command, commands)
+
+    def test_page_and_review_rules(self):
+        self.assertIn(MATRIX_COMMENT, squash(section(self.text, "Page")))
+        review = squash(section(self.text, "Review"))
+        self.assertIn(STALE_RULE, review)
+        self.assertIn("## Author", review)
+
+    def test_handoff_list(self):
+        done = section(self.text, "Done")
+        items = numbered_items(done)
+        self.assertEqual([number for number, _ in items], ["1", "2", "3", "4", "5"], items)
+        for (_, item), wanted in zip(items, HANDOFF):
+            self.assertIn(wanted, item)
+        self.assertIn("`open index.html`", squash(done))
+        self.assertIn("Nothing else.", squash(done))
+
+
+class ReadmeCase(unittest.TestCase):
+    def setUp(self):
+        self.text = read(README_MD)
+
+    def test_readme_names_sdr(self):
+        for text in ("/sdr <question> [<code-dir> ...]", "/sdr <sdr-dir>", "Three skills"):
+            self.assertIn(text, self.text)
+        self.assertNotIn("Two skills", self.text)
+
+    def test_readme_requirements_row(self):
+        self.assertEqual([line for line in self.text.splitlines() if line.startswith("| `sdr` |")], [README_ROW])
+
+    def test_readme_installs_and_tests_sdr(self):
+        self.assertIn("`skills/sdr`", self.text)
+        layout = [line for body in fenced_blocks(section(self.text, "Layout")) for line in body.splitlines()]
+        self.assertTrue(any(line.startswith("skills/sdr/") for line in layout), layout)
+        self.assertIn(README_TEST, self.text.splitlines())
 
 
 if __name__ == "__main__":
