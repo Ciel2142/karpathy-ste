@@ -526,6 +526,9 @@ def _section_lines(doc: MapDoc) -> list[str]:
         highest = max(highest, index)
         lines.extend("section: Flows heading %s has no flow id" % flow.heading for flow in section.flows
                      if flow.ident is None)
+        idents = [flow.ident for flow in section.flows if flow.ident is not None]
+        lines.extend("section: Flows id %s twice" % ident
+                     for ident in dict.fromkeys(idents) if idents.count(ident) > 1)
     return lines
 
 

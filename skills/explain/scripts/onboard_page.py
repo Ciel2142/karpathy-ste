@@ -29,7 +29,11 @@ def diagram_files(doc: onboard.MapDoc) -> dict[str, str]:
         diagram = scope.diagrams[0]
         if diagram.notation != onboard.PLANTUML:
             raise onboard.OnboardError("diagrams: %s: not plantuml" % where, 1)
-        ident = where if where in ("architecture", "state") else "flow-" + where
+        ident = where
+        if isinstance(scope, onboard.Flow):
+            ident = "flow-" + where
+            if ident in files:
+                raise onboard.OnboardError("diagrams: flow %s twice" % where, 1)
         files[ident] = "@startuml\n" + diagram.text + "\n@enduml\n"
     return files
 

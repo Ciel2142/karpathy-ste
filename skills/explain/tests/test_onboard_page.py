@@ -71,6 +71,25 @@ class DiagramsCase(unittest.TestCase):
         self.assertEqual(out, "diagrams: stale old.puml\ndiagrams: ok 4 files\n")
         self.assertTrue(old.exists())
 
+    def _map_with(self, old, new):
+        path = os.path.join(self.folder, "map.md")
+        Path(path).write_text(read("map-puml.md").replace(old, new, 1), encoding="utf-8")
+        return path
+
+    def test_flow_named_state_keeps_both_files(self):
+        path = self._map_with("### cancel: How", "### state: How")
+        code, out, _ = run(["diagrams", path, "--out", self.out])
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(os.listdir(self.out)),
+                         ["architecture.puml", "flow-order.puml", "flow-state.puml", "state.puml"])
+        self.assertTrue(out.endswith("diagrams: ok 4 files\n"), out)
+
+    def test_repeated_flow_id_is_refused(self):
+        path = self._map_with("### cancel: How", "### order: How")
+        code, out, _ = run(["diagrams", path, "--out", self.out])
+        self.assertEqual((code, out), (1, "diagrams: flow order twice\n"))
+        self.assertFalse(os.path.exists(self.out))
+
     def test_mermaid_fence_is_refused(self):
         code, out, _ = run(["diagrams", str(FIXTURES / "map.md"), "--out", self.out])
         self.assertEqual(code, 1)

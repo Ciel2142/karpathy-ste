@@ -647,6 +647,11 @@ class CheckCase(unittest.TestCase):
             edits=[("### cancel: How is an order cancelled?", "### Cancel flow")],
         )
 
+    def test_repeated_flow_id_is_reported(self):
+        _, out, _ = check(edits=[("### cancel: How is an order cancelled?", "### order: How is an order cancelled?")])
+        self.assertIn("section: Flows id order twice", failures(out))
+        self.assertEqual(failures(out).count("section: Flows id order twice"), 1)
+
     def test_diagram_none(self):
         nodes = ("api", "repo", "listener", "payments", "kafka")
         self.only(
