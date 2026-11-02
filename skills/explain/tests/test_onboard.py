@@ -545,7 +545,7 @@ class InventoryCase(unittest.TestCase):
 MAP = read("map.md")
 
 
-def check(text=MAP, edits=(), inventory=None):
+def check(text=MAP, edits=(), inventory=None, notation=None):
     """Run check on `text` after each (old, new) edit, applied once; return the exit code, stdout and stderr."""
     for old, new in edits:
         text = replace_once(text, old, new)
@@ -555,6 +555,8 @@ def check(text=MAP, edits=(), inventory=None):
         argv = ["check", path, "--root", str(TREE)]
         if inventory is not None:
             argv += ["--inventory", str(inventory)]
+        if notation is not None:
+            argv += ["--notation", notation]
         return run(argv)
 
 
@@ -1238,6 +1240,36 @@ class PlantumlFaultCase(unittest.TestCase):
                                              "node architecture/cache: not declared",
                                              "node architecture/cache: no fact line",
                                              "fact architecture/gone: not a node"])
+
+
+class NotationCase(unittest.TestCase):
+    def test_mermaid_map_passes_as_mermaid(self):
+        self.assertEqual(check(MAP, notation="mermaid"), OK)
+
+    def test_mermaid_map_fails_as_plantuml(self):
+        code, out, err = check(MAP, notation="plantuml")
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(failures(out), ["diagram architecture: not plantuml", "diagram order: not plantuml",
+                                         "diagram cancel: not plantuml", "diagram state: not plantuml"])
+        self.assertEqual(out.splitlines()[-1], "onboard: 4 failures")
+
+    def test_plantuml_map_passes_as_plantuml(self):
+        self.assertEqual(check(MAP_PUML, notation="plantuml"), OK)
+
+    def test_plantuml_map_fails_as_mermaid(self):
+        code, out, err = check(MAP_PUML, notation="mermaid")
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(failures(out)[0], "diagram architecture: not mermaid")
+        self.assertTrue(all(line.startswith("diagram ") and line.endswith(": not mermaid") for line in failures(out)))
+
+    def test_without_the_flag_both_pass(self):
+        self.assertEqual((check(MAP), check(MAP_PUML)), (OK, OK))
+
+    def test_unknown_notation_is_the_usage(self):
+        code, out, err = check(MAP, notation="dot")
+        self.assertEqual((code, out), (2, ""))
+        self.assertTrue(err.startswith("usage:"), err)
+        self.assertIn("--notation plantuml|mermaid", err)
 
 
 class CliCase(unittest.TestCase):

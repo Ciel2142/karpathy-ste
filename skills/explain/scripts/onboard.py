@@ -2,7 +2,7 @@
 """Onboarding map tool for `explain`: lists the entry points of a service and checks a map.
 
 Usage: onboard.py inventory <source-dir> --root <root> [--out <file>]
-       onboard.py check <map.md> --root <root> [--inventory <file>]
+       onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]
 inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point and per event
 type, then `inventory: <n> entry points, <m> event types`. check prints one failure per line, then
 `onboard: ok` or `onboard: <n> failures`.
@@ -21,7 +21,7 @@ import puml
 
 USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
-    "       onboard.py check <map.md> --root <root> [--inventory <file>]\n"
+    "       onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]\n"
 )
 TITLES = (
     "Shape",
@@ -578,11 +578,15 @@ def _node_lines(where: str, diagram: Diagram, facts: list[Fact], flow_ids: set[s
     return lines
 
 
-def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str], flow_ids: set[str]) -> list[str]:
-    """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind."""
+def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str], flow_ids: set[str],
+                 notation: str | None = None) -> list[str]:
+    """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind or,
+    with `notation`, the wrong notation (then the one line `diagram <where>: not <notation>`)."""
     if not scope.diagrams:
         return ["diagram %s: none" % where] + ["fact %s/%s: not a node" % (where, _key(f)) for f in scope.facts]
     diagram = scope.diagrams[0]
+    if notation is not None and diagram.notation != notation:
+        return ["diagram %s: not %s" % (where, notation)]
     lines = []
     if len(scope.diagrams) > 1:
         lines.append("diagram %s: %d blocks, more than 1" % (where, len(scope.diagrams)))
@@ -822,15 +826,16 @@ def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
     return lines
 
 
-def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
+def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None, notation: str | None = None) -> list[str]:
     """The failure lines of a map, in order: sections, each place (architecture, the flows, state), entry
     lines, event lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths,
-    cites, then the inventory lines that no entry line cites."""
+    cites, then the inventory lines that no entry line cites. `notation` makes every place whose first
+    diagram is of the other notation one `not <notation>` line."""
     lines = _section_lines(doc)
     flows = doc.section("Flows")
     flow_ids = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
     for where, scope, needs in _places(doc):
-        lines.extend(_place_lines(where, scope, needs, flow_ids))
+        lines.extend(_place_lines(where, scope, needs, flow_ids, notation=notation))
     lines.extend(_entry_lines(doc) + _event_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
     lines.extend(_convention_lines(doc) + _where_lines(doc, root) + _cite_lines(doc, root))
     return lines + _unlisted_lines(doc, inventory or [])
@@ -845,11 +850,13 @@ def _inventory_lines(path: str) -> list[str]:
 
 
 def cmd_check(argv: list[str]) -> int:
-    args = _Parser("map", "--inventory").parse_args(argv)
+    parser = _Parser("map", "--inventory")
+    parser.add_argument("--notation", choices=NOTATIONS)
+    args = parser.parse_args(argv)
     if not os.path.isdir(args.root):
         raise OnboardError("onboard: cannot read root %s" % args.root, 2)
     inventory_lines = None if args.inventory is None else _inventory_lines(args.inventory)
-    failures = check_map(read_map(args.map), args.root, inventory_lines)
+    failures = check_map(read_map(args.map), args.root, inventory_lines, args.notation)
     summary = "onboard: %d failures\n" % len(failures) if failures else "onboard: ok\n"
     sys.stdout.write("".join(line + "\n" for line in failures) + summary)
     return 1 if failures else 0
