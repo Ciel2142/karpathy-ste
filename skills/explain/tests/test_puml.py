@@ -103,6 +103,110 @@ class ActivityCase(unittest.TestCase):
     def test_kind_is_none_without_start(self):
         self.assertIsNone(puml.kind(":a;\n:b;\n"))
 
+    def test_semicolon_in_a_comment_does_not_close_an_action(self):
+        parsed = puml.parse("start\n:a long\n' stray; comment\nlabel;\nstop\n")
+        self.assertEqual(parsed.faults, ["action over lines 2-4"])
+
+    def test_note_block_body_is_skipped(self):
+        parsed = puml.parse("start\nnote right\nskinparam x\n:inside;\nend note\n:a;\nstop\n")
+        self.assertEqual((parsed.nodes, parsed.faults), (["a"], []))
+
+    def test_single_line_note_does_not_open_a_block(self):
+        parsed = puml.parse("start\nnote right: remark\n:a;\nstop\n")
+        self.assertEqual((parsed.nodes, parsed.faults), (["a"], []))
+
+
+class ComponentCase(unittest.TestCase):
+    def setUp(self):
+        self.block = fixture("parser-component.puml")
+
+    def test_kind_is_component(self):
+        self.assertEqual(puml.kind(self.block), "component")
+
+    def test_nodes_are_aliases_then_edge_ids(self):
+        parsed = puml.parse(self.block)
+        self.assertEqual(parsed.nodes, [
+            "api", "events", "db", "pay", "host", "admin", "port", "user", "worker"])
+        self.assertEqual((parsed.faults, parsed.node_faults, parsed.hops), ([], [], []))
+
+    def test_bracket_endpoint_resolves_to_its_alias(self):
+        parsed = puml.parse('[Order API] as api\ndatabase "Orders" as db\n[Order API] --> db\n')
+        self.assertEqual(parsed.nodes, ["api", "db"])
+        self.assertEqual(parsed.node_faults, [])
+
+    def test_undeclared_bracket_endpoint_is_a_fault(self):
+        parsed = puml.parse('database "Orders" as db\n[Ghost] --> db\n')
+        self.assertEqual(parsed.nodes, ["db", "Ghost"])
+        self.assertEqual(parsed.node_faults, [("Ghost", "not declared")])
+
+    def test_edge_label_with_an_arrow_adds_no_node(self):
+        parsed = puml.parse('component "A" as a\ndatabase "B" as b\na --> b : "write -> row"\n')
+        self.assertEqual(parsed.nodes, ["a", "b"])
+
+    def test_reversed_arrow_reads_both_sides(self):
+        parsed = puml.parse('component "A" as a\ncomponent "B" as b\nb <-- a\n')
+        self.assertEqual(parsed.nodes, ["a", "b"])
+        self.assertEqual(parsed.node_faults, [])
+
+    def test_undeclared_edge_id_is_a_fault(self):
+        parsed = puml.parse('component "A" as a\na --> cache\n')
+        self.assertEqual(parsed.nodes, ["a", "cache"])
+        self.assertEqual(parsed.node_faults, [("cache", "not declared")])
+
+    def test_hyphen_alias_is_a_bad_id(self):
+        parsed = puml.parse('database "Orders" as my-db\n')
+        self.assertEqual(parsed.nodes, ["my-db"])
+        self.assertEqual(parsed.node_faults, [("my-db", "bad id")])
+
+    def test_package_lines_are_not_nodes(self):
+        parsed = puml.parse('package "Order service" {\ncomponent "A" as a\n}\n')
+        self.assertEqual(parsed.nodes, ["a"])
+
+    def test_style_line_is_a_fault_and_action_over_lines_is_not(self):
+        parsed = puml.parse('skinparam monochrome true\ncomponent "A" as a\nnote right of a\nline\nend note\n')
+        self.assertEqual((parsed.faults, parsed.nodes), (["style line 1"], ["a"]))
+
+
+class StateCase(unittest.TestCase):
+    def setUp(self):
+        self.block = fixture("parser-state.puml")
+
+    def test_kind_is_state(self):
+        self.assertEqual(puml.kind(self.block), "state")
+
+    def test_nodes_are_declared_and_arrow_ids_without_star(self):
+        parsed = puml.parse(self.block)
+        self.assertEqual(parsed.nodes, [
+            "Pending", "Paid", "Cancelled", "Held", "Shipped", "Packed", "InTransit"])
+        self.assertEqual((parsed.faults, parsed.node_faults, parsed.hops), ([], [], []))
+
+    def test_transition_label_is_cut_before_the_arrow(self):
+        parsed = puml.parse("A --> B : goes -> C\nstate A\n")
+        self.assertEqual(parsed.nodes, ["A", "B"])
+
+    def test_bad_state_id_is_a_fault(self):
+        parsed = puml.parse("[*] --> new-order\n")
+        self.assertEqual(parsed.nodes, ["new-order"])
+        self.assertEqual(parsed.node_faults, [("new-order", "bad id")])
+
+    def test_note_lines_are_ignored(self):
+        parsed = puml.parse("[*] --> A\nnote right of A : B --> C\nnote left of A\nD --> E\nend note\n")
+        self.assertEqual(parsed.nodes, ["A"])
+
+
+class KindCase(unittest.TestCase):
+    def test_kind_order_is_activity_state_component(self):
+        self.assertEqual(puml.kind("start\n[*] --> A\nstop\n"), "activity")
+        self.assertEqual(puml.kind("state X\na --> b\n"), "state")
+        self.assertEqual(puml.kind("a --> b\n"), "component")
+
+    def test_plain_text_has_no_kind(self):
+        self.assertIsNone(puml.kind("some words\nand more words\n"))
+
+    def test_kind_none_keeps_only_style_faults(self):
+        parsed = puml.parse("skinparam x\n:a;\n")
+        self.assertEqual((parsed.kind, parsed.nodes, parsed.faults), (None, [], ["style line 1"]))
+
 
 if __name__ == "__main__":
     unittest.main()
