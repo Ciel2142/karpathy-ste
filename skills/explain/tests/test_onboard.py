@@ -1193,6 +1193,49 @@ class PlantumlMapCase(unittest.TestCase):
         self.assertIn("see order", onboard.flow_nodes(onboard.parse_map(MAP_PUML))["cancel"])
 
 
+class PlantumlFaultCase(unittest.TestCase):
+    def lines(self, edits):
+        """The failure lines of MAP_PUML after the `edits`."""
+        code, out, err = check(MAP_PUML, edits)
+        self.assertEqual((code, err), (1, ""))
+        return failures(out)
+
+    def test_action_over_lines(self):
+        lines = self.lines([(":save the order row;", ":save the\norder row;")])
+        self.assertIn("diagram order: action over lines 12-13", lines)
+
+    def test_style_line(self):
+        cloud = 'cloud "Payments API" as payments\n'
+        self.assertEqual(self.lines([(cloud, cloud + "skinparam monochrome true\n")]),
+                         ["diagram architecture: style line 7"])
+
+    def test_see_of_an_unknown_flow(self):
+        edits = [(":see order;", ":see refund;"), ("`see order`:", "`see refund`:")]
+        self.assertEqual(self.lines(edits), ["node cancel/see refund: flow refund not in Flows"])
+
+    def test_undeclared_component_on_an_edge(self):
+        lines = self.lines([("api --> kafka\n", "api --> kafka\napi --> cache\n")])
+        self.assertEqual(lines, ["node architecture/cache: not declared", "node architecture/cache: no fact line"])
+
+    def test_hyphen_component_alias_is_a_bad_id(self):
+        listener = '  component "cancel listener" as listener\n'
+        lines = self.lines([(listener, listener + '  component "my db" as my-db\n')])
+        self.assertEqual(lines, ["node architecture/my-db: bad id", "node architecture/my-db: no fact line"])
+
+    def test_bad_state_id(self):
+        lines = self.lines([("NEW --> PAID\n", "NEW --> PAID\nNEW --> new-order\n")])
+        self.assertEqual(lines, ["node state/new-order: bad id", "node state/new-order: no fact line"])
+
+    def test_fault_order_is_diagram_then_node_then_fact(self):
+        edits = [("api --> kafka\n", "api --> kafka\napi --> cache\nskinparam monochrome true\n"),
+                 ("- api: the order controller", "- gone: the order controller")]
+        self.assertEqual(self.lines(edits), ["diagram architecture: style line 13",
+                                             "node architecture/api: no fact line",
+                                             "node architecture/cache: not declared",
+                                             "node architecture/cache: no fact line",
+                                             "fact architecture/gone: not a node"])
+
+
 class CliCase(unittest.TestCase):
     def test_usage_without_a_command_exits_2(self):
         code, _, err = run([])

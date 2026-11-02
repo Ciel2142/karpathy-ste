@@ -557,15 +557,19 @@ def _key(fact: Fact) -> str:
     return (fact.fact.split() or [""])[0]
 
 
-def _node_lines(where: str, diagram: Diagram, facts: list[Fact]) -> list[str]:
-    """The `node` lines in diagram order, then the `fact` lines in bullet order."""
+def _node_lines(where: str, diagram: Diagram, facts: list[Fact], flow_ids: set[str]) -> list[str]:
+    """The `diagram` lines of the parser faults, the `node` lines in diagram order (a node's parser faults, then
+    its missing fact line), the `see` hops into no flow, then the `fact` lines in bullet order."""
     keys = [_key(fact) for fact in facts]
-    lines = []
+    lines = ["diagram %s: %s" % (where, fault) for fault in diagram.faults]
     for node in diagram.nodes:
         if diagram.kind == FLOWCHART and not ID.fullmatch(node):
             lines.append("node %s/%s: bad id" % (where, node))
+        lines.extend("node %s/%s: %s" % (where, name, fault) for name, fault in diagram.node_faults if name == node)
         if node not in keys:
             lines.append("node %s/%s: no fact line" % (where, node))
+    lines.extend("node %s/see %s: flow %s not in Flows" % (where, hop, hop) for hop in diagram.hops
+                 if hop not in flow_ids)
     for index, key in enumerate(keys):
         if key not in diagram.nodes:
             lines.append("fact %s/%s: not a node" % (where, key))
@@ -574,7 +578,7 @@ def _node_lines(where: str, diagram: Diagram, facts: list[Fact]) -> list[str]:
     return lines
 
 
-def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str]) -> list[str]:
+def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str], flow_ids: set[str]) -> list[str]:
     """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind."""
     if not scope.diagrams:
         return ["diagram %s: none" % where] + ["fact %s/%s: not a node" % (where, _key(f)) for f in scope.facts]
@@ -588,7 +592,7 @@ def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str]) -> li
         return lines + ["diagram %s: %s" % (where, none if diagram.kind is None else "not " + needed)]
     if diagram.kind in (FLOWCHART, "activity") and len(diagram.nodes) > MAX_NODES:
         lines.append("diagram %s: %d nodes, more than %d" % (where, len(diagram.nodes), MAX_NODES))
-    return lines + _node_lines(where, diagram, scope.facts)
+    return lines + _node_lines(where, diagram, scope.facts, flow_ids)
 
 
 def _facts(doc: MapDoc, title: str) -> list[Fact]:
@@ -823,8 +827,10 @@ def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> lis
     lines, event lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths,
     cites, then the inventory lines that no entry line cites."""
     lines = _section_lines(doc)
+    flows = doc.section("Flows")
+    flow_ids = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
     for where, scope, needs in _places(doc):
-        lines.extend(_place_lines(where, scope, needs))
+        lines.extend(_place_lines(where, scope, needs, flow_ids))
     lines.extend(_entry_lines(doc) + _event_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
     lines.extend(_convention_lines(doc) + _where_lines(doc, root) + _cite_lines(doc, root))
     return lines + _unlisted_lines(doc, inventory or [])
