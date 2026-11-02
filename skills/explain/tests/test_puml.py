@@ -222,6 +222,20 @@ class StateCase(unittest.TestCase):
         parsed = puml.parse('state "Waiting: for pay" as W\n[*] --> W\n')
         self.assertEqual((parsed.nodes, parsed.node_faults), (["W"], []))
 
+    def test_every_state_declaration_spelling_yields_only_its_id(self):
+        for declaration in (
+            "state A", "state A {", "state A{", "state A: desc",
+            'state "Name" as A', 'state "Name" as A: desc', 'state "Name" as A {',
+            'state "Name: with colon" as A', 'state "Name: with colon" as A: desc',
+        ):
+            with self.subTest(declaration=declaration):
+                parsed = puml.parse(f"{declaration}\n[*] --> A\n")
+                self.assertEqual((parsed.nodes, parsed.node_faults), (["A"], []))
+
+    def test_state_without_an_alias_yields_no_node(self):
+        parsed = puml.parse('state "x"\n[*] --> A\n')
+        self.assertEqual((parsed.nodes, parsed.node_faults), (["A"], []))
+
     def test_state_description_after_a_colon_is_cut(self):
         parsed = puml.parse("state A: waits for pay\n[*] --> A\n")
         self.assertEqual((parsed.nodes, parsed.node_faults), (["A"], []))
