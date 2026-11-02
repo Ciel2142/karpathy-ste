@@ -6,7 +6,12 @@ module holds the activity (spec 7.2), component (7.3) and state (7.4) forms; the
 line that is none of the forms and none of the forbidden lines is ignored. Standard library only.
 """
 
+import glob
+import os
 import re
+import shutil
+import subprocess
+import sys
 from typing import NamedTuple
 
 KINDS = ("activity", "component", "state")
@@ -28,6 +33,8 @@ ARROW = re.compile(rf"<{_ARROW_BODY}>?|{_ARROW_BODY}>")  # `->`, `-->`, `..>`, `
 NOTE_OPEN = re.compile(r"(?:floating\s+)?note\s+(?:left|right|top|bottom|over)\b[^:]*$")
 NOTE_CLOSE = re.compile(r"end\s*note$")
 STAR = "[*]"
+STYLE = ("-Sdpi=144", "-SbackgroundColor=white", "-Sshadowing=false", "-SdefaultFontSize=14")
+ERROR_LINE = re.compile(r"Error line (\d+) in file: (.+)")
 
 
 class Parsed(NamedTuple):
@@ -211,5 +218,58 @@ def _parse_state(statements: list[tuple[int, str]]) -> Parsed:
             for end in edge:
                 add_state(end)
     return Parsed("state", nodes, faults, node_faults, [])
+
+
+def failed_lines(stderr: str) -> list[tuple[str, int]]:
+    """(diagram id, fence line) for each `Error line` of PlantUML's stderr, in stderr order. PlantUML
+    counts the `@startuml` wrapper as line 1, so the fence line is one less."""
+    return [(_diagram_id(match.group(2)), int(match.group(1)) - 1) for match in ERROR_LINE.finditer(stderr)]
+
+
+def _diagram_id(path: str) -> str:
+    return os.path.splitext(os.path.basename(path.strip()))[0]
+
+
+def render(directory: str) -> tuple[list[str], int]:
+    """Draw every `.puml` of `directory` to a `.png` beside it in one PlantUML run; return the output
+    lines and the exit code. The PNG of a diagram PlantUML rejected is removed (it is an error picture)."""
+    plantuml = shutil.which("plantuml")
+    if plantuml is None:
+        return ["plantuml: FAIL plantuml not found"], 2
+    sources = sorted(glob.glob(os.path.join(directory, "*.puml")))
+    if not sources:
+        return ["plantuml: ok 0 diagrams"], 0
+    target = os.path.abspath(directory)
+    run = subprocess.run([plantuml, "-tpng", "-charset", "UTF-8", "-o", target, *STYLE, *sources],
+                         capture_output=True, text=True)
+    failures = failed_lines(run.stderr)
+    lines = [f"plantuml: FAIL {name} line {number}" for name, number in failures]
+    failed = {name for name, _ in failures}
+    for name in failed:
+        png = os.path.join(target, f"{name}.png")
+        if os.path.exists(png):
+            os.remove(png)
+    if run.returncode != 0 and not failures:
+        lines.append(f"plantuml: FAIL exit {run.returncode}")
+    for source in sources:
+        name = _diagram_id(source)
+        if name not in failed and not os.path.exists(os.path.join(target, f"{name}.png")):
+            lines.append(f"plantuml: FAIL {name} no png")
+    if not lines:
+        lines.append(f"plantuml: ok {len(sources)} diagrams")
+    return lines, 1 if lines[0].startswith("plantuml: FAIL") else 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[0] != "render":
+        print("usage: puml.py render <diagrams-dir>", file=sys.stderr)
+        return 2
+    lines, code = render(argv[1])
+    print("\n".join(lines))
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
 
 

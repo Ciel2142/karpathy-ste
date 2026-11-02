@@ -1,14 +1,22 @@
 """Tests for puml.py: kind detection and the PlantUML parsers (spec sections 7 and 8)."""
 
+import contextlib
+import io
+import os
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import puml  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "onboard"
+HAVE_PLANTUML = shutil.which("plantuml") is not None
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def fixture(name: str) -> str:
@@ -262,6 +270,83 @@ class KindCase(unittest.TestCase):
     def test_kind_none_keeps_only_style_faults(self):
         parsed = puml.parse("skinparam x\n:a;\n")
         self.assertEqual((parsed.kind, parsed.nodes, parsed.faults), (None, [], ["style line 1"]))
+
+
+class FailedLinesCase(unittest.TestCase):
+    def test_error_line_maps_to_the_fence_line(self):
+        stderr = "Error line 4 in file: /x/flow-order.puml\nSome diagram description contains errors\n"
+        self.assertEqual(puml.failed_lines(stderr), [("flow-order", 3)])
+
+    def test_no_error_lines(self):
+        self.assertEqual(puml.failed_lines(""), [])
+
+
+def write_wrapped_fixtures(directory: str) -> None:
+    for name in ("parser-activity", "parser-component", "parser-state"):
+        body = fixture(f"{name}.puml")
+        Path(directory, f"{name}.puml").write_text(f"@startuml\n{body}\n@enduml\n", encoding="utf-8")
+
+
+class RenderCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = self.tmp.name
+
+    def test_missing_plantuml_is_exit_2(self):
+        with mock.patch("puml.shutil.which", return_value=None):
+            self.assertEqual(puml.render(self.dir), (["plantuml: FAIL plantuml not found"], 2))
+
+    def test_cli_usage(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = puml.main([])
+        self.assertEqual(code, 2)
+        self.assertIn("usage: puml.py render <diagrams-dir>", stderr.getvalue())
+
+    @unittest.skipUnless(HAVE_PLANTUML, "plantuml missing")
+    def test_empty_directory_is_ok_0(self):
+        self.assertEqual(puml.render(self.dir), (["plantuml: ok 0 diagrams"], 0))
+
+    @unittest.skipUnless(HAVE_PLANTUML, "plantuml missing")
+    def test_renders_the_three_parser_fixtures(self):
+        write_wrapped_fixtures(self.dir)
+        self.assertEqual(puml.render(self.dir), (["plantuml: ok 3 diagrams"], 0))
+        for name in ("parser-activity", "parser-component", "parser-state"):
+            png = Path(self.dir, f"{name}.png").read_bytes()
+            self.assertTrue(png.startswith(PNG_SIGNATURE), name)
+
+    @unittest.skipUnless(HAVE_PLANTUML, "plantuml missing")
+    def test_syntax_error_removes_its_png(self):
+        Path(self.dir, "broken.puml").write_text("@startuml\nstart\n:unclosed\n@enduml", encoding="utf-8")
+        Path(self.dir, "good.puml").write_text("@startuml\nstart\n:fine;\nstop\n@enduml\n", encoding="utf-8")
+        lines, code = puml.render(self.dir)
+        self.assertEqual(lines[0], "plantuml: FAIL broken line 2")
+        self.assertFalse(Path(self.dir, "broken.png").exists())
+        self.assertTrue(Path(self.dir, "good.png").read_bytes().startswith(PNG_SIGNATURE))
+        self.assertEqual(code, 1)
+        self.assertFalse([line for line in lines if line.startswith("plantuml: ok")])
+
+    @unittest.skipUnless(HAVE_PLANTUML, "plantuml missing")
+    def test_relative_directory_writes_beside_the_sources(self):
+        write_wrapped_fixtures(self.dir)
+        parent, name = os.path.split(os.path.realpath(self.dir))
+        previous = os.getcwd()
+        os.chdir(parent)
+        try:
+            result = puml.render(name)
+        finally:
+            os.chdir(previous)
+        self.assertEqual(result, (["plantuml: ok 3 diagrams"], 0))
+        self.assertTrue(Path(self.dir, "parser-state.png").read_bytes().startswith(PNG_SIGNATURE))
+
+    @unittest.skipUnless(HAVE_PLANTUML, "plantuml missing")
+    def test_cli_returns_the_render_code(self):
+        Path(self.dir, "good.puml").write_text("@startuml\nstart\n:fine;\nstop\n@enduml\n", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = puml.main(["render", self.dir])
+        self.assertEqual(code, 0)
+        self.assertIn("plantuml: ok 1 diagrams", out.getvalue())
 
 
 if __name__ == "__main__":
