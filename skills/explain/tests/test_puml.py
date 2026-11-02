@@ -95,6 +95,11 @@ class ActivityCase(unittest.TestCase):
         self.assertEqual(parsed.faults, ["style line 1", "style line 5"])
         self.assertEqual(parsed.nodes, ["a"])
 
+    def test_named_startuml_wrapper_is_still_activity(self):
+        parsed = puml.parse("@startuml shop\nstart\n:a;\nstop\n@enduml\n")
+        self.assertEqual((parsed.kind, parsed.nodes), ("activity", ["a"]))
+        self.assertEqual(parsed.faults, ["style line 1", "style line 5"])
+
     def test_backtick_label_is_a_bad_id(self):
         parsed = puml.parse("start\n:a `b`;\nstop\n")
         self.assertEqual(parsed.node_faults, [("a `b`", "bad id")])
@@ -157,7 +162,8 @@ class ComponentCase(unittest.TestCase):
         self.assertEqual(parsed.node_faults, [])
 
     def test_every_arrow_form_reads_an_undeclared_endpoint(self):
-        for arrow in ("->", "-->", "..>", ".>", "-left->", "-right->", "-up->", "-down->", "-[hidden]->"):
+        for arrow in ("->", "-->", "..>", ".>", "-left->", "-right->", "-up->", "-down->", "-[hidden]->",
+                      "-l->", "-r->", "-u->", "-d->", "-le->"):
             with self.subTest(arrow=arrow):
                 parsed = puml.parse(f'component "A" as a\na {arrow} x\n')
                 self.assertEqual(parsed.nodes, ["a", "x"])
@@ -188,6 +194,12 @@ class ComponentCase(unittest.TestCase):
         parsed = puml.parse('package "Order service" {\ncomponent "A" as a\n}\n')
         self.assertEqual(parsed.nodes, ["a"])
 
+    def test_style_keyword_is_matched_as_a_whole_word(self):
+        parsed = puml.parse('component "A" as api\nsplitter --> api\n')
+        self.assertEqual(parsed.faults, [])
+        self.assertEqual(parsed.node_faults, [("splitter", "not declared")])
+        self.assertEqual(puml.parse('component "A" as api\nsplit\n').faults, ["style line 2"])
+
     def test_style_line_is_a_fault_and_action_over_lines_is_not(self):
         parsed = puml.parse('skinparam monochrome true\ncomponent "A" as a\nnote right of a\nline\nend note\n')
         self.assertEqual((parsed.faults, parsed.nodes), (["style line 1"], ["a"]))
@@ -211,7 +223,8 @@ class StateCase(unittest.TestCase):
         self.assertEqual(parsed.nodes, ["A", "B"])
 
     def test_every_arrow_form_reads_a_fresh_state(self):
-        for arrow in ("->", "-->", "..>", ".>", "-left->", "-right->", "-up->", "-down->", "-[hidden]->"):
+        for arrow in ("->", "-->", "..>", ".>", "-left->", "-right->", "-up->", "-down->", "-[hidden]->",
+                      "-l->", "-r->", "-u->", "-d->", "-le->"):
             with self.subTest(arrow=arrow):
                 parsed = puml.parse(f"[*] --> A\nA {arrow} N\n")
                 self.assertEqual((parsed.nodes, parsed.node_faults), (["A", "N"], []))
@@ -296,6 +309,14 @@ class RenderCase(unittest.TestCase):
     def test_missing_plantuml_is_exit_2(self):
         with mock.patch("puml.shutil.which", return_value=None):
             self.assertEqual(puml.render(self.dir), (["plantuml: FAIL plantuml not found"], 2))
+
+    def test_unreadable_directory_is_exit_2(self):
+        file_path = Path(self.dir, "a.txt")
+        file_path.write_text("x", encoding="utf-8")
+        with mock.patch("puml.shutil.which", return_value="/usr/bin/true"):
+            for path in ("/nonexistent/dir", str(file_path)):
+                with self.subTest(path=path):
+                    self.assertEqual(puml.render(path), ([f"plantuml: FAIL cannot read {path}"], 2))
 
     def test_cli_usage(self):
         stderr = io.StringIO()

@@ -3,7 +3,9 @@
 Reads the text of a `plantuml` fence, without the `@startuml` wrapper, and reports its kind, its nodes,
 its diagram faults and its node faults. Fence lines are numbered from 1, blank lines counted. This
 module holds the activity (spec 7.2), component (7.3) and state (7.4) forms; the parser is tolerant: a
-line that is none of the forms and none of the forbidden lines is ignored. Standard library only.
+line that is none of the forms and none of the forbidden lines is ignored. `render` draws every `.puml`
+of a directory to PNG with one PlantUML run (spec 8) and `failed_lines` reads PlantUML's stderr; both are
+the CLI `puml.py render <diagrams-dir>`. Standard library only.
 """
 
 import glob
@@ -15,7 +17,7 @@ import sys
 from typing import NamedTuple
 
 KINDS = ("activity", "component", "state")
-STYLE_LINES = ("skinparam", "!pragma", "!include", "<style>", "split", "backward:", "@startuml", "@enduml")
+STYLE_LINES = re.compile(r"(?:skinparam|!pragma|!include|<style>|split|@startuml|@enduml)(?:\s|$)|backward:")
 COLOUR_PREFIX = re.compile(r"#\w+:")
 PREAMBLE = re.compile(r"(?:title|hide|scale)\b|left to right direction|top to bottom direction")
 CONDITION = re.compile(r"(?:if|elseif|while|repeat\s+while|switch)\s*\(")
@@ -28,8 +30,8 @@ BRACKET_DECLARATION = re.compile(r"\[([^\]]+)\]\s+as\s+(\S+)")
 BRACKET_ENDPOINT = re.compile(r"\[([^\]]+)\]")
 STATE_ALIAS = re.compile(r'state\s+"[^"]*"\s+as\s+([^\s:{]+)')
 STATE_DECLARATION = re.compile(r'state\s+([^\s{"][^\s{]*)')
-_ARROW_BODY = r"[-.]+(?:(?:\[[^\]]*\]|left|right|up|down)[-.]*)?"
-ARROW = re.compile(rf"<{_ARROW_BODY}>?|{_ARROW_BODY}>")  # `->`, `-->`, `..>`, `-left->`, `-[hidden]->`, `<--`
+_ARROW_BODY = r"[-.]+(?:(?:\[[^\]]*\]|[a-z]+)[-.]*)?"
+ARROW = re.compile(rf"<{_ARROW_BODY}>?|{_ARROW_BODY}>")  # `->`, `-->`, `..>`, `-left->`, `-d->`, `-[hidden]->`, `<--`
 NOTE_OPEN = re.compile(r"(?:floating\s+)?note\s+(?:left|right|top|bottom|over)\b[^:]*$")
 NOTE_CLOSE = re.compile(r"end\s*note$")
 STAR = "[*]"
@@ -85,7 +87,7 @@ def kind(block: str) -> str | None:
     `state` when a line starts with `[*]` or `state `; else `component` when a line declares a part or
     draws an edge; else None."""
     texts = [text for _, text in _statements(block)]
-    first = next((text for text in texts if not PREAMBLE.match(text) and text != "@startuml"), None)
+    first = next((text for text in texts if not PREAMBLE.match(text) and not text.startswith("@startuml")), None)
     if first == "start":
         return "activity"
     if any(text.startswith((STAR, "state ")) for text in texts):
@@ -96,7 +98,7 @@ def kind(block: str) -> str | None:
 
 
 def _is_style(text: str) -> bool:
-    return text.startswith(STYLE_LINES) or COLOUR_PREFIX.match(text) is not None
+    return STYLE_LINES.match(text) is not None or COLOUR_PREFIX.match(text) is not None
 
 
 def _condition(text: str) -> str | None:
@@ -236,6 +238,8 @@ def render(directory: str) -> tuple[list[str], int]:
     plantuml = shutil.which("plantuml")
     if plantuml is None:
         return ["plantuml: FAIL plantuml not found"], 2
+    if not os.path.isdir(directory):
+        return [f"plantuml: FAIL cannot read {directory}"], 2
     sources = sorted(glob.glob(os.path.join(directory, "*.puml")))
     if not sources:
         return ["plantuml: ok 0 diagrams"], 0
