@@ -3,6 +3,7 @@
 
 Usage: onboard.py inventory <source-dir> --root <root> [--out <file>]
        onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]
+       onboard.py diagrams <map.md> --out <dir>      (see onboard_page.py)
 inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point and per event
 type, then `inventory: <n> entry points, <m> event types`. check prints one failure per line, then
 `onboard: ok` or `onboard: <n> failures`.
@@ -22,6 +23,7 @@ import puml
 USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
     "       onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]\n"
+    "       onboard.py diagrams <map.md> --out <dir>\n"
 )
 TITLES = (
     "Shape",
@@ -868,7 +870,10 @@ def _usage() -> int:
 
 
 def main(argv: list[str]) -> int:
-    command = {"inventory": cmd_inventory, "check": cmd_check}.get(argv[0]) if argv else None
+    import onboard_page  # here, not at the top: onboard_page imports this module
+
+    command = {"inventory": cmd_inventory, "check": cmd_check,
+               "diagrams": onboard_page.cmd_diagrams}.get(argv[0]) if argv else None
     if command is None:
         return _usage()
     try:
