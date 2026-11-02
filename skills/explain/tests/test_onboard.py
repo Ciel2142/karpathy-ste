@@ -605,6 +605,15 @@ def with_part(line, index, new):
     return " | ".join(parts[:index] + [new] + parts[index + 1 :])
 
 
+MAP_PUML = read("map-puml.md")
+
+
+def puml_block(anchor):
+    """The plantuml block of MAP_PUML, fences and the line break after them included, that first follows `anchor`."""
+    start = MAP_PUML.index("```plantuml\n", MAP_PUML.index(anchor))
+    return MAP_PUML[start : MAP_PUML.index("```\n", start + 3) + 4]
+
+
 class CheckCase(unittest.TestCase):
     def only(self, *expected, **kw):
         """check(**kw) prints exactly the `expected` failures, then their count, and exits 1."""
@@ -1123,6 +1132,65 @@ class CheckCase(unittest.TestCase):
         missing = self.tmp("none.txt")
         code, out, err = run(["check", str(FIXTURES / "map.md"), "--root", str(TREE), "--inventory", missing])
         self.assertEqual((code, out, err), (2, "", "onboard: cannot read inventory %s\n" % missing))
+
+
+class PlantumlMapCase(unittest.TestCase):
+    def only(self, text, *expected):
+        """check(text) prints exactly the `expected` failure lines."""
+        code, out, err = check(text)
+        self.assertEqual((failures(out), err), (list(expected), ""))
+        self.assertEqual(code, 1)
+
+    def test_fixture_map_passes_the_check(self):
+        self.assertEqual(check(MAP_PUML), OK)
+
+    def test_plantuml_fence_becomes_a_diagram(self):
+        diagram = onboard.parse_map(MAP_PUML).section("Architecture").diagrams[0]
+        self.assertEqual((diagram.notation, diagram.kind), ("plantuml", "component"))
+
+    def test_backtick_key_is_the_label(self):
+        self.assertEqual(onboard._key(onboard.Fact(1, 1, "`see order`: the row is saved", None)), "see order")
+
+    def test_russian_label_matches_its_fact(self):
+        edits = [(":charge the payment;", ":принять заказ;"), ("`charge the payment`:", "`принять заказ`:")]
+        self.assertEqual(check(MAP_PUML, edits), OK)
+
+    def test_activity_in_architecture_is_not_component(self):
+        self.only(replace_once(MAP_PUML, puml_block("## Architecture"), puml_block("### order:")),
+                  "diagram architecture: not component")
+
+    def test_component_in_a_flow_is_not_activity(self):
+        self.only(replace_once(MAP_PUML, puml_block("### order:"), puml_block("## Architecture")),
+                  "diagram order: not activity")
+
+    def test_state_place_needs_a_state_diagram(self):
+        self.only(replace_once(MAP_PUML, puml_block("## State"), puml_block("## Architecture")),
+                  "diagram state: not state")
+
+    def test_plain_text_fence_is_not_a_plantuml_kind(self):
+        self.only(replace_once(MAP_PUML, puml_block("## Architecture"), "```plantuml\nword\n```\n"),
+                  "diagram architecture: not a PlantUML kind")
+
+    def test_repeated_label_is_one_node_with_one_fact(self):
+        self.assertEqual(check(MAP_PUML), OK)
+        fact = next(line for line in MAP_PUML.splitlines() if line.startswith("- `400 over the limit`:"))
+        self.only(replace_once(MAP_PUML, fact + "\n", fact + "\n" + fact + "\n"),
+                  "fact order/400 over the limit: two lines")
+
+    def test_twenty_six_labels_are_too_many(self):
+        cite = " | src/main/java/shop/OrderController.java:15 | public ResponseEntity<String> create(@RequestBody Order order) {"
+        labels = ["step %d" % n for n in range(26)]
+        flow = "```plantuml\nstart\n" + "".join(":%s;\n" % label for label in labels) + "stop\n```\n"
+        facts = "".join("- `%s`: a step%s\n" % (label, cite) for label in labels)
+        start = MAP_PUML.index("```plantuml", MAP_PUML.index("### order:"))
+        end = MAP_PUML.index("\n### cancel:")
+        self.only(MAP_PUML[:start] + flow + facts + MAP_PUML[end:], "diagram order: 26 nodes, more than 25")
+
+    def test_mermaid_fixture_still_passes(self):
+        self.assertEqual(check(MAP), OK)
+
+    def test_flow_nodes_returns_labels(self):
+        self.assertIn("see order", onboard.flow_nodes(onboard.parse_map(MAP_PUML))["cancel"])
 
 
 class CliCase(unittest.TestCase):

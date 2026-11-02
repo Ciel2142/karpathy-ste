@@ -17,6 +17,7 @@ import sys
 from typing import NamedTuple, NoReturn
 
 import cite_check
+import puml
 
 USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
@@ -54,6 +55,9 @@ TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 MAX_NODES = 25
 FLOWCHART = "flowchart"
 STATE = "stateDiagram-v2"
+MERMAID = "mermaid"
+PLANTUML = "plantuml"
+NOTATIONS = (PLANTUML, MERMAID)
 HEADERS = {"flowchart TD": FLOWCHART, "flowchart LR": FLOWCHART, "stateDiagram-v2": STATE}
 FLOW_STATEMENTS = ("subgraph", "end", "direction", "classDef", "class", "style", "linkStyle", "click")
 STATE_STATEMENTS = ("direction", "note", "classDef", "class")
@@ -160,6 +164,10 @@ class Diagram(NamedTuple):
     kind: str | None
     nodes: list[str]
     text: str
+    notation: str = MERMAID
+    faults: tuple[str, ...] = ()  # puml.Parsed.faults; empty for Mermaid
+    node_faults: tuple[tuple[str, str], ...] = ()
+    hops: tuple[str, ...] = ()
 
 
 class Flow(NamedTuple):
@@ -216,11 +224,18 @@ def _flow(text: str, line: int) -> Flow:
 
 
 def _close_fence(fence: tuple, scope: Flow | Section | None) -> None:
-    """A closed ```mermaid block becomes a Diagram of its flow or section; other blocks are dropped."""
+    """A closed ```mermaid or ```plantuml block becomes a Diagram of its flow or section; other blocks are dropped."""
     line, info, body = fence
-    if info == "mermaid" and scope is not None:
-        block = "\n".join(body)
-        scope.diagrams.append(Diagram(line, mermaid_kind(block), mermaid_nodes(block), block))
+    if info not in NOTATIONS or scope is None:
+        return
+    block = "\n".join(body)
+    if info == PLANTUML:
+        parsed = puml.parse(block)
+        diagram = Diagram(line, parsed.kind, parsed.nodes, block, PLANTUML, tuple(parsed.faults),
+                          tuple(parsed.node_faults), tuple(parsed.hops))
+    else:
+        diagram = Diagram(line, mermaid_kind(block), mermaid_nodes(block), block)
+    scope.diagrams.append(diagram)
 
 
 def parse_map(text: str) -> MapDoc:
@@ -512,21 +527,30 @@ def _section_lines(doc: MapDoc) -> list[str]:
     return lines
 
 
-def _places(doc: MapDoc) -> list[tuple[str, Section | Flow, str]]:
-    """(where, scope, the diagram kind it needs) of each place to check, in output order; `none found` skips."""
+NEEDS = {"architecture": {MERMAID: FLOWCHART, PLANTUML: "component"},
+         "flow": {MERMAID: FLOWCHART, PLANTUML: "activity"},
+         "state": {MERMAID: STATE, PLANTUML: "state"}}
+
+
+def _places(doc: MapDoc) -> list[tuple[str, Section | Flow, dict[str, str]]]:
+    """(where, scope, the diagram kind it needs by notation) of each place to check, in output order; `none found`
+    skips."""
     architecture, flows, state = (doc.section(title) for title in ("Architecture", "Flows", "State"))
     places = []
     if architecture and not architecture.none_found:
-        places.append(("architecture", architecture, FLOWCHART))
+        places.append(("architecture", architecture, NEEDS["architecture"]))
     if flows and not flows.none_found:
-        places.extend((flow.ident, flow, FLOWCHART) for flow in flows.flows if flow.ident)
+        places.extend((flow.ident, flow, NEEDS["flow"]) for flow in flows.flows if flow.ident)
     if state and not state.none_found:
-        places.append(("state", state, STATE))
+        places.append(("state", state, NEEDS["state"]))
     return places
 
 
 def _key(fact: Fact) -> str:
-    """The node a fact names: the text before its first `:` when that is one token, else its first word."""
+    """The node a fact names: the text between its first two backticks when it starts with one, else the text
+    before its first `:` when that is one token, else its first word."""
+    if fact.fact.startswith("`"):
+        return fact.fact[1:].partition("`")[0]
     head, colon, _ = fact.fact.partition(":")
     if colon and TOKEN.fullmatch(head):
         return head
@@ -550,7 +574,7 @@ def _node_lines(where: str, diagram: Diagram, facts: list[Fact]) -> list[str]:
     return lines
 
 
-def _place_lines(where: str, scope: Section | Flow, needs: str) -> list[str]:
+def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str]) -> list[str]:
     """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind."""
     if not scope.diagrams:
         return ["diagram %s: none" % where] + ["fact %s/%s: not a node" % (where, _key(f)) for f in scope.facts]
@@ -558,10 +582,11 @@ def _place_lines(where: str, scope: Section | Flow, needs: str) -> list[str]:
     lines = []
     if len(scope.diagrams) > 1:
         lines.append("diagram %s: %d blocks, more than 1" % (where, len(scope.diagrams)))
-    if diagram.kind != needs:
-        fault = "not flowchart or stateDiagram-v2" if diagram.kind is None else "not " + needs
-        return lines + ["diagram %s: %s" % (where, fault)]
-    if diagram.kind == FLOWCHART and len(diagram.nodes) > MAX_NODES:
+    needed = needs[diagram.notation]
+    if diagram.kind != needed:
+        none = "not flowchart or stateDiagram-v2" if diagram.notation == MERMAID else "not a PlantUML kind"
+        return lines + ["diagram %s: %s" % (where, none if diagram.kind is None else "not " + needed)]
+    if diagram.kind in (FLOWCHART, "activity") and len(diagram.nodes) > MAX_NODES:
         lines.append("diagram %s: %d nodes, more than %d" % (where, len(diagram.nodes), MAX_NODES))
     return lines + _node_lines(where, diagram, scope.facts)
 
