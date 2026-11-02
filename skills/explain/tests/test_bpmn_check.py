@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import bpmn  # noqa: E402
 import bpmn_page as bpmn_page_module  # noqa: E402
 from bpmn_page import FIXTURES, PAGE_TEMPLATE, bpmn_page  # noqa: E402
-from onboard_page import onboard_page  # noqa: E402
+from onboard_html_page import onboard_page  # noqa: E402
 
 BPMN_PY = Path(bpmn.__file__).resolve()
 SECTION = (FIXTURES / "bpmn-section.html").read_text(encoding="utf-8")

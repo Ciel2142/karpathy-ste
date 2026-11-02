@@ -41,7 +41,7 @@ from unittest import mock
 
 from tests.bpmn_page import FIXTURES, bpmn_page
 from tests.mermaid_page import FIXTURES as MERMAID_FIXTURES, mermaid_page
-from tests.onboard_page import FIXTURES as ONBOARD_FIXTURES, onboard_page
+from tests.onboard_html_page import FIXTURES as ONBOARD_FIXTURES, onboard_page
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)

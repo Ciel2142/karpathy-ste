@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
 import mermaid_svg  # noqa: E402
 import onboard  # noqa: E402
 from bpmn_page import bpmn_page  # noqa: E402
-from onboard_page import FIXTURES as ONBOARD_PAGE_FIXTURES, onboard_page  # noqa: E402
+from onboard_html_page import FIXTURES as ONBOARD_PAGE_FIXTURES, onboard_page  # noqa: E402
 
 SCRIPT = os.path.join(os.path.dirname(HERE), "scripts", "verify.sh")
 BPMN_PY = os.path.join(os.path.dirname(HERE), "scripts", "bpmn.py")
