@@ -880,10 +880,14 @@ def main(argv: list[str]) -> int:
         return command(argv[1:])
     except OnboardError as error:
         line = str(error)
-        stream = sys.stdout if line.startswith("map:") else sys.stderr
+        on_stdout = line.startswith("map:") or (line.startswith("diagrams:") and error.code == 1)
+        stream = sys.stdout if on_stdout else sys.stderr
         stream.write(line if line.endswith("\n") else line + "\n")
         return error.code
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # Run the module under its own name, so onboard_page and this file share one OnboardError class.
+    import onboard
+
+    sys.exit(onboard.main(sys.argv[1:]))

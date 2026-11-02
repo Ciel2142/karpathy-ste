@@ -8,7 +8,7 @@ Writes `architecture.puml`, `flow-<flow-id>.puml` and `state.puml`, each the fen
 `diagrams: stale <file>` for each `.puml` of the directory no place produced (deleting nothing), then
 `diagrams: ok <n> files`.
 Exit 0 on success, 1 when a place holds a Mermaid diagram (`diagrams: <where>: not plantuml`, stdout),
-2 on a usage error, an unreadable map (`map: cannot read ...`, stdout) or an unwritable directory
+2 on a usage error (stderr), an unreadable map (`map: cannot read ...`, stdout) or an unwritable directory
 (`diagrams: cannot write <dir>: <reason>`, stderr).
 """
 
@@ -59,11 +59,7 @@ def _write(out: str, files: dict[str, str]) -> None:
 def cmd_diagrams(argv: list[str]) -> int:
     args = _Parser().parse_args(argv)
     doc = onboard.read_map(args.map)
-    try:
-        files = diagram_files(doc)
-    except onboard.OnboardError as error:
-        sys.stdout.write(str(error) + "\n")
-        return error.code
+    files = diagram_files(doc)
     _write(args.out, files)
     produced = {ident + ".puml" for ident in files}
     stale = sorted(name for name in os.listdir(args.out) if name.endswith(".puml") and name not in produced)

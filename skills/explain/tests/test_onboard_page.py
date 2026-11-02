@@ -5,6 +5,7 @@ import contextlib
 import io
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import onboard  # noqa: E402
 
+EXPLAIN = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "onboard"
 PLACES = ["architecture.puml", "flow-cancel.puml", "flow-order.puml", "state.puml"]
 
@@ -79,6 +81,22 @@ class DiagramsCase(unittest.TestCase):
         code, out, _ = run(["diagrams", missing, "--out", self.out])
         self.assertEqual(code, 2)
         self.assertTrue(out.startswith("map: cannot read %s" % missing), out)
+
+    def test_cli_unreadable_map_exits_2(self):
+        missing = os.path.join(self.folder, "missing.md")
+        done = subprocess.run([sys.executable, "-B", "scripts/onboard.py", "diagrams", missing, "--out", self.out],
+                              cwd=str(EXPLAIN), capture_output=True, text=True)
+        self.assertEqual(done.returncode, 2)
+        self.assertTrue(done.stdout.startswith("map: cannot read"), done.stdout)
+        self.assertEqual(done.stderr, "")
+
+    def test_cannot_write_exits_2(self):
+        blocker = os.path.join(self.folder, "file")
+        Path(blocker).write_text("x", encoding="utf-8")
+        code, out, err = run(["diagrams", str(FIXTURES / "map-puml.md"), "--out", os.path.join(blocker, "sub")])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertTrue(err.startswith("diagrams: cannot write"), err)
 
     def test_usage_names_diagrams(self):
         code, _, err = run([])
