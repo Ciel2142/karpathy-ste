@@ -218,6 +218,14 @@ class StateCase(unittest.TestCase):
         parsed = puml.parse("A --> B: goes -> C\n[*] --> A\n")
         self.assertEqual((parsed.nodes, parsed.node_faults), (["A", "B"], []))
 
+    def test_quoted_display_name_with_a_colon_is_not_a_node(self):
+        parsed = puml.parse('state "Waiting: for pay" as W\n[*] --> W\n')
+        self.assertEqual((parsed.nodes, parsed.node_faults), (["W"], []))
+
+    def test_state_description_after_a_colon_is_cut(self):
+        parsed = puml.parse("state A: waits for pay\n[*] --> A\n")
+        self.assertEqual((parsed.nodes, parsed.node_faults), (["A"], []))
+
     def test_bad_state_id_is_a_fault(self):
         parsed = puml.parse("[*] --> new-order\n")
         self.assertEqual(parsed.nodes, ["new-order"])

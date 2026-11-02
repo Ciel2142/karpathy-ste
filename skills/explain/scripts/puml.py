@@ -22,7 +22,7 @@ PART_DECLARATION = re.compile(r'(?:%s)\s+"[^"]*"\s+as\s+(\S+)' % "|".join(PARTS)
 BRACKET_DECLARATION = re.compile(r"\[([^\]]+)\]\s+as\s+(\S+)")
 BRACKET_ENDPOINT = re.compile(r"\[([^\]]+)\]")
 STATE_ALIAS = re.compile(r'state\s+"[^"]*"\s+as\s+(\S+)')
-STATE_DECLARATION = re.compile(r"state\s+([^\s{]+)")
+STATE_DECLARATION = re.compile(r'state\s+([^\s{"][^\s{]*)')
 _ARROW_BODY = r"[-.]+(?:(?:\[[^\]]*\]|left|right|up|down)[-.]*)?"
 ARROW = re.compile(rf"<{_ARROW_BODY}>?|{_ARROW_BODY}>")  # `->`, `-->`, `..>`, `-left->`, `-[hidden]->`, `<--`
 NOTE_OPEN = re.compile(r"(?:floating\s+)?note\s+(?:left|right|top|bottom|over)\b[^:]*$")
@@ -201,8 +201,7 @@ def _parse_state(statements: list[tuple[int, str]]) -> Parsed:
             node_faults.append((state, "bad id"))
 
     for number, text in statements:
-        head = text.split(":", 1)[0]
-        declaration = STATE_ALIAS.match(head) or STATE_DECLARATION.match(head)
+        declaration = STATE_ALIAS.match(text) or STATE_DECLARATION.match(text.split(":", 1)[0])
         edge = _edge(text)
         if _is_style(text):
             faults.append(f"style line {number}")
