@@ -1,0 +1,126 @@
+version: 2
+feature: explain-onboard-md
+spec: docs/superpowers/specs/2026-11-02-explain-onboard-markdown-design.md
+coverage: waived
+# One feature branch `feat/explain-onboard-md`, cut from `main`, in a worktree under
+# /Users/valukin/karpathy-wt/ (the main working tree still holds the unrelated uncommitted edits to
+# bpmn_svg.py and its test). Two waves with a writing-plans document each (contracts, not code, at
+# most ten tasks), executed with subagent-driven-development in this session; no ralph unless the
+# user asks. The split follows the spec's own seam: wave onboard-puml gives the map a PlantUML form
+# that the check, the `diagrams` command and the renderer prove on fixtures, while the rung text
+# stays untouched and every Mermaid map keeps passing (without `--notation` both notations pass), so
+# the branch is consistent between the waves. Wave onboard-md-page consumes those commands: the page
+# check, the rewritten rung, the skill and README text, the course carve-out and the HTML removals.
+# The third wave is the spec's proof (section 13): a live run on the diadoc service, interactive, no
+# epic, with its fixes committed to the branch before finishing-a-development-branch runs once.
+# Inputs from br: kp-xc77 notes `onboard.py` at 611 lines (now 846), so the parser lives in
+# `puml.py` and both new commands in `onboard_page.py`, as the spec says; kp-f9g6's three HTML
+# matrix items (td/th, gaps column fixture, `:has()`) are retired by the removals of wave two, and
+# its drift-phrase note (`gaps`, `title` as bare substrings) is an input to the new drift test.
+waves:
+  - id: onboard-puml
+    slice: vertical
+    goal: >-
+      A map written in PlantUML goes from text to PNG files through checked commands (spec
+      sections 7, 8 and the `diagrams` half of 9). `scripts/puml.py` holds the parser: the kind of
+      a `plantuml` fence (activity by a first statement `start`, state by `[*]` or `state `,
+      component by a declared part or an edge), its nodes (activity labels in backticks, component
+      aliases and edge ids, state ids) and its faults (style lines, an action over lines, a bad id,
+      an undeclared edge id, a `see <flow-id>` that is no flow), tolerant of unknown lines and
+      strict about every arrow form. `onboard.py check` accepts `plantuml` fences, dispatches by
+      the info string, takes `--notation plantuml|mermaid`, requires the kind of each place, keys a
+      backtick fact by its label, counts the distinct labels against 25 and prints the new failure
+      lines of 7.5. `onboard.py diagrams <map.md> --out <dir>` writes `architecture.puml`,
+      `flow-<flow-id>.puml` and `state.puml` (fence verbatim between `@startuml` and `@enduml`),
+      reports stale files and refuses a `mermaid` fence. `puml.py render <dir>` runs one
+      `plantuml -tpng` process with the fixed skinparams, maps `Error line <n>` back to the fence
+      line, removes the PNG of a failed diagram and prints `plantuml: ok <n> diagrams`.
+    done_when: >-
+      `cd skills/explain && python3 -B -m unittest discover -s tests` passes:
+      `tests/fixtures/onboard/map-puml.md` (the `tree` fixture mapped in PlantUML) prints
+      `onboard: ok` under `--notation plantuml`; the Mermaid fixture `map.md` prints `onboard: ok`
+      under `--notation mermaid` and `diagram <where>: not plantuml` under `--notation plantuml`;
+      one parser fixture per kind (`parser-activity.puml`, `parser-component.puml`,
+      `parser-state.puml`) with every allowed construct yields the expected nodes, and one test per
+      new failure prefix of 7.5 produces exactly that line; `diagrams` on `map-puml.md` writes
+      three files and reports a planted stale file; `render` on those three files writes three PNGs
+      and `plantuml: ok 3 diagrams` on this machine, removes the PNG of a planted syntax error with
+      `plantuml: FAIL <id> line <n>`, and skips with `plantuml missing` where `plantuml` is absent.
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/scripts/puml.py (new), skills/explain/scripts/onboard_page.py (new; the diagrams command)
+      - skills/explain/scripts/onboard.py (fence acceptance, dispatch, --notation, _key, the diagrams subcommand)
+      - skills/explain/tests/test_puml.py (new), skills/explain/tests/test_onboard.py
+      - skills/explain/tests/fixtures/onboard/map-puml.md, parser-activity.puml, parser-component.puml, parser-state.puml (new)
+    risk: low
+    plan: docs/superpowers/plans/2026-11-02-explain-onboard-md-w1.md
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - cd skills/explain && python3 scripts/onboard.py check tests/fixtures/onboard/map-puml.md --root tests/fixtures/onboard/tree --notation plantuml
+      - cd skills/explain && python3 scripts/onboard.py diagrams tests/fixtures/onboard/map-puml.md --out /tmp/puml-d && python3 scripts/puml.py render /tmp/puml-d
+
+  - id: onboard-md-page
+    slice: vertical
+    goal: >-
+      `/explain <service-dir> --as onboard` builds the Markdown page (spec sections 5, 6, the
+      `page` half of 9, 10, 11 and 12). `onboard.py page <page.md> --map <map.md>` checks the page
+      against the map and `diagrams/` with the failure lines of section 9, content-based and
+      language-neutral. `rungs/onboard.md` sections 1 to 6 are rewritten: the PlantUML check,
+      the PlantUML forms in rules 3, 4 and 5 beside the Mermaid clause of a course map, the
+      section plan of 10.2 with the Russian headings table, the procedure of 10.3 and the output
+      directory of section 6. `SKILL.md` and `README.md` say what the rung now writes and
+      requires. `course/map-task.md` and `rungs/course.md` pass `--notation mermaid` and the
+      Mermaid override. The HTML onboarding path is removed: the onboard case of `verify.sh`,
+      `onboard` in `bpmn.py`, `tests/onboard_page.py`, `tests/fixtures/onboard-page/`, their tests,
+      and the `table.matrix` rules and tests of the page template.
+    done_when: >-
+      `cd skills/explain && python3 -B -m unittest discover -s tests` and the repo root
+      `python3 -B -m unittest discover -s tests` pass: `tests/fixtures/onboard/page.md` (a page of
+      `map-puml.md` beside rendered or planted PNGs) prints `page: ok`, one test per failure prefix
+      of section 9 produces exactly that line, the drift tests lock the new onboard titles, plan
+      bullets, output table, SKILL.md row and conventions, and the course prompt test locks
+      `--notation mermaid` and the override; `ste_lint.py` prints `0 errors` for `rungs/onboard.md`,
+      `course/map-task.md` and `SKILL.md`; `grep -rn 'onboard' scripts/verify.sh scripts/bpmn.py
+      templates/page.html` and `grep -n 'table.matrix' templates/page.html` print nothing.
+    status: pending
+    depends_on: [onboard-puml]
+    owns:
+      - skills/explain/scripts/onboard_page.py (the page command), skills/explain/scripts/onboard.py (the page subcommand)
+      - skills/explain/rungs/onboard.md, skills/explain/SKILL.md, README.md
+      - skills/explain/course/map-task.md, skills/explain/rungs/course.md
+      - skills/explain/scripts/verify.sh, skills/explain/scripts/bpmn.py, skills/explain/templates/page.html
+      - skills/explain/tests/test_onboard_page.py (new), skills/explain/tests/fixtures/onboard/page.md (new)
+      - skills/explain/tests/test_rung_drift.py, test_course_prompts.py, test_verify.py, test_bpmn_check.py, test_page_template.py
+      - skills/explain/tests/onboard_page.py (removed), skills/explain/tests/fixtures/onboard-page/ (removed)
+    risk: low
+    plan: docs/superpowers/plans/2026-11-02-explain-onboard-md-w2.md
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+      - python3 -B -m unittest discover -s tests
+      - cd skills/explain && python3 ../ste/scripts/ste_lint.py rungs/onboard.md && python3 ../ste/scripts/ste_lint.py course/map-task.md && python3 ../ste/scripts/ste_lint.py SKILL.md
+
+  - id: onboard-md-live-run
+    slice: vertical
+    goal: >-
+      One live `/explain <diadoc service> --as onboard` run from the installed skill (spec section
+      13): a PlantUML map that passes the check, every PNG read, `page.md` that passes
+      `onboard.py page` and the lint, opened in a Markdown viewer; the user pastes it into a
+      Confluence page and attaches the PNGs.
+    done_when: >-
+      `onboard: ok`, `plantuml: ok <n> diagrams`, `page: ok` and `0 errors` on the run's output,
+      every flow of the map has a section and a picture, and the user has read the page and
+      accepts it. Fixes to the rung or the scripts that the run shows are committed to the branch
+      before finishing-a-development-branch.
+    status: pending
+    depends_on: [onboard-md-page]
+    owns:
+      - out/ (discardable, never committed)
+    risk: low
+    plan: null
+    acceptance:
+      - the user reads the page and the PNGs of the live run
+deferred: []
+approval:
+  required: false
+  reason: null
