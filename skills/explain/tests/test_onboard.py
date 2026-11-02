@@ -1213,6 +1213,10 @@ class PlantumlFaultCase(unittest.TestCase):
         edits = [(":see order;", ":see refund;"), ("`see order`:", "`see refund`:")]
         self.assertEqual(self.lines(edits), ["node cancel/see refund: flow refund not in Flows"])
 
+    def test_repeated_see_hop_prints_one_line(self):
+        edits = [(":see order;\ndetach", ":see refund;\ndetach\n:see refund;\ndetach"), ("`see order`:", "`see refund`:")]
+        self.assertEqual(self.lines(edits), ["node cancel/see refund: flow refund not in Flows"])
+
     def test_undeclared_component_on_an_edge(self):
         lines = self.lines([("api --> kafka\n", "api --> kafka\napi --> cache\n")])
         self.assertEqual(lines, ["node architecture/cache: not declared", "node architecture/cache: no fact line"])

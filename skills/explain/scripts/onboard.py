@@ -568,7 +568,7 @@ def _node_lines(where: str, diagram: Diagram, facts: list[Fact], flow_ids: set[s
         lines.extend("node %s/%s: %s" % (where, name, fault) for name, fault in diagram.node_faults if name == node)
         if node not in keys:
             lines.append("node %s/%s: no fact line" % (where, node))
-    lines.extend("node %s/see %s: flow %s not in Flows" % (where, hop, hop) for hop in diagram.hops
+    lines.extend("node %s/see %s: flow %s not in Flows" % (where, hop, hop) for hop in dict.fromkeys(diagram.hops)
                  if hop not in flow_ids)
     for index, key in enumerate(keys):
         if key not in diagram.nodes:
