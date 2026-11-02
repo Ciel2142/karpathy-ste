@@ -148,6 +148,24 @@ class ComponentCase(unittest.TestCase):
         self.assertEqual(parsed.nodes, ["a", "b"])
         self.assertEqual(parsed.node_faults, [])
 
+    def test_every_arrow_form_reads_an_undeclared_endpoint(self):
+        for arrow in ("->", "-->", "..>", ".>", "-left->", "-right->", "-up->", "-down->", "-[hidden]->"):
+            with self.subTest(arrow=arrow):
+                parsed = puml.parse(f'component "A" as a\na {arrow} x\n')
+                self.assertEqual(parsed.nodes, ["a", "x"])
+                self.assertEqual(parsed.node_faults, [("x", "not declared")])
+
+    def test_every_reversed_arrow_form_reads_an_undeclared_endpoint(self):
+        for arrow in ("<-", "<--", "<..", "<-left-", "<-[hidden]-", "<->"):
+            with self.subTest(arrow=arrow):
+                parsed = puml.parse(f'component "A" as a\nx {arrow} a\n')
+                self.assertEqual(parsed.nodes, ["a", "x"])
+                self.assertEqual(parsed.node_faults, [("x", "not declared")])
+
+    def test_edge_label_without_a_space_before_the_colon_adds_no_node(self):
+        parsed = puml.parse('component "A" as a\ndatabase "B" as b\na --> b: go -> c\n')
+        self.assertEqual((parsed.nodes, parsed.node_faults), (["a", "b"], []))
+
     def test_undeclared_edge_id_is_a_fault(self):
         parsed = puml.parse('component "A" as a\na --> cache\n')
         self.assertEqual(parsed.nodes, ["a", "cache"])
@@ -183,6 +201,22 @@ class StateCase(unittest.TestCase):
     def test_transition_label_is_cut_before_the_arrow(self):
         parsed = puml.parse("A --> B : goes -> C\nstate A\n")
         self.assertEqual(parsed.nodes, ["A", "B"])
+
+    def test_every_arrow_form_reads_a_fresh_state(self):
+        for arrow in ("->", "-->", "..>", ".>", "-left->", "-right->", "-up->", "-down->", "-[hidden]->"):
+            with self.subTest(arrow=arrow):
+                parsed = puml.parse(f"[*] --> A\nA {arrow} N\n")
+                self.assertEqual((parsed.nodes, parsed.node_faults), (["A", "N"], []))
+
+    def test_every_reversed_arrow_form_reads_a_fresh_state(self):
+        for arrow in ("<-", "<--", "<..", "<-left-", "<-[hidden]-", "<->"):
+            with self.subTest(arrow=arrow):
+                parsed = puml.parse(f"[*] --> A\nN {arrow} A\n")
+                self.assertEqual((parsed.nodes, parsed.node_faults), (["A", "N"], []))
+
+    def test_transition_label_without_a_space_before_the_colon_adds_no_node(self):
+        parsed = puml.parse("A --> B: goes -> C\n[*] --> A\n")
+        self.assertEqual((parsed.nodes, parsed.node_faults), (["A", "B"], []))
 
     def test_bad_state_id_is_a_fault(self):
         parsed = puml.parse("[*] --> new-order\n")

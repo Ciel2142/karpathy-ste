@@ -55,15 +55,13 @@ def _statements(block: str):
 
 
 def _edge(text: str) -> tuple[str, str] | None:
-    """The two endpoints of an edge line, the text from the first ` : ` on cut away, or None."""
-    head = text.split(" : ", 1)[0]
-    if head.startswith("note "):
+    """The two endpoints of an edge line, or None. The label is cut at the first `:` after the arrow, so
+    `a --> b: go` and `a --> b : go -> c` both end at `b`; an endpoint never holds a colon."""
+    arrow = ARROW.search(text)
+    if not arrow or text.startswith("note "):
         return None
-    arrow = ARROW.search(head)
-    if not arrow:
-        return None
-    left, right = head[:arrow.start()].strip(), head[arrow.end():].strip()
-    return (left, right) if left and right else None
+    left, right = text[:arrow.start()].strip(), text[arrow.end():].split(":", 1)[0].strip()
+    return (left, right) if left and right and ":" not in left else None
 
 
 def _part_declaration(text: str) -> tuple[str | None, str] | None:
@@ -203,7 +201,7 @@ def _parse_state(statements: list[tuple[int, str]]) -> Parsed:
             node_faults.append((state, "bad id"))
 
     for number, text in statements:
-        head = text.split(" : ", 1)[0]
+        head = text.split(":", 1)[0]
         declaration = STATE_ALIAS.match(head) or STATE_DECLARATION.match(head)
         edge = _edge(text)
         if _is_style(text):
