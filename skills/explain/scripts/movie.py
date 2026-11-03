@@ -17,7 +17,9 @@ or `plan: <n> failures`. Failure prefixes are fixed: `schema:`, `id:`, `question
 `check`, exits 1 and writes nothing. Otherwise it writes, for each gap `<n>` between chapter
 `<n>` and chapter `<n+1>`, `bridges/<n>/script.json` (a clip, from BRIDGE_TEMPLATE_SCRIPT) and
 `bridges/<n>/scene/Film.tsx` (from BRIDGE_TEMPLATE_SCENE), then prints `bridges: ok (<n>)`.
-The values come from `movie.json` alone, so a second run writes the same bytes.
+The values come from `movie.json` alone, so a second run writes the same bytes. A bridge's
+subject is the movie's subject text with kind `topic`: a bridge cites nothing, and the
+timeline check allows a scene without cites only for a topic.
 """
 
 import html
@@ -480,13 +482,13 @@ def bridges(movie_dir, movie):
         script_template = json.load(handle)
     with open(os.path.join(BRIDGE_TEMPLATE_SCENE, "Film.tsx"), encoding="utf-8") as handle:
         scene_template = handle.read()
-    provenance, subject = movie["provenance"], movie["subject"]
+    provenance = movie["provenance"]
     ids = []
     for n in range(1, len(movie["chapters"])):
         labels = _bridge_labels(movie, n)
         script = _fill(script_template, {
             "n": str(n), "lang": movie["lang"],
-            "subject_text": subject["text"], "subject_kind": subject["kind"],
+            "subject_text": movie["subject"]["text"],
             "root": resolve_root(movie_dir, provenance["root"]), "date": provenance["date"],
             "done_question": labels["done"], "answer": labels["sofar"],
             "next_question": labels["next"]})

@@ -2,7 +2,7 @@
   "format": "clip",
   "title": "Bridge {{n}}",
   "lang": "{{lang}}",
-  "subject": { "text": "{{subject_text}}", "kind": "{{subject_kind}}" },
+  "subject": { "text": "{{subject_text}}", "kind": "topic" },
   "provenance": {
     "root": "{{root}}",
     "commit": "none",

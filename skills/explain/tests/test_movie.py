@@ -259,6 +259,13 @@ class BridgesCase(MovieCase):
             self.assertEqual(script["lang"], "en")
             self.assertNotIn("pronounce", script)
 
+    def test_a_bridge_subject_is_a_topic(self):
+        # a bridge cites nothing, and the timeline check allows no cites only for a topic
+        self.movie["subject"] = {"text": "skills/explain", "kind": "directory"}
+        self.bridges()
+        for n in ("1", "2", "3"):
+            self.assertEqual(self.script(n)["subject"], {"text": "skills/explain", "kind": "topic"})
+
     def test_bridges_is_idempotent(self):
         self.assertEqual(run_cli("bridges", self.dir), (0, "bridges: ok (3)\n", ""))
         first = self.files()
