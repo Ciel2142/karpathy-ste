@@ -4,11 +4,12 @@
 Usage: onboard.py inventory <source-dir> --root <root> [--out <file>]
        onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]
        onboard.py diagrams <map.md> --out <dir>      (see onboard_page.py)
+       onboard.py page <page.md> --map <map.md>      (see onboard_page.py)
 inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point and per event
 type, then `inventory: <n> entry points, <m> event types`. check prints one failure per line, then
 `onboard: ok` or `onboard: <n> failures`.
 Exit 0 on success, 1 on failures found, 2 on a usage error or an unreadable source, map, root or
-inventory file. `map: cannot read ...` goes to stdout; every other exit-2 line goes to stderr.
+inventory file. `map: cannot read ...` and `page: cannot read ...` go to stdout; every other exit-2 line goes to stderr.
 """
 
 import argparse
@@ -24,6 +25,7 @@ USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
     "       onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]\n"
     "       onboard.py diagrams <map.md> --out <dir>\n"
+    "       onboard.py page <page.md> --map <map.md>\n"
 )
 TITLES = (
     "Shape",
@@ -875,15 +877,15 @@ def _usage() -> int:
 def main(argv: list[str]) -> int:
     import onboard_page  # here, not at the top: onboard_page imports this module
 
-    command = {"inventory": cmd_inventory, "check": cmd_check,
-               "diagrams": onboard_page.cmd_diagrams}.get(argv[0]) if argv else None
+    command = {"inventory": cmd_inventory, "check": cmd_check, "diagrams": onboard_page.cmd_diagrams,
+               "page": onboard_page.cmd_page}.get(argv[0]) if argv else None
     if command is None:
         return _usage()
     try:
         return command(argv[1:])
     except OnboardError as error:
         line = str(error)
-        on_stdout = line.startswith("map:") or (line.startswith("diagrams:") and error.code == 1)
+        on_stdout = (line.startswith(("map:", "page:")) or (line.startswith("diagrams:") and error.code == 1))
         stream = sys.stdout if on_stdout else sys.stderr
         stream.write(line if line.endswith("\n") else line + "\n")
         return error.code

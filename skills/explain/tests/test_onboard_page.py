@@ -181,7 +181,7 @@ class PageModelCase(unittest.TestCase):
         self.assertEqual(structure(PAGE), [])
 
     def test_no_title(self):
-        self.assertEqual(structure(PAGE.replace("# What does shop do", "What does shop do", 1))[:1],
+        self.assertEqual(structure(PAGE.replace("# What does shop do", "What does shop do", 1)),
                          ["page: no title"])
 
     def test_second_title(self):
@@ -215,6 +215,14 @@ class PageModelCase(unittest.TestCase):
         planted = next(line.n for line in lines(text) if "<br>" in line.text)
         self.assertEqual(structure(text), ["html %d: tag outside code" % planted])
         self.assertEqual(structure(PAGE.replace("The orders table holds", "The `<br>` orders table holds", 1)), [])
+
+    def test_html_tag_in_a_heading_or_an_image_line(self):
+        for old, new in (("## What is shop made of?", "## What is<br>shop made of?"),
+                         ("# What does shop do", "# What<br>does shop do"),
+                         ("![The order controller reads", "![The <b>order</b> controller reads")):
+            text = PAGE.replace(old, new, 1)
+            planted = next(line.n for line in lines(text) if "<" in line.text)
+            self.assertEqual(structure(text), ["html %d: tag outside code" % planted], new)
 
     def test_cite_line_on_the_page(self):
         copied = "- NEW: a new order starts in NEW | src/main/java/shop/Order.java:8 | private Status status"
@@ -264,6 +272,12 @@ class PageDiagramsCase(unittest.TestCase):
     def test_image_that_is_not_a_png_is_not_in_the_map(self):
         page = PAGE + "\n![c](diagrams/state.svg)\n"
         self.assertEqual(self.check(page), ["image diagrams/state.svg: not in the map"])
+
+    def test_nested_image_path_is_not_in_the_map(self):
+        page = PAGE.replace("(diagrams/state.png)", "(diagrams/sub/state.png)")
+        self.assertEqual(self.check(page), ["diagram state: no image line",
+                                            "image diagrams/sub/state.png: not in the map",
+                                            "png state: no image line"])
 
     def test_image_without_a_file(self):
         self.assertEqual(self.check(pngs=["architecture"]),
@@ -332,6 +346,143 @@ class PageDiagramsCase(unittest.TestCase):
         state = PAGE.index("## Which states does an order go through?")
         page = PAGE[:order] + PAGE[cancel:state] + PAGE[order:cancel] + PAGE[state:]
         self.assertEqual(self.check(page), ["flows: out of map order"])
+
+
+class PageCase(unittest.TestCase):
+    def page(self, page=PAGE, map_text=MAP_PUML, pngs=None):
+        """Run `onboard.py page` on a fresh page directory; return the folder and (code, out, err)."""
+        folder = page_dir(page, map_text, pngs)
+        self.addCleanup(shutil.rmtree, folder, True)
+        return folder, run(["page", os.path.join(folder, "page.md"), "--map", os.path.join(folder, "map.md")])
+
+    def failures(self, page=PAGE, map_text=MAP_PUML):
+        """The exit code and the output lines of the page check of `page`."""
+        _, (code, out, _) = self.page(page, map_text)
+        return code, out.splitlines()
+
+    def test_fixture_page_is_ok(self):
+        _, result = self.page()
+        self.assertEqual(result, (0, "page: ok\n", ""))
+
+    def test_entry_not_on_the_page(self):
+        code, out = self.failures(PAGE.replace("POST /orders", "POST /ordered"))
+        self.assertEqual((code, out), (1, ["entry POST /orders: not on the page", "page: 1 failures"]))
+
+    def test_not_an_entry_point_is_not_required(self):
+        page = PAGE.replace("shop-gw", "shop-gx")
+        self.assertNotIn("shop-gw", page)
+        map_text = MAP_PUML.replace("- cmd/shop-gw: ", "- cmd/shop-gx: ")
+        self.assertEqual(self.failures(page, map_text), (0, ["page: ok"]))
+
+    def test_event_not_on_the_page(self):
+        code, out = self.failures(PAGE.replace("orders.created", "orders.made"))
+        self.assertEqual((code, out), (1, ["event orders.created: not on the page", "page: 1 failures"]))
+
+    def test_not_covered_not_on_the_page(self):
+        code, out = self.failures(PAGE.replace("cmd/shop-gw", "cmd/shop-x"))
+        self.assertEqual((code, out), (1, ["not covered #1: not on the page", "page: 1 failures"]))
+
+    def test_not_covered_reason_may_be_rephrased(self):
+        page = PAGE.replace("the Go gateway. The map lists", "a gateway. The page lists")
+        self.assertNotEqual(page, PAGE)
+        self.assertEqual(self.failures(page), (0, ["page: ok"]))
+
+    def test_entry_name_prefix_is_not_a_false_failure(self):
+        short = "- http /orders -> not traced: a short path | src/main/java/shop/OrderController.java:14 | @PostMapping\n"
+        map_text = MAP_PUML.replace("- http POST /orders -> order", short + "- http POST /orders -> order", 1)
+        self.assertIn(short, map_text)
+        map_text = map_text.replace("/orders/{id}", "/order-by-id/{id}")
+        page = PAGE.replace("/orders/{id}", "/order-by-id/{id}")
+        self.assertEqual(page.count("/orders"), page.count("POST /orders"))
+        self.assertEqual(self.failures(page, map_text), (0, ["page: ok"]))
+
+    def test_name_inside_a_fence_counts(self):
+        page = PAGE.replace("POST /orders", "POST /ordered") + "\n```text\nPOST /orders\n```\n"
+        self.assertEqual(self.failures(page), (0, ["page: ok"]))
+
+    def test_russian_page_passes(self):
+        map_text = (MAP_PUML.replace("What happens to a new order?", "Что происходит с новым заказом?")
+                    .replace("How is an order cancelled?", "Как отменяется заказ?"))
+        page = (PAGE.replace("What happens to a new order?", "Что происходит с новым заказом?")
+                .replace("How is an order cancelled?", "Как отменяется заказ?")
+                .replace("**Short answer.**", "**Краткий ответ.**"))
+        self.assertEqual(self.failures(page, map_text), (0, ["page: ok"]))
+
+    def test_failure_count_and_order(self):
+        copied = "- NEW: a new order starts in NEW | src/main/java/shop/Order.java:8 | private Status status"
+        page = PAGE.replace("# What does shop do", "What does shop do", 1) + "\n" + copied + "\n"
+        planted = next(line.n for line in lines(page) if line.text == copied)
+        self.assertEqual(self.failures(page), (1, ["page: no title", "cite %d: map line on the page" % planted,
+                                                    "page: 2 failures"]))
+
+    def test_unreadable_page_exits_2(self):
+        folder, _ = self.page()
+        missing = os.path.join(folder, "missing.md")
+        code, out, err = run(["page", missing, "--map", os.path.join(folder, "map.md")])
+        self.assertEqual((code, err), (2, ""))
+        self.assertTrue(out.startswith("page: cannot read %s: " % missing), out)
+
+    def test_page_that_is_not_utf8_exits_2(self):
+        folder, _ = self.page()
+        Path(folder, "page.md").write_bytes(b"# \xff\xfe\n")
+        code, out, _ = run(["page", os.path.join(folder, "page.md"), "--map", os.path.join(folder, "map.md")])
+        self.assertEqual(code, 2)
+        self.assertTrue(out.startswith("page: cannot read %s: " % os.path.join(folder, "page.md")), out)
+
+    def test_unreadable_map_exits_2(self):
+        folder, _ = self.page()
+        missing = os.path.join(folder, "missing.md")
+        code, out, _ = run(["page", os.path.join(folder, "page.md"), "--map", missing])
+        self.assertEqual(code, 2)
+        self.assertTrue(out.startswith("map: cannot read %s" % missing), out)
+
+    def test_missing_diagrams_directory(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        shutil.rmtree(os.path.join(folder, "diagrams"))
+        ids = ["architecture", "flow-order", "flow-cancel", "state"]
+        code, out, _ = run(["page", os.path.join(folder, "page.md"), "--map", os.path.join(folder, "map.md")])
+        self.assertEqual(code, 1)
+        self.assertEqual(sorted(out.splitlines()[:-1]),
+                         sorted(["image diagrams/%s.png: no file" % i for i in ids]
+                                + ["diagram %s: no puml" % i for i in ids]))
+        self.assertEqual(out.splitlines()[-1], "page: 8 failures")
+
+    def test_diagrams_that_is_a_file_exits_2(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        shutil.rmtree(os.path.join(folder, "diagrams"))
+        Path(folder, "diagrams").write_text("x", encoding="utf-8")
+        code, out, err = run(["page", os.path.join(folder, "page.md"), "--map", os.path.join(folder, "map.md")])
+        self.assertEqual((code, err), (2, ""))
+        self.assertTrue(out.startswith("page: cannot read %s: " % os.path.join(folder, "diagrams")), out)
+
+    def test_puml_that_is_not_utf8_exits_2(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        bad = os.path.join(folder, "diagrams", "state.puml")
+        Path(bad).write_bytes(b"@startuml\n\xff\xfe\n@enduml\n")
+        code, out, err = run(["page", os.path.join(folder, "page.md"), "--map", os.path.join(folder, "map.md")])
+        self.assertEqual((code, err), (2, ""))
+        self.assertTrue(out.startswith("page: cannot read %s: " % bad), out)
+
+    def test_usage_names_page(self):
+        code, _, err = run([])
+        self.assertEqual(code, 2)
+        self.assertIn("onboard.py page <page.md> --map <map.md>", err)
+
+    def test_page_without_map_is_the_usage(self):
+        code, out, err = run(["page", "page.md"])
+        self.assertEqual((code, out), (2, ""))
+        self.assertEqual(err, onboard.USAGE)
+
+    def test_cli_runs_as_a_script(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        done = subprocess.run([sys.executable, "-B", "scripts/onboard.py", "page", os.path.join(folder, "page.md"),
+                               "--map", os.path.join(folder, "map.md")],
+                              cwd=str(EXPLAIN), capture_output=True, text=True)
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "page: ok\n", ""))
 
 
 if __name__ == "__main__":

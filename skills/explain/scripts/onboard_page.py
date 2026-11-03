@@ -14,7 +14,14 @@ Exit 0 on success, 1 when a place holds a Mermaid diagram (`diagrams: <where>: n
 The page model and the structural checks of `onboard.py page` (spec sections 9 and 10.1): `page_lines_of` turns a
 page into classified lines, and the six functions `title_lines`, `answer_lines`, `command_lines`,
 `paragraph_lines`, `html_lines` and `cite_lines` each return the failure lines of one check; `image_lines`,
-`puml_lines` and `flow_lines` return those of the diagram files, the image lines and the flow sections.
+`puml_lines` and `flow_lines` return those of the diagram files, the image lines and the flow sections, and
+`name_lines` those of the names the map holds; `page_lines` runs every check in the order of the spec table and
+`cmd_page` is the command.
+
+Usage: onboard.py page <page.md> --map <map.md>
+Prints one failure per line, then `page: ok` or `page: <n> failures`. Exit 0 on success, 1 on failures, 2 on a
+usage error (stderr) or an unreadable page, map or diagrams directory (`page: cannot read ...` and
+`map: cannot read ...`, stdout). The diagrams directory is `diagrams/` beside the page; a missing one is empty.
 """
 
 import argparse
@@ -33,6 +40,7 @@ LIST_ITEM = re.compile(r"(?:[-*] |[0-9]+\. )")
 CODE_SPAN = re.compile(r"`[^`]*`")
 FENCE = "```"
 COMMAND_KEYS = ("build", "test", "run")
+HTML_KINDS = ("text", "list", "table", "heading1", "heading2", "image")
 
 
 def diagram_files(doc: onboard.MapDoc) -> dict[str, str]:
@@ -175,10 +183,10 @@ def paragraph_lines(lines: list[Line]) -> list[str]:
 
 
 def html_lines(lines: list[Line]) -> list[str]:
-    """`html <n>: tag outside code` for a text, list or table line with an HTML tag outside backtick spans."""
+    """`html <n>: tag outside code` for a line outside code with an HTML tag outside backtick spans."""
     return ["html %d: tag outside code" % line.n
             for line in lines
-            if line.kind in ("text", "list", "table") and HTML_TAG.search(CODE_SPAN.sub("", line.text))]
+            if line.kind in HTML_KINDS and HTML_TAG.search(CODE_SPAN.sub("", line.text))]
 
 
 def cite_lines(lines: list[Line]) -> list[str]:
@@ -192,10 +200,14 @@ def _image_paths(lines: list[Line]) -> list[tuple[int, str]]:
     return [(line.n, IMAGE.match(line.text).group(2)) for line in lines if line.kind == "image"]
 
 
+DIAGRAMS = "diagrams/"
+
+
 def _png_id(path: str) -> str | None:
-    """The diagram id of an image path: the basename without `.png`; None for another file."""
-    name = os.path.basename(path)
-    return name[:-len(".png")] if name.endswith(".png") else None
+    """The diagram id of an image path `diagrams/<id>.png`; None for any other path."""
+    if not (path.startswith(DIAGRAMS) and path.endswith(".png")):
+        return None
+    return path[len(DIAGRAMS):-len(".png")]
 
 
 def image_lines(lines: list[Line], files: dict[str, str], directory: str) -> list[str]:
@@ -211,15 +223,20 @@ def image_lines(lines: list[Line], files: dict[str, str], directory: str) -> lis
             failures.append("diagram %s: image line twice" % ident)
     for _, path in images:
         ident = _png_id(path)
-        if not path.startswith("diagrams/"):
+        if not path.startswith(DIAGRAMS):
             failures.append("image %s: not under diagrams/" % path)
         elif ident not in files:
             failures.append("image %s: not in the map" % path)
         elif not os.path.isfile(os.path.join(directory, ident + ".png")):
             failures.append("image %s: no file" % path)
-    shown = {_png_id(path) for _, path in images if path.startswith("diagrams/")}
+    shown = {_png_id(path) for _, path in images}
     pngs = _stems(directory, ".png")
     return failures + ["png %s: no image line" % ident for ident in pngs if ident not in shown]
+
+
+def _cannot_read(path: str, error: Exception) -> onboard.OnboardError:
+    """The exit-2 error for a file or directory of the page check that cannot be read."""
+    return onboard.OnboardError("page: cannot read %s: %s" % (path, getattr(error, "strerror", None) or error), 2)
 
 
 def _stems(directory: str, suffix: str) -> list[str]:
@@ -228,6 +245,8 @@ def _stems(directory: str, suffix: str) -> list[str]:
         names = os.listdir(directory)
     except FileNotFoundError:
         return []
+    except OSError as error:
+        raise _cannot_read(directory, error) from error
     return sorted(name[:-len(suffix)] for name in names if name.endswith(suffix))
 
 
@@ -238,6 +257,8 @@ def _read(path: str) -> str | None:
             return handle.read()
     except FileNotFoundError:
         return None
+    except (OSError, UnicodeDecodeError) as error:
+        raise _cannot_read(path, error) from error
 
 
 def puml_lines(files: dict[str, str], directory: str) -> list[str]:
@@ -277,3 +298,65 @@ def flow_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
     if present != sorted(present):
         failures.append("flows: out of map order")
     return failures
+
+
+def _entry_names(doc: onboard.MapDoc) -> list[str]:
+    """The name of each Entry points fact that is traced or `not traced`: the fact after its kind word, up to its
+    last ` -> `. A fact with another tail, or `not an entry point`, is skipped."""
+    flows = doc.section("Flows")
+    idents = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
+    names = []
+    for fact in onboard._facts(doc, "Entry points"):
+        head, arrow, tail = fact.fact.rpartition(" -> ")
+        _, space, name = head.partition(" ")
+        if arrow and space and (tail in idents or tail.startswith("not traced")):
+            names.append(name)
+    return names
+
+
+def name_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
+    """The name failures: an entry, an event or a `Not covered` directory or module of the map that is not a
+    substring of the page text (code lines included)."""
+    page = "\n".join(line.text for line in lines)
+    failures = ["entry %s: not on the page" % name for name in _entry_names(doc) if name not in page]
+    events = doc.section("Events")
+    failures += ["event %s: not on the page" % event.name for event in (events.events if events else [])
+                 if event.name not in page]
+    for fact in onboard._facts(doc, "Not covered"):
+        if fact.fact.partition(":")[0].strip() not in page:
+            failures.append("not covered #%d: not on the page" % fact.n)
+    return failures
+
+
+def page_lines(text: str, doc: onboard.MapDoc, directory: str) -> list[str]:
+    """Every check of the page against its map and its diagrams `directory`, in the order of the spec table."""
+    found, files = page_lines_of(text), diagram_files(doc)
+    return (title_lines(found) + answer_lines(found) + image_lines(found, files, directory)
+            + puml_lines(files, directory) + flow_lines(found, doc) + name_lines(found, doc)
+            + command_lines(found, doc) + paragraph_lines(found) + html_lines(found) + cite_lines(found))
+
+
+class _PageParser(argparse.ArgumentParser):
+    """The arguments of `page`: the page and `--map`; any error is the usage and exit 2."""
+
+    def __init__(self) -> None:
+        super().__init__(add_help=False)
+        self.add_argument("page")
+        self.add_argument("--map", required=True)
+
+    def error(self, message: str) -> NoReturn:
+        raise onboard.OnboardError(onboard.USAGE, 2)
+
+
+def cmd_page(argv: list[str]) -> int:
+    args = _PageParser().parse_args(argv)
+    doc = onboard.read_map(args.map)
+    try:
+        with open(args.page, encoding="utf-8", newline="") as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError) as error:
+        raise _cannot_read(args.page, error) from error
+    failures = page_lines(text, doc, os.path.join(os.path.dirname(args.page), "diagrams"))
+    sys.stdout.write("".join(line + "\n" for line in failures))
+    sys.stdout.write("page: ok\n" if not failures else "page: %d failures\n" % len(failures))
+    return 1 if failures else 0
