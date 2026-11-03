@@ -138,8 +138,8 @@ class DiagramsCase(unittest.TestCase):
 
     def test_unreadable_map_exits_2(self):
         missing = os.path.join(self.folder, "missing.md")
-        code, out, _ = run(["diagrams", missing, "--out", self.out])
-        self.assertEqual(code, 2)
+        code, out, err = run(["diagrams", missing, "--out", self.out])
+        self.assertEqual((code, err), (2, ""))
         self.assertTrue(out.startswith("map: cannot read %s" % missing), out)
 
     def test_cli_unreadable_map_exits_2(self):
@@ -197,8 +197,24 @@ class PageModelCase(unittest.TestCase):
         self.assertEqual(structure(text), ["command build: not in a code block"])
 
     def test_command_in_prose_beside_its_block(self):
-        text = PAGE.replace("Run this command to test the service.", "Run ./gradlew test to test the service.", 1)
+        text = PAGE.replace("Run this command to test the service.", "Run `./gradlew test` to test the service.", 1)
         self.assertEqual(structure(text), ["command test: not in a code block"])
+
+    def make_doc(self):
+        """The map with the one-word build command `make`."""
+        return onboard.parse_map(MAP_PUML.replace("- build: `./gradlew build`", "- build: `make`", 1))
+
+    def test_one_word_command_in_plain_prose_is_not_inline(self):
+        text = (PAGE.replace("```sh\n./gradlew build\n```", "```sh\nmake\n```", 1)
+                .replace("Run this command to build the service.", "Run this command to make the jar.", 1))
+        self.assertIn("make the jar", text)
+        self.assertEqual(onboard_page.command_lines(lines(text), self.make_doc()), [])
+
+    def test_one_word_command_in_a_backtick_span_is_inline(self):
+        text = (PAGE.replace("```sh\n./gradlew build\n```", "```sh\nmake\n```", 1)
+                .replace("Run this command to build the service.", "Run `make` to make the jar.", 1))
+        self.assertEqual(onboard_page.command_lines(lines(text), self.make_doc()),
+                         ["command build: not in a code block"])
 
     def test_two_text_lines(self):
         text = PAGE.replace("The orders table holds the order rows. ", "The orders table holds the order rows.\nA second line. ", 1)
@@ -223,6 +239,19 @@ class PageModelCase(unittest.TestCase):
             text = PAGE.replace(old, new, 1)
             planted = next(line.n for line in lines(text) if "<" in line.text)
             self.assertEqual(structure(text), ["html %d: tag outside code" % planted], new)
+
+    def test_table_row_with_a_port_is_not_a_cite(self):
+        text = PAGE.replace("| Kafka | `orders.created` `orders.cancel` |",
+                            "| Kafka | `orders.created` `orders.cancel` |\n| Kafka | kafka:9092 | events |", 1)
+        self.assertIn("| Kafka | kafka:9092 | events |", text)
+        self.assertEqual(structure(text), [])
+
+    def test_indented_bullets_are_list_items(self):
+        text = PAGE.replace("- The service binds order bodies as JSON with Spring.\n",
+                            "- The service binds order bodies as JSON with Spring.\n"
+                            "  - payload: the order body.\n  - format: JSON.\n", 1)
+        self.assertIn("  - format: JSON.\n", text)
+        self.assertEqual(structure(text), [])
 
     def test_cite_line_on_the_page(self):
         copied = "- NEW: a new order starts in NEW | src/main/java/shop/Order.java:8 | private Status status"
@@ -340,6 +369,11 @@ class PageDiagramsCase(unittest.TestCase):
         page = page.replace("## What happens to a new order?\n", "## What happens to a new order?\n\n" + cancel)
         self.assertEqual(self.check(page), ["flow cancel: image outside its section"])
 
+    def test_flow_heading_with_a_trailing_space(self):
+        page = PAGE.replace("## What happens to a new order?\n", "## What happens to a new order? \n", 1)
+        self.assertIn("## What happens to a new order? \n", page)
+        self.assertEqual(self.check(page), [])
+
     def test_flows_out_of_map_order(self):
         order = PAGE.index("## What happens to a new order?")
         cancel = PAGE.index("## How is an order cancelled?")
@@ -415,6 +449,30 @@ class PageCase(unittest.TestCase):
         self.assertEqual(self.failures(page), (1, ["page: no title", "cite %d: map line on the page" % planted,
                                                     "page: 2 failures"]))
 
+    def test_every_check_fails_once_in_spec_order(self):
+        """One failure of each of the ten checks, so the full order of `page_lines` is the order of the spec table."""
+        copied = "- NEW: a new order starts in NEW | src/main/java/shop/Order.java:8 | private Status status"
+        page = (PAGE.replace("**Short answer.**", "Short answer.", 1)
+                .replace("## How is an order cancelled?", "## How is an order dropped?", 1)
+                .replace("POST /orders", "POST /ordered")
+                .replace("Run this command to test the service.", "Run `./gradlew test` to test the service.", 1)
+                + "\n# Another title\n\n![c](pictures/x.png)\n\nA first line.\nA second line.\n\n"
+                "A line with<br>a tag.\n\n" + copied + "\n")
+        found = lines(page)
+        at = {text: next(line.n for line in found if line.text == text)
+              for text in ("A second line.", "A line with<br>a tag.", copied)}
+        folder = page_dir(page)
+        self.addCleanup(shutil.rmtree, folder, True)
+        Path(folder, "diagrams", "old.puml").write_text("@startuml\n@enduml\n", encoding="utf-8")
+        code, out, err = run(["page", os.path.join(folder, "page.md"), "--map", os.path.join(folder, "map.md")])
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(out.splitlines(), [
+            "page: second title", "page: no short answer", "image pictures/x.png: not under diagrams/",
+            "puml old: not in the map", "flow cancel: no section", "entry POST /orders: not on the page",
+            "command test: not in a code block", "paragraph %d: two lines" % at["A second line."],
+            "html %d: tag outside code" % at["A line with<br>a tag."],
+            "cite %d: map line on the page" % at[copied], "page: 10 failures"])
+
     def test_unreadable_page_exits_2(self):
         folder, _ = self.page()
         missing = os.path.join(folder, "missing.md")
@@ -432,8 +490,8 @@ class PageCase(unittest.TestCase):
     def test_unreadable_map_exits_2(self):
         folder, _ = self.page()
         missing = os.path.join(folder, "missing.md")
-        code, out, _ = run(["page", os.path.join(folder, "page.md"), "--map", missing])
-        self.assertEqual(code, 2)
+        code, out, err = run(["page", os.path.join(folder, "page.md"), "--map", missing])
+        self.assertEqual((code, err), (2, ""))
         self.assertTrue(out.startswith("map: cannot read %s" % missing), out)
 
     def test_missing_diagrams_directory(self):

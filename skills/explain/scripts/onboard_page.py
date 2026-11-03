@@ -36,7 +36,7 @@ IMAGE = re.compile(r"!\[(.*)\]\(([^()]*)\)\s*$")  # caption, path: the last pare
 HTML_TAG = re.compile(r"</?[A-Za-z][^<>]*>")
 CITE_LINE = re.compile(r" \| [^|]+:[0-9]+ \| ")
 HEADING2 = re.compile(r"##+ ")
-LIST_ITEM = re.compile(r"(?:[-*] |[0-9]+\. )")
+LIST_ITEM = re.compile(r"[ \t]*(?:[-*] |[0-9]+\. )")
 CODE_SPAN = re.compile(r"`[^`]*`")
 FENCE = "```"
 COMMAND_KEYS = ("build", "test", "run")
@@ -155,9 +155,15 @@ def answer_lines(lines: list[Line]) -> list[str]:
     return ["page: no short answer"]
 
 
+def _inline(command: str, text: str) -> bool:
+    """True when a backtick span of `text` holds `command` as whole words; the plain words of `text` never count."""
+    bounded = re.compile(r"(?<!\S)%s(?!\S)" % re.escape(command))
+    return any(bounded.search(span.group()[1:-1]) for span in CODE_SPAN.finditer(text))
+
+
 def command_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
     """`command <key>: not in a code block` for each `build`, `test` and `run` command of Shape that no code
-    line equals, or that a line outside code holds."""
+    line equals, or that a backtick span of a line outside code holds (spec 10.1: a command is never inline)."""
     code = {line.text.strip() for line in lines if line.kind == "code"}
     prose = [line.text for line in lines if line.kind not in ("code", "blank")]
     failures = []
@@ -167,7 +173,7 @@ def command_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
         if key not in COMMAND_KEYS or onboard.none_found(fact) or not handle:
             continue
         command = handle.group().strip("`")
-        if command not in code or any(command in text for text in prose):
+        if command not in code or any(_inline(command, text) for text in prose):
             failures.append("command %s: not in a code block" % key)
     return failures
 
@@ -190,9 +196,10 @@ def html_lines(lines: list[Line]) -> list[str]:
 
 
 def cite_lines(lines: list[Line]) -> list[str]:
-    """`cite <n>: map line on the page` for a line outside code of the shape `... | <path>:<n> | ...`."""
+    """`cite <n>: map line on the page` for a list line of the shape `- ... | <path>:<n> | ...`: a map line is a
+    `- ` line, so a table row with a `host:port` cell is not one."""
     return ["cite %d: map line on the page" % line.n
-            for line in lines if line.kind != "code" and CITE_LINE.search(line.text)]
+            for line in lines if line.kind == "list" and CITE_LINE.search(line.text)]
 
 
 def _image_paths(lines: list[Line]) -> list[tuple[int, str]]:
@@ -284,7 +291,7 @@ def flow_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
     failures, present = [], []
     for flow in flows:
         at = next((i for i, line in enumerate(headings)
-                   if line.text.startswith("## ") and line.text[3:] == flow.question), None)
+                   if line.text.startswith("## ") and line.text[3:].strip() == flow.question), None)
         if at is None:
             failures.append("flow %s: no section" % flow.ident)
             continue

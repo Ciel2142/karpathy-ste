@@ -10,7 +10,7 @@ shop is one Spring Boot application with an order controller, an orders table an
 
 The Payments API is an outside system. The order controller calls it to charge an order.
 
-Kafka carries the orders.* topics. The order controller sends the created event to it, and the cancel listener reads the cancel event from it.
+Kafka carries the `orders.*` topics. The order controller sends the created event to it, and the cancel listener reads the cancel event from it.
 
 The orders table holds the order rows. The order controller and the cancel listener both use it.
 
@@ -182,6 +182,6 @@ The name of a class shows its role in the message path, such as Listener or Cont
 | Subject | `tests/fixtures/onboard/tree` |
 | Root | `tests/fixtures/onboard/tree` |
 | Commit | none |
-| Dirty | none |
+| Dirty | no |
 | Date | 2026-11-02 |
 | Command | `/explain tests/fixtures/onboard/tree --as onboard` |

@@ -27,7 +27,6 @@ from bpmn_page import bpmn_page  # noqa: E402
 
 SCRIPT = os.path.join(os.path.dirname(HERE), "scripts", "verify.sh")
 BPMN_PY = os.path.join(os.path.dirname(HERE), "scripts", "bpmn.py")
-MERMAID_PY = os.path.join(os.path.dirname(HERE), "scripts", "mermaid_svg.py")
 HAVE_BUNDLE = mermaid_svg.bundle_path().is_file()
 NO_BUNDLE = "mermaid bundle missing: %s" % mermaid_svg.bundle_path()
 FIXTURES = os.path.join(HERE, "fixtures")

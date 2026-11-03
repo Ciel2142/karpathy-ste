@@ -1042,6 +1042,20 @@ class OnboardRungCase(unittest.TestCase):
         self.assertLess(text.index("Rung: onboard (forced)"), text.index("`plantuml -version`"))
         self.assertNotIn("data-root", text)
 
+    def test_when_section_runs_the_onboard_py_commands_in_the_output_directory(self):
+        """Red when "When an onboarding page" counts the `onboard.py` commands again (the rung runs four)."""
+        self.assert_phrases("When an onboarding page", (
+            "Run the `onboard.py` commands in the output directory.",))
+        self.assertNotIn("the two `onboard.py` commands", self.words("When an onboarding page"))
+
+    def test_explore_expands_both_script_shorthands(self):
+        """Red when "Explore the service" expands `onboard.py <command>` and leaves `puml.py render` unexpanded,
+        so that a session runs `puml.py render diagrams` as a command that does not exist."""
+        self.assert_phrases("Explore the service", (
+            "In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`, "
+            "and `puml.py render` is short for `python3 <skill-dir>/scripts/puml.py render`.",))
+        self.assertTrue((EXPLAIN / "scripts" / "puml.py").is_file())
+
     def test_explore_runs_the_inventory_and_lists_the_kinds_of_onboard_py(self):
         """Red when "Explore the service" loses the inventory command or its summary line, or when the kinds
         table drops, adds or reorders a kind of onboard.PATTERNS, or quotes a regular expression."""
@@ -1264,6 +1278,55 @@ class OnboardRungCase(unittest.TestCase):
             with self.subTest(gone=word):
                 self.assertNotIn(word, text)
 
+    def test_plan_translates_the_label_of_the_short_answer(self):
+        """Red when "Plan the sections" lets a Russian page keep the English label of the short answer, or does not
+        say that the page check accepts any bold start."""
+        self.assert_phrases("Plan the sections", (
+            "A Russian page also translates this label. The page check accepts any bold text at the start of the "
+            "paragraph.",))
+
+    def test_write_the_page_reruns_step_1_and_step_2_after_a_fence_fix(self):
+        """Red when step 2 goes back to "run both commands again": a fence fix changes the nodes and the fact
+        lines, so the map check of step 1 runs again before step 2."""
+        text = self.words("Write the page")
+        self.assertNotIn("run both commands again", text)
+        self.assertEqual(text.count("Then run step 1 and step 2 again."), 2)
+
+    PAGE_PREFIXES = (
+        "page: no title", "page: second title", "page: no short answer", "diagram <id>: no image line",
+        "diagram <id>: image line twice", "image <path>: no file", "image <path>: not under diagrams/",
+        "image <path>: not in the map", "png <id>: no image line", "diagram <id>: differs from the map",
+        "diagram <id>: no puml", "puml <id>: not in the map", "flow <id>: no section",
+        "flow <id>: image outside its section", "flows: out of map order", "entry <name>: not on the page",
+        "event <name>: not on the page", "not covered #<n>: not on the page", "command <key>: not in a code block",
+        "paragraph <line>: two lines", "html <line>: tag outside code", "cite <line>: map line on the page")
+
+    def test_write_the_page_gives_the_name_rule_and_the_page_prefixes(self):
+        """Red when step 5 of "Write the page" goes back to "ties each name of the map to the page", loses a form of
+        the name rule, or its prefix table drops, adds or repeats a prefix of the spec 9 table, or loses a fix."""
+        text = self.words("Write the page")
+        self.assertNotIn("ties each name of the map to the page", text)
+        self.assert_phrases("Write the page", (
+            "The check finds these names of the map on the page, verbatim and in any place: - the name of each "
+            "traced or not traced entry point; - the name of each event: its `### ` heading in the map; - the "
+            "directory or the module before the first `:` of each `Not covered` line.",
+            "Each failure line of the check starts with one of these prefixes:",
+            "Run step 2 again. Never edit a `.puml` file.",
+            "Put each command alone in a fence. Never put it in backticks in the prose."))
+        body = section(read(ONBOARD_MD), "Write the page").split("\n")
+        header = [index for index, line in enumerate(body) if line.strip() == "| Prefix | Fix |"]
+        self.assertEqual(len(header), 1)
+        rows = []
+        for line in body[header[0] + 2:]:
+            if not line.strip().startswith("|"):
+                break
+            rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+        self.assertTrue(all(len(row) == 2 and row[1] for row in rows), rows)
+        self.assertLessEqual(len(rows), 7, "one row for each fix, not one for each prefix")
+        forms = [form for row in rows for form in re.findall(r"`([^`]+)`", row[0])]
+        self.assertEqual(sorted(forms), sorted(self.PAGE_PREFIXES))
+        self.assertEqual(rows[0][0].split(" / ")[0], "`page: no title`")
+
     def test_write_the_page_runs_the_eight_steps_in_order(self):
         """Red when "Write the page" loses a command, an expected last line, a read or the handoff of the eight
         steps of spec 10.3, or puts one out of order."""
@@ -1452,8 +1515,9 @@ class SkillMdCase(unittest.TestCase):
     # red: the argument-hint or the syntax line of the Contract without `onboard`, step 4 naming the rungs in
     # another order or without backticks, the onboard row missing, reworded or chosen from content, the rule
     # bullet without "Only `--as onboard` selects it." or without the languages, the review sentence back to
-    # the lesson and the course only, the Rung files bullet that leaves out the map, the inventory or the
-    # check, or the rung file missing
+    # the lesson and the course only, a Conventions sentence of the onboard page, its cites, its artifact, its
+    # checks or its handoff reworded or given twice, the Rung files bullet that leaves out the map and its
+    # check, the PlantUML diagrams or `page.md` and its check, or the rung file missing
     def test_skill_md_routes_the_onboard_rung(self):
         text = read(SKILL_MD)
         self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)

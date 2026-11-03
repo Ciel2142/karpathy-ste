@@ -39,13 +39,14 @@ Find `<root>` before you explore. Run `git rev-parse --show-toplevel` in the ser
 output is `<root>`. If the command fails, `<root>` is the absolute path of the service directory.
 `<root>` is the `--root` of both `onboard.py` commands. Each cite path is relative to `<root>`.
 
-Make the output directory ("Output directory") before you explore. Run the two `onboard.py` commands in
-the output directory. Make `<service-dir>` an absolute path, because the commands run in the output
+Make the output directory ("Output directory") before you explore. Run the `onboard.py` commands in the
+output directory. Make `<service-dir>` an absolute path, because the commands run in the output
 directory.
 
 ## 2. Explore the service
 
-In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`.
+In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`,
+and `puml.py render` is short for `python3 <skill-dir>/scripts/puml.py render`.
 
 An onboard run draws each diagram in PlantUML, in a `plantuml` fence. A course map draws each diagram in
 Mermaid, in a `mermaid` fence. The rules below name both forms. The PlantUML form is the main text of
@@ -459,7 +460,8 @@ The page has these parts, in this order. The section count follows the flows: ne
 1. `# <question>`: what the service does and why it exists, as a question.
 2. The short answer: one paragraph that starts with `**Short answer.**`. It holds two to four sentences
    and at most 70 words. They give the purpose, the runtime kind and the main flows by name, from
-   `Shape`.
+   `Shape`. A Russian page also translates this label. The page check accepts any bold text at the start
+   of the paragraph.
 3. `## What is <service> made of?`: a lead paragraph and the architecture image. Then one paragraph for
    each other system and each store of the diagram.
 4. `## How do I build, test and run it?`: a table with one row for each `language` and `framework` line.
@@ -512,14 +514,28 @@ Work in the output directory, and do these eight steps in this order:
    of each failure line. Run the check again until it prints `onboard: ok`.
 2. Run `onboard.py diagrams map.md --out diagrams`. Then run `puml.py render diagrams` until it prints
    `plantuml: ok <n> diagrams`. Fix a `plantuml: FAIL` line in the map fence, never in the `.puml` file.
-   Then run both commands again.
+   Then run step 1 and step 2 again.
 3. Read each `diagrams/<id>.png` with the Read tool. Look for a cut label, a label over a
    line and a condition without an outcome label. Look for an empty branch and for a false picture of
    the code. Fix the map fence. Then run step 1 and step 2 again.
 4. Write `page.md` by "Plan the sections".
 5. Run `onboard.py page page.md --map map.md`. Fix the cause of each failure line. Run it again until it
-   prints `page: ok`. The check ties each image line to a diagram of the map. It ties each flow to its
-   section. It ties each name of the map to the page, and each command to a fence.
+   prints `page: ok`. The check finds these names of the map on the page, verbatim and in any place:
+   - the name of each traced or not traced entry point;
+   - the name of each event: its `### ` heading in the map;
+   - the directory or the module before the first `:` of each `Not covered` line.
+
+   Each failure line of the check starts with one of these prefixes:
+
+   | Prefix | Fix |
+   |---|---|
+   | `page: no title` / `page: second title` / `page: no short answer` | Start the page with its one `# ` line, the title. Start the next paragraph with the bold label of the short answer. |
+   | `diagram <id>: no image line` / `diagram <id>: image line twice` / `flow <id>: no section` / `flow <id>: image outside its section` / `flows: out of map order` | Write one image line for each diagram. Put the image line of a flow under the heading of the flow: its question, verbatim. Keep the flow sections in map order. |
+   | `image <path>: not under diagrams/` / `image <path>: not in the map` / `image <path>: no file` / `png <id>: no image line` | Each picture is `diagrams/<id>.png`, and `<id>` is a diagram of the map. Run step 2 for a missing PNG file. Delete a PNG file of no diagram. |
+   | `diagram <id>: differs from the map` / `diagram <id>: no puml` / `puml <id>: not in the map` | Run step 2 again. Never edit a `.puml` file. Delete each `.puml` file that `onboard.py diagrams` reports as `stale`. |
+   | `entry <name>: not on the page` / `event <name>: not on the page` / `not covered #<n>: not on the page` | Write the name on the page, by the rule above. |
+   | `command <key>: not in a code block` / `paragraph <line>: two lines` / `html <line>: tag outside code` / `cite <line>: map line on the page` | Obey the rules of form of "Plan the sections". Put each command alone in a fence. Never put it in backticks in the prose. |
+
 6. Run `python3 <skill-dir>/../ste/scripts/ste_lint.py page.md` until it prints `0 errors`.
 7. Read `page.md` three times. First, cover the page below the short answer: does the answer alone
    answer the title? Then cover the prose of the first section: does the architecture picture alone
