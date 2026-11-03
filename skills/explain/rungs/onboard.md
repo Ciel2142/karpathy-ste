@@ -439,105 +439,94 @@ in backticks.
 
 ## 4. Plan the sections
 
-Plan the page from the map, with these parts in this order. This plan replaces "Plan the sections" of
-`page.md`. The section count
-follows the flows, as it follows the planes of a BPMN subject: never merge flows to get under twelve
-sections.
+The page is Markdown for Confluence. Plan it from the map. These rules of form hold for the whole page:
 
-- Title: what the service does and why it exists, as a question.
-- Answer box: the purpose, the runtime kind and the main flows by name, from `Shape`. It holds two to
-  four sentences.
-- `#whole`, "What is <service> made of?": a lead paragraph, then the architecture diagram
-  (`diagrams/architecture.mmd`). Then one paragraph for each other system and each store that the
-  diagram shows.
-- `#run`, "How do I build, test and run it?": a stack table (`.table-wrap > table`) with one row for
-  each `language` and `framework` line. A row gives the name and the version. A `div.cites` after the
-  table holds the cites of these lines. Then, for `build`, `test` and `run`, in this order, one
-  sentence and one `figure.code`. The `figcaption > code` of the figure holds the key (`build`, `test`
-  or `run`). Its `pre > code` holds the command alone. A `div.cites` after the figure holds the cite of
-  the command. The sentence says what the command does. A `none found` line becomes one sentence that
-  says the map found no such command, and no figure. Never put a command inline in prose.
-- `#entry`, "Where does a message enter?": a table (`.table-wrap > table`) with one row for each
-  `Entry points` line of the map with a flow id or a `not traced` reason. A row gives the kind, the
-  name, and the flow as a link to its section, or "not traced" with the reason. The lines with
-  `not an entry point` stay in the map only.
-- One section for each flow, with the id `flow-<flow-id>`. Its `<h2>` is the question of the flow. The
-  section holds these parts, in this order:
-  - a lead paragraph: what comes in and what leaves;
-  - the flow diagram (`diagrams/flow-<flow-id>.mmd`);
-  - one paragraph for each decision node, which names its branches and says why each branch exists;
-  - one paragraph for each node that calls another system or writes a store;
-  - for each node that says `see <flow-id>`, one sentence with a link to the section of that flow.
-- `#state`, "Which states does a message go through?": the state diagram (`diagrams/state.mmd`) and
-  one paragraph for each state. Omit the section when `State` is `none found`.
-- `#events`, "Which events move through <service>?": the events of the service and who emits and consumes
-  each one. Omit the section when `Events` has no entry. The section holds these parts, in this order:
-  - a lead paragraph: how many events there are, where they go, and the one or two events
-    that carry the main flows;
-  - one sentence that explains the matrix: `E`, `C` and the links;
-  - the matrix, a table (`.table-wrap > table.matrix`). It has one row for each entry of `Events`, in map
-    order. The first cell holds the event name in `<code>`, as a link to the detail of the event. Write a
-    `<wbr>` after each `.` and each `-` of the name, so that a long routing key breaks only at these
-    marks. It has one column for each component and each outside system, in the order of their first
-    appearance in the map. The header of such a column is vertical (the template sets it), so each mark
-    column is narrow. A cell holds `E` (emits), `C` (consumes) or both. A cell with no line is empty. A
-    consume with `ignores:` shows `(C)`;
-  - the marks: each `E` or `C` is a link to `#flow-<flow-id>` when its line has a flow id. Else it is plain
-    text in a `span` with `role="img"`. Each mark has a `title` with the full sentence, for example
-    "`OrderAggregate` emits `OrderPlaced` when ...". It has an `aria-label` with the same sentence, so that
-    a screen reader says the sentence and not only "E";
-  - the gaps: a row with a `none found` line shows `none found` and the key in an extra last column,
-    "gaps";
-  - a `div.cites` after the table. It holds the cites of the `type` lines, so that the section holds a
-    `<cite>` even if nobody opens a detail;
-  - the details: one `details.walk` for each event, with the id `event-<slug>`, after the table. Its
-    summary is the event name. It holds the payload type, the stream, and the emit lines and consume lines
-    in words, each with its cite.
-- `#formats`, `#config`, `#errors` and `#systems`: the reference sections. They come from
-  `Formats and transforms`, `Routing config`, `Error paths` and `Other systems` of the map. Put the
-  exact rules into `details.walk`. `#errors` is a list: each retry, dead letter, timeout and error
-  reply, with a link to the section of the flow where it occurs. `#systems` is a table of each system
-  and its handles.
-- `#conventions`, "How is the code written?": one paragraph for each `Conventions` line, with its
-  cite. A `none found` topic is one sentence. Omit the section when each `Conventions` line is
-  `none found`.
-- `#where`, "Where do I look to change something?": a table (`.table-wrap > table`) with one row for
-  each `Where to look` line. A row gives the task in words, the path and the cite. Omit the section
-  when `Where to look` is `none found`.
-- `#terms`: the glossary of `page.md` (`section#terms > dl.terms` of "Fill the template"). It defines
-  each event-sourcing term that the page uses. Examples are aggregate, event store, stream, projection
-  and saga.
-- `Not covered` in the footer: each `Not covered` line of the map, and each `not traced` entry point
-  with its reason.
-- The nav has a link for each of `#run`, `#events`, `#conventions` and `#where` that the page has.
-- Every section holds at least one `<cite>`, because the subject is a directory. The cites are the
-  lines of the map, copied. `cite_check.py` checks them again on the page.
-- Each `.mmd` file is the fenced block of the map, copied verbatim.
-- The page needs no steps player. The line `<n> sections would gain from a clip` is not printed.
+- Use ATX headings only. The page has one `# ` line, the title. Each other heading is a `## ` line.
+- One line is one paragraph. Do not wrap a line by hand.
+- A list item starts with `- `. A table is a pipe table with a header row and a `|---|` row. Leave one
+  blank line above and below it.
+- Fence each command and give the fence an info string (`sh`, `yaml` or `text`). Never put a command
+  inline. In prose, put a code name in backticks.
+- A diagram is one image line alone on its line, with a blank line above and below it:
+  `![<caption>](diagrams/<id>.png)`. The caption is one STE sentence that says what the picture shows.
+  The STE lint reads the caption.
+- Bold is only for the label of the short answer. Use no HTML, no footnote and no definition list. Put
+  no link inside the page: name a section by its heading in words, for example "see the section ...".
+  Put a URL in the last section only.
+
+The page has these parts, in this order. The section count follows the flows: never merge flows.
+
+1. `# <question>`: what the service does and why it exists, as a question.
+2. The short answer: one paragraph that starts with `**Short answer.**`. It holds two to four sentences
+   and at most 70 words. They give the purpose, the runtime kind and the main flows by name, from
+   `Shape`.
+3. `## What is <service> made of?`: a lead paragraph and the architecture image. Then one paragraph for
+   each other system and each store of the diagram.
+4. `## How do I build, test and run it?`: a table with one row for each `language` and `framework` line.
+   A row gives the name and the version. Then, for `build`, `test` and `run`, in this order, one sentence
+   and one fenced block with the command alone. A `none found` line becomes one sentence and no block.
+5. `## Where does a message enter?`: a table with one row for each traced or not traced entry point of the
+   map. A row gives the kind, the name in backticks, and the question of its flow, or "not traced" with the
+   reason.
+6. One section for each flow, in map order. Its heading is the question of the flow, verbatim. It holds,
+   in this order:
+   - a lead paragraph: what comes in and what leaves;
+   - the flow image;
+   - one paragraph for each condition, which names its outcomes and says why each branch exists;
+   - one paragraph for each action that calls another system or writes a store;
+   - one sentence for each `see <flow-id>`, which names the section of that flow by its heading.
+7. `## Which states does a message go through?`: the state image and one paragraph for each state. Omit
+   the section when `State` is `none found`.
+8. `## Which events move through <service>?`: a lead paragraph, one sentence that explains the marks, the
+   matrix, then one bullet for each event. The matrix is a pipe table. It has one row for each event and
+   one column for each component and each outside system. A cell is `E`, `C`, `E C` or `(C)`. The table
+   has a last column `gaps` when a `none found` line exists. A bullet gives the payload and the stream.
+   It names who emits the event in which flow, and who consumes it in which flow. Omit the section when
+   `Events` has no entry.
+9. `## Which formats and transforms does it use?`, `## Which config routes a message?`,
+   `## What happens on an error?` and `## Which other systems does it talk to?`. The error section is a
+   list, and each item names the section of the flow where the error happens. The systems section is a
+   table of each system and its handles. Omit each of these sections when its section of the map is
+   `none found`.
+10. `## How is the code written?`: one paragraph for each `Conventions` line. A `none found` topic is
+    one sentence. Omit the section when each line is `none found`.
+11. `## Where do I look to change something?`: a table of the task and the path in backticks. Omit the
+    section when `Where to look` is `none found`.
+12. `## Terms`: a table of the term and its meaning. Write it when the page uses a term that a new
+    member of the team does not know.
+13. `## Not covered`: one bullet for each `Not covered` line of the map. Add one bullet for each
+    not traced entry point, with its reason. Write `none` when there is no bullet.
+14. `## About this page`: a table with the subject (the service path), the root, the commit, the dirty
+    state, the date and the command (`/explain <path> --as onboard`).
+
+The English headings above are the default. A Russian page translates the fixed headings and keeps the
+structure (convention 7 of `SKILL.md`). The headings of the flow sections are always the questions of
+the map, verbatim.
 
 ## 5. Write the page
 
-Follow "Fill the template", "Provenance", "Write the prose" and "Verify and export" of `rungs/page.md`.
-These rules replace or add to the rules of those sections:
+Work in the output directory, and do these eight steps in this order:
 
-- Change the meta to `<meta name="explain-rung" content="onboard">`.
-- The provenance has `data-kind="directory"`, and its `data-root` is `<root>`.
-- Use the Mermaid pattern of "Diagram patterns" in `page.md` for each diagram. Before step 1 of
-  "Verify and export", write each `diagrams/<id>.mmd` file. Then run
-  `python3 <skill-dir>/scripts/mermaid_svg.py inline index.html`. Its last line is
-  `mermaid: ok <n> diagrams`. Fix the cause of each `mermaid: FAIL` line. Run the command again after
-  each change to a `.mmd` file.
-- `verify.sh` prints the six lines of a page, and the last line is `bpmn: none`. The `bpmn` line shows
-  `bpmn: ok` only when the page cites a `.bpmn` file.
-- Make the snapshots of steps 2 and 3 of "Verify and export" in `page.md`, without change.
-- In the tiles of step 4, also look for cut text in a diagram, an empty figure and a false picture of
-  a flow.
-- Compare the `#entry` table with `inventory.txt`. Each line of the inventory that the map traces, or
-  marks `not traced`, has a row. The `event` lines of the inventory have no row in `#entry`.
-- Compare the matrix of `#events` with `Events`. Each entry has a row. Each component and each outside
-  system of an `emits` or `consumes` line has a column.
-- Do the handoff of convention 6 of `SKILL.md`. Print the path. When you run for the user directly, run
-  `open index.html`. Never run `open` inside a subagent.
+1. Write `map.md` by "Explore the service" and "The map". Run
+   `onboard.py check map.md --root <root> --inventory inventory.txt --notation plantuml`. Fix the cause
+   of each failure line. Run the check again until it prints `onboard: ok`.
+2. Run `onboard.py diagrams map.md --out diagrams`. Then run `puml.py render diagrams` until it prints
+   `plantuml: ok <n> diagrams`. Fix a `plantuml: FAIL` line in the map fence, never in the `.puml` file.
+   Then run both commands again.
+3. Read each `diagrams/<id>.png` with the Read tool. Look for a cut label, a label over a
+   line and a condition without an outcome label. Look for an empty branch and for a false picture of
+   the code. Fix the map fence. Then run step 1 and step 2 again.
+4. Write `page.md` by "Plan the sections".
+5. Run `onboard.py page page.md --map map.md`. Fix the cause of each failure line. Run it again until it
+   prints `page: ok`. The check ties each image line to a diagram of the map. It ties each flow to its
+   section. It ties each name of the map to the page, and each command to a fence.
+6. Run `python3 <skill-dir>/../ste/scripts/ste_lint.py page.md` until it prints `0 errors`.
+7. Read `page.md` three times. First, cover the page below the short answer: does the answer alone
+   answer the title? Then cover the prose of the first section: does the architecture picture alone
+   support the answer? Last, compare the entry table with `inventory.txt`: each traced or not traced
+   entry line of the inventory has a row.
+8. Hand off: print the path of `page.md`. When you run for the user directly, run `open <output-dir>`.
+   Then the user can take the page and the PNG files. Never run `open` inside a subagent.
 
 ## 6. Output directory
 
@@ -546,9 +535,10 @@ rung name `onboard`).
 
 | Path | Holds |
 |---|---|
-| `map.md` | The onboarding map ("The map"). The source of truth of the page. |
+| `map.md` | The onboarding map ("The map"). The source of truth of the page and its only evidence. |
 | `inventory.txt` | The entry points and the event types that `onboard.py inventory` found. |
-| `diagrams/<id>.mmd` | One Mermaid diagram, copied verbatim from a fenced block of the map. |
-| `diagrams/<id>.svg` | Its render, written by `mermaid_svg.py`. |
-| `index.html` | The onboarding page, meta `<meta name="explain-rung" content="onboard">`. |
-| `page.png`, `narrow.png`, `review/` | The snapshots, as for a page. |
+| `diagrams/<id>.puml` | One PlantUML diagram: the fence of the map, verbatim, in `@startuml` and `@enduml`. `onboard.py diagrams` writes it. |
+| `diagrams/<id>.png` | Its render. `puml.py render` writes it. |
+| `page.md` | The onboarding page, Markdown for Confluence. |
+
+`<id>` is `architecture`, `flow-<flow-id>` or `state`. No `index.html`, no snapshots, no `review/`.

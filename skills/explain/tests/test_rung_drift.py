@@ -1231,67 +1231,76 @@ class OnboardRungCase(unittest.TestCase):
             "When two names give the same `<slug>`, the second gets `-2` at its end and the third gets `-3`",
             "A name with no character in `[a-z0-9]` has the slug `e<n>`"))
 
-    def test_plan_the_sections_follows_spec_9_1(self):
-        """Red when "Plan the sections" loses a section id (`#run`, `#conventions` and `#where` of spec 15.4
-        too), the `figure.code` of a command, the rule that omits an empty `#conventions` or `#where`, a diagram file, the never-merge rule, the footer, the cite rule
-        or the rule that drops the clip line."""
+    def test_plan_the_sections_follows_spec_10_2(self):
+        """Red when "Plan the sections" loses a rule of spec 10.1, a heading of the fourteen-item plan of spec
+        10.2, the order of the plan, the never-merge rule, the gaps column or the image line, or keeps a word
+        of the HTML page."""
         self.assert_phrases("Plan the sections", (
-            "#whole", "#entry", "flow-<flow-id>", "#state", "#events", "#formats", "#config", "#errors", "#systems", "#terms",
-            "`figure.code`", ".table-wrap > table", "diagrams/architecture.mmd",
-            "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
-            "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
-            "is not printed"))
-        # A section id is also named in other sentences, so the test reads the start of each bullet and the order.
+            "ATX headings", "One line is one paragraph", "pipe table", "info string", "Bold is only for the label",
+            "no HTML", "no link inside the page",
+            "**Short answer.**", "two to four sentences", "at most 70 words",
+            "What is <service> made of?", "How do I build, test and run it?", "Where does a message enter?",
+            "Which states does a message go through?", "Which events move through <service>?",
+            "Which formats and transforms does it use?", "Which config routes a message?",
+            "What happens on an error?", "Which other systems does it talk to?", "How is the code written?",
+            "Where do I look to change something?", "`E`, `C`, `E C` or `(C)`",
+            "a last column `gaps` when a `none found` line exists",
+            "never merge flows", "![<caption>](diagrams/<id>.png)", "convention 7 of `SKILL.md`"))
+        # A heading is also named in other sentences, so the test reads the start of each item and the order.
         text = self.words("Plan the sections")
-        starts = ('- `#whole`, "What is', '- `#run`, "How do I build, test and run it?"', '- `#entry`, "Where does',
-                  '- `#state`, "Which states', '- `#events`, "Which events move through',
-                  '- `#formats`, `#config`', '- `#conventions`, "How is the code written?"',
-                  '- `#where`, "Where do I look to change something?"', '- `#terms`:')
+        starts = ("1. `# <question>`", "2. The short answer", "3. `## What is <service> made of?`",
+                  "4. `## How do I build, test and run it?`", "5. `## Where does a message enter?`",
+                  "6. One section for each flow", "7. `## Which states does a message go through?`",
+                  "8. `## Which events move through <service>?`", "9. `## Which formats and transforms does it use?`",
+                  "10. `## How is the code written?`", "11. `## Where do I look to change something?`",
+                  "12. `## Terms`", "13. `## Not covered`", "14. `## About this page`")
         for start in starts:
-            with self.subTest(bullet=start):
+            with self.subTest(item=start):
                 self.assertEqual(text.count(start), 1, start)
         positions = [text.index(start) for start in starts]
-        self.assertEqual(positions, sorted(positions), "the plan bullets are out of order")
-        for phrase in ("one row for each `language` and `framework` line", "the name and the version",
-                       "the map found no such command", "one `figure.code`", "The `figcaption > code` of the figure holds",
-                       "the key (`build`, `test` or `run`)", "Its `pre > code` holds the command alone",
-                       "A `div.cites` after the table holds the cites of these lines",
-                       "A `div.cites` after the figure holds the cite of the command",
-                       "Omit the section when each `Conventions` line is `none found`",
-                       "Omit the section when `Where to look` is `none found`",
-                       # spec 16.5: the matrix, its marks and links, the gaps column, the details and the cites
-                       ".table-wrap > table.matrix", "`E` (emits), `C` (consumes) or both", "`(C)`",
-                       "a link to `#flow-<flow-id>`", "`title`", "`aria-label`", "`role=\"img\"`", "`<wbr>` after each `.` and each `-`", "gaps", "`details.walk`", "`event-<slug>`",
-                       "`div.cites` after the table", "Omit the section when `Events` has no entry",
-                       "The nav has a link for each of `#run`, `#events`, `#conventions` and `#where`",
-                       "aggregate, event store, stream, projection and saga"):
+        self.assertEqual(positions, sorted(positions), "the plan items are out of order")
+        for word in ("#whole", ".table-wrap", "figure.code", "div.cites", "details.walk", "<wbr>", "aria-label",
+                     "data-root", ".mmd", "<cite>"):
+            with self.subTest(gone=word):
+                self.assertNotIn(word, text)
+
+    def test_write_the_page_runs_the_eight_steps_in_order(self):
+        """Red when "Write the page" loses a command, an expected last line, a read or the handoff of the eight
+        steps of spec 10.3, or puts one out of order."""
+        text = self.words("Write the page")
+        steps = ("--notation plantuml", "onboard: ok", "onboard.py diagrams map.md --out diagrams",
+                 "puml.py render diagrams", "plantuml: ok <n> diagrams", "plantuml: FAIL", "Read tool",
+                 "onboard.py page page.md --map map.md", "page: ok", "ste_lint.py page.md", "0 errors",
+                 "inventory.txt", "open <output-dir>", "Never run `open` inside a subagent")
+        for phrase in steps:
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+        # `inventory.txt` is also in the check command of step 1, so each phrase is searched after the last one.
+        at = 0
+        for phrase in steps:
+            with self.subTest(order=phrase):
+                at = text.find(phrase, at)
+                self.assertGreaterEqual(at, 0, "%r is missing or out of order" % phrase)
+        for number in range(1, 9):
+            with self.subTest(step=number):
+                self.assertEqual(text.count("%d. " % number), 1, "step %d" % number)
+        for phrase in ("never in the `.puml` file", "a cut label", "a label over a line",
+                       "a condition without an outcome label", "an empty branch", "a false picture"):
+            with self.subTest(read=phrase):
+                self.assertIn(phrase, text)
+        for word in ("index.html", "page.html", "snapshot", "review/", ".mmd", "mermaid", "verify.sh"):
+            with self.subTest(gone=word):
+                self.assertNotIn(word, text)
 
-    def test_write_the_page_reuses_page_md_and_the_two_scripts(self):
-        """Red when "Write the page" stops pointing at the four sections of page.md, or loses the meta, the
-        provenance kind, the Mermaid command and its line, `bpmn: none`, the inventory compare or the handoff."""
-        self.assert_phrases("Write the page", (
-            '"Fill the template"', '"Provenance"', '"Write the prose"', '"Verify and export"',
-            '<meta name="explain-rung" content="onboard">', 'data-kind="directory"', "mermaid_svg.py inline index.html",
-            "mermaid: ok <n> diagrams", "bpmn: none", "inventory.txt", "open index.html",
-            "Never run `open` inside a subagent"))
-
-    def test_write_the_page_points_at_titles_that_page_md_has(self):
-        """Red when page.md loses, renames or repeats one of the six headings that onboard.md points at: each
-        title must be exactly one heading of page.md."""
-        for title in ("Plan the sections", "Fill the template", "Diagram patterns", "Provenance",
-                      "Write the prose", "Verify and export"):
-            with self.subTest(title=title):
-                section(read(PAGE_MD), title)
-
-    def test_output_directory_lists_the_rows_of_spec_4(self):
-        """Red when "Output directory" loses the directory name, or its table drops, adds or reorders a row of
-        spec 4."""
-        self.assert_phrases("Output directory", ("~/karpathy/out/YYYY-MM-DD-HHMMSS-onboard-<slug>/",))
+    def test_output_directory_lists_the_rows_of_spec_6(self):
+        """Red when "Output directory" loses the directory name or the closing sentence, or its table drops,
+        adds or reorders a row of spec 6."""
+        self.assert_phrases("Output directory", (
+            "~/karpathy/out/YYYY-MM-DD-HHMMSS-onboard-<slug>/",
+            "`<id>` is `architecture`, `flow-<flow-id>` or `state`.",
+            "No `index.html`, no snapshots, no `review/`."))
         self.assertEqual(list(limits_table(ONBOARD_MD, "| Path | Holds |")), [
-            "`map.md`", "`inventory.txt`", "`diagrams/<id>.mmd`", "`diagrams/<id>.svg`", "`index.html`",
-            "`page.png`, `narrow.png`, `review/`"])
+            "`map.md`", "`inventory.txt`", "`diagrams/<id>.puml`", "`diagrams/<id>.png`", "`page.md`"])
 
     def test_onboard_md_lints_clean(self):
         """Red when a sentence of onboard.md breaks the STE profile."""
