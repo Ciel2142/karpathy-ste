@@ -1026,7 +1026,21 @@ class OnboardRungCase(unittest.TestCase):
             "/explain <service-dir> --as onboard",
             "Rung: onboard (forced) — <reason> — subject: <path> (directory)",
             "Only `--as onboard` selects it", "one directory", "Offer `page`", "--review: no effect on onboard",
-            "English or Russian", "git rev-parse --show-toplevel"))
+            "English or Russian", "git rev-parse --show-toplevel", "plantuml -version",
+            "brew install plantuml"))
+
+    def test_when_section_runs_the_plantuml_precheck_and_keeps_no_data_root(self):
+        """Red when "When an onboarding page" loses the PlantUML precheck (the command, the install hint, the stop
+        and the offer of `page`), the order (the check follows the rung line), or still names the `data-root` of the
+        page that the onboard rung no longer writes."""
+        text = self.words("When an onboarding page")
+        for phrase in ("run `plantuml -version`", "If the command fails, say that the onboard rung needs PlantUML "
+                       "(`brew install plantuml`). Stop. Offer `page`.",
+                       "`<root>` is the `--root` of both `onboard.py` commands."):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        self.assertLess(text.index("Rung: onboard (forced)"), text.index("`plantuml -version`"))
+        self.assertNotIn("data-root", text)
 
     def test_explore_runs_the_inventory_and_lists_the_kinds_of_onboard_py(self):
         """Red when "Explore the service" loses the inventory command or its summary line, or when the kinds
@@ -1047,6 +1061,33 @@ class OnboardRungCase(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertTrue(finds)
                 self.assertNotIn("\\", finds)
+
+    def test_explore_names_both_notations(self):
+        """Red when "Explore the service" loses the opening paragraph (PlantUML for an onboard run, Mermaid for a
+        course map), the component form of rule 3, the activity form of rule 4, the state form of rule 5, the
+        clause of a course map in each of the three rules, the backtick-keyed node fact or the 25-node cap."""
+        self.assert_phrases("Explore the service", (
+            "An onboard run draws each diagram in PlantUML, in a `plantuml` fence.",
+            "A course map draws each diagram in Mermaid, in a `mermaid` fence.",
+            "The rules below name both forms.",
+            # rule 3, the component form
+            'Declare each part once, with an alias: `component "<name>" as <id>`.',
+            "An id matches `[a-z][a-z0-9_]*`.", "`package \"<name>\" {`", "fails as `not declared`",
+            "A course map draws the parts as one `flowchart LR` in a `mermaid` fence.",
+            # rule 4, the activity form
+            "The fence starts with `start` and ends with `stop` or `end`.", "One action is one line: `:<label>;`.",
+            "The same label in two places of one diagram is the same node",
+            "`if (<condition>) then (<outcome>)`", "`while (<condition>) is (<outcome>)`",
+            "`switch (<condition>)`", "`repeat while (<condition>) is (<outcome>)`",
+            "the action `:see <flow-id>;` followed by `detach`", "`fork`, `fork again` and `end fork`",
+            "`-> <label>;`", "Never write `skinparam`, `!pragma`, `!include`, `<style>`",
+            "Put at most 25 nodes in one diagram.",
+            "A course map draws each flow as one `flowchart TD` in a `mermaid` fence.",
+            "- `total over limit?`: the total is checked against the limit | ",
+            # rule 5, the state form
+            "`[*] --> <STATE>` enters", "`<STATE> --> [*]` ends", 'a label: `state "<label>" as <STATE>`',
+            "An id matches `[A-Za-z_][A-Za-z0-9_]*`.",
+            "A course map draws the states as one `stateDiagram-v2` in a `mermaid` fence."))
 
     def test_explore_holds_the_nine_rules_in_order(self):
         """Red when a rule of spec 5, 15 or 16 is gone, out of order or not numbered, the words of onboard.SHAPE_KEYS,
@@ -1097,10 +1138,31 @@ class OnboardRungCase(unittest.TestCase):
         self.assertIn("- <key>: <fact> | <path>:<line> | <snippet>", lines)
         self.assertEqual(len(onboard.TITLES), 13)
 
+    def test_the_map_skeleton_draws_in_plantuml(self):
+        """Red when a diagram fence of the skeleton opens with another info string than `plantuml` (a `mermaid`
+        fence is for a course map), the sketch of a kind is gone, or the flow fact line loses its backtick key."""
+        lines = skeleton_lines(section(read(ONBOARD_MD), "The map"))
+        opens = [index for index, line in enumerate(lines) if line.startswith("```") and line != "```"]
+        self.assertEqual([lines[index] for index in opens], ["```plantuml"] * 3)
+        sketches = [lines[index + 1:lines.index("```", index)] for index in opens]
+        self.assertEqual(sketches, [['component "<name>" as <id>'], ["start", ":<label>;", "stop"],
+                                    ["[*] --> <STATE>"]])
+        self.assertIn("- `<label>`: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertIn("- <id>: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertIn("- <state>: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertFalse(any("mermaid" in line for line in lines))
+        self.assert_phrases("The map", (
+            "In an activity diagram the key is the label in backticks, verbatim: "
+            "`` - `<label>`: <fact> | <path>:<line> | <snippet> ``.",
+            "In an onboard map its info string is `plantuml`. In a course map its info string is `mermaid`",
+            "The key of a fact line that starts with a backtick is the text up to the closing backtick."))
+
     def test_the_map_runs_the_check_and_names_its_prefixes(self):
         """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or
         reorders one of the twelve prefixes of spec 7 and 16.3."""
-        self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt",
+        self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt "
+                                        "--notation plantuml",
+                                        "A course map passes `--notation mermaid`.",
                                         "onboard: ok", "onboard: <n> failures",
                                         "The path is relative to `<root>`, and it is the first text in backticks of "
                                         "the line.",
@@ -1118,6 +1180,18 @@ class OnboardRungCase(unittest.TestCase):
         for key, start in zip(prefixes, starts):
             with self.subTest(prefix=start):
                 self.assertTrue(key.startswith(start), key)
+        diagram = next(key for key in prefixes if key.startswith("`diagram "))
+        for form in ("`diagram <where>: not plantuml`", "`diagram <where>: not mermaid`",
+                     "`diagram <where>: not a PlantUML kind`", "`diagram <where>: not activity`",
+                     "`diagram <where>: not component`", "`diagram <where>: not state`",
+                     "`diagram <where>: action over lines <n>-<m>`", "`diagram <where>: style line <n>`"):
+            with self.subTest(form=form):
+                self.assertIn(form, diagram)
+        node = next(key for key in prefixes if key.startswith("`node "))
+        for form in ("`node <where>/<label>: flow <id> not in Flows`", "`node architecture/<id>: not declared`",
+                     "`node <where>/<id>: bad id`"):
+            with self.subTest(form=form):
+                self.assertIn(form, node)
         entry = next(key for key in prefixes if key.startswith("`entry "))
         self.assertIn("`entry #<n>: unknown kind <kind>`", entry)
         # Spec 16.3: the seven `event` forms, the dismissal form and the inventory form of the Events floor.

@@ -32,10 +32,12 @@ Rung: onboard (forced) — <reason> — subject: <path> (directory)
 
 The `<reason>` names `--as onboard` and tells if the content fits the rung.
 
+After the rung line, run `plantuml -version`. If the command fails, say that the onboard rung needs
+PlantUML (`brew install plantuml`). Stop. Offer `page`. The rung line stays as the first line.
+
 Find `<root>` before you explore. Run `git rev-parse --show-toplevel` in the service directory. Its
 output is `<root>`. If the command fails, `<root>` is the absolute path of the service directory.
-`<root>` is the `--root` of both `onboard.py` commands and the `data-root` of the page. Each cite path
-is relative to `<root>`.
+`<root>` is the `--root` of both `onboard.py` commands. Each cite path is relative to `<root>`.
 
 Make the output directory ("Output directory") before you explore. Run the two `onboard.py` commands in
 the output directory. Make `<service-dir>` an absolute path, because the commands run in the output
@@ -44,6 +46,10 @@ directory.
 ## 2. Explore the service
 
 In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`.
+
+An onboard run draws each diagram in PlantUML, in a `plantuml` fence. A course map draws each diagram in
+Mermaid, in a `mermaid` fence. The rules below name both forms. The PlantUML form is the main text of
+each rule, and a clause tells what a course map draws.
 
 Follow these nine rules, in the order of the work. Write each fact into `map.md`, in the format of
 "The map".
@@ -76,19 +82,34 @@ Follow these nine rules, in the order of the work. Write each fact into `map.md`
    false, and the list can miss a real entry point. Add each entry point that
    you find when you read the code. Dismiss a false hit with a reason, as a
    `-> not an entry point: <reason>` line.
-3. Architecture. Draw one `flowchart LR` of the parts at runtime. A part is a component inside the
+3. Architecture. Draw the parts at runtime as one component diagram. A part is a component inside the
    service, a store or another system. The components are the listeners, controllers, services,
    repositories, clients and schedulers, by their real names. A store is a table, a cache, a file
    system or a queue that the service owns. Draw an edge for each call or message between two
    parts. Write one cited fact for each node. Keep to the parts that a message meets. A utility class
-   is not a part.
+   is not a part. These rules apply to the diagram:
+   - Declare each part once, with an alias: `component "<name>" as <id>`. The same form holds for
+     `queue`, `database`, `cloud`, `node`, `rectangle`, `interface` and `actor`. The bracket form
+     `[<name>] as <id>` is also a declaration. Use `component` for a part inside the service. Use
+     `queue` or `database` for a store. Use `cloud` or `node` for another system.
+   - An id matches `[a-z][a-z0-9_]*`. It has no hyphen, because PlantUML reads a hyphen as an arrow.
+   - An edge is an arrow between two parts, with an optional `: <label>`. The arrows are `-->`, `->`
+     and `..>`. Use `..>` for a read or a lookup. A direction such as `-left->` and a style such as
+     `-[hidden]->` make an arrow too.
+   - An end of an edge is an alias. A bracket form `[<name>]` on an edge, with no declaration, is not
+     declared.
+   - `package "<name>" {` and `}` group parts. A package is not a node.
+   - A node is each declared alias and each id on an edge. An id on an edge with no declaration
+     fails as `not declared`.
+   - A course map draws the parts as one `flowchart LR` in a `mermaid` fence. The Mermaid rules of
+     "The map" apply there.
 4. Flows. Write one flow for each entry point, or for each group of entry points that take the same
    path. Name a group by the shared path, and list each entry point under it. Trace the flow from
    its entry to each exit. An exit is a reply, a message sent, a row written, or a log line and stop.
-   Draw the flow as a `flowchart TD`. These rules apply to each flow:
+   Draw the flow as an activity diagram. These rules apply to each flow:
    - A branch in the code is a branch in the diagram. Each `if`, `when`, `switch`, strategy choice,
      `catch`, retry loop, timeout and feature flag on the path is a decision node. A decision node
-     has one edge for each outcome, with the condition as its label. An exit that is an error is a
+     has one edge for each outcome, with the outcome as its label. An exit that is an error is a
      node.
    - Each node has one cited fact under the diagram. The cite of a decision node is its condition
      line. The cite of a call node is the call line.
@@ -98,9 +119,49 @@ Follow these nine rules, in the order of the work. Write each fact into `map.md`
      each stage as one node. Each stage is a flow of its own, with the id `<flow>-<stage>`.
    - A call can enter a method that another flow drew already. Then draw one node that names that
      flow (`see <flow-id>`). Do not draw the nodes again.
+
+   These rules give the PlantUML form of a flow:
+   - The fence starts with `start` and ends with `stop` or `end`.
+   - One action is one line: `:<label>;`. The label is the text between `:` and `;`. It holds no
+     backtick. An action over several lines fails.
+   - A label names one node. The same label in two places of one diagram is the same node, drawn
+     twice, with one fact line. Use this to join two branches on one action. An example is a shared
+     error reply. Structured activity syntax has no other join.
+   - A branch is `if (<condition>) then (<outcome>)`, then optional `elseif (<condition>) then
+     (<outcome>)` lines, an optional `else (<outcome>)` line and `endif`. A loop is
+     `while (<condition>) is (<outcome>)` to `endwhile (<outcome>)`. A loop can also be `repeat` to
+     `repeat while (<condition>) is (<outcome>)`. A choice of many is `switch (<condition>)`,
+     `case (<outcome>)` lines and `endswitch`. The condition is a node. Each outcome is a label of an
+     edge, not a node.
+   - An exit that is an error is an action followed by `stop`, `kill` or `detach`.
+   - A hop into a flow that another flow draws is the action `:see <flow-id>;` followed by `detach`.
+     The flow id exists under `Flows`.
+   - `fork`, `fork again` and `end fork` draw parallel work. `partition "<name>" {` and `}` group
+     actions. `-> <label>;` labels an edge. None of these is a node. You can write a `note` or a `'`
+     comment.
+   - Never write `skinparam`, `!pragma`, `!include`, `<style>`, a colour prefix such as `#pink:`,
+     `split` or `backward:`. The check reports them. The renderer sets the style.
+   - The nodes of a diagram are the distinct labels of its actions and conditions.
+   - The fact line of an activity node starts with its label in backticks, verbatim. The cite of a
+     condition is its condition line. The cite of an action is the call line. For example:
+
+     ```
+     - `total over limit?`: the total is checked against the limit | src/main/java/shop/OrderController.java:16 | if (order.total() > LIMIT) {
+     - `see order`: the row is saved as in the order flow | src/main/java/shop/OrderListener.java:19 | repository.save(order);
+     ```
+
+   - A course map draws each flow as one `flowchart TD` in a `mermaid` fence. The Mermaid rules of
+     "The map" apply there.
 5. State. Find the entities that a message changes, and each status field with its transitions. Draw
-   them as one `stateDiagram-v2`. Write one cited fact for each state, from the line that sets it. If
-   the service keeps no state, write `none found`.
+   them as one state diagram. Write one cited fact for each state, from the line that sets it. If
+   the service keeps no state, write `none found`. These rules give the PlantUML form:
+   - `[*] --> <STATE>` enters, `<STATE> --> <STATE> : <event>` moves and `<STATE> --> [*]` ends. A
+     state can have a label: `state "<label>" as <STATE>`. A composite `state <STATE> {` to `}`
+     holds inner states.
+   - A state is each id on either side of an arrow, in any form (`-->`, `->` or `-left->`), and
+     each declared state. `[*]` is never a state. An id matches `[A-Za-z_][A-Za-z0-9_]*`.
+   - A course map draws the states as one `stateDiagram-v2` in a `mermaid` fence. The Mermaid
+     rules of "The map" apply there.
 6. Events. Find each event of the service. An event is a type or a name. One part publishes it
    or appends it to an event store. It can also apply it, or send it to a topic or an exchange. Another
    part handles it. Look for these:
@@ -188,7 +249,9 @@ Kotlin and Go files, and the YAML and XML files of Camel routes. It skips test t
 ## 3. The map
 
 Write the map to `map.md`. It has this skeleton. Keep the thirteen level-2 sections,
-in this order, with these titles. Write `none found` as the one line of an empty section.
+in this order, with these titles. Write `none found` as the one line of an empty section. The skeleton
+shows the PlantUML sketches of an onboard map. A course map has the same skeleton with `mermaid` fences
+and the node ids of Mermaid.
 
 ````
 # Map: <id>
@@ -197,11 +260,10 @@ in this order, with these titles. Write `none found` as the one line of an empty
 - <key>: <fact> | <path>:<line> | <snippet>
 
 ## Architecture
-```mermaid
-flowchart LR
-  ...
+```plantuml
+component "<name>" as <id>
 ```
-- <node-id>: <fact> | <path>:<line> | <snippet>
+- <id>: <fact> | <path>:<line> | <snippet>
 
 ## Entry points
 - <kind> <name> -> <flow-id> | <path>:<line> | <snippet>
@@ -210,16 +272,16 @@ flowchart LR
 
 ## Flows
 ### <flow-id>: <question>
-```mermaid
-flowchart TD
-  ...
+```plantuml
+start
+:<label>;
+stop
 ```
-- <node-id>: <fact> | <path>:<line> | <snippet>
+- `<label>`: <fact> | <path>:<line> | <snippet>
 
 ## State
-```mermaid
-stateDiagram-v2
-  ...
+```plantuml
+[*] --> <STATE>
 ```
 - <state>: <fact> | <path>:<line> | <snippet>
 
@@ -306,15 +368,26 @@ give the format:
   The cite rules of every fact line apply to the lines of an entry.
 - A node fact line starts with the node id and a colon: `- <id>: <fact> | <path>:<line> | <snippet>`.
   Each node of the diagram above it has exactly one such line. Each such line names a node of that
-  diagram.
-- A flow id and a node id match `[a-z][a-z0-9_-]*`. The node ids are unique inside one diagram. A
-  subgraph id is not a node.
-- A diagram is one fenced block with the info string `mermaid`. Its first line is `flowchart TD`,
-  `flowchart LR` or `stateDiagram-v2`. `Architecture` holds one `flowchart`. Each
-  `### <flow-id>: <question>` under `Flows` holds one `flowchart`. `State` holds one
-  `stateDiagram-v2` or the line `none found`. In a `stateDiagram-v2`, each state other than `[*]` has
-  one fact line, with the state name as its key.
-- A flowchart has at most 25 nodes.
+  diagram. In an activity diagram the key is the label in backticks, verbatim:
+  `` - `<label>`: <fact> | <path>:<line> | <snippet> ``. The key of a fact line that starts with a
+  backtick is the text up to the closing backtick.
+- A flow id matches `[a-z][a-z0-9_-]*`. In a Mermaid diagram a node id matches the same pattern. The
+  node ids are unique inside one diagram. A subgraph id is not a node.
+- In a PlantUML diagram, a component id matches `[a-z][a-z0-9_]*` and a state id matches
+  `[A-Za-z_][A-Za-z0-9_]*`. An id outside its pattern fails as `bad id`. A label of an action holds no
+  backtick.
+- A diagram is one fenced block. In an onboard map its info string is `plantuml`. In a course map its
+  info string is `mermaid`, and its first line is `flowchart TD`, `flowchart LR` or `stateDiagram-v2`.
+  `Architecture` holds one component diagram. Each `### <flow-id>: <question>` under `Flows` holds one
+  activity diagram. `State` holds one state diagram or the line `none found`. In a state diagram, each
+  state other than `[*]` has one fact line, with the state name as its key.
+- The check reads the kind of a PlantUML fence from its text. It is an activity diagram when its first
+  statement is `start`. It is a state diagram when a line starts with `[*]` or `state `. It is a
+  component diagram when it declares a part or draws an edge between two ids. A fence of no kind fails
+  as `not a PlantUML kind`. A fence of the wrong kind for its place fails as `not activity`,
+  `not component` or `not state`.
+- A diagram has at most 25 nodes. In an activity diagram the nodes are the distinct labels of its
+  actions and conditions.
 - `Architecture`, `Flows` and `State` can hold the one line `none found` when the source has no code to
   trace. Examples are a docs repository and a config repository. The check accepts `none found` in
   these three sections and applies no diagram rule to them. When a docs source documents a request
@@ -330,8 +403,10 @@ give the format:
 - `Other systems` keeps the shape that `course_discover.py` reads: the handles in backticks in the fact
   part. Keep the title of this section.
 
-When the map is complete, run `onboard.py check map.md --root <root> --inventory inventory.txt`. It
-writes one failure on each line, then `onboard: ok` or `onboard: <n> failures` last. It exits with code
+When the map is complete, run
+`onboard.py check map.md --root <root> --inventory inventory.txt --notation plantuml`. A course map
+passes `--notation mermaid`. A fence of the other notation fails as `not plantuml` or `not mermaid`. The
+check writes one failure on each line, then `onboard: ok` or `onboard: <n> failures` last. It exits with code
 0 when the map passes and 1 when it finds failures. It exits with code 2 when it cannot read the map,
 the root or the inventory file.
 
@@ -342,8 +417,8 @@ The prefix of a line tells where the fault is:
 | Prefix | Meaning |
 |---|---|
 | `section: missing <title>` / `section: <title> out of order` | The level-2 skeleton. |
-| `diagram <where>: none` / `diagram <where>: not flowchart or stateDiagram-v2` / `diagram <where>: <n> nodes, more than 25` | A diagram. `<where>` is `architecture`, `state` or the flow id. |
-| `node <where>/<id>: no fact line` / `fact <where>/<id>: not a node` / `fact <where>/<id>: two lines` | The node lines and the fact lines. |
+| `diagram <where>: none` / `diagram <where>: not plantuml` / `diagram <where>: not mermaid` / `diagram <where>: not flowchart or stateDiagram-v2` / `diagram <where>: not a PlantUML kind` / `diagram <where>: not activity` / `diagram <where>: not component` / `diagram <where>: not state` / `diagram <where>: action over lines <n>-<m>` / `diagram <where>: style line <n>` / `diagram <where>: <n> nodes, more than 25` | A diagram. `<where>` is `architecture`, `state` or the flow id. An action over lines is a `:` line with no `;` on the same line. A style line is one of the lines that the renderer sets. |
+| `node <where>/<id>: no fact line` / `node <where>/<label>: flow <id> not in Flows` / `node architecture/<id>: not declared` / `node <where>/<id>: bad id` / `fact <where>/<id>: not a node` / `fact <where>/<id>: two lines` | The node lines and the fact lines. A `see <flow-id>` action names a flow that does not exist, or an id on an edge has no declaration, or an id is outside its pattern. In an activity diagram `<id>` is the label. |
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: the path is not under the root, the line is beyond the end, the snippet is not on that line, or it has more than 12 words. |
 | `entry #<n>: unknown kind <kind>` / `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |
 | `event <name>: twice` / `event <name>: missing <key>` / `event <name>: <key> twice` / `event <name> #<n>: unknown key <key>` / `event <name> #<n>: no component in backticks` / `event <name> #<n>: flow <id> not in Flows` / `event <name>: none found beside a line` | The entries of `Events`. |
