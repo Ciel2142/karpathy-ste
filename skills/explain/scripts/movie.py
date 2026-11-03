@@ -439,9 +439,13 @@ def status(movie_dir, movie):
 
 
 def _ts_string(text):
-    """`text` as a TypeScript string literal: a JSON string, with U+2028 and U+2029 escaped too."""
-    return (json.dumps(text, ensure_ascii=False)
-            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+    r"""`text` as a TypeScript string literal in which every UTF-16 code unit is a `\uXXXX`
+    escape. The literal then holds only a backslash, `u` and hex digits, so it can hold no token
+    and no import source of check_scene.py (each has a character outside that set), and the
+    stage draws the same text. A lone surrogate passes as its own escape."""
+    units = text.encode("utf-16-be", errors="surrogatepass")
+    return '"%s"' % "".join("\\u%02x%02x" % (units[k], units[k + 1])
+                            for k in range(0, len(units), 2))
 
 
 def _fill(value, values):

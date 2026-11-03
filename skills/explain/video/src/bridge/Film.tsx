@@ -4,8 +4,9 @@
 // go muted. Every text is 24 px or more (the clip floor is 19 px).
 //
 // movie.py bridges writes this file into bridges/<n>/scene/ and puts each label in place of its
-// placeholder string, as a JSON string literal. A label is wrapped here, at render time, into lines of at
-// most WRAP characters. The layout leaves room for two lines of a question and four of an answer.
+// placeholder string, as a literal with each UTF-16 code unit escaped (\uXXXX), so that no word of a
+// label reads as a refused token to check_scene.py. A label is wrapped here, at render time, into lines
+// of at most WRAP characters. The layout leaves room for two lines of a question and four of an answer.
 //
 // Every motion starts at a mark of `at`. A number written here is a length in frames or a place on the
 // stage, never a position in time.

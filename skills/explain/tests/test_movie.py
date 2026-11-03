@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -223,6 +224,15 @@ class BridgesCase(MovieCase):
     def film(self, n):
         return Path(self.dir, "bridges", n, "scene", "Film.tsx").read_text(encoding="utf-8")
 
+    def labels(self, n):
+        """{name: decoded text} of the label constants DONE, SOFAR and NEXT of bridge `n`'s scene."""
+        found = re.findall(r'^const (DONE|SOFAR|NEXT) = ("[^"\n]*");$', self.film(n), re.MULTILINE)
+        return {name: json.loads(literal) for name, literal in found}
+
+    def scene_ok(self, n):
+        done = check_scene(Path(self.dir, "bridges", n, "scene"))
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""), "bridge %s" % n)
+
     def files(self):
         """{path under bridges/: bytes} of every file the bridges wrote."""
         root = Path(self.dir, "bridges")
@@ -277,19 +287,36 @@ class BridgesCase(MovieCase):
         for directory in (Path(self.dir, "bridges", "1", "scene"), movie.BRIDGE_TEMPLATE_SCENE):
             done = check_scene(directory)
             self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""), directory)
-        film = self.film("1")
-        self.assertNotIn("{{", film)
-        for label in (self.chapter("members")["question"], self.movie["questions"][0]["answer"],
-                      self.chapter("trigger")["question"]):
-            self.assertIn(json.dumps(label), film)
+        self.assertNotIn("{{", self.film("1"))
+        self.assertEqual(self.labels("1"), {
+            "DONE": self.chapter("members")["question"],
+            "SOFAR": self.movie["questions"][0]["answer"],
+            "NEXT": self.chapter("trigger")["question"]})
 
     def test_bridge_label_escapes_quotes(self):
         question = 'Who is a "member" of the group a\\b?'
         self.chapter("members")["question"] = question
         self.bridges()
-        self.assertIn(json.dumps(question), self.film("1"))
-        done = check_scene(Path(self.dir, "bridges", "1", "scene"))
-        self.assertEqual((done.returncode, done.stdout), (0, ""))
+        self.assertEqual(self.labels("1")["DONE"], question)
+        self.scene_ok("1")
+
+    def test_bridge_labels_never_hold_a_refused_token(self):
+        # each label holds a token or an import source of check_scene.py when written as it reads
+        self.chapter("members")["question"] = "Can the group treat an event as any other message?"
+        self.chapter("trigger")["question"] = "Where does the offset come from"
+        self.chapter("split")["question"] = "What does https://kafka.apache.org say?"
+        self.chapter("pause")["question"] = \
+            "Is it an href, a clipPath, an <image, @ts-nocheck or 'x' from 'y' or require( import"
+        self.movie["questions"][0]["answer"] = "The rule: any member reads it, as unknown \U0001F600."
+        self.bridges()
+        chapters = self.movie["chapters"]
+        for n in (1, 2, 3):
+            self.scene_ok(str(n))
+            self.assertEqual(self.labels(str(n)), {
+                "DONE": chapters[n - 1]["question"],
+                "SOFAR": next(q["answer"] for q in self.movie["questions"]
+                              if q["id"] == chapters[n - 1]["answers"][0]),
+                "NEXT": chapters[n]["question"]})
 
     def test_bridges_refuses_a_plan_that_fails_check(self):
         self.chapter("pause")["answers"] = ["q-1", "q-2", "q-3"]
