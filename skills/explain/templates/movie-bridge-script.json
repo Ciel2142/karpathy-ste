@@ -1,0 +1,19 @@
+{
+  "format": "clip",
+  "title": "Bridge {{n}}",
+  "lang": "{{lang}}",
+  "subject": { "text": "{{subject_text}}", "kind": "{{subject_kind}}" },
+  "provenance": {
+    "root": "{{root}}",
+    "commit": "none",
+    "dirty": "no",
+    "date": "{{date}}",
+    "source": "movie.json",
+    "not_covered": "none"
+  },
+  "scenes": [
+    { "id": "done", "narration": "{{done_question}}" },
+    { "id": "sofar", "narration": "{{answer}}" },
+    { "id": "next", "narration": "{{next_question}}" }
+  ]
+}

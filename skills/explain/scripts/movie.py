@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Movie plan for `explain --as movie`: reads, writes and checks `movie.json`.
 
-Usage: see USAGE below (check, bridges, stitch, status). `check` and `status` are implemented here.
-Exit 0 on all ok, 1 on a failure found, 2 on a usage error or unreadable JSON.
+Usage: see USAGE below (check, bridges, stitch, status). `check`, `bridges` and `status` are
+implemented here. Exit 0 on all ok, 1 on a failure found, 2 on a usage error or unreadable JSON.
 
 `<dir>` is the movie output directory; it holds `movie.json`. `provenance.root` is absolute,
-or relative to `<dir>` (the test fixture uses `.`). Every write goes through `save`, which is
-atomic: a temporary file in the same directory, then `os.replace`.
+or relative to `<dir>` (the test fixture uses `.`). Every write is atomic: a temporary file in
+the same directory, then `os.replace` (`save` writes `movie.json` that way).
 
 `check` prints one failure per line, then `plan: ok (<q> questions, <c> chapters, <s> s target)`
 or `plan: <n> failures`. Failure prefixes are fixed: `schema:`, `id:`, `question <id>:`,
 `chapter <id>:`, `cite <question-id>#<n>:` (the rules of `cite_check`), `prose:` (an
 `ste_lint.py --html` error line) and `state:`.
+
+`bridges` refuses a plan that fails `check`: it prints the failures and the count line of
+`check`, exits 1 and writes nothing. Otherwise it writes, for each gap `<n>` between chapter
+`<n>` and chapter `<n+1>`, `bridges/<n>/script.json` (a clip, from BRIDGE_TEMPLATE_SCRIPT) and
+`bridges/<n>/scene/Film.tsx` (from BRIDGE_TEMPLATE_SCENE), then prints `bridges: ok (<n>)`.
+The values come from `movie.json` alone, so a second run writes the same bytes.
 """
 
 import html
@@ -45,6 +51,11 @@ ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 PROVENANCE_KEYS = ("root", "commit", "dirty", "date", "source", "not_covered")
 CHAPTER_TEXT = ("title", "question", "picture", "ends_with")
+SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BRIDGE_TEMPLATE_SCENE = os.path.join(SKILL_DIR, "video", "src", "bridge")
+BRIDGE_TEMPLATE_SCRIPT = os.path.join(SKILL_DIR, "templates", "movie-bridge-script.json")
+SCRIPT_PLACEHOLDER = re.compile(r"\{\{([a-z_]+)\}\}")  # inside a string of the script template
+SCENE_PLACEHOLDER = re.compile(r'"\{\{(done|sofar|next)\}\}"')  # a string literal of the scene
 
 
 class ReadError(Exception):
@@ -64,23 +75,30 @@ def load(movie_dir):
     return data
 
 
-def save(movie_dir, movie):
-    """Write `movie.json` atomically; on failure the old file stays and no temp is left."""
-    fd, temp = tempfile.mkstemp(prefix=".movie.", suffix=".tmp", dir=movie_dir)
+def _write_atomic(path, text):
+    """Write `text` to `path` through a temporary file in the same directory; on failure the old
+    file stays and no temp is left."""
+    fd, temp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".tmp",
+                                dir=os.path.dirname(path))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(movie, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
+            handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temp, 0o644)  # mkstemp makes 0600; keep movie.json readable
-        os.replace(temp, os.path.join(movie_dir, MOVIE_FILE))
+        os.chmod(temp, 0o644)  # mkstemp makes 0600; keep the file readable
+        os.replace(temp, path)
     except BaseException:
         try:
             os.unlink(temp)
         except OSError:
             pass
         raise
+
+
+def save(movie_dir, movie):
+    """Write `movie.json` atomically; on failure the old file stays and no temp is left."""
+    _write_atomic(os.path.join(movie_dir, MOVIE_FILE),
+                  json.dumps(movie, indent=2, ensure_ascii=False) + "\n")
 
 
 def resolve_root(movie_dir, root):
@@ -415,38 +433,132 @@ def status(movie_dir, movie):
     return lines
 
 
+# --- bridges --------------------------------------------------------------------------
+
+
+def _ts_string(text):
+    """`text` as a TypeScript string literal: a JSON string, with U+2028 and U+2029 escaped too."""
+    return (json.dumps(text, ensure_ascii=False)
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+
+
+def _fill(value, values):
+    """A copy of `value` (parsed JSON) with each `{{name}}` of its strings replaced by
+    `values[name]`, in one pass: a filled-in value is not read again for placeholders."""
+    if isinstance(value, dict):
+        return {key: _fill(item, values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_fill(item, values) for item in value]
+    if isinstance(value, str):
+        return SCRIPT_PLACEHOLDER.sub(lambda found: values[found.group(1)], value)
+    return value
+
+
+def _with_pronounce(script, pronounce):
+    """A copy of `script` with a copy of `pronounce` right after `lang`."""
+    result = {}
+    for key, value in script.items():
+        result[key] = value
+        if key == "lang":
+            result["pronounce"] = dict(pronounce)
+    return result
+
+
+def _bridge_labels(movie, n):
+    """The labels of bridge `n`: the question of chapter `n`, the answer of the first question it
+    answers, and the question of chapter `n + 1` (chapters count from 1)."""
+    before, after = movie["chapters"][n - 1], movie["chapters"][n]
+    answers = {question["id"]: question["answer"] for question in movie["questions"]}
+    return {"done": before["question"], "sofar": answers[before["answers"][0]],
+            "next": after["question"]}
+
+
+def bridges(movie_dir, movie):
+    """Write `bridges/<n>/script.json` and `bridges/<n>/scene/Film.tsx` for each gap between two
+    chapters of a plan that passes `check`; print `bridges: ok (<n>)` and return the ids written."""
+    with open(BRIDGE_TEMPLATE_SCRIPT, encoding="utf-8") as handle:
+        script_template = json.load(handle)
+    with open(os.path.join(BRIDGE_TEMPLATE_SCENE, "Film.tsx"), encoding="utf-8") as handle:
+        scene_template = handle.read()
+    provenance, subject = movie["provenance"], movie["subject"]
+    ids = []
+    for n in range(1, len(movie["chapters"])):
+        labels = _bridge_labels(movie, n)
+        script = _fill(script_template, {
+            "n": str(n), "lang": movie["lang"],
+            "subject_text": subject["text"], "subject_kind": subject["kind"],
+            "root": resolve_root(movie_dir, provenance["root"]), "date": provenance["date"],
+            "done_question": labels["done"], "answer": labels["sofar"],
+            "next_question": labels["next"]})
+        if movie["lang"] == "ru":
+            script = _with_pronounce(script, movie["pronounce"])
+        scene = SCENE_PLACEHOLDER.sub(lambda found: _ts_string(labels[found.group(1)]),
+                                      scene_template)
+        directory = os.path.join(movie_dir, "bridges", str(n))
+        os.makedirs(os.path.join(directory, "scene"), exist_ok=True)
+        _write_atomic(os.path.join(directory, "script.json"),
+                      json.dumps(script, indent=2, ensure_ascii=False) + "\n")
+        _write_atomic(os.path.join(directory, "scene", "Film.tsx"), scene)
+        ids.append(str(n))
+    sys.stdout.write("bridges: ok (%d)\n" % len(ids))
+    return ids
+
+
 # --- command line ---------------------------------------------------------------------
 
 
-def _command_check(args):
+def _load_arg(args):
+    """The movie of the one argument, or None after a usage or read error on stderr (exit 2)."""
     if len(args) != 1:
         sys.stderr.write(USAGE)
-        return 2
+        return None
     try:
-        movie = load(args[0])
+        return load(args[0])
     except ReadError as error:
         sys.stderr.write("movie: %s\n" % error)
-        return 2
-    failures = check(args[0], movie)
+        return None
+
+
+def _print_failures(failures):
+    """Print each failure, then the count line of `check`; return 1."""
     for failure in failures:
         sys.stdout.write(failure + "\n")
+    sys.stdout.write("plan: %d failures\n" % len(failures))
+    return 1
+
+
+def _command_check(args):
+    movie = _load_arg(args)
+    if movie is None:
+        return 2
+    failures = check(args[0], movie)
     if failures:
-        sys.stdout.write("plan: %d failures\n" % len(failures))
-        return 1
+        return _print_failures(failures)
     sys.stdout.write("plan: ok (%d questions, %d chapters, %d s target)\n" % (
         len(movie["questions"]), len(movie["chapters"]),
         sum(chapter["seconds"] for chapter in movie["chapters"])))
     return 0
 
 
-def _command_status(args):
-    if len(args) != 1:
-        sys.stderr.write(USAGE)
+def _command_bridges(args):
+    movie = _load_arg(args)
+    if movie is None:
         return 2
+    # the bridges are drawn only from a plan that checks clean: print the failures, write nothing
+    failures = check(args[0], movie)
+    if failures:
+        return _print_failures(failures)
     try:
-        movie = load(args[0])
-    except ReadError as error:
-        sys.stderr.write("movie: %s\n" % error)
+        bridges(args[0], movie)
+    except (OSError, ValueError) as error:
+        sys.stderr.write("movie: bridges: %s\n" % " ".join(str(error).split()))
+        return 2
+    return 0
+
+
+def _command_status(args):
+    movie = _load_arg(args)
+    if movie is None:
         return 2
     for line in status(args[0], movie):
         sys.stdout.write(line + "\n")
@@ -460,7 +572,7 @@ def _not_implemented(args):
 
 COMMANDS = {
     "check": _command_check,
-    "bridges": _not_implemented,
+    "bridges": _command_bridges,
     "stitch": _not_implemented,
     "status": _command_status,
 }

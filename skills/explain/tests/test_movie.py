@@ -1,4 +1,4 @@
-"""Tests for movie.py: load, atomic save and the plan check of `movie.json` (spec 4.2, 6).
+"""Tests for movie.py: load, atomic save, the plan check of `movie.json` and the bridges (spec 4.2, 4.4, 6).
 
 Each test copies `tests/fixtures/movie/` to a temporary directory, changes one thing and
 expects the failure line of that change. The fixture's `provenance.root` is `.`, so cites
@@ -10,6 +10,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import movie  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+CHECK_SCENE = FIXTURES.parent.parent / "video" / "check_scene.py"
 
 
 def run_cli(*argv):
@@ -140,7 +142,7 @@ class CheckCase(MovieCase):
     def test_usage_errors_exit_2(self):
         self.assertEqual(run_cli()[0], 2)
         self.assertEqual(run_cli("check")[0], 2)
-        self.assertEqual(run_cli("bridges", self.dir)[0], 2)
+        self.assertEqual(run_cli("bridges")[0], 2)
 
 
 class ChapterScriptCase(MovieCase):
@@ -198,6 +200,96 @@ class ChapterScriptCase(MovieCase):
             handle.write("{not json")
         code, out, _ = run_cli("status", self.dir)
         self.assertEqual((code, out), (2, ""))
+
+
+def check_scene(directory):
+    """check_scene.py on the scene directory `directory`, as test_check_scene.py runs it."""
+    return subprocess.run([sys.executable, "-B", str(CHECK_SCENE), str(directory)],
+                          capture_output=True, text=True, timeout=60)
+
+
+class BridgesCase(MovieCase):
+    def bridges(self):
+        """`movie.bridges` on the fixture copy: (the ids it returns, what it printed)."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ids = movie.bridges(self.dir, self.movie)
+        return ids, out.getvalue()
+
+    def script(self, n):
+        with open(os.path.join(self.dir, "bridges", n, "script.json"), encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def film(self, n):
+        return Path(self.dir, "bridges", n, "scene", "Film.tsx").read_text(encoding="utf-8")
+
+    def files(self):
+        """{path under bridges/: bytes} of every file the bridges wrote."""
+        root = Path(self.dir, "bridges")
+        return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+    def test_bridges_writes_one_per_gap(self):
+        self.assertEqual(self.bridges(), (["1", "2", "3"], "bridges: ok (3)\n"))
+        self.assertEqual(sorted(self.files()), [
+            "%s/%s" % (n, name) for n in ("1", "2", "3") for name in ("scene/Film.tsx", "script.json")])
+        script = self.script("2")
+        self.assertEqual(script["format"], "clip")
+        self.assertEqual(script["title"], "Bridge 2")
+        self.assertEqual([scene["id"] for scene in script["scenes"]], ["done", "sofar", "next"])
+        self.assertNotIn('"cites"', json.dumps(script))
+        narration = {scene["id"]: scene["narration"] for scene in script["scenes"]}
+        self.assertIn(self.chapter("trigger")["question"], narration["done"])
+        self.assertIn(self.movie["questions"][0]["answer"], narration["sofar"])  # trigger answers q-1
+        self.assertIn(self.chapter("split")["question"], narration["next"])
+        self.assertEqual(script["subject"], self.movie["subject"])
+        self.assertEqual(script["provenance"]["root"], os.path.abspath(self.dir))
+        self.assertEqual(script["provenance"]["date"], "2026-11-03")
+        self.assertEqual(script["provenance"]["not_covered"], "none")
+
+    def test_bridges_copies_pronounce_for_ru(self):
+        self.movie.update(lang="ru", pronounce={"Kafka": "Кафка"})
+        self.bridges()
+        for n in ("1", "2", "3"):
+            script = self.script(n)
+            self.assertEqual((script["lang"], script["pronounce"]), ("ru", {"Kafka": "Кафка"}))
+        self.movie.update(lang="en", pronounce={})
+        self.bridges()
+        for n in ("1", "2", "3"):
+            script = self.script(n)
+            self.assertEqual(script["lang"], "en")
+            self.assertNotIn("pronounce", script)
+
+    def test_bridges_is_idempotent(self):
+        self.assertEqual(run_cli("bridges", self.dir), (0, "bridges: ok (3)\n", ""))
+        first = self.files()
+        self.assertEqual(run_cli("bridges", self.dir), (0, "bridges: ok (3)\n", ""))
+        self.assertEqual(self.files(), first)
+
+    def test_bridge_scene_passes_check_scene(self):
+        self.bridges()
+        for directory in (Path(self.dir, "bridges", "1", "scene"), movie.BRIDGE_TEMPLATE_SCENE):
+            done = check_scene(directory)
+            self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""), directory)
+        film = self.film("1")
+        self.assertNotIn("{{", film)
+        for label in (self.chapter("members")["question"], self.movie["questions"][0]["answer"],
+                      self.chapter("trigger")["question"]):
+            self.assertIn(json.dumps(label), film)
+
+    def test_bridge_label_escapes_quotes(self):
+        question = 'Who is a "member" of the group a\\b?'
+        self.chapter("members")["question"] = question
+        self.bridges()
+        self.assertIn(json.dumps(question), self.film("1"))
+        done = check_scene(Path(self.dir, "bridges", "1", "scene"))
+        self.assertEqual((done.returncode, done.stdout), (0, ""))
+
+    def test_bridges_refuses_a_plan_that_fails_check(self):
+        self.chapter("pause")["answers"] = ["q-1", "q-2", "q-3"]
+        movie.save(self.dir, self.movie)
+        self.assertEqual(run_cli("bridges", self.dir), (1, "chapter pause: answers has 3 entries"
+                                                          " (max 2)\nplan: 1 failures\n", ""))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "bridges")))
 
 
 class SaveCase(MovieCase):
