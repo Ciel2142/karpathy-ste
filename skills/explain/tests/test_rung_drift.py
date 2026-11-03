@@ -1320,7 +1320,7 @@ COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory o
 AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard"
 
 # The row of the onboard rung in the rung table of SKILL.md, word for word.
-ONBOARD_ROW = ("| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). "
+ONBOARD_ROW = ("| `onboard` (Markdown page from a checked map, directory output) | Forced only (`--as onboard`). "
                "A service to onboard to: its architecture and every flow | One service directory |")
 
 
@@ -1459,8 +1459,10 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)
         flat = " ".join(text.split())
         for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
-                         "The `onboard` rung builds one page for one service from its map. Only `--as onboard` "
-                         "selects it. The onboard rung is English or Russian.",
+                         "The `onboard` rung builds one Markdown page for one service from its map, with PlantUML "
+                         "diagrams rendered to PNG. Only `--as onboard` selects it. The onboard rung is English "
+                         "or Russian.",
+                         "For an onboarding page, the rung file replaces steps 3 to 6.",
                          "Only the `lesson` and `course` rungs have a review."):
             self.assertIn(sentence, flat)
         contract = " ".join(section(text, "Contract").split())
@@ -1468,9 +1470,18 @@ class SkillMdCase(unittest.TestCase):
         self.assertEqual(re.findall(r"`([^`]+)`", names), AS_NAMES.split("|"))
         rows = [line for line in text.split("\n") if line.startswith("| `onboard` ")]
         self.assertEqual(rows, [ONBOARD_ROW])
+        conventions = " ".join(section(text, "Conventions").split())
+        for sentence in ("For the `onboard` rung, the page is `page.md` and passes `ste_lint.py` without `--html`.",
+                         "For the `onboard` rung, the cites live in the map and the page holds none.",
+                         "For the `onboard` rung, the artifact is the output directory (`page.md` and "
+                         "`diagrams/*.png`).",
+                         "For the `onboard` rung, the checks are `onboard.py check`, `puml.py render`, "
+                         "`onboard.py page` and the lint.",
+                         "For the `onboard` rung, the handoff opens the output directory."):
+            self.assertEqual(conventions.count(sentence), 1, sentence)
         onboard = self.bullets()["<skill-dir>/rungs/onboard.md"]
-        for word in ("map", "inventory", "check"):
-            self.assertIn(word, onboard)
+        for phrase in ("the map and its check", "the PlantUML diagrams", "`page.md` and its check"):
+            self.assertIn(phrase, onboard)
         self.assertTrue((EXPLAIN / "rungs" / "onboard.md").is_file(), "rungs/onboard.md does not exist")
 
     # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
@@ -1503,13 +1514,16 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("tests.test_lesson_e2e", readme)
 
     # red: the README without `--as onboard`, the Requirements row of `onboard` missing or reworded, or the
-    # layout block without scripts/{onboard,mermaid_svg}.py
+    # layout block without scripts/{onboard,onboard_page,puml,mermaid_svg}.py
     def test_readme_names_the_onboard_rung(self):
         readme = read(README_MD)
         self.assertIn("`--as onboard`", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `onboard` |")]
-        self.assertEqual(rows, ["| `onboard` | the needs of `page` |"])
-        self.assertIn("scripts/{onboard,mermaid_svg}.py", readme)
+        self.assertEqual(rows, ["| `onboard` | `python3`, and `plantuml` on `PATH` (Homebrew); no Chrome |"])
+        self.assertIn("scripts/{onboard,onboard_page,puml,mermaid_svg}.py", readme)
+        self.assertIn("then a Markdown page for Confluence with its architecture, every entry point and every "
+                      "flow as PlantUML diagrams rendered to PNG; the page holds no cites, the map does)",
+                      " ".join(readme.split()))
 
 
 class HtmlLangCase(unittest.TestCase):
