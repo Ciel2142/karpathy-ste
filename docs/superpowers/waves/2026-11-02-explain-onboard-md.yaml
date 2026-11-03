@@ -25,6 +25,10 @@ coverage: waived
 # Wave onboard-puml: epic kp-y3fh, done 2026-11-02 at d12d10f. Its whole-branch review found that
 # the new `scripts/onboard_page.py` shadowed the test helper `tests/onboard_page.py`, so the helper
 # is now `tests/onboard_html_page.py` (same content); wave onboard-md-page removes it under that name.
+# Wave onboard-md-page: epic kp-0udr, done 2026-11-04 at 6874462. Its whole-branch review added four
+# fixes before the live run: the rung expands `puml.py render` beside `onboard.py`, step 5 lists the
+# page-check prefixes and the exact name rule, a command counts as inline only inside a backtick span,
+# and a flow heading is compared stripped. Leftovers (polish, no live-run effect): kp-ed4j.
 waves:
   - id: onboard-puml
     slice: vertical
@@ -92,7 +96,7 @@ waves:
       `--notation mermaid` and the override; `ste_lint.py` prints `0 errors` for `rungs/onboard.md`,
       `course/map-task.md` and `SKILL.md`; `grep -rn 'onboard' scripts/verify.sh scripts/bpmn.py
       templates/page.html` and `grep -n 'table.matrix' templates/page.html` print nothing.
-    status: pending
+    status: done
     depends_on: [onboard-puml]
     owns:
       - skills/explain/scripts/onboard_page.py (the page command), skills/explain/scripts/onboard.py (the page subcommand)
