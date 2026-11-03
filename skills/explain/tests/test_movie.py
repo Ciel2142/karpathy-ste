@@ -450,6 +450,18 @@ class StitchCase(MovieCase):
         self.assertTrue(self.exists("video.mp4"))
         self.assertFalse(self.exists(CONCAT_OUT))
 
+    def test_chapter_starts_are_the_plain_sums(self):
+        # real durations are AAC-frame multiples with six decimals: a start is their sum, unrounded
+        self.build_all()
+        durations = [61.344, 8.021333] * 3 + [61.344]
+        code, _, _ = self.stitch(self.probes(durations))
+        self.assertEqual(code, 0)
+        text = Path(self.dir, "chapters.json").read_text(encoding="utf-8")
+        self.assertIn('"start": 0.0', text)
+        starts = [chapter["start"] for chapter in json.loads(text)]
+        self.assertEqual(starts, [0.0] + [sum(durations[:index]) for index in (2, 4, 6)])
+        self.assertEqual(starts[1], 61.344 + 8.021333)
+
     def test_stitch_reports_a_short_movie(self):
         self.build_all()
         code, out, _ = self.stitch(self.probes([5] * 7))

@@ -23,9 +23,9 @@ subject is the movie's subject text with kind `topic`: a bridge cites nothing, a
 timeline check allows a scene without cites only for a topic.
 
 `stitch` joins chapter 1, bridge 1, chapter 2, ..., chapter n into `video.mp4` and writes
-`chapters.json` (`[{"id", "title", "start"}]`, the start in seconds being the sum of the
-durations of the parts before the chapter, rounded to the millisecond). It does not run
-`check`. It prints one line per stage, in this order; the first FAIL stops it with exit 1:
+`chapters.json` (`[{"id", "title", "start"}]`, the start being the float sum, unrounded, of
+the durations in seconds of the parts before the chapter). It does not run `check`. It
+prints one line per stage, in this order; the first FAIL stops it with exit 1:
   parts: ok (<n>) | FAIL chapter <id> is <status>, not built | FAIL <part> missing
          | FAIL <part> <what> differs | FAIL <part> <probe cause> | FAIL no chapters
   concat: ok (<s> s) | FAIL ffmpeg exit <n>
@@ -651,8 +651,9 @@ def concat_list(paths):
 
 
 def _starts(durations):
-    """The start second of each chapter: chapter k is part 2k, after the parts before it."""
-    return [round(sum(durations[:index]), 3) for index in range(0, len(durations), 2)]
+    """The start of each chapter: chapter k is part 2k, so its start is the float sum of the
+    durations of parts 0 to 2k - 1, not rounded (0.0 for the first)."""
+    return [float(sum(durations[:index])) for index in range(0, len(durations), 2)]
 
 
 # Each stage takes the facts of the stages before it and returns (the text after `ok `, its own
