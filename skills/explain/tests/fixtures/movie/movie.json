@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "title": "How a consumer group rebalances",
+  "question": "What happens to the partitions of a group when a consumer joins or leaves?",
+  "lang": "en",
+  "pronounce": {},
+  "review": false,
+  "subject": {"text": "consumer group rebalance", "kind": "topic"},
+  "provenance": {
+    "root": ".",
+    "commit": "none",
+    "dirty": "no",
+    "date": "2026-11-03",
+    "source": "model knowledge",
+    "not_covered": "none"
+  },
+  "state": "planned",
+  "questions": [
+    {
+      "id": "q-1",
+      "text": "What starts a rebalance?",
+      "answer": "A member joins, leaves, or misses its heartbeat.",
+      "cites": []
+    },
+    {
+      "id": "q-2",
+      "text": "Who decides the new split?",
+      "answer": "The group leader decides the split. The coordinator sends it out.",
+      "cites": []
+    },
+    {
+      "id": "q-3",
+      "text": "What does a consumer do during the pause?",
+      "answer": "It stops work and waits for its new partitions.",
+      "cites": []
+    }
+  ],
+  "chapters": [
+    {
+      "id": "members",
+      "title": "The members",
+      "question": "Who is in a group?",
+      "answers": ["q-1"],
+      "seconds": 60,
+      "picture": "Three consumers as yellow boxes on the left. Six partitions as a column on the right.",
+      "ends_with": "Each consumer owns two partitions, drawn as lines.",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "id": "trigger",
+      "title": "The trigger",
+      "question": "What makes the group change?",
+      "answers": ["q-1"],
+      "seconds": 60,
+      "picture": "The same boxes. One consumer box turns grey.",
+      "ends_with": "The grey box leaves the group.",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "id": "split",
+      "title": "The new split",
+      "question": "Who decides the new split?",
+      "answers": ["q-2"],
+      "seconds": 60,
+      "picture": "Two consumer boxes and six partitions. A crown sits on one box.",
+      "ends_with": "Each of the two boxes owns three partitions.",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "id": "pause",
+      "title": "The pause",
+      "question": "What does a consumer do while it waits?",
+      "answers": ["q-2", "q-3"],
+      "seconds": 60,
+      "picture": "All lines are gone. The boxes wait.",
+      "ends_with": "New lines join the boxes to their partitions.",
+      "status": "pending",
+      "reason": ""
+    }
+  ]
+}
