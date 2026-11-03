@@ -13,7 +13,8 @@ Exit 0 on success, 1 when a place holds a Mermaid diagram (`diagrams: <where>: n
 
 The page model and the structural checks of `onboard.py page` (spec sections 9 and 10.1): `page_lines_of` turns a
 page into classified lines, and the six functions `title_lines`, `answer_lines`, `command_lines`,
-`paragraph_lines`, `html_lines` and `cite_lines` each return the failure lines of one check.
+`paragraph_lines`, `html_lines` and `cite_lines` each return the failure lines of one check; `image_lines`,
+`puml_lines` and `flow_lines` return those of the diagram files, the image lines and the flow sections.
 """
 
 import argparse
@@ -184,3 +185,95 @@ def cite_lines(lines: list[Line]) -> list[str]:
     """`cite <n>: map line on the page` for a line outside code of the shape `... | <path>:<n> | ...`."""
     return ["cite %d: map line on the page" % line.n
             for line in lines if line.kind != "code" and CITE_LINE.search(line.text)]
+
+
+def _image_paths(lines: list[Line]) -> list[tuple[int, str]]:
+    """The line number and path of each image line, in page order."""
+    return [(line.n, IMAGE.match(line.text).group(2)) for line in lines if line.kind == "image"]
+
+
+def _png_id(path: str) -> str | None:
+    """The diagram id of an image path: the basename without `.png`; None for another file."""
+    name = os.path.basename(path)
+    return name[:-len(".png")] if name.endswith(".png") else None
+
+
+def image_lines(lines: list[Line], files: dict[str, str], directory: str) -> list[str]:
+    """The image failures: an id of the map with no image line or two, an image line that is not under
+    `diagrams/`, not in the map or without its PNG in `directory`, and a PNG of `directory` with no image line."""
+    images = _image_paths(lines)
+    failures = []
+    for ident in files:
+        count = sum(path == "diagrams/%s.png" % ident for _, path in images)
+        if count == 0:
+            failures.append("diagram %s: no image line" % ident)
+        elif count > 1:
+            failures.append("diagram %s: image line twice" % ident)
+    for _, path in images:
+        ident = _png_id(path)
+        if not path.startswith("diagrams/"):
+            failures.append("image %s: not under diagrams/" % path)
+        elif ident not in files:
+            failures.append("image %s: not in the map" % path)
+        elif not os.path.isfile(os.path.join(directory, ident + ".png")):
+            failures.append("image %s: no file" % path)
+    shown = {_png_id(path) for _, path in images if path.startswith("diagrams/")}
+    pngs = _stems(directory, ".png")
+    return failures + ["png %s: no image line" % ident for ident in pngs if ident not in shown]
+
+
+def _stems(directory: str, suffix: str) -> list[str]:
+    """The sorted names of the files of `directory` that end in `suffix`, without it; a missing directory holds none."""
+    try:
+        names = os.listdir(directory)
+    except FileNotFoundError:
+        return []
+    return sorted(name[:-len(suffix)] for name in names if name.endswith(suffix))
+
+
+def _read(path: str) -> str | None:
+    """The text of a file, or None when there is no such file."""
+    try:
+        with open(path, encoding="utf-8", newline="") as handle:
+            return handle.read()
+    except FileNotFoundError:
+        return None
+
+
+def puml_lines(files: dict[str, str], directory: str) -> list[str]:
+    """The `.puml` failures: an id of the map with no file or a file that differs byte for byte, then each
+    `.puml` of `directory` that no id of the map owns."""
+    failures = []
+    for ident, body in files.items():
+        found = _read(os.path.join(directory, ident + ".puml"))
+        if found is None:
+            failures.append("diagram %s: no puml" % ident)
+        elif found != body:
+            failures.append("diagram %s: differs from the map" % ident)
+    return failures + ["puml %s: not in the map" % ident for ident in _stems(directory, ".puml") if ident not in files]
+
+
+def flow_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
+    """The flow-section failures: a flow with no `## <question>` heading, a flow whose image line is on the page but
+    not under its heading, and, once, flow headings that are not in map order."""
+    section = doc.section("Flows")
+    flows = [flow for flow in section.flows if flow.ident] if section else []
+    headings = [line for line in lines if line.kind == "heading2"]
+    images = _image_paths(lines)
+    failures, present = [], []
+    for flow in flows:
+        at = next((i for i, line in enumerate(headings)
+                   if line.text.startswith("## ") and line.text[3:] == flow.question), None)
+        if at is None:
+            failures.append("flow %s: no section" % flow.ident)
+            continue
+        present.append(headings[at].n)
+        end = headings[at + 1].n if at + 1 < len(headings) else float("inf")
+        path = "diagrams/flow-%s.png" % flow.ident
+        if path not in {found for _, found in images}:
+            continue  # `image_lines` reports a flow whose image line is missing
+        if not any(headings[at].n < n < end and found == path for n, found in images):
+            failures.append("flow %s: image outside its section" % flow.ident)
+    if present != sorted(present):
+        failures.append("flows: out of map order")
+    return failures

@@ -5,6 +5,7 @@ import contextlib
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,22 @@ def structure(text):
     return (onboard_page.title_lines(found) + onboard_page.answer_lines(found)
             + onboard_page.command_lines(found, doc) + onboard_page.paragraph_lines(found)
             + onboard_page.html_lines(found) + onboard_page.cite_lines(found))
+
+
+def page_dir(page=PAGE, map_text=MAP_PUML, pngs=None):
+    """A temporary directory holding page.md, map.md, the .puml files of the map and a PNG stub per id (or per
+    id of `pngs`); it is removed when the test ends (the caller registers the cleanup through the case)."""
+    folder = tempfile.mkdtemp()
+    out = os.path.join(folder, "diagrams")
+    os.makedirs(out)
+    files = onboard_page.diagram_files(onboard.parse_map(map_text))
+    Path(folder, "page.md").write_text(page, encoding="utf-8")
+    Path(folder, "map.md").write_text(map_text, encoding="utf-8")
+    for ident, body in files.items():
+        Path(out, ident + ".puml").write_text(body, encoding="utf-8")
+    for ident in (files if pngs is None else pngs):
+        Path(out, ident + ".png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    return folder
 
 
 class DiagramsCase(unittest.TestCase):
@@ -209,6 +226,112 @@ class PageModelCase(unittest.TestCase):
         done = subprocess.run([sys.executable, "../ste/scripts/ste_lint.py", str(FIXTURES / "page.md")],
                               cwd=str(EXPLAIN), capture_output=True, text=True, timeout=60)
         self.assertEqual((done.returncode, done.stdout.strip()), (0, "0 errors, 0 warnings"), done.stdout)
+
+
+class PageDiagramsCase(unittest.TestCase):
+    def check(self, page=PAGE, map_text=MAP_PUML, pngs=None, extra=None):
+        """The failures of the three diagram checks on `page`; `extra` maps a file name under diagrams/ to bytes."""
+        folder = page_dir(page, map_text, pngs)
+        self.addCleanup(shutil.rmtree, folder, True)
+        out = os.path.join(folder, "diagrams")
+        for name, body in (extra or {}).items():
+            Path(out, name).write_bytes(body)
+        doc = onboard.parse_map(map_text)
+        found, files = lines(page), onboard_page.diagram_files(doc)
+        return (onboard_page.image_lines(found, files, out) + onboard_page.puml_lines(files, out)
+                + onboard_page.flow_lines(found, doc))
+
+    def test_fixture_page_has_no_diagram_failure(self):
+        self.assertEqual(self.check(), [])
+
+    def test_missing_image_line(self):
+        page = PAGE.replace("![An order starts as NEW, becomes PAID and then SHIPPED, or it becomes CANCELLED.]"
+                            "(diagrams/state.png)\n", "")
+        self.assertEqual(self.check(page), ["diagram state: no image line", "png state: no image line"])
+
+    def test_image_line_twice(self):
+        image = "![c](diagrams/state.png)\n"
+        self.assertEqual(self.check(PAGE + "\n" + image), ["diagram state: image line twice"])
+
+    def test_image_outside_diagrams(self):
+        page = PAGE + "\n![c](pictures/x.png)\n"
+        self.assertEqual(self.check(page), ["image pictures/x.png: not under diagrams/"])
+
+    def test_image_not_in_the_map(self):
+        page = PAGE + "\n![c](diagrams/flow-refund.png)\n"
+        self.assertEqual(self.check(page), ["image diagrams/flow-refund.png: not in the map"])
+
+    def test_image_that_is_not_a_png_is_not_in_the_map(self):
+        page = PAGE + "\n![c](diagrams/state.svg)\n"
+        self.assertEqual(self.check(page), ["image diagrams/state.svg: not in the map"])
+
+    def test_image_without_a_file(self):
+        self.assertEqual(self.check(pngs=["architecture"]),
+                         ["image diagrams/flow-order.png: no file", "image diagrams/flow-cancel.png: no file",
+                          "image diagrams/state.png: no file"])
+
+    def test_png_without_an_image_line(self):
+        self.assertEqual(self.check(extra={"old.png": b"x"}), ["png old: no image line"])
+
+    def test_caption_with_parentheses(self):
+        page = PAGE.replace("![The order controller reads", "![The order controller (v2) reads")
+        self.assertEqual(self.check(page), [])
+        page = PAGE.replace("![An order goes through", "![the order flow (v2)](diagrams/flow-order.png)\n\n"
+                            "![An order goes through", 1)
+        self.assertEqual(self.check(page), ["diagram flow-order: image line twice"])
+
+    def test_missing_diagrams_directory_is_empty(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        out = os.path.join(folder, "diagrams")
+        shutil.rmtree(out)
+        files = onboard_page.diagram_files(onboard.parse_map(MAP_PUML))
+        self.assertEqual(onboard_page.image_lines(lines(PAGE), files, out),
+                         ["image diagrams/%s.png: no file" % ident for ident in files])
+        self.assertEqual(onboard_page.puml_lines(files, out), ["diagram %s: no puml" % ident for ident in files])
+
+    def test_puml_missing(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        os.remove(os.path.join(folder, "diagrams", "flow-cancel.puml"))
+        files = onboard_page.diagram_files(onboard.parse_map(MAP_PUML))
+        self.assertEqual(onboard_page.puml_lines(files, os.path.join(folder, "diagrams")),
+                         ["diagram flow-cancel: no puml"])
+
+    def test_puml_differs(self):
+        folder = page_dir()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = Path(folder, "diagrams", "state.puml")
+        path.write_text(path.read_text(encoding="utf-8").replace("NEW", "NOW", 1), encoding="utf-8")
+        files = onboard_page.diagram_files(onboard.parse_map(MAP_PUML))
+        self.assertEqual(onboard_page.puml_lines(files, str(path.parent)), ["diagram state: differs from the map"])
+
+    def test_puml_not_in_the_map(self):
+        self.assertEqual(self.check(extra={"old.puml": b"x"}), ["puml old: not in the map"])
+
+    def test_flow_without_a_section(self):
+        page = PAGE.replace("## How is an order cancelled?", "## How is an order dropped?")
+        self.assertEqual(self.check(page), ["flow cancel: no section"])
+
+    def test_flow_without_an_image_line_has_no_flow_failure(self):
+        cancel = ("![The listener keeps a shipped order and sets the status of any other order to CANCELLED.]"
+                  "(diagrams/flow-cancel.png)\n")
+        self.assertEqual(self.check(PAGE.replace(cancel, "")),
+                         ["diagram flow-cancel: no image line", "png flow-cancel: no image line"])
+
+    def test_image_outside_its_section(self):
+        cancel = ("![The listener keeps a shipped order and sets the status of any other order to CANCELLED.]"
+                  "(diagrams/flow-cancel.png)\n")
+        page = PAGE.replace(cancel, "")
+        page = page.replace("## What happens to a new order?\n", "## What happens to a new order?\n\n" + cancel)
+        self.assertEqual(self.check(page), ["flow cancel: image outside its section"])
+
+    def test_flows_out_of_map_order(self):
+        order = PAGE.index("## What happens to a new order?")
+        cancel = PAGE.index("## How is an order cancelled?")
+        state = PAGE.index("## Which states does an order go through?")
+        page = PAGE[:order] + PAGE[cancel:state] + PAGE[order:cancel] + PAGE[state:]
+        self.assertEqual(self.check(page), ["flows: out of map order"])
 
 
 if __name__ == "__main__":
