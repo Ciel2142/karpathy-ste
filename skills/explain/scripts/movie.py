@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Movie plan for `explain --as movie`: reads, writes and checks `movie.json`.
+"""Movie plan for `explain --as movie`: reads, writes and checks `movie.json`, writes the
+bridges and stitches the movie.
 
-Usage: see USAGE below (check, bridges, stitch, status). `check`, `bridges` and `status` are
-implemented here. Exit 0 on all ok, 1 on a failure found, 2 on a usage error or unreadable JSON.
+Usage: see USAGE below (check, bridges, stitch, status). Exit 0 on all ok, 1 on a failure
+found, 2 on a usage error, unreadable JSON or (for `stitch`) no Remotion CLI.
 
 `<dir>` is the movie output directory; it holds `movie.json`. `provenance.root` is absolute,
 or relative to `<dir>` (the test fixture uses `.`). Every write is atomic: a temporary file in
@@ -20,6 +21,31 @@ or `plan: <n> failures`. Failure prefixes are fixed: `schema:`, `id:`, `question
 The values come from `movie.json` alone, so a second run writes the same bytes. A bridge's
 subject is the movie's subject text with kind `topic`: a bridge cites nothing, and the
 timeline check allows a scene without cites only for a topic.
+
+`stitch` joins chapter 1, bridge 1, chapter 2, ..., chapter n into `video.mp4` and writes
+`chapters.json` (`[{"id", "title", "start"}]`, the start in seconds being the sum of the
+durations of the parts before the chapter, rounded to the millisecond). It does not run
+`check`. It prints one line per stage, in this order; the first FAIL stops it with exit 1:
+  parts: ok (<n>) | FAIL chapter <id> is <status>, not built | FAIL <part> missing
+         | FAIL <part> <what> differs | FAIL <part> <probe cause> | FAIL no chapters
+  concat: ok (<s> s) | FAIL ffmpeg exit <n>
+  container: ok (<s> s) | FAIL streams <types> (expected one video and one audio)
+         | FAIL duration <d> s, expected <s> s | FAIL <probe cause>
+  length: ok (<s> s) | FAIL <s> s (min 240, max 900)
+Every chapter must be `built` before any part is looked at; then every part must have its
+`video.mp4`, and each part's probe must match the first part's in `<what>`: video codec, audio
+codec, width, height, frame rate, audio rate. `<part>` is the path under `<dir>`
+(`bridges/1/video.mp4`); a `<probe cause>` is `ffprobe exit <n>` or `ffprobe output unreadable`.
+`concat` writes `build/concat.txt` and runs ffmpeg with the concat demuxer and stream copy into
+`build/video.part.mp4`; its seconds are the sum of the parts. `container` probes that file:
+one video and one audio stream, a duration within 0.5 s of the sum; then it replaces
+`video.mp4` with it and writes `chapters.json`, so a stitch that fails earlier leaves the old
+`video.mp4`. `length` is last and only sets the exit code, on the container's duration.
+Seconds print with one decimal. ffprobe (`-of json`) and ffmpeg are those of the Remotion CLI,
+`<ws>/app/node_modules/.bin/remotion` with `<ws>` from `$EXPLAIN_VIDEO_WORKSPACE`, else
+`~/karpathy/video-workspace`; they run with cwd `<ws>/app` and stdin from /dev/null, as
+check_render.sh runs them, through `run`, the one subprocess seam of the stitch. Without the
+CLI, `stitch` prints `no Remotion CLI at <path>` on stderr and exits 2.
 """
 
 import html
@@ -58,6 +84,13 @@ BRIDGE_TEMPLATE_SCENE = os.path.join(SKILL_DIR, "video", "src", "bridge")
 BRIDGE_TEMPLATE_SCRIPT = os.path.join(SKILL_DIR, "templates", "movie-bridge-script.json")
 SCRIPT_PLACEHOLDER = re.compile(r"\{\{([a-z_]+)\}\}")  # inside a string of the script template
 SCENE_PLACEHOLDER = re.compile(r'"\{\{(done|sofar|next)\}\}"')  # a string literal of the scene
+REMOTION_IN_APP = ("node_modules", ".bin", "remotion")  # the Remotion CLI under <workspace>/app
+PROBE_ENTRIES = "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate:format=duration"
+PART_FIELDS = (("vcodec", "video codec"), ("acodec", "audio codec"), ("width", "width"),
+               ("height", "height"), ("fps", "frame rate"), ("rate", "audio rate"))
+LENGTH_SLACK = 0.5  # seconds the concat may differ from the sum of its parts
+BUILD_DIR, CONCAT_FILE, PART_FILE = "build", "concat.txt", "video.part.mp4"
+VIDEO_FILE, CHAPTERS_FILE = "video.mp4", "chapters.json"
 
 
 class ReadError(Exception):
@@ -510,6 +543,205 @@ def bridges(movie_dir, movie):
     return ids
 
 
+# --- stitch ---------------------------------------------------------------------------
+
+
+class StitchError(Exception):
+    """A stage of `stitch` refuses; the message is the cause of its FAIL line."""
+
+
+def video_workspace():
+    """The video workspace root as check_render.sh finds it: `$EXPLAIN_VIDEO_WORKSPACE`, else
+    `~/karpathy/video-workspace`."""
+    return os.environ.get("EXPLAIN_VIDEO_WORKSPACE") or os.path.join(
+        os.path.expanduser("~"), "karpathy", "video-workspace")
+
+
+def remotion_cli(workspace):
+    """The argv prefix of the Remotion CLI of `workspace`; FileNotFoundError
+    `no Remotion CLI at <path>` when it is not an executable file."""
+    path = os.path.join(os.path.abspath(workspace), "app", *REMOTION_IN_APP)
+    if not (os.path.isfile(path) and os.access(path, os.X_OK)):
+        raise FileNotFoundError("no Remotion CLI at %s" % path)
+    return [path]
+
+
+def run(argv, cwd):
+    """Run `argv` in `cwd` with stdin from /dev/null (ffmpeg reads keys from stdin) and stderr
+    passed through; return (exit code, stdout). The one subprocess seam of `stitch`."""
+    done = subprocess.run(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          encoding="utf-8", errors="replace", check=False)
+    return done.returncode, done.stdout
+
+
+def _remotion(cli, args):
+    """`run` the Remotion CLI `cli` with `args` and cwd `<ws>/app`, the directory that holds
+    its node_modules."""
+    app = cli[0]
+    for _ in REMOTION_IN_APP:
+        app = os.path.dirname(app)
+    return run(cli + args, app)
+
+
+def _ffprobe(cli, mp4):
+    """The parsed ffprobe JSON of `mp4` (an absolute path); StitchError on a non-zero exit or
+    output that is not a JSON object."""
+    code, out = _remotion(cli, ["ffprobe", "-v", "error", "-show_entries", PROBE_ENTRIES,
+                                "-of", "json", mp4])
+    if code != 0:
+        raise StitchError("ffprobe exit %d" % code)
+    try:
+        data = json.loads(out)
+    except ValueError as error:
+        raise StitchError("ffprobe output unreadable") from error
+    if not isinstance(data, dict):
+        raise StitchError("ffprobe output unreadable")
+    return data
+
+
+def _probe_fields(data):
+    """The `probe` dict of parsed ffprobe JSON, from its first video and first audio stream."""
+    streams = _objects(data.get("streams"))
+    video = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
+    audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
+    try:
+        duration = float(data["format"]["duration"])
+        rate = int(audio["sample_rate"]) if "sample_rate" in audio else None
+    except (KeyError, TypeError, ValueError) as error:
+        raise StitchError("ffprobe output unreadable") from error
+    return {"vcodec": video.get("codec_name"), "acodec": audio.get("codec_name"),
+            "width": video.get("width"), "height": video.get("height"),
+            "fps": video.get("r_frame_rate"), "rate": rate, "duration": duration}
+
+
+def probe(cli, mp4):
+    """`mp4` through ffprobe: `vcodec` and `acodec` (codec names), `width` and `height` (ints),
+    `fps` (the r_frame_rate string as ffprobe gives it, `30/1`), `rate` (the audio sample rate,
+    an int) and `duration` (float seconds). A field of an absent stream is None. StitchError
+    `ffprobe exit <n>` or `ffprobe output unreadable`."""
+    return _probe_fields(_ffprobe(cli, mp4))
+
+
+def parts(movie_dir, movie):
+    """The parts of the movie in order, as paths under `movie_dir`: chapter 1, bridge 1,
+    chapter 2, ..., chapter n. StitchError names the first chapter that is not `built`, else
+    the first part without its `video.mp4`."""
+    chapters = _objects(movie.get("chapters"))
+    if not chapters:
+        raise StitchError("no chapters")
+    for index, chapter in enumerate(chapters):
+        if chapter.get("status") != "built":
+            raise StitchError("chapter %s is %s, not built"
+                              % (_label(chapter, index), chapter.get("status")))
+    names = []
+    for index, chapter in enumerate(chapters):
+        if index:
+            names.append("bridges/%d/%s" % (index, VIDEO_FILE))
+        names.append("chapters/%s/%s" % (_label(chapter, index), VIDEO_FILE))
+    for name in names:
+        if not os.path.isfile(os.path.join(movie_dir, name)):
+            raise StitchError("%s missing" % name)
+    return names
+
+
+def concat_list(paths):
+    r"""The text of `build/concat.txt` for the ffmpeg concat demuxer: one `file '<path>'` line
+    per path, each `'` of a path written as `'\''` (close the quote, an escaped quote, reopen)."""
+    return "".join("file '%s'\n" % path.replace("'", "'\\''") for path in paths)
+
+
+def _starts(durations):
+    """The start second of each chapter: chapter k is part 2k, after the parts before it."""
+    return [round(sum(durations[:index]), 3) for index in range(0, len(durations), 2)]
+
+
+# Each stage takes the facts of the stages before it and returns (the text after `ok `, its own
+# facts); a StitchError is its FAIL cause. The later stages print between `container` and
+# `length`.
+
+
+def _stage_parts(job):
+    names = parts(job["dir"], job["movie"])
+    probes = []
+    for name in names:
+        try:
+            probes.append(probe(job["cli"], os.path.join(job["dir"], name)))
+        except StitchError as error:
+            raise StitchError("%s %s" % (name, error)) from error
+    for name, found in zip(names[1:], probes[1:]):
+        for key, what in PART_FIELDS:
+            if found[key] != probes[0][key]:
+                raise StitchError("%s %s differs" % (name, what))
+    return "(%d)" % len(names), {"parts": names,
+                                 "durations": [found["duration"] for found in probes]}
+
+
+def _stage_concat(job):
+    build = os.path.join(job["dir"], BUILD_DIR)
+    os.makedirs(build, exist_ok=True)
+    listing = os.path.join(build, CONCAT_FILE)
+    _write_atomic(listing, concat_list([os.path.join(job["dir"], name) for name in job["parts"]]))
+    code, _ = _remotion(job["cli"], ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0",
+                                     "-i", listing, "-c", "copy", os.path.join(build, PART_FILE)])
+    if code != 0:
+        raise StitchError("ffmpeg exit %d" % code)
+    total = sum(job["durations"])
+    return "(%.1f s)" % total, {"total": total}
+
+
+def _stage_container(job):
+    part = os.path.join(job["dir"], BUILD_DIR, PART_FILE)
+    data = _ffprobe(job["cli"], part)
+    kinds = sorted(str(stream.get("codec_type")) for stream in _objects(data.get("streams")))
+    if kinds != ["audio", "video"]:
+        raise StitchError("streams %s (expected one video and one audio)"
+                          % (", ".join(kinds) or "none"))
+    duration = _probe_fields(data)["duration"]
+    if abs(duration - job["total"]) > LENGTH_SLACK:
+        raise StitchError("duration %.1f s, expected %.1f s" % (duration, job["total"]))
+    os.replace(part, os.path.join(job["dir"], VIDEO_FILE))
+    starts = _starts(job["durations"])
+    chapters = _objects(job["movie"].get("chapters"))
+    _write_atomic(os.path.join(job["dir"], CHAPTERS_FILE), json.dumps(
+        [{"id": chapter.get("id"), "title": chapter.get("title"), "start": start}
+         for chapter, start in zip(chapters, starts)], indent=2, ensure_ascii=False) + "\n")
+    return "(%.1f s)" % duration, {"duration": duration, "starts": starts}
+
+
+STITCH_STAGES = (("parts", _stage_parts), ("concat", _stage_concat),
+                 ("container", _stage_container))
+
+
+def _print_length(duration):
+    """The `length:` line, on the shown (one-decimal) seconds; return its exit code."""
+    seconds = "%.1f" % duration
+    if MIN_TOTAL <= float(seconds) <= MAX_TOTAL:
+        sys.stdout.write("length: ok (%s s)\n" % seconds)
+        return 0
+    sys.stdout.write("length: FAIL %s s (min %d, max %d)\n" % (seconds, MIN_TOTAL, MAX_TOTAL))
+    return 1
+
+
+def stitch(movie_dir, movie, workspace):
+    """Print the stage lines of `stitch` (module docstring) and return the exit code: 0 all ok,
+    1 on a FAIL, 2 when `workspace` has no Remotion CLI."""
+    try:
+        cli = remotion_cli(workspace)
+    except FileNotFoundError as error:
+        sys.stderr.write("%s\n" % error)
+        return 2
+    job = {"dir": os.path.abspath(movie_dir), "movie": movie, "cli": cli}
+    for name, stage in STITCH_STAGES:
+        try:
+            detail, facts = stage(job)
+        except StitchError as error:
+            sys.stdout.write("%s: FAIL %s\n" % (name, error))
+            return 1
+        sys.stdout.write("%s: ok %s\n" % (name, detail))
+        job = dict(job, **facts)
+    return _print_length(job["duration"])
+
+
 # --- command line ---------------------------------------------------------------------
 
 
@@ -571,15 +803,21 @@ def _command_status(args):
     return 0
 
 
-def _not_implemented(args):
-    sys.stderr.write("movie: not implemented yet\n")
-    return 2
+def _command_stitch(args):
+    movie = _load_arg(args)
+    if movie is None:
+        return 2
+    try:
+        return stitch(args[0], movie, video_workspace())
+    except OSError as error:
+        sys.stderr.write("movie: stitch: %s\n" % " ".join(str(error).split()))
+        return 2
 
 
 COMMANDS = {
     "check": _command_check,
     "bridges": _command_bridges,
-    "stitch": _not_implemented,
+    "stitch": _command_stitch,
     "status": _command_status,
 }
 

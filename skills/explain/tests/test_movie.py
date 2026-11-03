@@ -1,8 +1,10 @@
-"""Tests for movie.py: load, atomic save, the plan check of `movie.json` and the bridges (spec 4.2, 4.4, 6).
+"""Tests for movie.py: load, atomic save, the plan check of `movie.json`, the bridges and the
+stitch (spec 4.2, 4.4, 4.5, 6).
 
 Each test copies `tests/fixtures/movie/` to a temporary directory, changes one thing and
 expects the failure line of that change. The fixture's `provenance.root` is `.`, so cites
-resolve under the copied directory.
+resolve under the copied directory. `tests/fixtures/movie/probe/` holds ffprobe `-of json`
+outputs for the stitch tests; it is not copied, as a movie directory holds no probe.
 """
 
 import contextlib
@@ -16,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -23,6 +26,11 @@ import movie  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 CHECK_SCENE = FIXTURES.parent.parent / "video" / "check_scene.py"
+PROBES = FIXTURES / "movie" / "probe"
+PARTS = ["chapters/members/video.mp4", "bridges/1/video.mp4", "chapters/trigger/video.mp4",
+         "bridges/2/video.mp4", "chapters/split/video.mp4", "bridges/3/video.mp4",
+         "chapters/pause/video.mp4"]
+CONCAT_OUT = "build/video.part.mp4"
 
 
 def run_cli(*argv):
@@ -39,7 +47,7 @@ class MovieCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.dir = os.path.join(tmp.name, "movie")
-        shutil.copytree(FIXTURES / "movie", self.dir)
+        shutil.copytree(FIXTURES / "movie", self.dir, ignore=shutil.ignore_patterns("probe"))
         self.movie = movie.load(self.dir)
 
     def failures(self):
@@ -324,6 +332,163 @@ class BridgesCase(MovieCase):
         self.assertEqual(run_cli("bridges", self.dir), (1, "chapter pause: answers has 3 entries"
                                                           " (max 2)\nplan: 1 failures\n", ""))
         self.assertFalse(os.path.exists(os.path.join(self.dir, "bridges")))
+
+
+def ffprobe_output(name, duration, kinds=("video", "audio")):
+    """The ffprobe `-of json` output of `probe/<name>` with its duration set to `duration` and
+    only the streams whose codec_type is in `kinds`."""
+    data = json.loads((PROBES / name).read_text(encoding="utf-8"))
+    data["format"]["duration"] = "%.6f" % duration
+    data["streams"] = [stream for stream in data["streams"] if stream["codec_type"] in kinds]
+    return json.dumps(data)
+
+
+class StitchCase(MovieCase):
+    """`stitch` with a stand-in Remotion CLI in a private workspace; ffprobe and ffmpeg go
+    through a fake `movie.run`, so no test runs a subprocess."""
+
+    def setUp(self):
+        super().setUp()
+        workspace = tempfile.TemporaryDirectory()
+        self.addCleanup(workspace.cleanup)
+        cli = Path(workspace.name, "app", "node_modules", ".bin", "remotion")
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+        cli.chmod(0o755)
+        env = mock.patch.dict(os.environ, {"EXPLAIN_VIDEO_WORKSPACE": workspace.name})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def build_all(self):
+        """Every chapter `built` and every part an empty `video.mp4`."""
+        for chapter in self.movie["chapters"]:
+            chapter["status"] = "built"
+        movie.save(self.dir, self.movie)
+        for name in PARTS:
+            path = Path(self.dir, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"")
+
+    @staticmethod
+    def probes(durations):
+        """{path relative to the movie dir: ffprobe output}: each part of PARTS with its duration
+        at 48000 Hz, and the concat output with their sum."""
+        probes = {name: ffprobe_output("aac-48000.json", seconds)
+                  for name, seconds in zip(PARTS, durations)}
+        probes[CONCAT_OUT] = ffprobe_output("aac-48000.json", sum(durations))
+        return probes
+
+    def stitch(self, probes, ffmpeg_exit=0):
+        """`movie.py stitch` on the copy: (exit code, stdout, stderr). A fake ffprobe answers from
+        `probes` by the path it is given; a fake ffmpeg exits `ffmpeg_exit` and, on 0, writes
+        an empty output file."""
+        def fake_run(argv, cwd):
+            if "ffmpeg" in argv:
+                if ffmpeg_exit == 0:
+                    Path(argv[-1]).write_bytes(b"")
+                return ffmpeg_exit, ""
+            return 0, probes[os.path.relpath(argv[-1], self.dir)]
+        with mock.patch("movie.run", side_effect=fake_run):
+            return run_cli("stitch", self.dir)
+
+    def exists(self, name):
+        return os.path.exists(os.path.join(self.dir, name))
+
+    def test_concat_list_escapes_a_quote(self):
+        self.assertEqual(movie.concat_list(["/a/it's.mp4"]), "file '/a/it'\\''s.mp4'\n")
+
+    def test_parts_order_is_chapter_bridge_chapter(self):
+        self.build_all()
+        self.assertEqual(movie.parts(self.dir, self.movie), PARTS)
+
+    def test_parts_refuses_a_missing_mp4(self):
+        self.build_all()
+        os.remove(os.path.join(self.dir, "chapters", "split", "video.mp4"))
+        self.assertEqual(self.stitch({}),
+                         (1, "parts: FAIL chapters/split/video.mp4 missing\n", ""))
+        self.assertFalse(self.exists("build"))
+
+    def test_parts_refuses_a_pending_chapter(self):
+        self.build_all()
+        self.chapter("trigger")["status"] = "pending"
+        movie.save(self.dir, self.movie)
+        self.assertEqual(self.stitch({}),
+                         (1, "parts: FAIL chapter trigger is pending, not built\n", ""))
+        self.assertFalse(self.exists("build"))
+
+    def test_parts_refuses_a_rate_mismatch(self):
+        self.build_all()
+        probes = self.probes([60, 10, 60, 10, 60, 10, 60])
+        probes["bridges/1/video.mp4"] = ffprobe_output("aac-22050.json", 10)
+        self.assertEqual(self.stitch(probes),
+                         (1, "parts: FAIL bridges/1/video.mp4 audio rate differs\n", ""))
+        self.assertFalse(self.exists("build"))
+        self.assertFalse(self.exists("video.mp4"))
+
+    def test_probe_reads_the_fields(self):
+        cli = movie.remotion_cli(os.environ["EXPLAIN_VIDEO_WORKSPACE"])
+        output = (PROBES / "aac-48000.json").read_text(encoding="utf-8")
+        with mock.patch("movie.run", return_value=(0, output)):
+            found = movie.probe(cli, "/m/video.mp4")
+        self.assertEqual(found, {"vcodec": "h264", "acodec": "aac", "width": 1280, "height": 720,
+                                 "fps": "30/1", "rate": 48000, "duration": 41.344})
+
+    def test_stitch_writes_chapters_json_starts(self):
+        self.build_all()
+        code, out, err = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines(), ["parts: ok (7)", "concat: ok (270.0 s)",
+                                            "container: ok (270.0 s)", "length: ok (270.0 s)"])
+        chapters = json.loads(Path(self.dir, "chapters.json").read_text(encoding="utf-8"))
+        self.assertEqual(chapters, [
+            {"id": "members", "title": "The members", "start": 0.0},
+            {"id": "trigger", "title": "The trigger", "start": 70.0},
+            {"id": "split", "title": "The new split", "start": 140.0},
+            {"id": "pause", "title": "The pause", "start": 210.0}])
+        self.assertEqual(Path(self.dir, "build", "concat.txt").read_text(encoding="utf-8"),
+                         "".join("file '%s'\n" % os.path.join(self.dir, name) for name in PARTS))
+        self.assertTrue(self.exists("video.mp4"))
+        self.assertFalse(self.exists(CONCAT_OUT))
+
+    def test_stitch_reports_a_short_movie(self):
+        self.build_all()
+        code, out, _ = self.stitch(self.probes([5] * 7))
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "length: FAIL 35.0 s (min 240, max 900)")
+        self.assertTrue(self.exists("video.mp4"))
+
+    def test_concat_reports_an_ffmpeg_exit_and_keeps_the_old_video(self):
+        self.build_all()
+        Path(self.dir, "video.mp4").write_bytes(b"old")
+        code, out, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]), ffmpeg_exit=1)
+        self.assertEqual((code, out.splitlines()),
+                         (1, ["parts: ok (7)", "concat: FAIL ffmpeg exit 1"]))
+        self.assertEqual(Path(self.dir, "video.mp4").read_bytes(), b"old")
+
+    def test_container_refuses_a_missing_audio_stream(self):
+        self.build_all()
+        probes = self.probes([60, 10, 60, 10, 60, 10, 60])
+        probes[CONCAT_OUT] = ffprobe_output("aac-48000.json", 270, kinds=("video",))
+        code, out, _ = self.stitch(probes)
+        self.assertEqual((code, out.splitlines()[-1]),
+                         (1, "container: FAIL streams video (expected one video and one audio)"))
+        self.assertFalse(self.exists("video.mp4"))
+
+    def test_container_refuses_a_length_off_the_sum(self):
+        self.build_all()
+        probes = self.probes([60, 10, 60, 10, 60, 10, 60])
+        probes[CONCAT_OUT] = ffprobe_output("aac-48000.json", 270.6)
+        code, out, _ = self.stitch(probes)
+        self.assertEqual((code, out.splitlines()[-1]),
+                         (1, "container: FAIL duration 270.6 s, expected 270.0 s"))
+        self.assertFalse(self.exists("video.mp4"))
+
+    def test_no_cli_is_a_usage_error(self):
+        empty = tempfile.TemporaryDirectory()
+        self.addCleanup(empty.cleanup)
+        path = os.path.join(empty.name, "app", "node_modules", ".bin", "remotion")
+        with mock.patch.dict(os.environ, {"EXPLAIN_VIDEO_WORKSPACE": empty.name}):
+            self.assertEqual(run_cli("stitch", self.dir), (2, "", "no Remotion CLI at %s\n" % path))
 
 
 class SaveCase(MovieCase):
