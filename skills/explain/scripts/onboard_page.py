@@ -10,14 +10,28 @@ Writes `architecture.puml`, `flow-<flow-id>.puml` and `state.puml`, each the fen
 Exit 0 on success, 1 when a place holds a Mermaid diagram (`diagrams: <where>: not plantuml`, stdout),
 2 on a usage error (stderr), an unreadable map (`map: cannot read ...`, stdout) or an unwritable directory
 (`diagrams: cannot write <dir>: <reason>`, stderr).
+
+The page model and the structural checks of `onboard.py page` (spec sections 9 and 10.1): `page_lines_of` turns a
+page into classified lines, and the six functions `title_lines`, `answer_lines`, `command_lines`,
+`paragraph_lines`, `html_lines` and `cite_lines` each return the failure lines of one check.
 """
 
 import argparse
 import os
+import re
 import sys
-from typing import NoReturn
+from typing import NamedTuple, NoReturn
 
 import onboard
+
+IMAGE = re.compile(r"!\[(.*)\]\(([^()]*)\)\s*$")  # caption, path: the last parenthesised group
+HTML_TAG = re.compile(r"</?[A-Za-z][^<>]*>")
+CITE_LINE = re.compile(r" \| [^|]+:[0-9]+ \| ")
+HEADING2 = re.compile(r"##+ ")
+LIST_ITEM = re.compile(r"(?:[-*] |[0-9]+\. )")
+CODE_SPAN = re.compile(r"`[^`]*`")
+FENCE = "```"
+COMMAND_KEYS = ("build", "test", "run")
 
 
 def diagram_files(doc: onboard.MapDoc) -> dict[str, str]:
@@ -70,3 +84,103 @@ def cmd_diagrams(argv: list[str]) -> int:
     sys.stdout.write("".join("diagrams: stale %s\n" % name for name in stale))
     sys.stdout.write("diagrams: ok %d files\n" % len(files))
     return 0
+
+
+class Line(NamedTuple):
+    n: int  # 1-based
+    text: str  # without the newline, `\r` stripped
+    kind: str  # "blank", "fence", "heading1", "heading2", "list", "table", "image", "code", "text"
+
+
+def _kind(text: str) -> str:
+    """The kind of a line outside a fence."""
+    if not text.strip():
+        return "blank"
+    if text.startswith("# "):
+        return "heading1"
+    if HEADING2.match(text):
+        return "heading2"
+    if LIST_ITEM.match(text):
+        return "list"
+    if text.startswith("|"):
+        return "table"
+    if IMAGE.match(text):
+        return "image"
+    return "text"
+
+
+def page_lines_of(text: str) -> list[Line]:
+    """The lines of a page, each classified; a fence line toggles the fence and a line inside one is `code`."""
+    raw = text.split("\n")
+    if raw and raw[-1] == "":
+        raw.pop()
+    lines, inside = [], False
+    for n, line in enumerate(raw, 1):
+        line = line.rstrip("\r")
+        if line.lstrip().startswith(FENCE):
+            inside = not inside
+            lines.append(Line(n, line, "fence"))
+        else:
+            lines.append(Line(n, line, "code" if inside else _kind(line)))
+    return lines
+
+
+def _non_blank(lines: list[Line]) -> list[Line]:
+    return [line for line in lines if line.kind != "blank"]
+
+
+def title_lines(lines: list[Line]) -> list[str]:
+    """`page: no title` when the first non-blank line is not a `# ` line; `page: second title` once for more."""
+    found = _non_blank(lines)
+    failures = [] if found and found[0].kind == "heading1" else ["page: no title"]
+    if sum(line.kind == "heading1" for line in found) > 1:
+        failures.append("page: second title")
+    return failures
+
+
+def answer_lines(lines: list[Line]) -> list[str]:
+    """`page: no short answer` when the first non-blank line after the title is not a text line of bold start."""
+    found = _non_blank(lines)
+    if len(found) > 1 and found[1].kind == "text" and found[1].text.startswith("**"):
+        return []
+    return ["page: no short answer"]
+
+
+def command_lines(lines: list[Line], doc: onboard.MapDoc) -> list[str]:
+    """`command <key>: not in a code block` for each `build`, `test` and `run` command of Shape that no code
+    line equals, or that a line outside code holds."""
+    code = {line.text.strip() for line in lines if line.kind == "code"}
+    prose = [line.text for line in lines if line.kind not in ("code", "blank")]
+    failures = []
+    for fact in onboard._facts(doc, "Shape"):
+        key, rest = onboard.keyed(fact)
+        handle = onboard.HANDLE.search(rest)
+        if key not in COMMAND_KEYS or onboard.none_found(fact) or not handle:
+            continue
+        command = handle.group().strip("`")
+        if command not in code or any(command in text for text in prose):
+            failures.append("command %s: not in a code block" % key)
+    return failures
+
+
+def paragraph_lines(lines: list[Line]) -> list[str]:
+    """`paragraph <n>: two lines` for the second line of each run of text lines."""
+    failures, run = [], 0
+    for line in lines:
+        run = run + 1 if line.kind == "text" else 0
+        if run == 2:
+            failures.append("paragraph %d: two lines" % line.n)
+    return failures
+
+
+def html_lines(lines: list[Line]) -> list[str]:
+    """`html <n>: tag outside code` for a text, list or table line with an HTML tag outside backtick spans."""
+    return ["html %d: tag outside code" % line.n
+            for line in lines
+            if line.kind in ("text", "list", "table") and HTML_TAG.search(CODE_SPAN.sub("", line.text))]
+
+
+def cite_lines(lines: list[Line]) -> list[str]:
+    """`cite <n>: map line on the page` for a line outside code of the shape `... | <path>:<n> | ...`."""
+    return ["cite %d: map line on the page" % line.n
+            for line in lines if line.kind != "code" and CITE_LINE.search(line.text)]

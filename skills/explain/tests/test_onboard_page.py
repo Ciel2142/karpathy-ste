@@ -1,5 +1,5 @@
 """Tests for onboard_page.py: `onboard.py diagrams` writes each PlantUML fence of a map to its .puml
-file (spec section 9)."""
+file, and the page model and the structural checks of `onboard.py page` (spec sections 9 and 10.1)."""
 
 import contextlib
 import io
@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import onboard  # noqa: E402
+import onboard_page  # noqa: E402
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "onboard"
@@ -31,6 +32,29 @@ def run(argv):
 def read(name):
     """The text of the fixture file `name`."""
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+PAGE = read("page.md")
+MAP_PUML = read("map-puml.md")
+
+
+def lines(text):
+    """The classified lines of a page text."""
+    return onboard_page.page_lines_of(text)
+
+
+def kinds(text):
+    """The kind of each line of a page text."""
+    return [line.kind for line in lines(text)]
+
+
+def structure(text):
+    """The failures of the six structural checks on a page text, in order."""
+    doc = onboard.parse_map(MAP_PUML)
+    found = lines(text)
+    return (onboard_page.title_lines(found) + onboard_page.answer_lines(found)
+            + onboard_page.command_lines(found, doc) + onboard_page.paragraph_lines(found)
+            + onboard_page.html_lines(found) + onboard_page.cite_lines(found))
 
 
 class DiagramsCase(unittest.TestCase):
@@ -121,6 +145,70 @@ class DiagramsCase(unittest.TestCase):
         code, _, err = run([])
         self.assertEqual(code, 2)
         self.assertIn("onboard.py diagrams <map.md> --out <dir>", err)
+
+
+class PageModelCase(unittest.TestCase):
+    def test_fence_lines_are_code(self):
+        text = "```text\n# x\n| a | b |\n![c](diagrams/x.png)\n- item\n```\n"
+        self.assertEqual(kinds(text), ["fence", "code", "code", "code", "code", "fence"])
+
+    def test_crlf_and_trailing_spaces(self):
+        self.assertEqual(kinds("# T\r\n\r\n![c](diagrams/x.png)  \r\n"), ["heading1", "blank", "image"])
+
+    def test_kinds_outside_fences(self):
+        text = "# T\n## H\n### Deep\n- a\n* b\n12. c\n| x |\nplain\n"
+        self.assertEqual(kinds(text),
+                         ["heading1", "heading2", "heading2", "list", "list", "list", "table", "text"])
+
+    def test_fixture_page_has_no_structural_failure(self):
+        self.assertEqual(structure(PAGE), [])
+
+    def test_no_title(self):
+        self.assertEqual(structure(PAGE.replace("# What does shop do", "What does shop do", 1))[:1],
+                         ["page: no title"])
+
+    def test_second_title(self):
+        text = PAGE + "\n# Another title\n\n# A third title\n"
+        self.assertEqual(structure(text), ["page: second title"])
+
+    def test_no_short_answer(self):
+        text = PAGE.replace("**Short answer.**", "Short answer.", 1)
+        self.assertEqual(structure(text), ["page: no short answer"])
+
+    def test_command_outside_a_code_block(self):
+        text = PAGE.replace("```sh\n./gradlew build\n```", "Type ./gradlew build to build it.", 1)
+        self.assertEqual(structure(text), ["command build: not in a code block"])
+
+    def test_command_in_prose_beside_its_block(self):
+        text = PAGE.replace("Run this command to test the service.", "Run ./gradlew test to test the service.", 1)
+        self.assertEqual(structure(text), ["command test: not in a code block"])
+
+    def test_two_text_lines(self):
+        text = PAGE.replace("The orders table holds the order rows. ", "The orders table holds the order rows.\nA second line. ", 1)
+        self.assertNotEqual(text, PAGE)
+        planted = next(line.n for line in lines(text) if line.text.startswith("A second line."))
+        self.assertEqual(structure(text), ["paragraph %d: two lines" % planted])
+
+    def test_three_text_lines_report_once(self):
+        found = lines("# T\n\n**Short answer.** One.\nTwo.\nThree.\n")
+        self.assertEqual(onboard_page.paragraph_lines(found), ["paragraph 4: two lines"])
+
+    def test_html_tag_outside_code(self):
+        text = PAGE.replace("The orders table holds", "The<br>orders table holds", 1)
+        planted = next(line.n for line in lines(text) if "<br>" in line.text)
+        self.assertEqual(structure(text), ["html %d: tag outside code" % planted])
+        self.assertEqual(structure(PAGE.replace("The orders table holds", "The `<br>` orders table holds", 1)), [])
+
+    def test_cite_line_on_the_page(self):
+        copied = "- NEW: a new order starts in NEW | src/main/java/shop/Order.java:8 | private Status status"
+        text = PAGE + "\n" + copied + "\n"
+        planted = next(line.n for line in lines(text) if line.text == copied)
+        self.assertEqual(structure(text), ["cite %d: map line on the page" % planted])
+
+    def test_fixture_page_lints_clean(self):
+        done = subprocess.run([sys.executable, "../ste/scripts/ste_lint.py", str(FIXTURES / "page.md")],
+                              cwd=str(EXPLAIN), capture_output=True, text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "0 errors, 0 warnings"), done.stdout)
 
 
 if __name__ == "__main__":
