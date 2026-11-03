@@ -91,7 +91,7 @@ reply holds the failure lines of its last check. Print each of them. Wait for al
 Then run the check on each map yourself, with the root of the course as `<root>`:
 
 ```
-python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root>
+python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root> --notation mermaid
 ```
 
 Print each failure line that it writes. A map with failures still counts as a map: it is an input, not the
