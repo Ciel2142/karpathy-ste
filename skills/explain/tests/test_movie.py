@@ -143,11 +143,68 @@ class CheckCase(MovieCase):
         self.assertEqual(run_cli("bridges", self.dir)[0], 2)
 
 
+class ChapterScriptCase(MovieCase):
+    def script_path(self):
+        return os.path.join(self.dir, "chapters", "members", "script.json")
+
+    def edit_script(self, change):
+        with open(self.script_path(), encoding="utf-8") as handle:
+            script = json.load(handle)
+        change(script)
+        with open(self.script_path(), "w", encoding="utf-8") as handle:
+            json.dump(script, handle)
+
+    def test_a_chapter_script_with_ask_and_answer_passes(self):
+        code, out, err = run_cli("check", self.dir)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 240 s target)")
+
+    def test_first_scene_must_be_ask(self):
+        self.edit_script(lambda s: s["scenes"][0].update(id="intro"))
+        self.assertEqual(self.failures(), ["chapter members: first scene is intro, not ask"])
+
+    def test_last_scene_must_be_answer(self):
+        self.edit_script(lambda s: s["scenes"][-1].update(id="body"))
+        self.assertEqual(self.failures(), ["chapter members: last scene is body, not answer"])
+
+    def test_script_title_must_match(self):
+        self.edit_script(lambda s: s.update(title="X"))
+        self.assertEqual(self.failures(),
+                         ['chapter members: script title "X" differs from "The members"'])
+
+    def test_script_format_must_be_film(self):
+        self.edit_script(lambda s: s.update(format="clip"))
+        self.assertEqual(self.failures(), ["chapter members: format is clip, not film"])
+
+    def test_script_failures_count_in_the_plan_line(self):
+        self.edit_script(lambda s: s.update(format="clip", title="X"))
+        code, out, _ = run_cli("check", self.dir)
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "plan: 2 failures")
+
+    def test_status_lists_each_chapter_and_strays(self):
+        os.makedirs(os.path.join(self.dir, "chapters", "old"))
+        self.chapter("trigger").update(status="failed", reason="render timed out")
+        movie.save(self.dir, self.movie)
+        code, out, err = run_cli("status", self.dir)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines(), [
+            "chapter: members pending", "chapter: trigger failed render timed out",
+            "chapter: split pending", "chapter: pause pending",
+            "stray: chapters/old", "state: planned"])
+
+    def test_status_on_unreadable_movie_exits_2(self):
+        with open(os.path.join(self.dir, "movie.json"), "w", encoding="utf-8") as handle:
+            handle.write("{not json")
+        code, out, _ = run_cli("status", self.dir)
+        self.assertEqual((code, out), (2, ""))
+
+
 class SaveCase(MovieCase):
     def test_save_is_atomic(self):
         self.movie["title"] = "Changed"
         movie.save(self.dir, self.movie)
-        self.assertEqual(sorted(os.listdir(self.dir)), ["movie.json"])
+        self.assertEqual(sorted(os.listdir(self.dir)), ["chapters", "movie.json"])
         self.assertEqual(movie.load(self.dir), self.movie)
         json.loads(Path(self.dir, "movie.json").read_text(encoding="utf-8"))
 

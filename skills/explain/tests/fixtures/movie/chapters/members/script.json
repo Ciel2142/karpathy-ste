@@ -1,0 +1,10 @@
+{
+  "format": "film",
+  "title": "The members",
+  "lang": "en",
+  "scenes": [
+    {"id": "ask", "narration": "Who is in a group?"},
+    {"id": "body", "narration": "Three consumers share six partitions."},
+    {"id": "answer", "narration": "Each consumer owns two partitions."}
+  ]
+}

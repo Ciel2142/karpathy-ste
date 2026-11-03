@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Movie plan for `explain --as movie`: reads, writes and checks `movie.json`.
 
-Usage: see USAGE below (check, bridges, stitch, status). Only `check` is implemented here.
+Usage: see USAGE below (check, bridges, stitch, status). `check` and `status` are implemented here.
 Exit 0 on all ok, 1 on a failure found, 2 on a usage error or unreadable JSON.
 
 `<dir>` is the movie output directory; it holds `movie.json`. `provenance.root` is absolute,
@@ -352,6 +352,37 @@ def _check_prose(movie):
     return errors
 
 
+def check_chapter_script(movie_dir, chapter):
+    """Failures of `chapters/<id>/script.json` against spec 4.3; empty when there is no script."""
+    ident = chapter.get("id")
+    if not isinstance(ident, str):
+        return []
+    path = os.path.join(movie_dir, "chapters", ident, "script.json")
+    if not os.path.isfile(path):
+        return []
+    prefix = "chapter %s: " % ident
+    try:
+        with open(path, encoding="utf-8") as handle:
+            script = json.load(handle)
+    except (OSError, ValueError):
+        return [prefix + "script.json cannot be read"]
+    if not isinstance(script, dict):
+        return [prefix + "script.json must be an object"]
+    failures = []
+    if script.get("format") != "film":
+        failures.append(prefix + "format is %s, not film" % script.get("format"))
+    title = chapter.get("title")
+    if script.get("title") != title:
+        failures.append(prefix + 'script title "%s" differs from "%s"' % (script.get("title"), title))
+    scenes = _objects(script.get("scenes"))
+    if not scenes:
+        return failures + [prefix + "script has no scenes"]
+    for position, name, scene in (("first", "ask", scenes[0]), ("last", "answer", scenes[-1])):
+        if scene.get("id") != name:
+            failures.append(prefix + "%s scene is %s, not %s" % (position, scene.get("id"), name))
+    return failures
+
+
 def check(movie_dir, movie):
     """Return the failures of `movie`, one per fault; empty means ok. Changes no state."""
     failures = _check_top(movie)
@@ -362,7 +393,26 @@ def check(movie_dir, movie):
     failures += _check_cites(movie_dir, movie)
     failures += _check_prose(movie)
     failures += _check_state(movie)
+    for chapter in _objects(movie.get("chapters")):
+        failures += check_chapter_script(movie_dir, chapter)
     return failures
+
+
+def status(movie_dir, movie):
+    """The `status` lines: one per chapter, one per stray chapter directory, then the state."""
+    chapters = _objects(movie.get("chapters"))
+    lines = []
+    for chapter in chapters:
+        reason = chapter.get("reason")
+        lines.append("chapter: %s %s%s" % (chapter.get("id"), chapter.get("status"),
+                                           " " + reason if isinstance(reason, str) and reason else ""))
+    known = set(_ids(chapters))
+    root = os.path.join(movie_dir, "chapters")
+    names = sorted(os.listdir(root)) if os.path.isdir(root) else []
+    lines += ["stray: chapters/%s" % name for name in names
+              if name not in known and os.path.isdir(os.path.join(root, name))]
+    lines.append("state: %s" % movie.get("state"))
+    return lines
 
 
 # --- command line ---------------------------------------------------------------------
@@ -389,6 +439,20 @@ def _command_check(args):
     return 0
 
 
+def _command_status(args):
+    if len(args) != 1:
+        sys.stderr.write(USAGE)
+        return 2
+    try:
+        movie = load(args[0])
+    except ReadError as error:
+        sys.stderr.write("movie: %s\n" % error)
+        return 2
+    for line in status(args[0], movie):
+        sys.stdout.write(line + "\n")
+    return 0
+
+
 def _not_implemented(args):
     sys.stderr.write("movie: not implemented yet\n")
     return 2
@@ -398,7 +462,7 @@ COMMANDS = {
     "check": _command_check,
     "bridges": _not_implemented,
     "stitch": _not_implemented,
-    "status": _not_implemented,
+    "status": _command_status,
 }
 
 
