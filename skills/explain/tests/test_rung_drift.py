@@ -1082,6 +1082,8 @@ class OnboardRungCase(unittest.TestCase):
             "the action `:see <flow-id>;` followed by `detach`", "`fork`, `fork again` and `end fork`",
             "`-> <label>;`", "Never write `skinparam`, `!pragma`, `!include`, `<style>`",
             "Put at most 25 nodes in one diagram.",
+            "The fence holds the body of the diagram only. Never write `@startuml` or `@enduml` in it",
+            "`onboard.py diagrams` adds them when it writes the `.puml` file.",
             "A course map draws each flow as one `flowchart TD` in a `mermaid` fence.",
             "- `total over limit?`: the total is checked against the limit | ",
             # rule 5, the state form
@@ -1163,6 +1165,8 @@ class OnboardRungCase(unittest.TestCase):
         self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt "
                                         "--notation plantuml",
                                         "A course map passes `--notation mermaid`.",
+                                        "A flowchart or an activity diagram has at most 25 nodes. In an activity "
+                                        "diagram the nodes are the distinct labels of its actions and conditions.",
                                         "onboard: ok", "onboard: <n> failures",
                                         "The path is relative to `<root>`, and it is the first text in backticks of "
                                         "the line.",

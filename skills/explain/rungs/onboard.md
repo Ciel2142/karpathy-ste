@@ -140,7 +140,9 @@ Follow these nine rules, in the order of the work. Write each fact into `map.md`
      actions. `-> <label>;` labels an edge. None of these is a node. You can write a `note` or a `'`
      comment.
    - Never write `skinparam`, `!pragma`, `!include`, `<style>`, a colour prefix such as `#pink:`,
-     `split` or `backward:`. The check reports them. The renderer sets the style.
+     `split` or `backward:`. The check reports them. The renderer sets the style. The fence holds the
+     body of the diagram only. Never write `@startuml` or `@enduml` in it, because the check reports
+     both lines too. `onboard.py diagrams` adds them when it writes the `.puml` file.
    - The nodes of a diagram are the distinct labels of its actions and conditions.
    - The fact line of an activity node starts with its label in backticks, verbatim. The cite of a
      condition is its condition line. The cite of an action is the call line. For example:
@@ -386,7 +388,7 @@ give the format:
   component diagram when it declares a part or draws an edge between two ids. A fence of no kind fails
   as `not a PlantUML kind`. A fence of the wrong kind for its place fails as `not activity`,
   `not component` or `not state`.
-- A diagram has at most 25 nodes. In an activity diagram the nodes are the distinct labels of its
+- A flowchart or an activity diagram has at most 25 nodes. In an activity diagram the nodes are the distinct labels of its
   actions and conditions.
 - `Architecture`, `Flows` and `State` can hold the one line `none found` when the source has no code to
   trace. Examples are a docs repository and a config repository. The check accepts `none found` in
