@@ -109,6 +109,13 @@ class CheckCase(MovieCase):
         failures = self.failures()
         self.assertTrue(failures and failures[0].startswith("prose: title: E "), failures)
 
+    def test_a_prose_fault_in_a_later_field_names_that_field(self):
+        self.chapter("split")["picture"] = "It is what it is, and this very long picture keeps " \
+            "going on and on while it says nothing at all about the thing that it shows"
+        failures = self.failures()
+        self.assertEqual(len(failures), 1, failures)
+        self.assertTrue(failures[0].startswith("prose: chapters[split].picture: E "), failures)
+
     def test_a_bad_version_and_state(self):
         self.movie["version"] = 2
         self.movie["state"] = "done"

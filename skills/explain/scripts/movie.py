@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 
-import course
+from cite_check import fact_problems
 from course import _find_ste_lint
 
 USAGE = (
@@ -197,13 +197,17 @@ def _check_id(what, item, label):
     return []
 
 
+def _cite_shape_ok(cite):
+    return (isinstance(cite, dict)
+            and isinstance(cite.get("path"), str) and bool(cite["path"])
+            and _is_int(cite.get("line")) and cite["line"] >= 1
+            and isinstance(cite.get("snippet"), str) and bool(cite["snippet"].strip()))
+
+
 def _check_cite_shapes(label, cites):
     failures = []
     for number, cite in enumerate(cites, start=1):
-        if not (isinstance(cite, dict)
-                and isinstance(cite.get("path"), str) and cite["path"]
-                and _is_int(cite.get("line")) and cite["line"] >= 1
-                and isinstance(cite.get("snippet"), str) and cite["snippet"].strip()):
+        if not _cite_shape_ok(cite):
             failures.append("question %s: cite %d needs path, line and snippet" % (label, number))
     return failures
 
@@ -276,8 +280,17 @@ def _check_cites(movie_dir, movie):
     if not isinstance(root, str):
         return []
     root = resolve_root(movie_dir, root)
-    return [line for question in _objects(movie.get("questions")) if isinstance(question.get("id"), str)
-            for line in course._cite_problems(question, root)]
+    failures = []
+    for question in _objects(movie.get("questions")):
+        ident = question.get("id")
+        if not isinstance(ident, str):
+            continue
+        cites = question.get("cites")
+        for number, cite in enumerate(cites if isinstance(cites, list) else [], start=1):
+            if _cite_shape_ok(cite):
+                failures += ["cite %s#%d: %s" % (ident, number, problem) for problem in
+                             fact_problems(cite["path"], cite["line"], cite["snippet"], root)]
+    return failures
 
 
 def _check_state(movie):
