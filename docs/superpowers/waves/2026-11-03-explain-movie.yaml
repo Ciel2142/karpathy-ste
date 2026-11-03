@@ -1,0 +1,94 @@
+version: 2
+feature: explain-movie
+spec: docs/superpowers/specs/2026-11-03-explain-movie-design.md
+coverage: waived
+# One feature branch `feat/explain-movie`, cut from `main` at 97423f7, in a worktree (the main
+# working tree holds unrelated uncommitted edits to bpmn_svg.py and its test). Three waves in
+# order. The tooling is one script, `movie.py`, with four commands that read one file,
+# `movie.json`; splitting it by command would edit the same schema and the same fixtures in
+# every wave, so wave 1 holds all of it with the bridge template, the hub template and the
+# `verify.sh` entry, and closes on a gated end-to-end stitch of two real chapters. Wave 2 is
+# the procedure that names the printed lines of wave 1 (the drift test pins them). Wave 3 is
+# the first live movie, whose measured costs and word budgets fold back into the rung file;
+# those numbers are its unavailable output, so it is planned only after wave 2 closes. The
+# render pipeline (formats.json, build-timeline.mjs, narrate.py, check_budgets.py,
+# transcript.py, render.sh, check_render.sh) is frozen by spec section 1; a git diff guards it.
+waves:
+  - id: movie-tooling
+    slice: cohesive
+    goal: >-
+      The mechanical floor of a movie (spec sections 4.2 to 4.6 and 6): `skills/explain/scripts/movie.py`
+      with `check`, `bridges`, `stitch` and `status`; the bridge scene template under
+      `skills/explain/video/src/bridge/` with `templates/movie-bridge-script.json`, rendered by the
+      unchanged `render.sh` as a clip; the hub `templates/movie.html` with the chapter list that seeks
+      the video; and `verify.sh` accepting the `movie` rung and counting `chapters/` and `bridges/`
+      links in its media check.
+    done_when: >-
+      `cd skills/explain && python3 -B -m unittest discover -s tests -p "test_movie*.py"` and
+      `test_verify.py` pass with one fixture per `check` failure of spec 4.2 and 4.3 and one good plan;
+      under `EXPLAIN_VIDEO_E2E=1`, two tiny chapters and one generated bridge render through `render.sh`,
+      `stitch` writes `video.mp4` whose probed length is the sum of the parts within 0.5 s, `chapters.json`
+      and `review/viewer-transcript.html` without the `ask` and `answer` scenes, and the hub passes
+      `verify.sh`; the frozen pipeline files are unchanged against the merge base with `main`.
+    status: pending
+    depends_on: []
+    owns:
+      - skills/explain/scripts/movie.py (new)
+      - skills/explain/video/src/bridge/ (new), skills/explain/templates/movie-bridge-script.json (new)
+      - skills/explain/templates/movie.html (new)
+      - skills/explain/scripts/verify.sh (the rung value and the media check only)
+      - skills/explain/tests/test_movie.py (new), skills/explain/tests/test_movie_e2e.py (new), skills/explain/tests/fixtures/movie/ (new), skills/explain/tests/test_verify.py (movie cases)
+    risk: high
+    plan: docs/superpowers/plans/2026-11-03-explain-movie-w1.md
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests -p "test_movie*.py"
+      - cd skills/explain && python3 -B -m unittest tests.test_verify
+      - cd skills/explain && EXPLAIN_VIDEO_E2E=1 python3 -B -m unittest tests.test_movie_e2e
+      - git diff --quiet "$(git merge-base main HEAD)" -- skills/explain/video/formats.json skills/explain/video/build-timeline.mjs skills/explain/video/narrate.py skills/explain/video/check_budgets.py skills/explain/video/transcript.py skills/explain/scripts/render.sh skills/explain/video/check_render.sh
+
+  - id: movie-procedure
+    slice: domain
+    goal: >-
+      The `--as movie` route a user can invoke (spec sections 4.1, 4.7, 5 and 7): `rungs/movie.md` with the
+      ten steps, the stop for the plan approval, the three-at-a-time fan-out, the viewer gate on by
+      default and the resume; the three prompt templates `movie/chapter-task.md`, `movie/review-viewer.md`
+      and `movie/review-chapter.md` with their fill tables; the `movie` entries of `SKILL.md` (contract,
+      rung table, conventions, build step, rung files) and of `README.md`.
+    done_when: >-
+      `test_rung_drift.py` has a `MovieRungCase` that ties the level-2 titles of `rungs/movie.md`, each
+      `movie.py` line it quotes, and the `--as` lists of `SKILL.md`, `README.md` and the argument-hint;
+      `test_movie_prompts.py` ties each `{name}` of the three prompts to a fill row; `rungs/movie.md` and
+      the prompts lint clean under `ste_lint.py`; the whole explain suite passes.
+    status: pending
+    depends_on: [movie-tooling]
+    owns:
+      - skills/explain/rungs/movie.md (new), skills/explain/movie/ (new)
+      - skills/explain/SKILL.md, README.md (movie entries)
+      - skills/explain/tests/test_rung_drift.py (MovieRungCase), skills/explain/tests/test_movie_prompts.py (new)
+    risk: low
+    plan: null
+    acceptance:
+      - cd skills/explain && python3 -B -m unittest discover -s tests
+
+  - id: movie-live-run
+    slice: vertical
+    goal: >-
+      The first movie built by the procedure on a real theme the user names, in the user's session, with
+      the measured costs (lines of scene code per second, render rounds per chapter, viewer gate tokens
+      and rounds, wall time) and the word budget per chapter folded back into `rungs/movie.md`.
+    done_when: >-
+      `video.mp4` of the run plays as one film with the hub's chapter list; the viewer gate line reads
+      `viewer: <m> of <m> understood` or each miss is in `not_covered`; the cost section of
+      `rungs/movie.md` carries the measured numbers; the user has watched it.
+    status: pending
+    depends_on: [movie-procedure]
+    owns:
+      - skills/explain/rungs/movie.md (the costs section)
+    risk: low
+    plan: null
+    acceptance:
+      - the user's reading of the movie
+deferred: []
+approval:
+  required: false
+  reason: null
