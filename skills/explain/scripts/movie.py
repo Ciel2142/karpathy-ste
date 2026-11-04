@@ -57,8 +57,11 @@ codec, width, height, frame rate, audio rate. `<part>` is the path under `<dir>`
 `build/video.part.mp4`; its seconds are the sum of the parts. `container` probes that file:
 one video and one audio stream, a duration within 0.5 s of the sum; then it replaces
 `video.mp4` with it and writes `chapters.json`, so a stitch that fails earlier leaves the old
-`video.mp4`. `transcript` follows `container`: it reads each chapter's `chapters/<id>/index.html`
-and finds the chapter's viewer still, the `-end` still of the last scene before `answer` other
+`video.mp4`. `transcript` follows `container`. First it removes the `index.html`,
+`review/viewer-transcript.html` and `review/viewer-stills/` of an earlier stitch, where present,
+so a stitch that fails from here on leaves no stale hub or viewer input (one that fails before
+`container` passes keeps them, with the old `video.mp4`). Then it reads each chapter's
+`chapters/<id>/index.html` and finds the chapter's viewer still, the `-end` still of the last scene before `answer` other
 than `ask`, as the render names it: `chapters/<id>/review/still-NN-<scene>-end.png`, NN the
 1-based place of the scene. Its lines:
   transcript: ok (<n> chapters) | FAIL chapter <id>: no transcript
@@ -805,6 +808,7 @@ def _stage_container(job):
     return "(%.1f s)" % duration, {"duration": duration, "starts": starts}
 
 
+HUB_PAGE = "index.html"
 TRANSCRIPT_FILE = "index.html"
 VIEWER_FILE = os.path.join("review", "viewer-transcript.html")
 VIEWER_STILLS = os.path.join("review", "viewer-stills")  # a still per chapter, `<k>-<id>.png`
@@ -900,7 +904,22 @@ def _viewer_page(movie, chapter_html):
                                       questions, "".join(chapter_html)))
 
 
+def _remove_outputs(movie_dir):
+    """Remove the hub `index.html`, `review/viewer-transcript.html` and `review/viewer-stills/`
+    of an earlier stitch, where present, so a FAIL from `transcript` on leaves none of them."""
+    for name in (HUB_PAGE, VIEWER_FILE):
+        path = os.path.join(movie_dir, name)
+        if os.path.lexists(path):
+            os.remove(path)
+    stills = os.path.join(movie_dir, VIEWER_STILLS)
+    if os.path.isdir(stills) and not os.path.islink(stills):
+        shutil.rmtree(stills)
+    elif os.path.lexists(stills):
+        os.remove(stills)
+
+
 def _stage_transcript(job):
+    _remove_outputs(job["dir"])  # container has passed: the old hub and viewer input are stale
     chapters = _objects(job["movie"].get("chapters"))
     all_sections = [(chapter, chapter_sections(job["dir"], chapter)) for chapter in chapters]
     sources = [still_source(chapter, sections) for chapter, sections in all_sections]
@@ -922,7 +941,6 @@ def _stage_transcript(job):
 
 
 HUB_TEMPLATE = os.path.join(SKILL_DIR, "templates", "movie.html")
-HUB_PAGE = "index.html"
 HUB_MARKER = re.compile(r"\{\{([a-z_]+)\}\}")
 
 

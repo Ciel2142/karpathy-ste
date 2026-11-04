@@ -680,6 +680,21 @@ class StitchCase(MovieCase):
                                                " chapters/split/review/still-02-body-end.png")
         self.assertFalse(self.exists("review/viewer-transcript.html"))
 
+    def test_a_late_fail_leaves_no_stale_hub_or_viewer_input(self):
+        # red: a stitch that fails at transcript keeps the hub or the viewer input of the stitch
+        # before it, or a stitch that fails before container passes removes them
+        outputs = ("index.html", "review/viewer-transcript.html", "review/viewer-stills")
+        self.build_all()
+        durations = [60, 10, 60, 10, 60, 10, 60]
+        self.assertEqual(self.stitch(self.probes(durations))[0], 0)
+        self.assertEqual([name for name in outputs if not self.exists(name)], [])
+        self.assertEqual(self.stitch(self.probes(durations), ffmpeg_exit=1)[0], 1)
+        self.assertEqual([name for name in outputs if not self.exists(name)], [])
+        os.remove(os.path.join(self.dir, "chapters", "pause", "index.html"))
+        code, out, _ = self.stitch(self.probes(durations))
+        self.assertEqual((code, out.splitlines()[-1]), (1, "transcript: FAIL chapter pause: no transcript"))
+        self.assertEqual([name for name in outputs if self.exists(name)], [])
+
     def test_the_still_is_of_the_last_scene_before_answer(self):
         sections = {"ask": "<p>q</p>", "one": "<p>1</p>", "two": "<p>2</p>", "answer": "<p>a</p>"}
         self.assertEqual(movie.still_source(self.chapter("pause"), sections),
