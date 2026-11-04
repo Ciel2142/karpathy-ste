@@ -1,6 +1,6 @@
 """The subagent prompts of the movie rung (spec sections 4.3, 5 and D10 to D12): movie/chapter-task.md, the brief
-of one chapter subagent, and movie/review-viewer.md, the brief of the cold viewer. Task 5 of wave 2 adds
-movie/review-chapter.md.
+of one chapter subagent, movie/review-viewer.md, the brief of the cold viewer, and movie/review-chapter.md, the
+brief of the cold fact reviewer of one chapter script under --review (D12).
 
 Each prompt is a template. The orchestrator fills it by plain text replacement of {name}, so a prompt holds
 the placeholders of PLACEHOLDERS and no other word in braces (every {name} counts, name = letters and "_").
@@ -12,13 +12,19 @@ movie, the length target with its tolerance of a fifth (the remedy of "Stitch" r
 cite, the check before the first render, no `open`, the amendment that changes the picture and never the
 answers (Review Focus 5), and the `disputed:` lines of D12 before the result line. The viewer prompt holds the
 closure of D10 and spec 5 step 8 (VIEWER_TEXTS): the viewer reads the viewer page and the stills that it names,
-and no other file of the run, answers in its own words or with `cannot answer`, and guesses nothing.
+and no other file of the run, answers in its own words or with `cannot answer`, and guesses nothing. The gate
+prompt holds the checks of D12 (REVIEW_TEXTS): the narration against the cited lines, the `answer` scene against
+the answers of the questions (it may say less, never something different), the `ask` scene against the question
+of the chapter, and the rounds of lesson/review-script.md (rulings `resolved` or `open`, a verification read,
+`verdict: ok|fix` last, the `## Author` block of the author).
 
 The rung ties back: the {name} set of rungs/movie.md is the union of PLACEHOLDERS (its fill tables), the fill
-table of "Build the chapters" has one row for each placeholder of the chapter prompt, the fill table of "The
-viewer gate" has one row for each placeholder of the viewer prompt, and each key of
-PLACEHOLDERS is a file in MOVIE_DIR that the rung names as `<skill-dir>/movie/<file>`. The prompts pass the
-STE lint.
+table of "Build the chapters" (outside "The chapter gate") has one row for each placeholder of the chapter prompt,
+the fill table of "The chapter gate" has one row for each placeholder of the gate prompt, the fill table of "The
+viewer gate" has one row for each placeholder of the viewer prompt, and the `<skill-dir>/movie/<file>` names of
+the rung are the keys of PLACEHOLDERS, each a file in MOVIE_DIR. "The chapter gate" keeps its reports in
+`chapters/<id>/gate/`, which render.sh never empties (it empties `chapters/<id>/review/` on each render), and
+holds the open-finding rule of D12. The prompts pass the STE lint.
 
 This module imports helpers from test_rung_drift.py and test_lesson_prompts.py; no module imports this one.
 Each test names the mutation that turns it red."""
@@ -36,16 +42,18 @@ EXPLAIN = Path(__file__).resolve().parent.parent
 MOVIE_DIR = EXPLAIN / "movie"
 
 CHAPTER, VIEWER, REVIEW = "chapter-task.md", "review-viewer.md", "review-chapter.md"
-# The placeholders of each prompt, braces removed (spec section 5, step 5). Tasks 4 and 5 add their keys.
+# The placeholders of each prompt, braces removed (spec section 5, step 5, and D12).
 PLACEHOLDERS = {
     CHAPTER: frozenset({"skill_dir", "movie_dir", "chapter_id", "chapter_json", "questions_json", "other_chapters",
                         "subject_json", "root", "lang", "review", "amendment"}),
     VIEWER: frozenset({"transcript", "stills_dir", "report", "movie_dir", "lang"}),
+    REVIEW: frozenset({"subject", "root", "files", "chapter_id", "questions_json", "report", "previous"}),
 }
 # The one line that each subagent ends its reply with; the orchestrator reads it, not the work.
 RESULT_LINES = {
     CHAPTER: ("chapter: {chapter_id} built", "chapter: {chapter_id} failed <reason>"),
     VIEWER: ("viewer: done", "viewer: failed <reason>"),
+    REVIEW: ("verdict: ok", "verdict: fix"),
 }
 # The overrides of the movie, as chapter-task.md words them.
 CHAPTER_OVERRIDES = (
@@ -108,6 +116,31 @@ VIEWER_TEXTS = (
     "viewer: done",
     "## Author",
 )
+# The checks and the rounds of the chapter gate (D12), as review-chapter.md words them: the answers of the questions
+# that the `answer` scene states (it may say less, never something different), the question that the `ask` scene
+# poses, the last line of the report, the rulings of round 2, the verification read and the `## Author` block that
+# the author appends.
+REVIEW_TEXTS = (
+    "{questions_json}",
+    "`answer` scene",
+    "never something different",
+    "`ask` scene",
+    "verdict: ok",
+    "verdict: fix",
+    "resolved",
+    "open",
+    "-round-2.md",
+    "## Author",
+)
+# The rounds of the chapter gate in "Build the chapters" (D12, and the controller ruling of wave 2 on the report
+# directory): the reports out of `review/`, an open finding that ships as a `disputed:` line, no dropped chapter.
+GATE_TEXTS = (
+    "`chapters/<id>/gate/gate-round-<k>.md`",
+    "`gate-round-3.md`",
+    "`gate-round-4.md`",
+    "`disputed: <finding>`",
+    "A chapter is never dropped",
+)
 # A row of a fill table: `| `{name}` | ... |`.
 FILL_ROW = re.compile(r"^\| `\{([A-Za-z_]+)\}` \|", re.MULTILINE)
 
@@ -152,16 +185,39 @@ class MoviePromptCase(unittest.TestCase):
         text = squash(prompt(VIEWER))
         self.assertEqual([want for want in VIEWER_TEXTS if squash(want) not in text], [])
 
+    # red: the `answer` scene allowed to say something else than the answers, the check of the `ask` scene left
+    # out, the rulings or the verification read of round 2 left out, or the report without its last line
+    def test_review_chapter_checks_the_answer_scene(self):
+        text = squash(prompt(REVIEW))
+        self.assertEqual([want for want in REVIEW_TEXTS if squash(want) not in text], [])
+
+    # red: the gate reports back in `chapters/<id>/review/` (render.sh empties it on each render), no cap on the
+    # verification reads, an open finding that drops the chapter or that the reply does not carry as a `disputed:`
+    # line, or the output directory without the row of `chapters/<id>/gate/`
+    def test_rung_review_rounds_follow_d12(self):
+        text = read(MOVIE_MD)
+        build = squash(section(text, "Build the chapters"))
+        self.assertEqual([want for want in GATE_TEXTS if squash(want) not in build], [])
+        self.assertNotIn("review/gate-round", text)
+        self.assertIn("| `chapters/<id>/gate/` |", section(text, "Output directory"))
+
     # red: a placeholder of a prompt that the fill tables of the rung leave out, or a word in braces in the rung
     # that no prompt has
     def test_rung_names_every_placeholder(self):
         self.assertEqual(placeholders_of(read(MOVIE_MD)), set().union(*PLACEHOLDERS.values()))
 
     # red: a row of the fill table of the chapter prompt left out of "Build the chapters", put in another
-    # section, or written two times
+    # section (also "The chapter gate"), or written two times
     def test_build_section_fills_each_chapter_placeholder(self):
-        rows = FILL_ROW.findall(section(read(MOVIE_MD), "Build the chapters"))
-        self.assertEqual(sorted(rows), sorted(PLACEHOLDERS[CHAPTER]))
+        text = read(MOVIE_MD)
+        build = section(text, "Build the chapters").replace(section(text, "The chapter gate"), "")
+        self.assertEqual(sorted(FILL_ROW.findall(build)), sorted(PLACEHOLDERS[CHAPTER]))
+
+    # red: a row of the fill table of the gate prompt left out of "The chapter gate", put in another section, or
+    # written two times (the chapter subagent reads only that subsection of the rung)
+    def test_chapter_gate_fills_each_review_placeholder(self):
+        rows = FILL_ROW.findall(section(read(MOVIE_MD), "The chapter gate"))
+        self.assertEqual(sorted(rows), sorted(PLACEHOLDERS[REVIEW]))
 
     # red: a row of the fill table of the viewer prompt left out of "The viewer gate", put in another section, or
     # written two times
@@ -170,10 +226,10 @@ class MoviePromptCase(unittest.TestCase):
         self.assertEqual(sorted(rows), sorted(PLACEHOLDERS[VIEWER]))
 
     # red: a prompt file renamed on disk or in the rung, a prompt of PLACEHOLDERS that the rung never names, or a
-    # prompt named that is none of the three of the movie rung (Task 5 adds the equality of the full set)
+    # prompt named that is none of the three of the movie rung
     def test_rung_names_prompt_files_that_exist(self):
         named = set(re.findall(r"<skill-dir>/movie/([\w-]+\.md)", read(MOVIE_MD)))
-        self.assertLessEqual(named, {CHAPTER, VIEWER, REVIEW})
+        self.assertEqual(named, set(PLACEHOLDERS))
         for name in PLACEHOLDERS:
             with self.subTest(prompt=name):
                 self.assertIn(name, named)

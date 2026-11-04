@@ -367,15 +367,82 @@ subagent as its prompt.
 
 ### The chapter gate
 
-Under `--review`, each chapter subagent also runs the chapter gate before its first render. You
-start no reviewer for a chapter. The subagent writes the reports of the gate to
-`chapters/<id>/review/`.
+Under `--review`, the chapter gate is a cold read of the script of each chapter, before its first
+render. A fresh reviewer reads the narration against its cites, the `answer` scene against the
+answers of the chapter, and the `ask` scene against its question. The prompt of the reviewer is
+`<skill-dir>/movie/review-chapter.md`.
 
-A finding that stays open after the last round of the gate does not stop the chapter. The chapter
-ships: it is `built`. A chapter is never dropped, because it answers a viewer question. Before its
-last line, the reply holds one `disputed: <finding>` line for each such finding.
+The work of the gate has two owners:
 
-Write each `disputed:` line into `provenance.not_covered`:
+- The chapter subagent runs the gate of its chapter. It starts each reviewer and appends `## Author`
+  to each report. It runs the rounds and the verification reads. It ships a chapter with an open
+  finding, and it writes the `disputed:` lines in its reply.
+- The orchestrator starts no reviewer and reads no report. It copies the `disputed:` lines of a
+  reply into `movie.json`, as the last steps of this subsection say.
+
+These steps are for the chapter subagent. In them, "you" is the chapter subagent.
+
+1. Run the gate after `movie.py check` and before your first render. Make the directory
+   `chapters/<id>/gate/` of your chapter. The reports of the gate go there.
+2. Start each reviewer as a fresh general-purpose subagent. Never start a fork: a fork has your
+   context and your blind spots. Start a new reviewer for each round and for each verification read.
+3. Fill `review-chapter.md` as the table below says. Give the result to the reviewer as its prompt.
+4. Round 1: `{previous}` is `none`, and the report is `gate-round-1.md`.
+5. When a reviewer returns, read its report. Its last line is `verdict: ok` or `verdict: fix`.
+   Append `## Author` to the report. For each finding, write `fixed` with what changed, or
+   `not fixed` with why. Never change the text of the reviewer.
+6. A reviewer can return no report, or a report whose last line is no verdict. Then start a new
+   reviewer for that round, one time. If that fails too, the gate stops. The last report is then the
+   report before that round, if one exists. Before the result line, also write the line
+   `disputed: the chapter gate stopped in round <k>`, with the number of that round. Then do steps
+   12 to 14.
+7. When a report says `verdict: ok`, the gate is complete. Render the chapter.
+8. If the report of round 1 says `verdict: fix`, fix each finding that you accept. Then run round 2.
+   `{previous}` is `gate-round-1.md`, with your `## Author` block. The reviewer rules each finding
+   `resolved` or `open`, and then hunts for new faults. Its report is `gate-round-2.md`. There are
+   two hunting rounds at most.
+9. If you fix a finding of `gate-round-2.md`, a verification read follows. `{previous}` is
+   `gate-round-2.md`, with your `## Author` block. The reviewer rules each finding `resolved` or
+   `open`, and it hunts for nothing new. Its report is `gate-round-3.md`.
+10. That read can rule `open` a finding that you fixed, because your fix moved the fault. If you fix
+    it again, one more verification read follows, with `gate-round-3.md` as `{previous}`. Its report
+    is `gate-round-4.md`. No read follows `gate-round-4.md`.
+11. The last report is the first report that says `verdict: ok`. Else it is `gate-round-2.md` or
+    `gate-round-3.md` when you fix no finding of it. Else it is `gate-round-4.md`.
+12. The open findings are the findings of the last report: its new findings and each finding that
+    it rules `open`. A finding that no read rules after your fix is `open` too, whatever your
+    `## Author` block says.
+13. An open finding does not stop the chapter. The chapter ships: render it, and end your reply with
+    `chapter: <id> built`. A chapter is never dropped, because it answers a viewer question.
+14. Before that result line, write one `disputed: <finding>` line for each open finding.
+    `<finding>` is the finding and your reason from your `## Author` block, in STE, on one line.
+    Thus the user reads the pair, and the user decides if the reviewer was right.
+
+The reports are `chapters/<id>/gate/gate-round-<k>.md`, with `<k>` from 1 to 4. They are not in
+`chapters/<id>/review/`, because `render.sh` empties that directory on each render.
+
+The prompt tells the reviewer to read only the script, the files under the root and the pages of
+its URL cites. It closes the directory of the movie, except the script and the report of
+`{previous}`. Thus `movie.json`, the other chapters and the reports of the viewer are outside what a
+reviewer reads. This is an instruction, not a sandbox. A reviewer can read any file, so write no
+hint of a fault in a file that it reads.
+
+The chapter subagent fills the prompt. `review-chapter.md` is a template. Read it. Replace each name
+in braces with the text of the table below. A JSON text is plain text too: put it in the prompt as it is. The chapter prompt in
+the table is the prompt of the chapter subagent: `chapter-task.md` with its names filled.
+
+| Name | Fill with |
+|---|---|
+| `{subject}` | The `text` of the subject of the movie, from the subject JSON of the chapter prompt. |
+| `{root}` | The absolute path of the root of the movie, as the chapter prompt gives it. |
+| `{files}` | The absolute path of `<movie-dir>/chapters/<id>/script.json`, on one line. |
+| `{chapter_id}` | The `id` of the chapter. |
+| `{questions_json}` | The JSON list of the viewer questions in the chapter prompt, as it is. Each object has its `id`, `text`, `answer` and `cites`. |
+| `{report}` | The absolute path of `<movie-dir>/chapters/<id>/gate/gate-round-<k>.md`. `<k>` is the number of the round or of the verification read, from 1 to 4. |
+| `{previous}` | `none` in round 1. In round 2, the absolute path of `gate-round-1.md`, with the `## Author` block. For a verification read, the absolute path of the report before it, with the `## Author` block. |
+
+These steps are for the orchestrator. Do them for each `disputed:` line of a reply. Write the line
+into `provenance.not_covered`:
 
 1. Escape the line as "Edit the plan" says. A finding often quotes the narration.
 2. If `not_covered` is `none`, replace `none` with the line. Else add the line at the end, after one
@@ -820,7 +887,8 @@ The directory is `~/karpathy/out/YYYY-MM-DD-HHMMSS-movie-<slug>/`. A movie commi
 |---|---|
 | `movie.json` | The plan and the state, which you write. The one source of truth for a resume. |
 | `chapters/<id>/` | One chapter: a complete film output directory, as `rungs/video.md` "Output directory" lists it. Its chapter subagent writes it. |
-| `chapters/<id>/review/` | The stills of the chapter. Under `--review`, also the reports of its chapter gate. |
+| `chapters/<id>/review/` | The stills of the chapter. `render.sh` empties this directory on each render. |
+| `chapters/<id>/gate/` | Under `--review`: the reports of the chapter gate, `gate-round-<k>.md`, each with the `## Author` block of the chapter subagent. `render.sh` never writes here. |
 | `chapters/<id>.stale-<n>/` | An earlier build of the chapter `<id>`, moved aside before a new build. `status` prints a `stray: chapters/<name>` line for it. |
 | `bridges/<n>/` | The bridge after chapter `<n>`: a clip output directory. `movie.py bridges` writes its `script.json` and `scene/`, and `render.sh` writes the rest. |
 | `build/` | The work files of `stitch`: `concat.txt`, the list of the parts for ffmpeg; `video.part.mp4`, the joined file before its check; and `hub-sections.html`, the chapter sections of the hub. |
