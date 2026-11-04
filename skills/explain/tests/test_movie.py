@@ -266,8 +266,9 @@ class BridgesCase(MovieCase):
         self.assertEqual([scene["id"] for scene in script["scenes"]], ["done", "sofar", "next"])
         self.assertNotIn('"cites"', json.dumps(script))
         narration = {scene["id"]: scene["narration"] for scene in script["scenes"]}
-        self.assertIn(self.chapter("trigger")["question"], narration["done"])
-        self.assertIn(self.movie["questions"][0]["answer"], narration["sofar"])  # trigger answers q-1
+        # trigger answers q-1 first: done is its text and sofar its answer
+        self.assertIn(self.movie["questions"][0]["text"], narration["done"])
+        self.assertIn(self.movie["questions"][0]["answer"], narration["sofar"])
         self.assertIn(self.chapter("split")["question"], narration["next"])
         self.assertEqual(script["subject"], self.movie["subject"])
         self.assertEqual(script["provenance"]["root"], os.path.abspath(self.dir))
@@ -306,21 +307,22 @@ class BridgesCase(MovieCase):
             done = check_scene(directory)
             self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""), directory)
         self.assertNotIn("{{", self.film("1"))
-        self.assertEqual(self.labels("1"), {
-            "DONE": self.chapter("members")["question"],
+        self.assertEqual(self.labels("1"), {  # members answers q-1 first
+            "DONE": self.movie["questions"][0]["text"],
             "SOFAR": self.movie["questions"][0]["answer"],
             "NEXT": self.chapter("trigger")["question"]})
 
     def test_bridge_label_escapes_quotes(self):
         question = 'Who is a "member" of the group a\\b?'
-        self.chapter("members")["question"] = question
+        self.movie["questions"][0]["text"] = question  # members answers q-1 first
         self.bridges()
         self.assertEqual(self.labels("1")["DONE"], question)
         self.scene_ok("1")
 
     def test_bridge_labels_never_hold_a_refused_token(self):
         # each label holds a token or an import source of check_scene.py when written as it reads
-        self.chapter("members")["question"] = "Can the group treat an event as any other message?"
+        self.movie["questions"][0]["text"] = "Can the group treat an event as any other message?"
+        self.movie["questions"][1]["text"] = "Does it read 'x' from 'y' as an <image or a <mask?"
         self.chapter("trigger")["question"] = "Where does the offset come from"
         self.chapter("split")["question"] = "What does https://kafka.apache.org say?"
         self.chapter("pause")["question"] = \
@@ -328,13 +330,22 @@ class BridgesCase(MovieCase):
         self.movie["questions"][0]["answer"] = "The rule: any member reads it, as unknown \U0001F600."
         self.bridges()
         chapters = self.movie["chapters"]
+        questions = {question["id"]: question for question in self.movie["questions"]}
         for n in (1, 2, 3):
             self.scene_ok(str(n))
+            first = questions[chapters[n - 1]["answers"][0]]
             self.assertEqual(self.labels(str(n)), {
-                "DONE": chapters[n - 1]["question"],
-                "SOFAR": next(q["answer"] for q in self.movie["questions"]
-                              if q["id"] == chapters[n - 1]["answers"][0]),
-                "NEXT": chapters[n]["question"]})
+                "DONE": first["text"], "SOFAR": first["answer"], "NEXT": chapters[n]["question"]})
+
+    def test_done_is_the_first_answered_question(self):
+        # red: done is the chapter's question, or the text of a question other than answers[0]
+        self.chapter("members")["answers"] = ["q-3", "q-1"]
+        self.bridges()
+        q3 = self.movie["questions"][2]
+        self.assertEqual(self.labels("1"), {"DONE": q3["text"], "SOFAR": q3["answer"],
+                                            "NEXT": self.chapter("trigger")["question"]})
+        narration = {scene["id"]: scene["narration"] for scene in self.script("1")["scenes"]}
+        self.assertEqual((narration["done"], narration["sofar"]), (q3["text"], q3["answer"]))
 
     def test_bridges_refuses_a_plan_that_fails_check(self):
         self.chapter("pause")["answers"] = ["q-1", "q-2", "q-3"]

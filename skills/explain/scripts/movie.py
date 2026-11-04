@@ -22,9 +22,11 @@ Failure prefixes are fixed: `schema:`, `id:`, `question <id>:`,
 `check`, exits 1 and writes nothing. Otherwise it writes, for each gap `<n>` between chapter
 `<n>` and chapter `<n+1>`, `bridges/<n>/script.json` (a clip, from BRIDGE_TEMPLATE_SCRIPT) and
 `bridges/<n>/scene/Film.tsx` (from BRIDGE_TEMPLATE_SCENE), then prints `bridges: ok (<n>)`.
-The values come from `movie.json` alone, so a second run writes the same bytes. A bridge's
-subject is the movie's subject text with kind `topic`: a bridge cites nothing, and the
-timeline check allows a scene without cites only for a topic.
+The `done` scene (label and narration) is the text of the first viewer question that chapter
+`<n>` answers (`questions[answers[0]]`), `sofar` that question's answer, and `next` the
+question of chapter `<n+1>`. The values come from `movie.json` alone, so a second run writes the
+same bytes. A bridge's subject is the movie's subject text with kind `topic`: a bridge cites
+nothing, and the timeline check allows a scene without cites only for a topic.
 
 `stitch` joins chapter 1, bridge 1, chapter 2, ..., chapter n into `video.mp4` and writes
 `chapters.json` (`[{"id", "title", "start"}]`, the start being the float sum, unrounded, of
@@ -540,12 +542,12 @@ def _with_pronounce(script, pronounce):
 
 
 def _bridge_labels(movie, n):
-    """The labels of bridge `n`: the question of chapter `n`, the answer of the first question it
-    answers, and the question of chapter `n + 1` (chapters count from 1)."""
+    """The labels of bridge `n`: the text and the answer of the first viewer question that
+    chapter `n` answers, and the question of chapter `n + 1` (chapters count from 1)."""
     before, after = movie["chapters"][n - 1], movie["chapters"][n]
-    answers = {question["id"]: question["answer"] for question in movie["questions"]}
-    return {"done": before["question"], "sofar": answers[before["answers"][0]],
-            "next": after["question"]}
+    questions = {question["id"]: question for question in movie["questions"]}
+    first = questions[before["answers"][0]]
+    return {"done": first["text"], "sofar": first["answer"], "next": after["question"]}
 
 
 def bridges(movie_dir, movie):
