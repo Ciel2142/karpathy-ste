@@ -156,17 +156,20 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); 
   <p class="not-covered">Not covered: {{not_covered}}</p>
 </footer>
 <script>
-/* Chapters: a click on a chapter link seeks the movie to the chapter start and plays it; the
-   link then jumps to the chapter's section as any anchor does. A play() that the browser
-   refuses leaves the movie paused at that start: the reader presses play. */
+/* Chapters: a click on a chapter link seeks the movie to the chapter start, plays it and
+   scrolls the movie into view. The jump to the chapter's section is cancelled, else the movie
+   plays off screen; without this script the href still jumps to the section. A play() that the
+   browser refuses leaves the movie paused at that start: the reader presses play. */
 (function () {
   var movie = document.getElementById("movie");
   var links = document.querySelectorAll("#chapters a[data-start]");
   if (!movie) { window.explainJsErrors += 1; return; }
   function seek(event) {
+    event.preventDefault();
     movie.currentTime = parseFloat(event.currentTarget.getAttribute("data-start"));
     var played = movie.play();
     if (played && played.catch) played.catch(function () {});
+    movie.scrollIntoView({ block: "start" });
   }
   for (var i = 0; i < links.length; i++) links[i].addEventListener("click", seek);
 })();
