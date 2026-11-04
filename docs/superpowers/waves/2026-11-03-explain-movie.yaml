@@ -67,7 +67,7 @@ waves:
       - skills/explain/SKILL.md, README.md (movie entries)
       - skills/explain/tests/test_rung_drift.py (MovieRungCase), skills/explain/tests/test_movie_prompts.py (new)
     risk: low
-    plan: null
+    plan: docs/superpowers/plans/2026-11-04-explain-movie-w2.md
     acceptance:
       - cd skills/explain && python3 -B -m unittest discover -s tests
 
