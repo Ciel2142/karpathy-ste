@@ -161,9 +161,21 @@ class MovieRenderCase(unittest.TestCase):
         for scene in RENAMES.values():
             self.assertNotIn(narration[scene], viewer, scene)
 
+    def assert_viewer_stills(self, out: Path, ids: list):
+        """Chapter k's -end still of gates, the last scene before answer, is in review/viewer-stills/ as
+        <k>-<id>.png, byte for byte the still the render wrote, and the viewer transcript names it."""
+        viewer = (out / "review" / "viewer-transcript.html").read_text(encoding="utf-8")
+        for number, ident in enumerate(ids, start=1):
+            name = "viewer-stills/%d-%s.png" % (number, ident)
+            copy, still = out / "review" / name, out / "chapters" / ident / "review" / "still-02-gates-end.png"
+            self.assertTrue(copy.is_file(), "%s\n%s" % (out, name))
+            self.assertEqual(copy.read_bytes(), still.read_bytes(), "%s\n%s" % (out, name))
+            self.assertIn('<p class="still">still: %s</p>' % name, viewer)
+
     # red: stitch joins the parts out of order or drops the bridge (parts: ok (2), a shorter video.mp4), a
     # chapter start rounded or counted without the bridge, the viewer transcript keeps the ask or the answer
-    # scene, or the hub links a chapter transcript that is not there (media: FAIL 1 missing)
+    # scene, a viewer still is missing or is the still of another scene, or the hub links a chapter
+    # transcript that is not there (media: FAIL 1 missing)
     def test_two_chapters_and_a_bridge_stitch(self):
         out = movie_output(keep=True)
         plan = movie.load(str(out))
@@ -196,6 +208,7 @@ class MovieRenderCase(unittest.TestCase):
             {"id": ids[1], "title": plan["chapters"][1]["title"], "start": durations[0] + durations[1]},
         ], out)
         self.assert_viewer_transcript(out, parts[0])
+        self.assert_viewer_stills(out, ids)
 
         run = subprocess.run([str(VERIFY_SH), str(out / "index.html")], capture_output=True, text=True,
                              timeout=300)

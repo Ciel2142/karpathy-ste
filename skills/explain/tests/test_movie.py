@@ -574,6 +574,38 @@ class StitchCase(MovieCase):
         self.assertEqual(hub.count("<section id=\"ch-"), 4)
         self.assertIn('class="cites"', hub)
 
+    def test_viewer_transcript_names_a_still_per_chapter(self):
+        # red: no still is copied, the still of another scene or chapter is, or the page names none
+        self.build_all()
+        for ident in ("members", "trigger", "split", "pause"):
+            Path(self.dir, "chapters", ident, "review", "still-02-body-end.png").write_bytes(
+                ("end of body, %s" % ident).encode("utf-8"))
+        code, _, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 0)
+        page = Path(self.dir, "review", "viewer-transcript.html").read_text(encoding="utf-8")
+        sections = dict(re.findall(r'<section id="ch-([^"]+)">(.*?)</section>', page, re.S))
+        for k, ident in enumerate(("members", "trigger", "split", "pause"), start=1):
+            name = "viewer-stills/%d-%s.png" % (k, ident)
+            self.assertEqual(Path(self.dir, "review", name).read_bytes(),
+                             ("end of body, %s" % ident).encode("utf-8"), name)
+            self.assertIn('<p class="still">still: %s</p>' % name, sections[ident])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.dir, "review", "viewer-stills"))),
+                         ["1-members.png", "2-trigger.png", "3-split.png", "4-pause.png"])
+
+    def test_viewer_transcript_fails_without_a_still(self):
+        self.build_all()
+        os.remove(os.path.join(self.dir, "chapters", "split", "review", "still-02-body-end.png"))
+        code, out, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "transcript: FAIL chapter split: no still"
+                                               " chapters/split/review/still-02-body-end.png")
+        self.assertFalse(self.exists("review/viewer-transcript.html"))
+
+    def test_the_still_is_of_the_last_scene_before_answer(self):
+        sections = {"ask": "<p>q</p>", "one": "<p>1</p>", "two": "<p>2</p>", "answer": "<p>a</p>"}
+        self.assertEqual(movie.still_source(self.chapter("pause"), sections),
+                         "chapters/pause/review/still-03-two-end.png")
+
     # the hub page (spec 4.6)
 
     def stitched(self):

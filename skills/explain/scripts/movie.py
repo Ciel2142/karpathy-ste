@@ -41,11 +41,19 @@ codec, width, height, frame rate, audio rate. `<part>` is the path under `<dir>`
 one video and one audio stream, a duration within 0.5 s of the sum; then it replaces
 `video.mp4` with it and writes `chapters.json`, so a stitch that fails earlier leaves the old
 `video.mp4`. `transcript` follows `container`: it reads each chapter's `chapters/<id>/index.html`
-(`transcript: ok (<n> chapters)` | `FAIL chapter <id>: no transcript` | `FAIL chapter <id>:
-transcript has no section <ask|answer>`) and writes `build/hub-sections.html` (a section per
-chapter, with narration, cites and a link to the chapter's transcript) and
+and finds the chapter's viewer still, the `-end` still of the last scene before `answer` other
+than `ask`, as the render names it: `chapters/<id>/review/still-NN-<scene>-end.png`, NN the
+1-based place of the scene. Its lines:
+  transcript: ok (<n> chapters) | FAIL chapter <id>: no transcript
+         | FAIL chapter <id>: transcript has no section <ask|answer>
+         | FAIL chapter <id>: transcript has no section before answer
+         | FAIL chapter <id>: no still <path>
+`<path>` is the still's path under `<dir>`. Then it writes `build/hub-sections.html` (a section
+per chapter, with narration, cites and a link to the chapter's transcript), copies chapter k's
+still to `review/viewer-stills/<k>-<id>.png` (k from 1) and writes
 `review/viewer-transcript.html` (the title, the question texts, a section per chapter without
-`ask`, `answer`, cites and link). The transcript markup is read with a section regex over the
+`ask`, `answer`, cites and link that ends with the text `still: viewer-stills/<k>-<id>.png`
+and that still as an image). The transcript markup is read with a section regex over the
 text between `<main>` and `</main>`, not an HTML parser: the markup is the one
 `video/transcript.py` writes (a `<section id>` holding `<h2>`, `<p>` and an optional
 `div.cites`, none of them nested), and the regex keeps inline tags as written.
@@ -63,6 +71,7 @@ import html
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -723,6 +732,7 @@ def _stage_container(job):
 
 TRANSCRIPT_FILE = "index.html"
 VIEWER_FILE = os.path.join("review", "viewer-transcript.html")
+VIEWER_STILLS = os.path.join("review", "viewer-stills")  # a still per chapter, `<k>-<id>.png`
 HUB_FILE = os.path.join(BUILD_DIR, "hub-sections.html")
 VIEWER_HIDDEN = ("ask", "answer")  # scenes the viewer must not see
 MAIN_TEXT = re.compile(r"<main>(.*?)</main>", re.S)
@@ -761,10 +771,48 @@ def hub_section(chapter, sections):
     return _chapter_html(chapter, list(sections.values()) + [link])
 
 
-def viewer_section(chapter, sections):
-    """The same without the `ask` and `answer` scenes and without any cites block."""
-    return _chapter_html(chapter, [CITES_TEXT.sub("", body) for scene, body in sections.items()
-                                   if scene not in VIEWER_HIDDEN])
+def viewer_section(chapter, sections, still=None):
+    """The same without the `ask` and `answer` scenes and without any cites block; with `still`
+    (the still's path relative to `review/`), the path as text and the still as an image."""
+    bodies = [CITES_TEXT.sub("", body) for scene, body in sections.items()
+              if scene not in VIEWER_HIDDEN]
+    if still is not None:
+        bodies.append('<p class="still">still: %s</p>\n<img src="%s" alt="">'
+                      % (html.escape(still), html.escape(still)))
+    return _chapter_html(chapter, bodies)
+
+
+def still_source(chapter, sections):
+    """The path under the movie directory of the chapter's viewer still: the `-end` still of the
+    last scene before `answer` other than `ask`, as the render names it,
+    `chapters/<id>/review/still-NN-<scene>-end.png` with NN the 1-based place of the scene (the
+    transcript has one section per scene, in scene order). StitchError when no such scene comes
+    before `answer`."""
+    names = list(sections)
+    before = [(place, name) for place, name in enumerate(names[:names.index("answer")], start=1)
+              if name not in VIEWER_HIDDEN]
+    if not before:
+        raise StitchError("chapter %s: transcript has no section before answer" % chapter.get("id"))
+    place, name = before[-1]
+    return "chapters/%s/review/still-%02d-%s-end.png" % (chapter.get("id"), place, name)
+
+
+def _copy_atomic(source, path):
+    """Copy the file `source` to `path` through a temporary file in the same directory; on
+    failure the old file stays and no temp is left."""
+    fd, temp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".tmp",
+                                dir=os.path.dirname(path))
+    os.close(fd)
+    try:
+        shutil.copyfile(source, temp)
+        os.chmod(temp, 0o644)
+        os.replace(temp, path)
+    except BaseException:
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        raise
 
 
 def _viewer_page(movie, chapter_html):
@@ -780,11 +828,21 @@ def _viewer_page(movie, chapter_html):
 def _stage_transcript(job):
     chapters = _objects(job["movie"].get("chapters"))
     all_sections = [(chapter, chapter_sections(job["dir"], chapter)) for chapter in chapters]
+    sources = [still_source(chapter, sections) for chapter, sections in all_sections]
+    for (chapter, _), source in zip(all_sections, sources):
+        if not os.path.isfile(os.path.join(job["dir"], source)):
+            raise StitchError("chapter %s: no still %s" % (chapter.get("id"), source))
     _write_atomic(os.path.join(job["dir"], HUB_FILE),
                   "".join(hub_section(c, s) for c, s in all_sections))
-    os.makedirs(os.path.join(job["dir"], "review"), exist_ok=True)
+    os.makedirs(os.path.join(job["dir"], VIEWER_STILLS), exist_ok=True)
+    stills = []
+    for number, (chapter, source) in enumerate(zip(chapters, sources), start=1):
+        name = "%d-%s.png" % (number, chapter.get("id"))
+        _copy_atomic(os.path.join(job["dir"], source), os.path.join(job["dir"], VIEWER_STILLS, name))
+        stills.append("%s/%s" % (os.path.basename(VIEWER_STILLS), name))
     _write_atomic(os.path.join(job["dir"], VIEWER_FILE), _viewer_page(
-        job["movie"], [viewer_section(c, s) for c, s in all_sections]))
+        job["movie"], [viewer_section(c, s, still)
+                       for (c, s), still in zip(all_sections, stills)]))
     return "(%d chapters)" % len(chapters), {}
 
 
