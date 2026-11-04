@@ -89,8 +89,9 @@ CHAPTER_OVERRIDES = (
     "Before that line, write one `disputed: <finding>` line for each such finding.",
 )
 # The closure of the cold viewer (D10, spec 5 step 8), as review-viewer.md words it: the viewer page and the
-# stills that it names, no other file of the run, an answer in its own words or `cannot answer`, no guess, the
-# last line of the report, and the `## Author` block that the author appends.
+# stills that it names, no other file of the run, an answer in its own words or `cannot answer`, no guess, a part
+# known only from before named as a gap (the author then marks it `missed`), the last line of the report, and the
+# `## Author` block that the author appends.
 VIEWER_TEXTS = (
     "{transcript}",
     "still: viewer-stills/",
@@ -100,6 +101,10 @@ VIEWER_TEXTS = (
     "cannot answer",
     "in your own words",
     "guess nothing",
+    # fix round 1 (task 4 review): knowledge from before goes to the gap of a half answer, not into the answer
+    "If you know a part only from before, not from the film, do not write it as your answer. Name it as the part "
+    "that you could not find in the film.",
+    "If you know all of the answer only from before, write `cannot answer`.",
     "viewer: done",
     "## Author",
 )
@@ -140,8 +145,9 @@ class MoviePromptCase(unittest.TestCase):
         self.assertEqual([want for want in CHAPTER_OVERRIDES if squash(want) not in text], [])
 
     # red: the viewer may read `movie.json`, a `script.json` or another still (then it can always answer), the
-    # still name of the viewer page left out, `cannot answer` or `guess nothing` left out (then it guesses), or
-    # the report without its last line
+    # still name of the viewer page left out, `cannot answer` or `guess nothing` left out (then it guesses), a part
+    # known only from before written as an answer (then the author counts a recall as `understood`), or the report
+    # without its last line
     def test_viewer_reads_only_the_transcript_and_its_stills(self):
         text = squash(prompt(VIEWER))
         self.assertEqual([want for want in VIEWER_TEXTS if squash(want) not in text], [])

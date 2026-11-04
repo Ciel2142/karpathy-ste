@@ -55,12 +55,13 @@ For each question, write two things:
 Answer from the film alone, and guess nothing. A `cannot answer` is a correct result when the film does not
 show the answer, and it is better than a guess.
 
-If you know the subject from other sources, use none of that knowledge. Answer as a viewer who knows only
-the film. If a part of your answer comes from what you knew before, not from the film, say so and name that
-part. The test measures the film, not you.
-
 A half answer is an answer. Write the part that the film shows, and then name the part that you could not
 find in the film.
+
+If you know the subject from other sources, use none of that knowledge. Answer as a viewer who knows only
+the film. If you know a part only from before, not from the film, do not write it as your answer. Name it as
+the part that you could not find in the film. If you know all of the answer only from before, write
+`cannot answer`. The test measures the film, not you.
 
 Quote the transcript only in the evidence, not in the answer. Your answer tells what you understood. The
 evidence tells where the film showed it.
