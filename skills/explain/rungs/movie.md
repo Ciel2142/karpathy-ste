@@ -433,10 +433,11 @@ the table is the prompt of the chapter subagent: `chapter-task.md` with its name
 
 | Name | Fill with |
 |---|---|
-| `{subject}` | The `text` of the subject of the movie, from the subject JSON of the chapter prompt. |
+| `{subject}` | The `text` of the subject of the movie, from `{subject_json}` of the chapter prompt. |
 | `{root}` | The absolute path of the root of the movie, as the chapter prompt gives it. |
 | `{files}` | The absolute path of `<movie-dir>/chapters/<id>/script.json`, on one line. |
 | `{chapter_id}` | The `id` of the chapter. |
+| `{question}` | The `question` of the chapter, from `{chapter_json}` of the chapter prompt. |
 | `{questions_json}` | The JSON list of the viewer questions in the chapter prompt, as it is. Each object has its `id`, `text`, `answer` and `cites`. |
 | `{report}` | The absolute path of `<movie-dir>/chapters/<id>/gate/gate-round-<k>.md`. `<k>` is the number of the round or of the verification read, from 1 to 4. |
 | `{previous}` | `none` in round 1. In round 2, the absolute path of `gate-round-1.md`, with the `## Author` block. For a verification read, the absolute path of the report before it, with the `## Author` block. |

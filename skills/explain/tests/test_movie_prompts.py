@@ -47,7 +47,8 @@ PLACEHOLDERS = {
     CHAPTER: frozenset({"skill_dir", "movie_dir", "chapter_id", "chapter_json", "questions_json", "other_chapters",
                         "subject_json", "root", "lang", "review", "amendment"}),
     VIEWER: frozenset({"transcript", "stills_dir", "report", "movie_dir", "lang"}),
-    REVIEW: frozenset({"subject", "root", "files", "chapter_id", "questions_json", "report", "previous"}),
+    REVIEW: frozenset({"subject", "root", "files", "chapter_id", "question", "questions_json", "report",
+                       "previous"}),
 }
 # The one line that each subagent ends its reply with; the orchestrator reads it, not the work.
 RESULT_LINES = {
@@ -117,14 +118,19 @@ VIEWER_TEXTS = (
     "## Author",
 )
 # The checks and the rounds of the chapter gate (D12), as review-chapter.md words them: the answers of the questions
-# that the `answer` scene states (it may say less, never something different), the question that the `ask` scene
-# poses, the last line of the report, the rulings of round 2, the verification read and the `## Author` block that
-# the author appends.
+# that the `answer` scene states (it may say less, never something different), the question of the chapter that the
+# `ask` scene poses (other words, never a different question), the last line of the report, the rulings of round 2,
+# the verification read and the `## Author` block that the author appends.
 REVIEW_TEXTS = (
     "{questions_json}",
     "`answer` scene",
     "never something different",
     "`ask` scene",
+    # fix round 1 (controller ruling on concern 2): D12 gives the reviewer the question of the chapter, on its own
+    # line (a {name} inside a sentence would expand the text there), and check 3 reads the `ask` scene against it
+    "This is the question of the chapter, which its `ask` scene poses: {question}",
+    "The `ask` scene poses the question of the chapter above.",
+    "never a different question",
     "verdict: ok",
     "verdict: fix",
     "resolved",
@@ -186,7 +192,8 @@ class MoviePromptCase(unittest.TestCase):
         self.assertEqual([want for want in VIEWER_TEXTS if squash(want) not in text], [])
 
     # red: the `answer` scene allowed to say something else than the answers, the check of the `ask` scene left
-    # out, the rulings or the verification read of round 2 left out, or the report without its last line
+    # out or made against the viewer questions instead of {question}, the rulings or the verification read of
+    # round 2 left out, or the report without its last line
     def test_review_chapter_checks_the_answer_scene(self):
         text = squash(prompt(REVIEW))
         self.assertEqual([want for want in REVIEW_TEXTS if squash(want) not in text], [])

@@ -32,6 +32,10 @@ These are the viewer questions that the chapter answers, with their answers and 
 Each question has an `id`, a `text`, an `answer` and its `cites`. The `answer` is the answer that a viewer must
 give after the film.
 
+This is the question of the chapter, which its `ask` scene poses:
+
+{question}
+
 The root is `{root}`. Each cite of `script.json` and of the questions has a `path` that is relative to the root, a
 `line` and a `snippet`. Read the cited file under the root, not a copy. A cite whose `path` starts with `http://`
 or `https://` has no `line`. Read that page, and find the snippet in it.
@@ -43,8 +47,8 @@ root.
 
 ## Hunt
 
-Hunt. Assume one claim in this script is not supported by its cited lines, or does not agree with the questions
-above, and find it.
+Hunt. Assume that one claim of this script has a fault, and find it. Its cited lines do not support it, or it
+does not agree with the questions or the question of the chapter above.
 
 Read every cite against the source, and each answer against the narration. If you then find no fault, write
 `verdict: ok` with zero findings. That is the right answer for a correct artifact.
@@ -64,8 +68,8 @@ Make these checks, in this order.
 1. The narration makes no claim that the cited lines, read from `{root}`, do not support.
 2. The `answer` scene states each `answer` of the questions above without contradicting it. Compare the meaning,
    not the words. The scene may say less, never something different.
-3. The `ask` scene poses the question of the chapter: the question that the answers above answer. It asks for
-   nothing that those answers do not give.
+3. The `ask` scene poses the question of the chapter above. It may use other words, never a different
+   question.
 
 Do not judge the picture. The render comes after this review. Then the author reads the stills, and a cold viewer
 tests the whole film.
@@ -86,7 +90,8 @@ Before you hunt, rule each finding of that report `resolved` or `open`, and quot
 
 - the narration no longer makes the claim that the finding quoted;
 - the cited lines now support the claim;
-- the `ask` or the `answer` scene now agrees with the questions above.
+- the `ask` scene now poses the question of the chapter;
+- the `answer` scene now agrees with the questions above.
 
 Otherwise it is `open`.
 
@@ -109,8 +114,9 @@ Write the report to {report}. It holds the rulings of round 2, if any, and a num
 - what is wrong;
 - a fix in one line.
 
-For a finding of check 2 or check 3, quote two source lines verbatim. One is the `answer` or the `text` of the
-question. The other is the sentence of the narration that disagrees with it.
+For a finding of check 2 or check 3, quote two source lines verbatim. For check 2, one is the `answer` of a
+question above. For check 3, it is the question of the chapter. The other is the sentence of the narration that
+disagrees with it.
 
 A finding without a quoted source line is not a finding.
 
