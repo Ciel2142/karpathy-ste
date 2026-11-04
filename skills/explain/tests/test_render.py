@@ -978,7 +978,7 @@ class BrainrotRouteCase(unittest.TestCase):
         self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "", ""))
 
     # red: lesson, course, onboard or movie missing from the argument-hint, the syntax line, or contract step 4 (the check of the --as value)
-    def test_skill_md_lists_eight_rungs(self):
+    def test_skill_md_lists_nine_rungs(self):
         text = SKILL_MD.read_text(encoding="utf-8")
         hint = re.search(r'^argument-hint: "(.*)"$', text, re.M)
         self.assertIsNotNone(hint, "no argument-hint line")

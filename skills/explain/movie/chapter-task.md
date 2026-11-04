@@ -35,10 +35,13 @@ This is the amendment of the author:
 
 {amendment}
 
-The amendment changes the picture, never the answers. It is `none`, or a note of the author after a cold
-viewer missed an answer of this chapter. The note tells what the film did not show. Show that part in the
-body scenes: in their objects, their motions and their narration. Keep each answer of the questions above
-as it is. For `none`, build the chapter from the plan alone.
+The amendment changes what the viewer sees, never the answers. It is `none`, or a note of the author after
+a cold viewer missed an answer of this chapter. The note tells what the film did not show. For `none`, build
+the chapter from the plan alone.
+
+The cold viewer sees only the narration of the body scenes and the last frame of the last body scene. Thus
+show that part in the narration of a body scene, or in the last frame of the last body scene. Keep each
+answer of the questions above as it is.
 
 ## What to read
 
@@ -91,6 +94,9 @@ words or a scene. For a long film, remove words or a scene. Then render again. A
 length stays outside the range, ship the chapter. Before the result line, write one line with the real
 length and the target: `off target: <s> s, target <seconds> s`.
 
+If the review flag is `on`, a change of the narration here needs a `disputed:` line, as "The chapter gate"
+below says.
+
 ### The picture
 
 The `picture` of the chapter is the stage at the first frame of the film. The `ends_with` of the chapter is
@@ -136,12 +142,18 @@ Start each reviewer as a fresh subagent. In Claude Code, use the Agent tool. In 
 tool with the `general` agent.
 
 A finding that stays `open` after the last round does not stop the chapter. The chapter ships: render it,
-and end with `chapter: {chapter_id} built`. Before that line, write one `disputed: <finding>` line for each such finding.
-`<finding>` is the finding and your reason to keep the text, in STE, on one line. The orchestrator writes
-these lines into `movie.json`.
+and end with `chapter: {chapter_id} built`. Before that line, write one `disputed: {chapter_id}: <finding>`
+line for each such finding. `<finding>` is the finding and your reason to keep the text, in STE, on one
+line. The orchestrator writes these lines into `movie.json`.
+
+The gate reads the narration before your first render. The loop of "Length" and a fix after the stills can
+change the narration of a scene after the last read of the gate. No reviewer reads that change. Then write
+the line `disputed: {chapter_id}: narration changed after the gate in <scene ids>` before the result line.
+`<scene ids>` lists the id of each such scene, as `body, detail`. Start no new reviewer for it.
 
 If the review flag is `on` and you cannot start a subagent, build the chapter without the gate. Then write
-the line `disputed: the chapter gate did not run` before the result line. Thus the movie tells what ran.
+the line `disputed: {chapter_id}: the chapter gate did not run` before the result line. Thus the movie tells
+what ran.
 
 ### Render and read the stills
 
@@ -153,6 +165,9 @@ Run this command, as "Build and check" of `video.md` says:
 
 Fix the cause of each `FAIL` line, and run the command again. Do this until its eleven stage lines show
 `ok` and the length is in the range of "Length". Then read the stills as "Read the stills" of `video.md` says. Fix each fault, and render again.
+
+If the review flag is `on`, a change of the narration for a still needs a `disputed:` line, as "The chapter
+gate" above says.
 
 Stop a fix loop after 3 rounds in which the same `FAIL` line comes back. Also stop at once for a fault of
 the environment, such as a `workspace`, `narration` or `container` `FAIL` line that your files did not

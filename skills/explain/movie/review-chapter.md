@@ -95,9 +95,12 @@ Before you hunt, rule each finding of that report `resolved` or `open`, and quot
 
 Otherwise it is `open`.
 
-Write the rulings at the top of your report, one for each finding: its number, `resolved` or `open`, and the
-quoted line. Then, unless this is a verification read, hunt as the Hunt section says, and number each new finding
-after the old ones. An `open` finding counts as a finding of this report.
+Write the rulings at the top of your report, one for each finding. A ruling has four parts: the number of the
+finding, `resolved` or `open`, the claim of the finding, quoted, and the current line, quoted. The next reader
+can open only your report, not the report before it. Thus each ruling must hold the claim that it rules.
+
+Then, unless this is a verification read, hunt as the Hunt section says, and number each new finding after the
+old ones. An `open` finding counts as a finding of this report.
 
 In a verification read, write `verdict: ok` when each finding is `resolved`, and `verdict: fix` when one is
 `open`.

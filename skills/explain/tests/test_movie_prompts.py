@@ -22,7 +22,8 @@ The rung ties back: the {name} set of rungs/movie.md is the union of PLACEHOLDER
 table of "Build the chapters" (outside "The chapter gate") has one row for each placeholder of the chapter prompt,
 the fill table of "The chapter gate" has one row for each placeholder of the gate prompt, the fill table of "The
 viewer gate" has one row for each placeholder of the viewer prompt, and the `<skill-dir>/movie/<file>` names of
-the rung are the keys of PLACEHOLDERS, each a file in MOVIE_DIR. "The chapter gate" keeps its reports in
+the rung are the keys of PLACEHOLDERS, each a file in MOVIE_DIR. The rung reads the result lines of
+RESULT_LINES, with `<id>` for {chapter_id}, and MOVIE_RUNG_LINES of test_rung_drift.py holds those of a chapter. "The chapter gate" keeps its reports in
 `chapters/<id>/gate/`, which render.sh never empties (it empties `chapters/<id>/review/` on each render), and
 holds the open-finding rule of D12. The prompts pass the STE lint.
 
@@ -36,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lesson_prompts import PLACEHOLDER, squash
-from test_rung_drift import MOVIE_MD, lint, read, section
+from test_rung_drift import MOVIE_MD, MOVIE_RUNG_LINES, lint, read, section
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 MOVIE_DIR = EXPLAIN / "movie"
@@ -89,13 +90,21 @@ CHAPTER_OVERRIDES = (
     "python3 {skill_dir}/scripts/movie.py check {movie_dir}",
     "Fix each line that starts with `chapter {chapter_id}:` and names your script",
     "Never run `open`.",
-    # Review Focus 5: the amendment after a viewer miss changes the picture, not the contract
-    "{amendment} The amendment changes the picture, never the answers.",
+    # Review Focus 5: the amendment after a viewer miss changes what the viewer sees, not the contract; final
+    # review M6: the viewer sees the body narration and the last frame of the last body scene, so the fix goes there
+    "{amendment} The amendment changes what the viewer sees, never the answers.",
+    "Thus show that part in the narration of a body scene, or in the last frame of the last body scene.",
     # the review flag, and D12: an open finding ships, as a disputed line before the result line
     "If it is `off`, start no subagent.",
     "{skill_dir}/movie/review-chapter.md",
     "The chapter ships: render it, and end with `chapter: {chapter_id} built`.",
-    "Before that line, write one `disputed: <finding>` line for each such finding.",
+    # final review M1: each disputed line names its chapter, so a rebuild can remove the lines of that chapter
+    "Before that line, write one `disputed: {chapter_id}: <finding>` line for each such finding.",
+    "`disputed: {chapter_id}: the chapter gate did not run`",
+    # spec question 1: a narration change after the last read of the gate ships as a disputed line
+    "`disputed: {chapter_id}: narration changed after the gate in <scene ids>`",
+    "If the review flag is `on`, a change of the narration here needs a `disputed:` line",
+    "If the review flag is `on`, a change of the narration for a still needs a `disputed:` line",
     # final review I6: the fallback ships, and the reply carries its stage line before the result line
     "A narration fallback is not a fault.",
     "- the `narration` stage line of your last render, when it names a fallback: "
@@ -119,6 +128,8 @@ VIEWER_TEXTS = (
     "If you know a part only from before, not from the film, do not write it as your answer. Name it as the part "
     "that you could not find in the film.",
     "If you know all of the answer only from before, write `cannot answer`.",
+    # final review M9: the hub holds the answer scenes and the cites, so the viewer never opens it
+    "Do not read the movie page `index.html` or a report of an earlier round either.",
     # final review I7: the two forms of the evidence, one on each line, which the author checks
     'used: <chapter title>: "<sentence>"',
     "used: <chapter title>: still <k>-<id>.png: <what it shows>",
@@ -149,6 +160,9 @@ REVIEW_TEXTS = (
     "resolved",
     "open",
     "-round-2.md",
+    # final review M2: a ruling restates the claim, because a verification read opens only {previous}
+    "A ruling has four parts: the number of the finding, `resolved` or `open`, the claim of the finding, quoted, "
+    "and the current line, quoted.",
     "## Author",
 )
 # The rounds of the chapter gate in "Build the chapters" (D12, and the controller ruling of wave 2 on the report
@@ -157,7 +171,9 @@ GATE_TEXTS = (
     "`chapters/<id>/gate/gate-round-<k>.md`",
     "`gate-round-3.md`",
     "`gate-round-4.md`",
-    "`disputed: <finding>`",
+    "`disputed: <id>: <finding>`",
+    "`disputed: <id>: the chapter gate stopped in round <k>`",
+    "`disputed: <id>: narration changed after the gate in <scene ids>`",
     "A chapter is never dropped",
 )
 # A row of a fill table: `| `{name}` | ... |`.
@@ -221,6 +237,20 @@ class MoviePromptCase(unittest.TestCase):
         self.assertEqual([want for want in GATE_TEXTS if squash(want) not in build], [])
         self.assertNotIn("review/gate-round", text)
         self.assertIn("| `chapters/<id>/gate/` |", section(text, "Output directory"))
+
+    # red (final review M9): the rung reads a result line that the prompt does not write (`chapter: <id> done`),
+    # the prompt rewords its line and the rung keeps the old one, or MOVIE_RUNG_LINES of test_rung_drift.py drops it
+    # (then a quoted line of the rung is tied to no code and to no prompt)
+    def test_rung_reads_the_result_lines_of_the_prompts(self):
+        text = read(MOVIE_MD)
+        for name, title in ((CHAPTER, "Build the chapters"), (VIEWER, "The viewer gate")):
+            body = " ".join(section(text, title).split())
+            for line in RESULT_LINES[name]:
+                line = line.replace("{chapter_id}", "<id>")
+                with self.subTest(prompt=name, line=line):
+                    self.assertIn("`%s`" % line, body)
+        lines = {line.replace("{chapter_id}", "<id>") for line in RESULT_LINES[CHAPTER]}
+        self.assertLessEqual(lines, set(MOVIE_RUNG_LINES))
 
     # red: a placeholder of a prompt that the fill tables of the rung leave out, or a word in braces in the rung
     # that no prompt has

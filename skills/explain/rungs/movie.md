@@ -75,6 +75,15 @@ If `check` exits with 2 after an edit, that edit broke the JSON. `check` then pr
 line. Undo the edit. Make it again, with the text escaped. After the user approves the plan, never
 write the whole file again: it holds the `status` and the `reason` of each chapter.
 
+Before you build a chapter again, remove its `disputed:` entries from `provenance.not_covered`. The
+new build writes again each entry that still holds. Do these steps:
+
+1. Find each entry of the chapter. An entry of chapter `<id>` starts with `disputed: <id>:`. It ends
+   before the next `disputed:` or `viewer missed:` entry, or at the end of `not_covered`.
+2. Remove the entry and the space before it. Make one edit for each entry.
+3. If no text remains, write `none`.
+4. Run `movie.py check <movie-dir>` after each edit.
+
 ### When the run stops
 
 The run stops for the approval of the plan, at a fault, or by the stop rule of "Check and stop".
@@ -417,7 +426,7 @@ The work of the gate has two owners:
 
 - The chapter subagent runs the gate of its chapter. It starts each reviewer and appends `## Author`
   to each report. It runs the rounds and the verification reads. It ships a chapter with an open
-  finding, and it writes the `disputed:` lines in its reply.
+  finding, and it writes the `disputed: <id>:` lines in its reply.
 - The orchestrator starts no reviewer and reads no report. It copies the `disputed:` lines of a
   reply into `movie.json`, as the last steps of this subsection say.
 
@@ -435,8 +444,8 @@ These steps are for the chapter subagent. In them, "you" is the chapter subagent
 6. A reviewer can return no report, or a report whose last line is no verdict. Then start a new
    reviewer for that round, one time. If that fails too, the gate stops. The last report is then the
    report before that round, if one exists. Before the result line, also write the line
-   `disputed: the chapter gate stopped in round <k>`, with the number of that round. Then do steps
-   12 to 14.
+   `disputed: <id>: the chapter gate stopped in round <k>`, with the number of that round. Then do
+   steps 12 to 15.
 7. When a report says `verdict: ok`, the gate is complete. Render the chapter.
 8. If the report of round 1 says `verdict: fix`, fix each finding that you accept. Then run round 2.
    `{previous}` is `gate-round-1.md`, with your `## Author` block. The reviewer rules each finding
@@ -455,9 +464,14 @@ These steps are for the chapter subagent. In them, "you" is the chapter subagent
     `## Author` block says.
 13. An open finding does not stop the chapter. The chapter ships: render it, and end your reply with
     `chapter: <id> built`. A chapter is never dropped, because it answers a viewer question.
-14. Before that result line, write one `disputed: <finding>` line for each open finding.
-    `<finding>` is the finding and your reason from your `## Author` block, in STE, on one line.
-    Thus the user reads the pair, and the user decides if the reviewer was right.
+14. Before that result line, write one `disputed: <id>: <finding>` line for each open finding.
+    `<id>` is the id of your chapter. `<finding>` is the finding and your reason from your
+    `## Author` block, in STE, on one line. Thus the user reads the pair, and the user decides if
+    the reviewer was right.
+15. A fix after the last read of the gate can change the narration of a scene. Examples are the
+    loop of the length and a fix after the stills. No reviewer reads that change. Then write one more
+    line before the result line: `disputed: <id>: narration changed after the gate in <scene ids>`.
+    `<scene ids>` lists the id of each such scene, as `body, detail`. Start no new reviewer for it.
 
 The reports are `chapters/<id>/gate/gate-round-<k>.md`, with `<k>` from 1 to 4. They are not in
 `chapters/<id>/review/`, because `render.sh` empties that directory on each render.
@@ -493,7 +507,7 @@ into `provenance.not_covered`:
 4. Run `movie.py check <movie-dir>`. If it exits with 2, the edit broke the JSON. Undo the edit. Do
    steps 1 to 3 again. Never write the whole file again in the build.
 5. For a `prose:` line about `provenance.not_covered`, write the finding again under the STE profile.
-   Keep the `disputed:` start.
+   Keep the `disputed: <id>:` start.
 
 ## 6. Bridges
 
@@ -598,12 +612,14 @@ longer. Find that chapter, and give it a new `seconds`:
 8. Calculate the gap: 240 less `<s>` for a short movie, or `<s>` less 900 for a long movie.
 9. For a short movie, add the gap to the real length of the chapter, and multiply by 1.25. For a long
    movie, subtract the gap from its real length, and multiply by 0.8.
-10. Round the result to a whole number. This is the new `seconds` of the chapter.
+10. Round the result to a whole number: up for a short movie, down for a long movie. This is the new
+    `seconds` of the chapter.
 11. If the new `seconds` is more than 150, one chapter cannot close the gap. Do "Add a chapter" below,
     in place of steps 12 to 14.
 12. If the new `seconds` is less than 30, use 30. The next stitch then shows the gap that remains.
-13. Edit the `seconds` of the chapter. Then set its `status` to `pending`. Run
-    `movie.py check <movie-dir>` after each edit.
+13. Edit the `seconds` of the chapter. Remove its `disputed: <id>:` entries from `not_covered`, as
+    "Edit the plan" says. Then set its `status` to `pending`. Run `movie.py check <movie-dir>` after
+    each edit.
 14. Go to "Build the chapters". Its loop builds only that chapter, because each other chapter is
     `built`. Then do "Bridges" and "Stitch" again.
 
@@ -659,20 +675,24 @@ After the approval, "Build the chapters" builds only the new chapter. The new ga
   file is not correct. `video.mp4` stays the file of an earlier stitch, if one exists. The fault is in
   the tooling. Print the line. Stop the run ("When the run stops").
 - `transcript: FAIL chapter <id>: no transcript`: the chapter has no `chapters/<id>/index.html`. Its
-  render did not come to its last stage. Build the chapter again.
+  render did not come to its last stage. Make the chapter again, as "Make a part again" below says.
 - `transcript: FAIL chapter <id>: transcript has no section <ask|answer>`: the transcript of the
   chapter has no `ask` section, or no `answer` section. The transcript is older than the script.
-  Build the chapter again.
+  Make the chapter again, as "Make a part again" below says.
 - `transcript: FAIL chapter <id>: transcript has no section before answer`: before `answer`, the
-  chapter has no scene other than `ask`. The viewer page needs the still of a body scene. Build the
-  chapter again.
+  chapter has no scene other than `ask`. The viewer page needs the still of a body scene. Make the
+  chapter again, as "Make a part again" below says.
 - `transcript: FAIL chapter <id>: no still <path>`: the chapter has no still of its last body scene.
-  `<path>` is the still that `stitch` looks for. Build the chapter again.
+  `<path>` is the still that `stitch` looks for. Make the chapter again, as "Make a part again" below
+  says.
+
+#### Make a part again
 
 Make a part again in one of two ways:
 
 - For a bridge, render it again, as step 6 of "Bridges" says.
-- For a chapter, build it again. Set its `status` to `pending` and its `reason` to `""`, and run
+- For a chapter, build it again. Remove its `disputed: <id>:` entries from `not_covered`, as "Edit
+  the plan" says. Then set its `status` to `pending` and its `reason` to `""`, and run
   `movie.py check <movie-dir>`. Go to "Build the chapters". Its loop moves the old directory aside and
   builds only that chapter. Then do "Bridges" and "Stitch" again.
 
@@ -740,11 +760,15 @@ again.
 2. Start one new subagent with the result, in the background. Use a new subagent for each round. The
    viewer of round 1 saw the film before the fix.
 3. When the viewer returns, read only the last line of its reply. It is `viewer: done` or
-   `viewer: failed <reason>`. Print it.
-4. If the line is not `viewer: done`, or if `review/viewer-round-<k>.md` does not exist, the round has
-   no answers. Stop the run ("When the run stops"). A resume starts this round again, with a new
-   viewer.
-5. Read `review/viewer-round-<k>.md`. For each question, it gives the answer of the viewer or
+   `viewer: failed <reason>`. Print it. A harness error or a stop is a reply without `viewer: done`.
+4. The round has its answers when three things are true. The line is `viewer: done`, the report
+   `review/viewer-round-<k>.md` exists, and the last line of the report is `viewer: done`. Then go to
+   step 6.
+5. Else start a new viewer for this round, one time. If the report exists, first move it to
+   `review/viewer-round-<k>.stale-<n>.md`, as step 7 of "Find the round" says. Then do steps 1 to 4
+   again. If the new viewer fails too, the round has no answers. Print the path of the report. Stop
+   the run ("When the run stops"). A resume starts this round again, with a new viewer.
+6. Read `review/viewer-round-<k>.md`. For each question, it gives the answer of the viewer or
    `cannot answer`, and what in the film the viewer used.
 
 The viewer reads `review/viewer-transcript.html` and the stills under `review/viewer-stills/` that
@@ -777,7 +801,7 @@ Give each question one of two results:
 
 For each `missed` question, write what the film did not show, in your words. Name the chapter that
 fixes it: the chapter that has the question in its `answers`. If two chapters have it, choose the
-chapter whose picture must show the missing part.
+chapter whose body scenes must show the missing part.
 
 Append an `## Author` block at the end of the report, in this form. Never change the text that the
 viewer wrote.
@@ -806,10 +830,13 @@ of the viewer, not the film. The fix is in the film.
 
 After round 1, do these steps for each chapter that a `missed:` line names:
 
-1. Set its `status` to `pending` and its `reason` to `""`. Run `movie.py check <movie-dir>` after each
+1. Remove its `disputed: <id>:` entries from `not_covered`, as "Edit the plan" says.
+2. Set its `status` to `pending` and its `reason` to `""`. Run `movie.py check <movie-dir>` after each
    edit.
-2. Its next brief carries the `missed:` text of this block as `{amendment}`. The amendment changes the
-   picture of the chapter, never its answers. The answers are the contract of the movie.
+3. Its next brief carries the `missed:` text of this block as `{amendment}`. The amendment changes
+   what the viewer sees, never the answers of the chapter. The answers are the contract of the movie.
+   The viewer sees the narration of the body scenes and the last frame of the last body scene. Thus
+   the fix must show there.
 
 Then go to "Build the chapters". Its loop builds only these chapters. Then do "Bridges", "Stitch"
 and this gate again, as round 2. Do "Bridges" again also if no label changed. A bridge render is
@@ -895,11 +922,12 @@ link of the hub to `video.mp4` or to `chapters/<id>/index.html` that names no fi
    keeps the lines only of the chapters that it built. A chapter of an earlier run printed its line
    in that run.
 5. Print the line `viewer: <n> of <m> understood`, from the `## Author` block of the last round.
-6. Print each sentence of `provenance.not_covered` on its own line. For `none`, print nothing.
+6. Print each entry of `provenance.not_covered` on its own line. For `none`, print nothing.
 7. If the harness has a tool that sends a desktop notification, send one. The user is possibly away.
 
-The sentences of `not_covered` are the `disputed:` lines, the `viewer missed:` lines and each facet
-that the movie does not explain.
+The entries of `not_covered` are the `disputed:` lines, the `viewer missed:` lines and the sentence of
+each facet that the movie does not explain. A `disputed:` line can hold more than one sentence. It ends
+before the next entry, as "Edit the plan" says.
 
 ## 10. Resume
 
@@ -920,10 +948,12 @@ the gates of that value, and one movie has one value. If the arguments hold `--r
    it to `chapters/<id>.stale-<n>/`. `<n>` is the first number from 1 that no directory has.
 6. Never delete a chapter directory. The new build starts in an empty directory, and the old one
    stays for the user to read.
-7. For each `failed` chapter, set `status` to `pending` and `reason` to `""`. Run
+7. For each `pending` or `failed` chapter, remove its `disputed: <id>:` entries from `not_covered`,
+   as "Edit the plan" says. A chapter that has no such entry needs no edit.
+8. For each `failed` chapter, set `status` to `pending` and `reason` to `""`. Run
    `movie.py check <movie-dir>` after each edit.
-8. Run `movie.py check <movie-dir>`. Fix each failure line as "Check and stop" says, by its stop rule.
-9. Go on from the line `state: <state>`, as the second table below says.
+9. Run `movie.py check <movie-dir>`. Fix each failure line as "Check and stop" says, by its stop rule.
+10. Go on from the line `state: <state>`, as the second table below says.
 
 `status` prints one line for each chapter, in the order of the plan:
 `chapter: <id> <status>[ <reason>]`. The part in brackets shows only when the `reason` of the chapter
@@ -933,8 +963,8 @@ is no chapter. Its last line is `state: <state>`.
 | Line | Meaning | Do |
 |---|---|---|
 | `chapter: <id> built` | The chapter is complete. | Leave it. |
-| `chapter: <id> pending` | The chapter waits for its build. If its directory exists, an earlier run stopped while its subagent ran: `movie.json` has no status for a running chapter. | Steps 5 and 9. |
-| `chapter: <id> failed <reason>` | The build of the chapter failed in an earlier run. `<reason>` tells why. | Steps 5, 7 and 9. |
+| `chapter: <id> pending` | The chapter waits for its build. If its directory exists, an earlier run stopped while its subagent ran: `movie.json` has no status for a running chapter. | Steps 5, 7 and 10. |
+| `chapter: <id> failed <reason>` | The build of the chapter failed in an earlier run. `<reason>` tells why. | Steps 5, 7, 8 and 10. |
 | `stray: chapters/<name>` | A directory in `chapters/` that is no chapter, for example a `chapters/<id>.stale-<n>/` directory of an earlier build. | Leave it. `stitch` reads only the directories of the chapters. |
 
 The loop of "Build the chapters" starts only `pending` chapters. Thus a `failed` chapter goes back to

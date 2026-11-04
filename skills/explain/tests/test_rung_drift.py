@@ -1372,7 +1372,7 @@ def fenced_lines(text: str) -> list[list[str]]:
 # Sentences of movie.md that no code pins: the approval stop, the build cap, the hub rule, the review rule, the two
 # lines that go to `not_covered`, the still name of the viewer page, the output rule and the costs rule.
 MOVIE_RUNG_TEXTS = ("Build nothing before the user approves the plan.", "At most 3 chapter subagents",
-                    "never fill `movie.html` by hand", "A chapter is never dropped", "disputed: <finding>",
+                    "never fill `movie.html` by hand", "A chapter is never dropped", "disputed: <id>: <finding>",
                     "viewer missed: <question>", "still: viewer-stills/<k>-<id>.png", "A movie commits nothing.",
                     "not yet measured",
                     # final review I1: a resume after round 1 rebuilds each missed chapter whose film is older than
@@ -1394,7 +1394,16 @@ MOVIE_RUNG_TEXTS = ("Build nothing before the user approves the plan.", "At most
                     "A correct answer without a `used:` line that shows it is `missed` too.",
                     # final review I8: the plan keeps a margin of a fifth inside the limits of the movie
                     "The sum plus 8 s for each bridge must be at least 300 s. The sum plus 15 s for each bridge must "
-                    "be at most 750 s.")
+                    "be at most 750 s.",
+                    # final review M1: a rebuild first removes the disputed entries of its chapter
+                    "Before you build a chapter again, remove its `disputed:` entries from `provenance.not_covered`.",
+                    "An entry of chapter `<id>` starts with `disputed: <id>:`.",
+                    # final review M4: the rounding keeps the new length on the side of the gap
+                    "Round the result to a whole number: up for a short movie, down for a long movie.",
+                    # final review M6: the amendment goes where the viewer looks
+                    "The viewer sees the narration of the body scenes and the last frame of the last body scene.",
+                    # final review M12: a `disputed:` entry can hold two sentences, so the handoff prints entries
+                    "Print each entry of `provenance.not_covered` on its own line.")
 # A length in seconds or minutes, or a count of tokens: a measured cost, which the live run adds.
 COST_NUMBER = re.compile(r"\d{2,}(?: s\b| min\b| ?tokens)")
 
@@ -1517,13 +1526,23 @@ class MovieRungCase(unittest.TestCase):
             "After any other `FAIL` line, the viewer gate does not run.",
             "`parts: FAIL chapter <id> is <status>, not built`"))
 
+    # red (final review M5): a `transcript:` FAIL line that builds the chapter again without "Make a part again"
+    # (then the chapter stays `built`, and the loop of "Build the chapters" builds nothing)
+    def test_transcript_fail_lines_make_the_chapter_again(self):
+        text = self.words("The other FAIL lines")
+        self.assertNotIn("Build the chapter again", text)
+        self.assertEqual(text.count('Make the chapter again, as "Make a part again" below says.'), 4)
+
     # red: the viewer gate compares words instead of meaning, takes `cannot answer` for something else than a miss,
     # asks the viewer again, or runs more than two rounds
     def test_viewer_gate_compares_meaning_and_caps_two_rounds(self):
         self.assert_phrases("The viewer gate", (
             "`review/viewer-round-<k>.md`", "`## Author`", "`missed: <what the film did not show>`",
             "`cannot answer`", "Compare the meaning, not the words.", "Never ask the viewer to try again",
-            "Two rounds at most.", "`viewer missed: <question>`", "`viewer: <n> of <m> understood`"))
+            "Two rounds at most.", "`viewer missed: <question>`", "`viewer: <n> of <m> understood`",
+            # final review M3: a viewer without a report or without `viewer: done` gets one retry, then the run stops
+            "Else start a new viewer for this round, one time.",
+            "If the new viewer fails too, the round has no answers. Print the path of the report."))
 
     # red: a resume that deletes the directory of an interrupted chapter, takes `--review` from the arguments, or
     # builds a `built` chapter again
@@ -1548,6 +1567,14 @@ class MovieRungCase(unittest.TestCase):
         for found in stops:
             with self.subTest(at=text[found.start():found.start() + 60]):
                 self.assertIn('"When the run stops"', text[found.start():found.start() + 120])
+
+    # red (final review M1): a place that sets a chapter `pending` for a rebuild keeps its old `disputed:` entries
+    # (then the hub reports a finding of a script that no longer exists)
+    def test_each_rebuild_removes_the_disputed_entries_first(self):
+        for title in ("A length out of the limits", "The other FAIL lines", "After a round", "Resume"):
+            with self.subTest(section=title):
+                self.assertIn("emove its `disputed: <id>:` entries from `not_covered`, as \"Edit the plan\" says.",
+                              self.words(title))
 
     # red: a rule that no code pins is gone from the rung or reworded
     def test_rung_holds_its_rules(self):
@@ -1577,11 +1604,12 @@ COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory o
               "One message through several services |")
 AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard|movie"
 
-# The row of the onboard rung in the rung table of SKILL.md, word for word.
+# The row of the movie rung in the rung table of SKILL.md, word for word.
 MOVIE_ROW = ("| `movie` (one film in chapters with bridges, directory output) | Forced only (`--as movie`). One theme "
              "a viewer must understand from a film alone: viewer questions first, one chapter per answer | One "
              "theme, 4 to 15 minutes |")
 
+# The row of the onboard rung in the rung table of SKILL.md, word for word.
 ONBOARD_ROW = ("| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). "
                "A service to onboard to: its architecture and every flow | One service directory |")
 
