@@ -347,11 +347,23 @@ When the loop stops, look at the `status` of each chapter. If each chapter is `b
 chapter that is not `built`. Print the line of each `failed` chapter. Stop the run. A resume
 builds the failed chapters again.
 
-The prompt `chapter-task.md` is a template. Read it. Replace each name in braces with plain text.
-Give the result to the subagent as its prompt. Fill its names as the table below says.
+The prompt `chapter-task.md` is a template. Read it. Replace each name in braces with the text of
+the table below. A JSON text is plain text too: put it in the prompt as it is. Give the result to the
+subagent as its prompt.
 
 | Name | Fill with |
 |---|---|
+| `{skill_dir}` | The absolute path of `<skill-dir>`. |
+| `{movie_dir}` | The absolute path of `<movie-dir>`. |
+| `{chapter_id}` | The `id` of the chapter. |
+| `{chapter_json}` | The object of the chapter in `movie.json`, as JSON. |
+| `{questions_json}` | The objects of the questions that the `answers` of the chapter name, in that order, as a JSON list. Each object has its `id`, `text`, `answer` and `cites`. |
+| `{other_chapters}` | Each other chapter as `<id>: <question>`, one on each line, in the order of the plan. |
+| `{subject_json}` | The `subject` object of `movie.json`, as JSON. |
+| `{root}` | The absolute path of `provenance.root`. If the `root` in `movie.json` is relative, it is relative to `<movie-dir>`. |
+| `{lang}` | The `lang` of `movie.json`: `en` or `ru`. |
+| `{review}` | `on` when `review` in `movie.json` is `true`, else `off`. |
+| `{amendment}` | The `<what the film did not show>` of each `missed:` line that names this chapter in the last `## Author` block, one on each line. The last block is in the last `review/viewer-round-<k>.md` that has an `## Author` block. On a resume, read it from that file. If no such line exists, `none`. |
 
 ### The chapter gate
 
