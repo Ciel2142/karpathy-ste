@@ -18,9 +18,9 @@ A question's `text` and `answer` and a chapter's `question` hold at most 20 word
 whitespace-separated token; 20 is the STE-80 sentence cap, which keeps a bridge within 8 to
 15 s), else `question <id>: text has <n> words (max 20)`,
 `question <id>: answer has <n> words (max 20)` or `chapter <id>: question has <n> words (max 20)`.
-Failure prefixes are fixed: `schema:`, `id:`, `question <id>:`,
-`chapter <id>:`, `cite <question-id>#<n>:` (the rules of `cite_check`), `prose:` (an
-`ste_lint.py --html` error line) and `state:`.
+`lang` is `en` or `ru`, else `schema: lang must be en or ru`. Failure prefixes are fixed:
+`schema:`, `id:`, `question <id>:`, `chapter <id>:`, `cite <question-id>#<n>:` (the rules of
+`cite_check`), `prose:` (an `ste_lint.py --html` error line) and `state:`.
 
 `bridges` refuses a plan that fails `check`: it prints the failures and the count line of
 `check`, exits 1 and writes nothing. Otherwise it writes, for each gap `<n>` between chapter
@@ -108,6 +108,7 @@ MAX_WORDS = 20  # of a question text, an answer, a chapter question: the STE-80 
 STATES = ("planned", "building", "stitched")
 STATUSES = ("pending", "built", "failed")
 KINDS = ("topic", "file", "directory")
+LANGS = ("en", "ru")
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 PROVENANCE_KEYS = ("root", "commit", "dirty", "date", "source", "not_covered")
@@ -208,6 +209,8 @@ def _check_top(movie):
             failures.append("schema: %s is missing" % key)
         elif not isinstance(movie[key], str):
             failures.append("schema: %s must be a string" % key)
+    if isinstance(movie.get("lang"), str) and movie["lang"] not in LANGS:
+        failures.append("schema: lang must be %s" % " or ".join(LANGS))
     for key, kind, name in (("pronounce", dict, "an object"), ("review", bool, "a boolean")):
         if key not in movie:
             failures.append("schema: %s is missing" % key)

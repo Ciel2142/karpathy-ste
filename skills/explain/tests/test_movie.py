@@ -167,6 +167,10 @@ class CheckCase(MovieCase):
         self.assertEqual(self.failures(), ["schema: version must be 1",
                                            "state: must be one of planned, building, stitched"])
 
+    def test_lang_must_be_en_or_ru(self):
+        self.movie["lang"] = "de"
+        self.assertEqual(self.failures(), ["schema: lang must be en or ru"])
+
     def test_failures_print_then_count_and_exit_1(self):
         self.chapter("pause")["answers"] = ["q-1", "q-2", "q-3"]
         movie.save(self.dir, self.movie)
