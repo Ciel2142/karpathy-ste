@@ -1202,7 +1202,8 @@ class OnboardRungCase(unittest.TestCase):
         for form in ("`diagram <where>: not plantuml`", "`diagram <where>: not mermaid`",
                      "`diagram <where>: not a PlantUML kind`", "`diagram <where>: not activity`",
                      "`diagram <where>: not component`", "`diagram <where>: not state`",
-                     "`diagram <where>: action over lines <n>-<m>`", "`diagram <where>: style line <n>`"):
+                     "`diagram <where>: action over lines <n>-<m>`", "`diagram <where>: style line <n>`",
+                     "`diagram <where>: if without else line <n>`"):
             with self.subTest(form=form):
                 self.assertIn(form, diagram)
         node = next(key for key in prefixes if key.startswith("`node "))

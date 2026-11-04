@@ -59,11 +59,13 @@ start
 if (total over limit?) then (yes)
   :400 over the limit;
   stop
+else (no)
 endif
 :charge the payment;
 if (charge declined?) then (yes)
   :400 over the limit;
   stop
+else (no)
 endif
 :save the order row;
 :send orders.created;

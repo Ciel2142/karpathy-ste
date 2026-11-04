@@ -113,13 +113,14 @@ Follow these nine rules, in the order of the work. Write each fact into `map.md`
      has one edge for each outcome, with the outcome as its label. An exit that is an error is a
      node.
    - Each node has one cited fact under the diagram. The cite of a decision node is its condition
-     line. The cite of a call node is the call line.
+     line. For a `catch`, it is the `catch` line. The cite of a call node is the call line.
    - A node that calls another system names the system and the handle: a queue, an endpoint or a
      table.
    - Put at most 25 nodes in one diagram. A longer flow splits into stages. The parent flow shows
      each stage as one node. Each stage is a flow of its own, with the id `<flow>-<stage>`.
    - A call can enter a method that another flow drew already. Then draw one node that names that
-     flow (`see <flow-id>`). Do not draw the nodes again.
+     flow (`see <flow-id>`). Do not draw the nodes again. A wait for an outside event, such as the
+     next poll, is a plain action, not a `see`.
 
    These rules give the PlantUML form of a flow:
    - The fence starts with `start` and ends with `stop` or `end`.
@@ -129,15 +130,18 @@ Follow these nine rules, in the order of the work. Write each fact into `map.md`
      twice, with one fact line. Use this to join two branches on one action. An example is a shared
      error reply. Structured activity syntax has no other join.
    - A branch is `if (<condition>) then (<outcome>)`, then optional `elseif (<condition>) then
-     (<outcome>)` lines, an optional `else (<outcome>)` line and `endif`. A loop is
-     `while (<condition>) is (<outcome>)` to `endwhile (<outcome>)`. A loop can also be `repeat` to
+     (<outcome>)` lines, an `else (<outcome>)` line and `endif`. Write the `else` line also when its
+     branch holds nothing, so that the picture labels the last outcome. An `if` with no `else` line
+     fails as `if without else`, also after an `elseif`.
+     A loop is `while (<condition>) is (<outcome>)` to `endwhile (<outcome>)`. A loop can also be `repeat` to
      `repeat while (<condition>) is (<outcome>)`. A choice of many is `switch (<condition>)`,
      `case (<outcome>)` lines and `endswitch`. The condition is a node. Each outcome is a label of an
      edge, not a node.
    - An exit that is an error is an action followed by `stop`, `kill` or `detach`.
    - A hop into a flow that another flow draws is the action `:see <flow-id>;` followed by `detach`.
      The flow id exists under `Flows`.
-   - `fork`, `fork again` and `end fork` draw parallel work. `partition "<name>" {` and `}` group
+   - `fork`, `fork again` and `end fork` draw parallel work. Draw the entry points of one flow as the
+     branches of one `fork`, before the shared path. `partition "<name>" {` and `}` group
      actions. `-> <label>;` labels an edge. None of these is a node. You can write a `note` or a `'`
      comment.
    - Never write `skinparam`, `!pragma`, `!include`, `<style>`, a colour prefix such as `#pink:`,
@@ -420,7 +424,7 @@ The prefix of a line tells where the fault is:
 | Prefix | Meaning |
 |---|---|
 | `section: missing <title>` / `section: <title> out of order` | The level-2 skeleton. |
-| `diagram <where>: none` / `diagram <where>: not plantuml` / `diagram <where>: not mermaid` / `diagram <where>: not flowchart or stateDiagram-v2` / `diagram <where>: not a PlantUML kind` / `diagram <where>: not activity` / `diagram <where>: not component` / `diagram <where>: not state` / `diagram <where>: action over lines <n>-<m>` / `diagram <where>: style line <n>` / `diagram <where>: <n> nodes, more than 25` | A diagram. `<where>` is `architecture`, `state` or the flow id. An action over lines is a `:` line with no `;` on the same line. A style line is one of the lines that the renderer sets. |
+| `diagram <where>: none` / `diagram <where>: not plantuml` / `diagram <where>: not mermaid` / `diagram <where>: not flowchart or stateDiagram-v2` / `diagram <where>: not a PlantUML kind` / `diagram <where>: not activity` / `diagram <where>: not component` / `diagram <where>: not state` / `diagram <where>: action over lines <n>-<m>` / `diagram <where>: style line <n>` / `diagram <where>: if without else line <n>` / `diagram <where>: <n> nodes, more than 25` | A diagram. `<where>` is `architecture`, `state` or the flow id. An action over lines is a `:` line with no `;` on the same line. A style line is one of the lines that the renderer sets. An `if` without else has no `else` line before its `endif`, or never reaches an `endif`. |
 | `node <where>/<id>: no fact line` / `node <where>/<label>: flow <id> not in Flows` / `node architecture/<id>: not declared` / `node <where>/<id>: bad id` / `fact <where>/<id>: not a node` / `fact <where>/<id>: two lines` | The node lines and the fact lines. A `see <flow-id>` action names a flow that does not exist, or an id on an edge has no declaration, or an id is outside its pattern. In an activity diagram `<id>` is the label. |
 | `cite <section>#<n>: <problem>` | The problems of `cite_check`: the path is not under the root, the line is beyond the end, the snippet is not on that line, or it has more than 12 words. |
 | `entry #<n>: unknown kind <kind>` / `entry #<n>: no flow id and no reason` / `entry #<n>: flow <id> not in Flows` | The `Entry points` lines. |

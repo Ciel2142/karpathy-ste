@@ -128,6 +128,64 @@ class ActivityCase(unittest.TestCase):
         parsed = puml.parse("start\nnote right: remark\n:a;\nstop\n")
         self.assertEqual((parsed.nodes, parsed.faults), (["a"], []))
 
+    def test_if_without_else_is_a_fault_at_the_if_line(self):
+        parsed = puml.parse("start\n:a;\nif (ok?) then (yes)\n  :b;\nendif\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 3"])
+
+    def test_if_with_else_is_no_fault(self):
+        parsed = puml.parse("start\nif (ok?) then (yes)\n  :b;\nelse (no)\n  :c;\nendif\nstop\n")
+        self.assertEqual(parsed.faults, [])
+
+    def test_if_with_elseif_and_no_else_is_a_fault(self):
+        parsed = puml.parse("start\nif (a?) then (yes)\n  :b;\nelseif (c?) then (no)\n  :d;\nendif\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 2"])
+
+    def test_end_if_spelling_closes_the_branch(self):
+        parsed = puml.parse("start\nif (a?) then (yes)\n  :b;\nelse (no)\nend if\nstop\n")
+        self.assertEqual(parsed.faults, [])
+
+    def test_inner_if_without_else_inside_an_outer_if_with_else_reports_only_the_inner(self):
+        parsed = puml.parse(
+            "start\nif (outer?) then (yes)\n  if (inner?) then (yes)\n    :a;\n  endif\n"
+            "else (no)\n  :b;\nendif\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 3"])
+
+    def test_outer_if_without_else_is_not_satisfied_by_the_inner_else(self):
+        parsed = puml.parse(
+            "start\nif (outer?) then (yes)\n  if (inner?) then (yes)\n    :a;\n  else (no)\n    :b;\n"
+            "  endif\nendif\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 2"])
+
+    def test_two_ifs_without_else_keep_ascending_line_order(self):
+        parsed = puml.parse(
+            "start\nif (a?) then (yes)\n  :x;\nendif\nif (b?) then (yes)\n  :y;\nendif\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 2", "if without else line 5"])
+
+    def test_nested_ifs_without_else_each_get_a_fault(self):
+        parsed = puml.parse(
+            "start\nif (a?) then (yes)\n  if (b?) then (yes)\n    :x;\n  endif\nendif\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 2", "if without else line 3"])
+
+    def test_if_faults_come_after_the_style_and_action_faults(self):
+        parsed = puml.parse(
+            "start\nif (a?) then (yes)\n  :x;\nendif\nskinparam x\n:long\nlabel;\nstop\n")
+        self.assertEqual(parsed.faults, ["style line 5", "action over lines 6-7", "if without else line 2"])
+
+    def test_if_that_never_closes_is_one_fault(self):
+        parsed = puml.parse("start\nif (a?) then (yes)\n  :x;\nstop\n")
+        self.assertEqual(parsed.faults, ["if without else line 2"])
+
+    def test_if_that_never_closes_but_has_an_else_is_no_fault(self):
+        parsed = puml.parse("start\nif (a?) then (yes)\n  :x;\nelse (no)\n  :y;\nstop\n")
+        self.assertEqual(parsed.faults, [])
+
+    def test_while_repeat_while_and_switch_raise_nothing(self):
+        for body in ("while (more?) is (yes)\n  :a;\nendwhile (no)",
+                     "repeat\n  :a;\nrepeat while (more?) is (yes) not (no)",
+                     "switch (kind?)\ncase (x)\n  :a;\ncase (y)\n  :b;\nendswitch"):
+            with self.subTest(body=body):
+                self.assertEqual(puml.parse(f"start\n{body}\nstop\n").faults, [])
+
 
 class ComponentCase(unittest.TestCase):
     def setUp(self):
@@ -324,6 +382,16 @@ class RenderCase(unittest.TestCase):
             code = puml.main([])
         self.assertEqual(code, 2)
         self.assertIn("usage: puml.py render <diagrams-dir>", stderr.getvalue())
+
+    def test_run_lifts_the_png_size_limit(self):
+        Path(self.dir, "a.puml").write_text("@startuml\nstart\nstop\n@enduml\n", encoding="utf-8")
+        Path(self.dir, "a.png").write_bytes(PNG_SIGNATURE)
+        run = mock.MagicMock(return_value=mock.Mock(returncode=0, stderr=""))
+        with mock.patch("puml.shutil.which", return_value="/fake/plantuml"), mock.patch("puml.subprocess.run", run):
+            result = puml.render(self.dir)
+        self.assertEqual(result, (["plantuml: ok 1 diagrams"], 0))
+        command = run.call_args.args[0]
+        self.assertEqual(command[:3], ["/fake/plantuml", "-DPLANTUML_LIMIT_SIZE=16384", "-tpng"])
 
     @unittest.skipUnless(HAVE_PLANTUML, "plantuml missing")
     def test_empty_directory_is_ok_0(self):

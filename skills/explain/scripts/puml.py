@@ -21,6 +21,9 @@ STYLE_LINES = re.compile(r"(?:skinparam|!pragma|!include|<style>|split|@startuml
 COLOUR_PREFIX = re.compile(r"#\w+:")
 PREAMBLE = re.compile(r"(?:title|hide|scale)\b|left to right direction|top to bottom direction")
 CONDITION = re.compile(r"(?:if|elseif|while|repeat\s+while|switch)\s*\(")
+IF_OPEN = re.compile(r"if\s*\(")
+ELSE_LINE = re.compile(r"else(?:\s|\(|$)")  # a final `else`; an `elseif` leaves the fall-through unlabelled
+ENDIF = re.compile(r"end\s*if(?:\s|'|$)")
 HOP = re.compile(r"see\s+(\S+)")
 COMPONENT_ID = re.compile(r"[a-z][a-z0-9_]*")
 STATE_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -141,10 +144,20 @@ def _parse_activity(block: str, statements: list[tuple[int, str]]) -> Parsed:
         if "`" in label:
             node_faults.append((label, "bad id"))
 
+    open_ifs: list[list] = []  # [fence line of the `if`, whether it has an else], innermost last
+    no_else: list[int] = []  # fence lines of the `if`s that closed or ended the fence with no else
     skip_to = 0
     for number, text in statements:
         if number <= skip_to:
             continue
+        if IF_OPEN.match(text):
+            open_ifs.append([number, False])
+        elif ELSE_LINE.match(text) and open_ifs:
+            open_ifs[-1][1] = True
+        elif ENDIF.match(text) and open_ifs:
+            opened, has_else = open_ifs.pop()
+            if not has_else:
+                no_else.append(opened)
         if _is_style(text):
             faults.append(f"style line {number}")
         elif text.startswith(":"):
@@ -162,6 +175,8 @@ def _parse_activity(block: str, statements: list[tuple[int, str]]) -> Parsed:
             condition = _condition(text)
             if condition is not None:
                 add_node(condition)
+    no_else.extend(opened for opened, has_else in open_ifs if not has_else)
+    faults.extend(f"if without else line {n}" for n in sorted(no_else))  # after the other faults, by `if` line
     return Parsed("activity", nodes, faults, node_faults, hops)
 
 
@@ -244,7 +259,7 @@ def render(directory: str) -> tuple[list[str], int]:
     if not sources:
         return ["plantuml: ok 0 diagrams"], 0
     target = os.path.abspath(directory)
-    run = subprocess.run([plantuml, "-tpng", "-charset", "UTF-8", "-o", target, *STYLE, *sources],
+    run = subprocess.run([plantuml, "-DPLANTUML_LIMIT_SIZE=16384", "-tpng", "-charset", "UTF-8", "-o", target, *STYLE, *sources],
                          capture_output=True, text=True)
     failures = failed_lines(run.stderr)
     lines = [f"plantuml: FAIL {name} line {number}" for name, number in failures]

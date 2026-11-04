@@ -1209,7 +1209,11 @@ class PlantumlFaultCase(unittest.TestCase):
 
     def test_action_over_lines(self):
         lines = self.lines([(":save the order row;", ":save the\norder row;")])
-        self.assertIn("diagram order: action over lines 12-13", lines)
+        self.assertIn("diagram order: action over lines 14-15", lines)
+
+    def test_if_without_else(self):
+        lines = self.lines([("else (no)\nendif\n:charge the payment;", "endif\n:charge the payment;")])
+        self.assertEqual(lines, ["diagram order: if without else line 3"])
 
     def test_style_line(self):
         cloud = 'cloud "Payments API" as payments\n'
