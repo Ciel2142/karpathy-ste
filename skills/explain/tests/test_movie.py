@@ -148,6 +148,22 @@ class CheckCase(MovieCase):
         self.assertEqual(len(failures), 1)
         self.assertTrue(failures[0].startswith("cite q-1#1:"), failures[0])
 
+    def test_a_url_cite_needs_no_line(self):
+        # red: check asks a URL cite for a line, or runs the file rules of cite_check on it
+        self.movie["subject"]["kind"] = "file"
+        for question in self.movie["questions"]:
+            question["cites"] = [{"path": "https://kafka.apache.org/documentation/",
+                                  "snippet": "consumer group"}]
+        self.assertEqual(self.failures(), [])
+
+    def test_a_file_cite_without_a_line(self):
+        self.movie["questions"][0]["cites"] = [{"path": "notes.txt", "snippet": "alpha beta"}]
+        self.assertEqual(self.failures(), ["question q-1: cite 1 needs path, line and snippet"])
+
+    def test_a_url_cite_without_a_snippet(self):
+        self.movie["questions"][0]["cites"] = [{"path": "https://kafka.apache.org/", "snippet": " "}]
+        self.assertEqual(self.failures(), ["question q-1: cite 1 needs path and snippet"])
+
     def test_a_prose_fault_is_reported(self):
         self.movie["title"] = "It is what it is, and this very long title keeps going on and on " \
                               "and on while it says nothing at all about the thing that it names"
@@ -689,6 +705,15 @@ class StitchCase(MovieCase):
                       " join(member):</code></cite></div></dd>", page)
         self.assertIn("<dt>Who decides the new split?</dt>\n<dd>The group leader decides the"
                       " split, and the coordinator sends it out.</dd>", page)
+
+    def test_hub_shows_a_url_cite_by_its_host(self):
+        self.stitched()
+        self.movie["questions"][0]["cites"] = [{"path": "https://kafka.apache.org/documentation/",
+                                                "snippet": "consumer group"}]
+        page = movie.hub(self.dir, self.movie, [0.0, 70.0, 140.0, 210.0])
+        self.assertIn('<div class="cites" data-ste="skip"><cite data-path="https://kafka.apache.org/'
+                      'documentation/" data-snippet="consumer group">kafka.apache.org <code>consumer'
+                      " group</code></cite></div></dd>", page)
 
     def test_hub_escapes_plan_text_in_one_pass(self):
         self.stitched()

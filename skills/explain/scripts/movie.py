@@ -18,7 +18,10 @@ A question's `text` and `answer` and a chapter's `question` hold at most 20 word
 whitespace-separated token; 20 is the STE-80 sentence cap, which keeps a bridge within 8 to
 15 s), else `question <id>: text has <n> words (max 20)`,
 `question <id>: answer has <n> words (max 20)` or `chapter <id>: question has <n> words (max 20)`.
-`lang` is `en` or `ru`, else `schema: lang must be en or ru`. Failure prefixes are fixed:
+`lang` is `en` or `ru`, else `schema: lang must be en or ru`. A cite needs `path`, `line` (an
+integer from 1) and `snippet`, else `question <id>: cite <n> needs path, line and snippet`; a
+URL cite (its `path` starts with `http://` or `https://`) needs no `line`, else
+`question <id>: cite <n> needs path and snippet`. Failure prefixes are fixed:
 `schema:`, `id:`, `question <id>:`, `chapter <id>:`, `cite <question-id>#<n>:` (the rules of
 `cite_check`), `prose:` (an `ste_lint.py --html` error line) and `state:`.
 
@@ -110,6 +113,7 @@ STATUSES = ("pending", "built", "failed")
 KINDS = ("topic", "file", "directory")
 LANGS = ("en", "ru")
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
+URL_PREFIXES = ("http://", "https://")  # a cite with such a path is a URL cite and has no line
 STE_ERROR = re.compile(r"^\d+:\d+  (E .*)$")
 PROVENANCE_KEYS = ("root", "commit", "dirty", "date", "source", "not_covered")
 CHAPTER_TEXT = ("title", "question", "picture", "ends_with")
@@ -295,18 +299,26 @@ def _check_id(what, item, label):
     return []
 
 
+def _is_url(path):
+    """A URL cite, as `cite_check` and the hub tell it: its path starts with http:// or https://."""
+    return isinstance(path, str) and path.startswith(URL_PREFIXES)
+
+
 def _cite_shape_ok(cite):
+    """A cite has a path and a snippet, and a line from 1 unless it is a URL cite."""
     return (isinstance(cite, dict)
             and isinstance(cite.get("path"), str) and bool(cite["path"])
-            and _is_int(cite.get("line")) and cite["line"] >= 1
-            and isinstance(cite.get("snippet"), str) and bool(cite["snippet"].strip()))
+            and isinstance(cite.get("snippet"), str) and bool(cite["snippet"].strip())
+            and (_is_url(cite["path"]) or (_is_int(cite.get("line")) and cite["line"] >= 1)))
 
 
 def _check_cite_shapes(label, cites):
     failures = []
     for number, cite in enumerate(cites, start=1):
         if not _cite_shape_ok(cite):
-            failures.append("question %s: cite %d needs path, line and snippet" % (label, number))
+            needs = ("path and snippet" if isinstance(cite, dict) and _is_url(cite.get("path"))
+                     else "path, line and snippet")
+            failures.append("question %s: cite %d needs %s" % (label, number, needs))
     return failures
 
 
@@ -398,8 +410,10 @@ def _check_cites(movie_dir, movie):
         cites = question.get("cites")
         for number, cite in enumerate(cites if isinstance(cites, list) else [], start=1):
             if _cite_shape_ok(cite):
+                # a URL cite may have no line: fact_problems reads none for a URL, but formats one
+                line = cite["line"] if _is_int(cite.get("line")) else 0
                 failures += ["cite %s#%d: %s" % (ident, number, problem) for problem in
-                             fact_problems(cite["path"], cite["line"], cite["snippet"], root)]
+                             fact_problems(cite["path"], line, cite["snippet"], root)]
     return failures
 
 
@@ -891,7 +905,7 @@ def _hub_cite(cite):
     """One `<cite>` of a viewer question, as `page.html` writes it: `<name>:<line>` and the
     snippet as code; a URL cite shows its host and has no line."""
     path, snippet = str(cite.get("path")), str(cite.get("snippet"))
-    if path.startswith(("http://", "https://")):
+    if _is_url(path):
         return '<cite data-path="%s" data-snippet="%s">%s <code>%s</code></cite>' % (
             html.escape(path), html.escape(snippet),
             html.escape(urllib.parse.urlsplit(path).netloc or path), html.escape(snippet))
