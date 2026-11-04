@@ -29,6 +29,14 @@ coverage: waived
 # fixes before the live run: the rung expands `puml.py render` beside `onboard.py`, step 5 lists the
 # page-check prefixes and the exact name rule, a command counts as inline only inside a backtick span,
 # and a flow heading is compared stripped. Leftovers (polish, no live-run effect): kp-ed4j.
+# Wave onboard-md-live-run: run 2026-11-04 on /Users/valukin/work/diadoc at a9d3571 (the commit of the
+# 2026-10-19 run; its Mermaid map still passed the check, so its facts were converted to PlantUML by
+# five subagents and re-verified). Output out/2026-11-04-010432-onboard-diadoc/ in the worktree (the
+# Write tool refuses the shared checkout's out/): 21 flows, 23 PNGs read, `onboard: ok`,
+# `plantuml: ok 23 diagrams`, `page: ok`, `0 errors, 59 warnings`. Fixes at 7a6be5f: the check reports
+# `if without else` (eleven unlabelled fall-through edges in the run), the renderer lifts the 4096 px
+# clip, the rung gets the catch cite, the plain action for an outside wait and the fork of several
+# entries. Status stays pending until the user reads the page and the PNGs; leftovers: kp-5y4d.
 waves:
   - id: onboard-puml
     slice: vertical
