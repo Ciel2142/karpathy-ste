@@ -6,7 +6,7 @@ kept in one repository and linked into each tool's skills directory:
 - **`/ste`** — rewrite text, or answer a request, in STE-80: a fixed profile of ASD-STE100
   Simplified Technical English (Issue 9). Ships a lint (`ste_lint.py`) that checks markdown
   or HTML prose against the deterministic rules.
-- **`/explain <subject> [--as ste|sheet|page|video|brainrot|lesson|course|onboard] [--review]`** — explain a file, a
+- **`/explain <subject> [--as ste|sheet|page|video|brainrot|lesson|course|onboard|movie] [--review]`** — explain a file, a
   directory, `this` (the last thing in the conversation) or a topic, in the smallest form that
   fits: chat text, a one-page sheet (HTML + PNG), an interactive single-file page, a narrated
   film (`--as video`: one continuous picture, written for the subject and timed to the
@@ -18,7 +18,9 @@ kept in one repository and linked into each tool's skills directory:
   for your approval of the plan, and a rerun on its directory resumes), or an onboarding page
   (`--as onboard`: one service directory, explored by the onboarding rules into a map that
   `onboard.py check` verifies, then a page with its architecture, every entry point and every flow
-  as Mermaid diagrams). Every artifact is grounded: each
+  as Mermaid diagrams), or a movie (`--as movie`: one theme as one film cut into chapters, with
+  generated bridges between them and a cold-viewer gate that checks the film can be understood; it
+  stops for your approval of the plan, and a rerun on its directory resumes). Every artifact is grounded: each
   claim carries a `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails
   the build when a cite does not match the file, the page does not render, or the prose breaks
   the STE profile.
@@ -68,6 +70,7 @@ and the `general` agent.
 | `lesson` | the needs of `page` and of `video` together |
 | `course` | the needs of `lesson` |
 | `onboard` | the needs of `page` |
+| `movie` | the needs of `lesson` |
 | `sdr` | the needs of `page`, and the web tools of your session for the web searchers |
 
 As written the `sheet`, `page` and `video` rungs are macOS-specific (the Chrome path, `say`,
@@ -95,8 +98,9 @@ non-commercial use only; check the licence again before a commercial use.
 
 ```
 skills/ste/        SKILL.md, scripts/ste_lint.py, tests/
-skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot,lesson,course,onboard}.md,
-                   lesson/ (the reviewer prompts), course/ (the map and lesson prompts), templates/,
+skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brainrot,lesson,course,onboard,movie}.md,
+                   lesson/ (the reviewer prompts), course/ (the map and lesson prompts),
+                   movie/ (the chapter and viewer prompts), templates/,
                    scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
                    scripts/cite_check.py, scripts/course{,_hub,_hub_text,_discover}.py,
                    scripts/{onboard,mermaid_svg}.py,

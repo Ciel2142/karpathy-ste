@@ -1527,9 +1527,13 @@ LESSON_ROW = ("| `lesson` (page with clips, directory output) | Forced only (`--
 COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory output) | Forced only "
               "(`--as course`). A system of several services or repos that one message passes through | "
               "One message through several services |")
-AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard"
+AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard|movie"
 
 # The row of the onboard rung in the rung table of SKILL.md, word for word.
+MOVIE_ROW = ("| `movie` (one film in chapters with bridges, directory output) | Forced only (`--as movie`). One theme "
+             "a viewer must understand from a film alone: viewer questions first, one chapter per answer | One "
+             "theme, 4 to 15 minutes |")
+
 ONBOARD_ROW = ("| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). "
                "A service to onboard to: its architecture and every flow | One service directory |")
 
@@ -1579,7 +1583,7 @@ class SkillMdCase(unittest.TestCase):
         for sentence in ("The `lesson` rung builds a page with narrated clips. Only `--as lesson` selects it. "
                          "The lesson rung is English or Russian.",
                          "These seven rules apply to every artifact rung (`sheet`, `page`, `video`, "
-                         "`brainrot`, `lesson`, `course`, `onboard`).",
+                         "`brainrot`, `lesson`, `course`, `onboard`, `movie`).",
                          "(sheet, page, lesson or course)"):
             self.assertIn(sentence, flat)
         conventions = section(text, "Conventions")
@@ -1638,11 +1642,11 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)
         flat = " ".join(text.split())
         for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
-                         "Only the `lesson` and `course` rungs have a review.",
-                         "List these eight names in the error.",
+                         "Only the `lesson`, `course` and `movie` rungs have a review.",
+                         "List these nine names in the error.",
                          "The `course` rung builds a set of lessons and a hub page. Only `--as course` selects it. "
                          "The course rung is English or Russian.",
-                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`, `onboard`).",
+                         "(`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`, `onboard`, `movie`).",
                          "(sheet, page, lesson or course)",
                          "For a course, the slug comes from the names of the sources, joined with `-`, as "
                          "`rungs/course.md` says.",
@@ -1671,7 +1675,7 @@ class SkillMdCase(unittest.TestCase):
         for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
                          "The `onboard` rung builds one page for one service from its map. Only `--as onboard` "
                          "selects it. The onboard rung is English or Russian.",
-                         "Only the `lesson` and `course` rungs have a review."):
+                         "Only the `lesson`, `course` and `movie` rungs have a review."):
             self.assertIn(sentence, flat)
         contract = " ".join(section(text, "Contract").split())
         names = re.search(r"its value must be (.*?)\. Else stop", contract).group(1)
@@ -1682,6 +1686,29 @@ class SkillMdCase(unittest.TestCase):
         for word in ("map", "inventory", "check"):
             self.assertIn(word, onboard)
         self.assertTrue((EXPLAIN / "rungs" / "onboard.md").is_file(), "rungs/onboard.md does not exist")
+
+    # red: the movie row missing, reworded or chosen from content, the forced-rung bullet, the review sentence,
+    # the nine names, conventions 3, 5 or 6 or Build step 2 without the movie text, the Rung files bullet that
+    # leaves out the viewer gate or the bridges, or rungs/movie.md missing
+    def test_skill_md_routes_the_movie_rung(self):
+        text = read(SKILL_MD)
+        rows = [line for line in text.split("\n") if line.startswith("| `movie` ")]
+        self.assertEqual(rows, [MOVIE_ROW])
+        flat = " ".join(text.split())
+        for sentence in ("The `movie` rung builds one film cut into chapters by bridges, with a cold viewer gate. "
+                         "Only `--as movie` selects it. The movie rung is English or Russian.",
+                         "Only the `lesson`, `course` and `movie` rungs have a review.",
+                         "List these nine names in the error.",
+                         "For the `movie` rung, the hub links to other files only through `video.mp4` and "
+                         "`chapters/<id>/index.html`.",
+                         "For a movie, `rungs/movie.md` lists the contents.",
+                         "`open video.mp4` (video, brainrot or movie)",
+                         "For a movie, the rung file replaces steps 3 to 6."):
+            self.assertIn(sentence, flat)
+        movie = self.bullets()["<skill-dir>/rungs/movie.md"]
+        self.assertIn("viewer gate", movie)
+        self.assertIn("bridges", movie)
+        self.assertTrue(MOVIE_MD.is_file(), "rungs/movie.md does not exist")
 
     # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
     # `$ARGUMENTS` with the typed arguments and shows the model nothing else of the command line, so a rule
@@ -1704,9 +1731,13 @@ class SkillMdCase(unittest.TestCase):
         rows = [line for line in readme.split("\n") if line.startswith("| `course` |")]
         self.assertEqual(rows, ["| `course` | the needs of `lesson` |"])
         self.assertIn("`--as course`", readme)
+        self.assertIn("`--as movie`", readme)
+        rows = [line for line in readme.split("\n") if line.startswith("| `movie` |")]
+        self.assertEqual(rows, ["| `movie` | the needs of `lesson` |"])
+        self.assertIn("movie/ (the chapter and viewer prompts)", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `lesson` |")]
         self.assertEqual(rows, ["| `lesson` | the needs of `page` and of `video` together |"])
-        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course,onboard}.md", readme)
+        self.assertIn("rungs/{sheet,page,video,brainrot,lesson,course,onboard,movie}.md", readme)
         self.assertIn("lesson/", readme)
         self.assertIn("course/ (the map and lesson prompts)", readme)
         self.assertIn("scripts/course{,_hub,_hub_text,_discover}.py", readme)
