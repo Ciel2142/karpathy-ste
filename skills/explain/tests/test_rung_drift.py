@@ -57,10 +57,13 @@ table to the keys of PATTERNS, the map skeleton to TITLES, the prefix table to t
 MovieRungCase ties rungs/movie.md to scripts/movie.py: the twelve level-2 titles (MOVIE_TITLES), each line that the
 rung quotes and that starts with a line name of movie.py (MOVIE_ORDER) to the statement that prints it
 (MOVIE_PRINTED; its evidence is verbatim text of one code line of movie.py, and the printf text of that statement
-matches the sample), the prefix table of "Check and stop" to the seven failure prefixes of `check`
-(MOVIE_PREFIXES), and the command, the rung line, the build cap and the result lines of the chapter subagents.
-The result lines are printed by the rung, not by movie.py (MOVIE_RUNG_LINES), and a prefix is the head of a
-failure line, not a line: neither has an entry. The file lints clean."""
+matches the sample), each quoted line of `bridges` and `stitch` to a form that the module docstring of movie.py
+gives (docstring_forms), the prefix table of "Check and stop" to the seven failure prefixes of `check`
+(MOVIE_PREFIXES), the verify block of the hub to the seven lines of verify.sh (HUB_LINES), and the command, the
+rung line, the build cap, the result lines of the chapter subagents, the two exit shapes of `stitch`, the viewer
+gate, the resume and the rules that no code pins (MOVIE_RUNG_TEXTS). The result lines are printed by the rung,
+not by movie.py (MOVIE_RUNG_LINES), and a prefix is the head of a failure line, not a line: neither has an
+entry. The costs section holds no number before the live run. The file lints clean."""
 
 import ast
 import json
@@ -76,6 +79,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import onboard
 from test_format_limits import fill
+from test_verify import LESSON_PASS
 
 EXPLAIN = Path(__file__).resolve().parent.parent
 REPO = EXPLAIN.parent.parent
@@ -1246,15 +1250,64 @@ MOVIE_PREFIXES = ("schema:", "id:", "question <id>:", "chapter <id>:", "cite <qu
 # The result lines of a chapter subagent, which the rung prints as they come back: no code of movie.py prints
 # them, so they have no entry in MOVIE_PRINTED.
 MOVIE_RUNG_LINES = ("chapter: <id> built", "chapter: <id> failed <reason>")
-# One entry for each line that movie.md quotes. The sample is a line as `movie.py check` prints it for the
-# plan of tests/fixtures/movie (three questions, four chapters of 60 s, three bridges). The evidence is the
-# text of the statement that prints the line, up to the end of its string literal, on one code line.
+# The statements of movie.py that print the lines of `stitch` and `status`. Each stage of `stitch` prints its
+# ok line and its FAIL line through one statement; the cause text of a FAIL line comes from a StitchError, and
+# docstring_forms ties the quoted text to the module docstring.
+STITCH_OK = (MOVIE_PY, 'sys.stdout.write("%s: ok %s\\n" % (name, detail))')
+STITCH_FAIL = (MOVIE_PY, 'sys.stdout.write("%s: FAIL %s\\n" % (name, error))')
+STATUS_CHAPTER = (MOVIE_PY, 'lines.append("chapter: %s %s%s" % (chapter.get("id"), chapter.get("status"),')
+STATUS_STATE = (MOVIE_PY, 'lines.append("state: %s" % movie.get("state"))')
+# One entry for each line that movie.md quotes. The sample is a line as `movie.py check`, `bridges`, `stitch` or
+# `status` prints it for the plan of tests/fixtures/movie (three questions, four chapters of 60 s, three
+# bridges), as an assertion of tests/test_movie.py gives it where one does. The evidence is the text of the
+# statement that prints the line, up to the end of its string literal, on one code line. A bridge render
+# prints `container: ok (<s> s)` too: the rung quotes that line once for both, with one entry.
 MOVIE_PRINTED: tuple[Printed, ...] = (
     Printed("plan: ok (<q> questions, <c> chapters, <lo>..<hi> s with bridges)",
             "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)",
             ((MOVIE_PY, 'sys.stdout.write("plan: ok (%d questions, %d chapters, %d..%d s with bridges)\\n"'),)),
     Printed("plan: <n> failures", "plan: 2 failures",
             ((MOVIE_PY, 'sys.stdout.write("plan: %d failures\\n" % len(failures))'),)),
+    Printed("bridges: ok (<n>)", "bridges: ok (3)",
+            ((MOVIE_PY, 'sys.stdout.write("bridges: ok (%d)\\n" % len(ids))'),)),
+    Printed("parts: ok (<n>)", "parts: ok (7)", (STITCH_OK,)),
+    Printed("parts: FAIL no chapters", "parts: FAIL no chapters", (STITCH_FAIL,)),
+    Printed("parts: FAIL chapter <id> is <status>, not built", "parts: FAIL chapter trigger is pending, not built",
+            (STITCH_FAIL,)),
+    Printed("parts: FAIL <part> missing", "parts: FAIL chapters/split/video.mp4 missing", (STITCH_FAIL,)),
+    Printed("parts: FAIL <part> <what> differs", "parts: FAIL bridges/1/video.mp4 audio rate differs",
+            (STITCH_FAIL,)),
+    Printed("parts: FAIL <part> <probe cause>", "parts: FAIL bridges/2/video.mp4 ffprobe exit 1", (STITCH_FAIL,)),
+    Printed("concat: ok (<s> s)", "concat: ok (270.0 s)", (STITCH_OK,)),
+    Printed("concat: FAIL ffmpeg exit <n>", "concat: FAIL ffmpeg exit 1", (STITCH_FAIL,)),
+    Printed("container: ok (<s> s)", "container: ok (270.0 s)", (STITCH_OK,)),
+    Printed("container: FAIL streams <types> (expected one video and one audio)",
+            "container: FAIL streams video (expected one video and one audio)", (STITCH_FAIL,)),
+    Printed("container: FAIL duration <d> s, expected <s> s", "container: FAIL duration 270.6 s, expected 270.0 s",
+            (STITCH_FAIL,)),
+    Printed("container: FAIL <probe cause>", "container: FAIL ffprobe output unreadable", (STITCH_FAIL,)),
+    Printed("transcript: ok (<n> chapters)", "transcript: ok (4 chapters)", (STITCH_OK,)),
+    Printed("transcript: FAIL chapter <id>: no transcript", "transcript: FAIL chapter split: no transcript",
+            (STITCH_FAIL,)),
+    Printed("transcript: FAIL chapter <id>: transcript has no section <ask|answer>",
+            "transcript: FAIL chapter members: transcript has no section answer", (STITCH_FAIL,)),
+    Printed("transcript: FAIL chapter <id>: transcript has no section before answer",
+            "transcript: FAIL chapter trigger: transcript has no section before answer", (STITCH_FAIL,)),
+    Printed("transcript: FAIL chapter <id>: no still <path>",
+            "transcript: FAIL chapter split: no still chapters/split/review/still-02-body-end.png", (STITCH_FAIL,)),
+    Printed("hub: ok index.html", "hub: ok index.html", (STITCH_OK,)),
+    Printed("length: ok (<s> s)", "length: ok (270.0 s)",
+            ((MOVIE_PY, 'sys.stdout.write("length: ok (%s s)\\n" % seconds)'),)),
+    Printed("length: FAIL <s> s (min 240, max 900)", "length: FAIL 35.0 s (min 240, max 900)",
+            ((MOVIE_PY, 'sys.stdout.write("length: FAIL %s s (min %d, max %d)\\n"'),)),
+    Printed("chapter: <id> <status>[ <reason>]", "chapter: trigger failed render timed out", (STATUS_CHAPTER,)),
+    Printed("chapter: <id> pending", "chapter: members pending", (STATUS_CHAPTER,)),
+    Printed("stray: chapters/<name>", "stray: chapters/members.stale-1",
+            ((MOVIE_PY, 'lines += ["stray: chapters/%s" % name for name in names'),)),
+    Printed("state: <state>", "state: building", (STATUS_STATE,)),
+    Printed("state: planned", "state: planned", (STATUS_STATE,)),
+    Printed("state: building", "state: building", (STATUS_STATE,)),
+    Printed("state: stitched", "state: stitched", (STATUS_STATE,)),
 )
 # The first string literal of an evidence: the printf text of the statement.
 PRINTF_TEXT = re.compile(r'"((?:[^"\\]|\\.)*)"')
@@ -1271,11 +1324,67 @@ def printf_pattern(evidence: str) -> re.Pattern:
     return re.compile(".*".join(re.escape(part) for part in re.split(r"%[sd]", text)))
 
 
+# The stages of `movie.py stitch` that its module docstring lists as a table: a line "  <stage>: <form> | ...",
+# then lines "         | <form> | ..." that go on with the same stage.
+STITCH_TABLE = ("parts", "concat", "container", "transcript", "length")
+STITCH_ROW = re.compile(r"  (%s): (.*)" % "|".join(STITCH_TABLE))
+STITCH_MORE = re.compile(r"\s+\| (.*)")
+
+
+def docstring_forms() -> set[str]:
+    """The printed lines that the module docstring of movie.py gives: each form of a stage row of `stitch`, as
+    "<stage>: <form>", and the content of each code span, whitespace runs as one space."""
+    text = ast.get_docstring(ast.parse(read(EXPLAIN / MOVIE_PY)), clean=False)
+    forms, stage = set(), None
+    for line in text.split("\n"):
+        row, more = STITCH_ROW.fullmatch(line), STITCH_MORE.fullmatch(line)
+        if row:
+            stage, rest = row.group(1), row.group(2)
+        elif more and stage:
+            rest = more.group(1)
+        else:
+            stage = None
+            continue
+        forms |= {"%s: %s" % (stage, form.strip()) for form in rest.split(" | ")}
+    return forms | {" ".join(found.group(2).split()) for found in SPAN.finditer(text)}
+
+
+# The seven lines of verify.sh for a hub that passes, as course.md "Write the hub" gives them: the five lines of
+# a lesson, then the media line and the bpmn line.
+HUB_LINES = LESSON_PASS.splitlines() + ["media: ok", "bpmn: ok"]
+
+
+def fenced_lines(text: str) -> list[list[str]]:
+    """The lines of each fenced block of `text`, each line stripped, the fences left out."""
+    found, current = [], None
+    for line in text.split("\n"):
+        if FENCE.match(line):
+            if current is None:
+                current = []
+            else:
+                found.append(current)
+                current = None
+        elif current is not None:
+            current.append(line.strip())
+    return found
+
+
+# Sentences of movie.md that no code pins: the approval stop, the build cap, the hub rule, the review rule, the two
+# lines that go to `not_covered`, the still name of the viewer page, the output rule and the costs rule.
+MOVIE_RUNG_TEXTS = ("Build nothing before the user approves the plan.", "At most 3 chapter subagents",
+                    "never fill `movie.html` by hand", "A chapter is never dropped", "disputed: <finding>",
+                    "viewer missed: <question>", "still: viewer-stills/<k>-<id>.png", "A movie commits nothing.",
+                    "not yet measured")
+# A length in seconds or minutes, or a count of tokens: a measured cost, which the live run adds.
+COST_NUMBER = re.compile(r"\d{2,}(?: s\b| min\b| ?tokens)")
+
+
 class MovieRungCase(unittest.TestCase):
-    """rungs/movie.md (spec 4.1, 4.2, 4.7, 5 and 7): when the rung applies, the viewer questions, the plan in
-    movie.json, its check and the stop, and the build of the chapters. The lines that the rung quotes from
-    scripts/movie.py are tied to the code that prints them. Each section is read as one line of words, because
-    the rung wraps its lines."""
+    """rungs/movie.md (spec 4.1 to 4.7, 5 and 7): when the rung applies, the viewer questions, the plan in
+    movie.json, its check and the stop, the build of the chapters, the bridges, the stitch, the viewer gate,
+    the verify and the handoff, the resume, the output directory and the costs. The lines that the rung quotes
+    from scripts/movie.py are tied to the code that prints them. Each section is read as one line of words,
+    because the rung wraps its lines."""
 
     def words(self, title):
         return " ".join(section(read(MOVIE_MD), title).split())
@@ -1353,6 +1462,55 @@ class MovieRungCase(unittest.TestCase):
             "A chapter subagent that does not return stops the run.",
             "Print the id of the chapter and the path of `<movie-dir>`.",
             "Never build a `built` chapter again"))
+
+    # red: the rung quotes a line of `bridges` or `stitch` that the docstring of movie.py does not give (a cause
+    # reworded), or a stage of them that the rung does not quote
+    def test_bridges_and_stitch_lines_are_the_docstring_forms(self):
+        names = ("bridges",) + STITCH_TABLE + ("hub",)
+        quoted = [line for line in quoted_lines(read(MOVIE_MD), MOVIE_ORDER) if line.split(":")[0] in names]
+        self.assertEqual(sorted({line.split(":")[0] for line in quoted}), sorted(names))
+        self.assertEqual(sorted(set(quoted) - docstring_forms()), [])
+
+    # red: "Stitch" no longer tells a length miss, after which every artifact is written, from another FAIL, after
+    # which nothing is complete (a weak model then runs the viewer gate on a half stitch, or builds every chapter
+    # again for a length miss)
+    def test_stitch_section_tells_the_two_exit_shapes_apart(self):
+        self.assert_phrases("Stitch", (
+            "If the only `FAIL` line is `length: FAIL <s> s (min 240, max 900)`",
+            "`chapters.json`",
+            "After any other `FAIL` line, the viewer gate does not run.",
+            "`parts: FAIL chapter <id> is <status>, not built`"))
+
+    # red: the viewer gate compares words instead of meaning, takes `cannot answer` for something else than a miss,
+    # asks the viewer again, or runs more than two rounds
+    def test_viewer_gate_compares_meaning_and_caps_two_rounds(self):
+        self.assert_phrases("The viewer gate", (
+            "`review/viewer-round-<k>.md`", "`## Author`", "`missed: <what the film did not show>`",
+            "`cannot answer`", "Compare the meaning, not the words.", "Never ask the viewer to try again",
+            "Two rounds at most.", "`viewer missed: <question>`", "`viewer: <n> of <m> understood`"))
+
+    # red: a resume that deletes the directory of an interrupted chapter, takes `--review` from the arguments, or
+    # builds a `built` chapter again
+    def test_resume_reopens_building_and_failed_chapters(self):
+        self.assert_phrases("Resume", (
+            "movie.py status <movie-dir>", "`chapters/<id>.stale-<n>/`", "Never delete a chapter directory.",
+            "`--review: no effect on a resume`",
+            'A resume never builds a `built` chapter again, unless "Stitch" or "The viewer gate" sends it back.'))
+
+    # red: the media or the bpmn line left out of the verify block of the hub, or a line reworded
+    def test_verify_block_matches_the_hub_lines(self):
+        self.assertIn(HUB_LINES, fenced_lines(section(read(MOVIE_MD), "Verify and handoff")))
+
+    # red: a rule that no code pins is gone from the rung or reworded
+    def test_rung_holds_its_rules(self):
+        text = " ".join(read(MOVIE_MD).split())
+        self.assertEqual([want for want in MOVIE_RUNG_TEXTS if want not in text], [])
+
+    # red: "Costs" gives a number before the live run measures it, or loses its pointer to the film costs
+    def test_costs_holds_no_number_yet(self):
+        text = self.words("Costs")
+        self.assertIsNone(COST_NUMBER.search(text), text)
+        self.assert_phrases("Costs", ("not yet measured", '"First-run costs"'))
 
     # red: a sentence of movie.md breaks the STE profile (a contraction such as "don't")
     def test_movie_md_lints_clean(self):

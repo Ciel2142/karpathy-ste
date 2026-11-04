@@ -333,7 +333,7 @@ no reply comes. Then do these steps:
 4. Do not change the `status` of that chapter. It stays `pending`, and a resume builds it again.
 
 A resume builds only the chapters that are not `built`. Never build a `built` chapter again, unless
-the viewer gate names it.
+"Stitch" or "The viewer gate" sends it back.
 
 A fault of the environment also stops the run. If a `reason` names a `workspace`, `narration` or
 `container` `FAIL`, the next chapters fail too. Then do these steps:
@@ -376,28 +376,448 @@ Write each `disputed:` line into `provenance.not_covered`:
 
 ## 6. Bridges
 
-Task 2 writes this section.
+Start this section when each chapter is `built`. A bridge is a clip of three scenes between two
+chapters. The chapters count from 1, in the order of the plan. Bridge `<n>` comes after chapter
+`<n>`, in `<movie-dir>/bridges/<n>/`. Its labels come from `movie.json`: the `text` and the `answer`
+of the first question that chapter `<n>` answers, and the `question` of the next chapter.
+
+1. Run `movie.py bridges <movie-dir>`.
+2. Read its output. `bridges` runs `check` first. If `check` finds failures, `bridges` prints them and
+   `plan: <n> failures`. Then it exits with 1 and writes nothing.
+3. In that case, fix each failure line as "Check and stop" says. Then run `bridges` again.
+4. Else its line is `bridges: ok (<n>)`, and `<n>` is the number of bridges. `bridges` wrote the
+   `script.json` and the `scene/Film.tsx` of each bridge. It rendered nothing.
+5. If `bridges` exits with 2, it cannot read `movie.json`, or it cannot write a file. Print its line.
+   Stop the run.
+6. Render the bridges one at a time, in the order of their numbers. The engine is the engine of
+   "Build the chapters". For each bridge, run this command:
+
+```
+<skill-dir>/scripts/render.sh --engine <engine> <movie-dir>/bridges/<n>
+```
+
+7. Read the eleven stage lines of each render. `rungs/video.md` "Build and check" names them. Each
+   line must show `ok`.
+8. Record the length of each bridge: the `<s>` of its line `container: ok (<s> s)`. "Stitch" needs
+   these lengths when the movie is too short or too long.
+
+A `FAIL` line of a bridge render has its cause in a label or in the tooling. Find the line in
+`rungs/video.md` "The FAIL lines".
+
+- A label can go off the canvas or onto another label. A narration can have more words than the 45
+  of a clip scene. Such a cause is in the text of a label. The limit of 20 words of `check` keeps
+  each label short, but one long word can still go off the canvas. Find the text in `movie.json`:
+  the `text` or the `answer` of a question, or the `question` of a chapter. Write it again with
+  shorter words, as "Edit the plan" says. Keep its meaning: the questions and the answers are the
+  contract of the movie. Then run `bridges` again, and do steps 6 to 8 again for each bridge.
+- Never edit a file in `bridges/<n>/`. `bridges` writes these files again from `movie.json`, over each
+  edit that you make there.
+- Else the cause is in the tooling or in the environment, for example a `workspace`, `narration` or
+  `container` `FAIL` line. Print the line. Stop the run by the stop rule of "Check and stop". A resume
+  renders the bridges again.
+
+When the render of each bridge shows eleven `ok` lines, go to "Stitch".
 
 ## 7. Stitch
 
-Task 2 writes this section.
+Start this section when the render of each bridge shows eleven `ok` lines.
+
+1. Run `movie.py stitch <movie-dir>`.
+2. Print each line of its output. `stitch` prints one line for each stage, in the order of the table
+   below. The first `FAIL` line stops it, with exit 1.
+3. If each line shows `ok`, go to "The viewer gate".
+
+| Stage line | Meaning |
+|---|---|
+| `parts: ok (<n>)` | Each chapter is `built`. Each chapter and each bridge has its `video.mp4`. Each part has the same codecs, frame size, frame rate and audio rate as the first part. `<n>` counts the chapters and the bridges. |
+| `concat: ok (<s> s)` | ffmpeg joined the parts, in the order of the film, into `build/video.part.mp4`. It copied the streams and encoded nothing again. `<s>` is the sum of the lengths of the parts. |
+| `container: ok (<s> s)` | The joined file has one video stream and one audio stream, and its length is within 0.5 s of the sum. Then `stitch` replaced `video.mp4` with it, and it wrote `chapters.json`. |
+| `transcript: ok (<n> chapters)` | `stitch` wrote the chapter sections of the hub, the viewer page `review/viewer-transcript.html`, and one still for each chapter in `review/viewer-stills/`. |
+| `hub: ok index.html` | `stitch` wrote the hub `index.html` from `movie.json`, the start of each chapter and the chapter sections. |
+| `length: ok (<s> s)` | The movie is 240 to 900 s long. |
+
+`stitch` does not run `check`. "Bridges" ran it, before the renders.
+
+### Two shapes of exit 1
+
+`stitch` exits with 1 in two shapes. Tell them apart before you fix anything.
+
+If the only `FAIL` line is `length: FAIL <s> s (min 240, max 900)`, each other stage passed. Then
+`video.mp4`, `chapters.json`, the hub and the viewer page are complete. Only the length of the movie
+is out of its limits. Do not build all the chapters again. One chapter is the cause, and "A length
+out of the limits" below finds it.
+
+After any other `FAIL` line, the viewer gate does not run. The stages after that line did not run.
+Thus the viewer page and the hub are old or absent, and a viewer gate on them tests an old film. Fix
+the part that the line names, as "The other FAIL lines" below says.
+
+### A length out of the limits
+
+`check` passed the sum of the `seconds` of the chapters. Thus a movie that is too short has a chapter
+that came out shorter than its `seconds`. A movie that is too long has a chapter that came out
+longer. Find that chapter, and give it a new `seconds`:
+
+1. Read `<movie-dir>/chapters.json`. It holds one item for each chapter, in the order of the film.
+   Its `start` is the second at which the chapter starts in `video.mp4`.
+2. For each chapter but the last, calculate its real length. Take the `start` of the next chapter.
+   Subtract its own `start` and the length of the bridge after it.
+3. The bridge after chapter `<n>` is bridge `<n>`. Its length is in your record of step 8 of
+   "Bridges".
+4. For the last chapter, the real length is the `<s>` of `concat: ok (<s> s)`, less its `start`.
+5. Compare the real length of each chapter with its `seconds` in `movie.json`.
+6. Read the `<s>` of `length: FAIL <s> s (min 240, max 900)`: the length of the movie. The movie is
+   too short when `<s>` is below 240, and too long when it is above 900.
+7. If the movie is too short, choose the chapter whose real length is the most below its `seconds`.
+   If the movie is too long, choose the chapter whose real length is the most above its `seconds`.
+8. Calculate the gap: 240 less `<s>` for a short movie, or `<s>` less 900 for a long movie.
+9. For a short movie, add the gap to the real length of the chapter, and multiply by 1.25. For a long
+   movie, subtract the gap from its real length, and multiply by 0.8.
+10. Round the result to a whole number. This is the new `seconds` of the chapter.
+11. If the new `seconds` is more than 150, one chapter cannot close the gap. Do "Add a chapter" below,
+    in place of steps 12 to 14.
+12. If the new `seconds` is less than 30, use 30. The next stitch then shows the gap that remains.
+13. Edit the `seconds` of the chapter. Then set its `status` to `pending`. Run
+    `movie.py check <movie-dir>` after each edit.
+14. Go to "Build the chapters". Its loop builds only that chapter, because each other chapter is
+    `built`. Then do "Bridges" and "Stitch" again.
+
+A chapter subagent can miss its `seconds` by a fifth. The factor of step 9 keeps the new film inside
+the limits also after such a miss. The brief of the new build carries the new `seconds`. A film has
+at most 150 s, and that is the limit of step 11.
+
+This is a fix loop, and the stop rule of "Check and stop" applies. A
+`length: FAIL <s> s (min 240, max 900)` line with another `<s>` counts as the same line.
+
+### Add a chapter
+
+A short movie whose chapters cannot grow needs one more chapter. That is a change of the plan, and
+the user approves each plan. A plan has at most 10 chapters: if it has 10, stop by the stop rule of
+"Check and stop".
+
+1. Set `state` to `planned`. Run `movie.py check <movie-dir>`.
+2. Add the new chapter at the end of `chapters`, with `status` `pending` and `reason` `""`. Write its
+   fields by the rules of "Plan the chapters".
+3. Start its `picture` from the `ends_with` of the chapter before it. Thus no `built` chapter changes.
+4. Give it one or two questions in `answers`. Choose the questions that a new chapter can show in
+   more depth.
+5. Give it a `seconds` of at least the gap times 1.25, and at most 150.
+6. Run `movie.py check <movie-dir>`. Then go to step 1 of "Check and stop".
+
+After the approval, "Build the chapters" builds only the new chapter. The new gap adds a bridge.
+"Bridges" writes and renders each bridge again.
+
+### The other FAIL lines
+
+- `parts: FAIL chapter <id> is <status>, not built`: `stitch` refuses to start, because the chapter is
+  not `built`. It reads no file before this check. Go to "Build the chapters".
+- `parts: FAIL no chapters`: `movie.json` has no chapter. Run `movie.py check <movie-dir>`, and fix
+  its failure lines as "Check and stop" says.
+- `parts: FAIL <part> missing`: the part has no `video.mp4`. `<part>` is a path under `<movie-dir>`,
+  such as `bridges/1/video.mp4` or `chapters/<id>/video.mp4`. Make that part again, as "Make a part
+  again" below says.
+- `parts: FAIL <part> <what> differs`: the part differs from the first part in `<what>`. `<what>` is
+  the video codec, the audio codec, the width, the height, the frame rate or the audio rate. Each
+  render encodes in the same way, so another version of the tooling made that part. Make that part
+  again.
+- `parts: FAIL <part> <probe cause>`: ffprobe cannot read the part. `<probe cause>` is
+  `ffprobe exit <n>` or `ffprobe output unreadable`. Make that part again.
+- `concat: FAIL ffmpeg exit <n>`: ffmpeg cannot join the parts. The fault is in the tooling or on the
+  disk, not in `movie.json`. Print the line. Stop the run.
+- `container: FAIL streams <types> (expected one video and one audio)`,
+  `container: FAIL duration <d> s, expected <s> s` and `container: FAIL <probe cause>`: the joined
+  file is not correct. `video.mp4` stays the file of an earlier stitch, if one exists. The fault is in
+  the tooling. Print the line. Stop the run.
+- `transcript: FAIL chapter <id>: no transcript`: the chapter has no `chapters/<id>/index.html`. Its
+  render did not come to its last stage. Build the chapter again.
+- `transcript: FAIL chapter <id>: transcript has no section <ask|answer>`: the transcript of the
+  chapter has no `ask` section, or no `answer` section. The transcript is older than the script.
+  Build the chapter again.
+- `transcript: FAIL chapter <id>: transcript has no section before answer`: before `answer`, the
+  chapter has no scene other than `ask`. The viewer page needs the still of a body scene. Build the
+  chapter again.
+- `transcript: FAIL chapter <id>: no still <path>`: the chapter has no still of its last body scene.
+  `<path>` is the still that `stitch` looks for. Build the chapter again.
+
+Make a part again in one of two ways:
+
+- For a bridge, render it again, as step 6 of "Bridges" says.
+- For a chapter, build it again. Set its `status` to `pending` and its `reason` to `""`, and run
+  `movie.py check <movie-dir>`. Go to "Build the chapters". Its loop moves the old directory aside and
+  builds only that chapter. Then do "Bridges" and "Stitch" again.
+
+If the same line comes back after you make the part again, the fault is in the tooling. Stop by the
+stop rule of "Check and stop".
+
+### Exit 2
+
+If `stitch` exits with 2, it prints one line on stderr:
+
+- `no Remotion CLI at <path>`: the video workspace does not exist. Run `video-workspace.sh` as step 3
+  of "Build the chapters" says. Then run `stitch` again.
+- Another line: `stitch` cannot read `movie.json`, or it cannot read or write a file. Print the line.
+  Stop the run. A resume continues.
 
 ## 8. The viewer gate
 
-Task 2 writes this section.
+The viewer gate is always on, also without `--review`. It tests the contract of the movie. A viewer
+who did not make the film must answer the viewer questions from the film alone.
+
+Start this section only after a stitch in which each line shows `ok`. The viewer page and its stills
+then come from the film of that stitch.
+
+The gate has one or two rounds. Two rounds at most. Each round after the first builds chapters
+again, and that is the most costly part of a movie. A question that two viewers miss shows a limit
+of the film, and the movie reports it.
+
+In this section, `<k>` has two meanings. In the name of a report, `review/viewer-round-<k>.md`, it
+is the number of the round. In the name of a still, it is the place of the chapter in the film, from
+1.
+
+### Find the round
+
+1. Look for `review/viewer-round-1.md` and `review/viewer-round-2.md`. A report that holds an
+   `## Author` block is a complete round.
+2. `<k>` is the number of complete rounds, plus 1.
+3. If the last complete round marks each question `understood`, the gate is complete. Go to "Verify
+   and handoff".
+4. If two rounds are complete, the gate is complete too. Make sure that `not_covered` has a
+   `viewer missed: <question>` line for each `missed` question of round 2. Then go to "Verify and
+   handoff".
+5. If `review/viewer-round-<k>.md` exists, an earlier run stopped in this round. Move the report to
+   `review/viewer-round-<k>.stale-<n>.md`. `<n>` is the first number from 1 that no file has. Never
+   delete a report.
+
+Steps 3 to 5 apply only when an earlier run stopped in the gate, and a resume starts the gate
+again.
+
+### Run a round
+
+1. Fill `<skill-dir>/movie/review-viewer.md` as the table at the end of this section says.
+2. Start one new subagent with the result, in the background. Use a new subagent for each round. The
+   viewer of round 1 saw the film before the fix.
+3. When the viewer returns, read only the last line of its reply. It is `viewer: done` or
+   `viewer: failed <reason>`. Print it.
+4. If the line is not `viewer: done`, or if `review/viewer-round-<k>.md` does not exist, the round has
+   no answers. Stop the run. A resume starts this round again, with a new viewer.
+5. Read `review/viewer-round-<k>.md`. For each question, it gives the answer of the viewer or
+   `cannot answer`, and what in the film the viewer used.
+
+The viewer reads `review/viewer-transcript.html` and the stills under `review/viewer-stills/` that
+this page names. The page names each still as `still: viewer-stills/<k>-<id>.png`, a path relative
+to `review/`. The viewer reads nothing else of the run: not `movie.json`, no `script.json`, no
+chapter transcript, no other still and no source file. A viewer that reads the answers can always
+answer, and then the gate tests nothing.
+
+The viewer page holds the title, the question texts and the transcript of each chapter. It does not
+hold the `ask` and `answer` scenes, the answers or the cites. Thus the viewer must find each answer
+in the body of a chapter, not in a sentence that states it.
+
+### Compare the answers
+
+Compare each answer of the viewer with the `answer` of that question in `movie.json`. Compare the
+meaning, not the words. The viewer writes in its own words, and the narration of a chapter also uses
+other words than `movie.json`. A check of the words fails a correct answer.
+
+Give each question one of two results:
+
+- `understood`: the answer has the meaning of the `answer` in `movie.json`. It can use other words,
+  and it can add facts that are correct.
+- `missed: <what the film did not show>`: the answer is wrong, it gives only a part of the meaning,
+  or it is `cannot answer`. A `cannot answer` is `missed`, because the film did not show the answer.
+  A question that the report does not answer is `missed` too.
+
+For each `missed` question, write what the film did not show, in your words. Name the chapter that
+fixes it: the chapter that has the question in its `answers`. If two chapters have it, choose the
+chapter whose picture must show the missing part.
+
+Append an `## Author` block at the end of the report, in this form. Never change the text that the
+viewer wrote.
+
+```
+## Author
+
+- <question-id>: understood
+- <question-id>: missed: <what the film did not show> (chapter <chapter-id>)
+viewer: <n> of <m> understood
+```
+
+`<n>` counts the `understood` questions, and `<m>` counts all the questions. Print each `missed:`
+line of the block.
+
+Never ask the viewer to try again in the same round. A second try on the same film tests the guess
+of the viewer, not the film. The fix is in the film.
+
+### After a round
+
+- If each question is `understood`, the gate is complete. Print the line
+  `viewer: <n> of <m> understood`. Go to "Verify and handoff".
+- If a question is `missed` and `<k>` is 1, the film must change. Do the steps of "After round 1".
+- If a question is `missed` and `<k>` is 2, the gate is complete. Never start a third round. Do the
+  steps of "After round 2".
+
+After round 1, do these steps for each chapter that a `missed:` line names:
+
+1. Set its `status` to `pending` and its `reason` to `""`. Run `movie.py check <movie-dir>` after each
+   edit.
+2. Its next brief carries the `missed:` text of this block as `{amendment}`. The amendment changes the
+   picture of the chapter, never its answers. The answers are the contract of the movie.
+
+Then go to "Build the chapters". Its loop builds only these chapters. Then do "Bridges", "Stitch"
+and this gate again, as round 2. Do "Bridges" again also if no label changed. A bridge render is
+short, and each bridge then comes from the current `movie.json`.
+
+After round 2, do these steps:
+
+1. For each question that the viewer missed again, write `viewer missed: <question>` into
+   `provenance.not_covered`. `<question>` is the `text` of the question in `movie.json`.
+2. Write the line as "The chapter gate" says for a `disputed:` line. The `text` of a question ends
+   with `?`: add no period after it.
+3. For a `prose:` line about `provenance.not_covered`, write the line again under the STE profile.
+   Keep the `viewer missed:` start.
+4. Print the line `viewer: <n> of <m> understood` of round 2. Go to "Verify and handoff".
+
+The movie then ships with the miss. The hub and the handoff report it, and the user knows which
+answer the film does not show.
+
+The prompt `review-viewer.md` is a template. Read it. Replace each name in braces with plain text.
+Give the result to the subagent as its prompt. Fill its names as the table below says.
+
+| Name | Fill with |
+|---|---|
 
 ## 9. Verify and handoff
 
-Task 2 writes this section.
+Start this section when the viewer gate is complete.
+
+### Verify the hub
+
+`stitch` wrote the hub `index.html` in "Stitch". The hub shows `provenance.not_covered`.
+
+1. If you edited `movie.json` after the last `stitch`, for example for a `viewer missed:` line, run
+   `movie.py stitch <movie-dir>` again.
+2. Read its lines as "Stitch" says. The parts did not change, so `stitch` copies the streams again,
+   in seconds.
+3. Only `stitch` writes the hub: never fill `movie.html` by hand. A hub that you write differs from
+   the hub of `stitch`, and the next `stitch` removes it.
+4. Run this command:
+
+```
+<skill-dir>/scripts/verify.sh <movie-dir>/index.html
+```
+
+5. Each line must show `ok`, except that the `bpmn` line can show `none`:
+
+```
+self-contained: ok
+render 1440x900: ok
+render 500x844: ok
+citations: ok
+prose: ok
+media: ok
+bpmn: ok
+```
+
+6. For a `FAIL` line, read the detail lines under it. If a detail line names a cite or a text of
+   `movie.json`, fix that field. Edit it as "Edit the plan" says. Then do steps 1 to 5 again.
+7. Else the fault is not in `movie.json`. Stop by the stop rule of "Check and stop".
+8. Set `state` to `stitched` in `movie.json`. Run `movie.py check <movie-dir>`. A resume then knows
+   that the movie is complete.
+
+`movie.html` is the template of the hub, in `<skill-dir>/templates/`. The `media` line counts each
+link of the hub to `video.mp4` or to `chapters/<id>/index.html` that names no file.
+
+### The handoff
+
+1. Print the path of `<movie-dir>`.
+2. Run `open <movie-dir>/video.mp4` only when you run for the user directly. Never run `open` inside a
+   subagent (`SKILL.md` convention 6).
+3. Print the narrator, as `rungs/video.md` "Handoff" names it: Kokoro `af_heart` for `en`, or `Silero`
+   `xenia` for `ru`. If the `narration` line of a bridge render showed a fallback, print the fallback
+   and its cause.
+4. Print the line `viewer: <n> of <m> understood`, from the `## Author` block of the last round.
+5. Print each sentence of `provenance.not_covered` on its own line. For `none`, print nothing.
+6. If the harness has a tool that sends a desktop notification, send one. The user is possibly away.
+
+The sentences of `not_covered` are the `disputed:` lines, the `viewer missed:` lines and each facet
+that the movie does not explain.
 
 ## 10. Resume
 
-Task 2 writes this section.
+The command `/explain <movie-dir> --as movie` resumes a movie. `movie.json` is the one source of truth
+for a resume.
+
+`--review` has no effect on a resume: the value in `movie.json` holds. The `built` chapters passed
+the gates of that value, and one movie has one value. If the arguments hold `--review`, print
+`--review: no effect on a resume`.
+
+1. Print the rung line. Its reason is `--as movie; resume`, its subject is `<movie-dir>`, and its
+   kind is `directory`.
+2. Print `review: on` or `review: off`, from `review` in `movie.json`.
+3. Run `movie.py status <movie-dir>`. Print each line of its output.
+4. If `status` exits with 2, it cannot read `movie.json`. Print its line. Stop: a resume needs a
+   `movie.json` that it can read.
+5. For each `pending` or `failed` chapter, look for `<movie-dir>/chapters/<id>/`. If it exists, move
+   it to `chapters/<id>.stale-<n>/`. `<n>` is the first number from 1 that no directory has.
+6. Never delete a chapter directory. The new build starts in an empty directory, and the old one
+   stays for the user to read.
+7. For each `failed` chapter, set `status` to `pending` and `reason` to `""`. Run
+   `movie.py check <movie-dir>` after each edit.
+8. Run `movie.py check <movie-dir>`. Fix each failure line as "Check and stop" says, by its stop rule.
+9. Go on from the line `state: <state>`, as the second table below says.
+
+`status` prints one line for each chapter, in the order of the plan:
+`chapter: <id> <status>[ <reason>]`. The part in brackets shows only when the `reason` of the chapter
+is not empty. Then it prints one `stray: chapters/<name>` line for each directory in `chapters/` that
+is no chapter. Its last line is `state: <state>`.
+
+| Line | Meaning | Do |
+|---|---|---|
+| `chapter: <id> built` | The chapter is complete. | Leave it. |
+| `chapter: <id> pending` | The chapter waits for its build. If its directory exists, an earlier run stopped while its subagent ran: `movie.json` has no status for a running chapter. | Steps 5 and 9. |
+| `chapter: <id> failed <reason>` | The build of the chapter failed in an earlier run. `<reason>` tells why. | Steps 5, 7 and 9. |
+| `stray: chapters/<name>` | A directory in `chapters/` that is no chapter, for example a `chapters/<id>.stale-<n>/` directory of an earlier build. | Leave it. `stitch` reads only the directories of the chapters. |
+
+The loop of "Build the chapters" starts only `pending` chapters. Thus a `failed` chapter goes back to
+`pending`. The `failed` line of `status` keeps its reason in the output of the run.
+
+| Line | Go to |
+|---|---|
+| `state: planned` | The user did not approve the plan. Go to step 5 of "Check and stop": print the plan, and stop for the approval. |
+| `state: building`, and a chapter is `pending` | "Build the chapters". It builds only the `pending` chapters. |
+| `state: building`, and no chapter is `pending` | "Bridges", then "Stitch" and "The viewer gate". The gate finds its round from the reports in `review/`. |
+| `state: stitched` | The movie is complete. Print the path of `<movie-dir>`, and the line `viewer: <n> of <m> understood` of the last `review/viewer-round-<k>.md`. Stop. |
+
+A resume never builds a `built` chapter again, unless "Stitch" or "The viewer gate" sends it back.
 
 ## 11. Output directory
 
-Task 2 writes this section.
+The directory is `~/karpathy/out/YYYY-MM-DD-HHMMSS-movie-<slug>/`. A movie commits nothing.
+
+| Path | Holds |
+|---|---|
+| `movie.json` | The plan and the state, which you write. The one source of truth for a resume. |
+| `chapters/<id>/` | One chapter: a complete film output directory, as `rungs/video.md` "Output directory" lists it. Its chapter subagent writes it. |
+| `chapters/<id>/review/` | The stills of the chapter. Under `--review`, also the reports of its chapter gate. |
+| `chapters/<id>.stale-<n>/` | An earlier build of the chapter `<id>`, moved aside before a new build. `status` prints a `stray: chapters/<name>` line for it. |
+| `bridges/<n>/` | The bridge after chapter `<n>`: a clip output directory. `movie.py bridges` writes its `script.json` and `scene/`, and `render.sh` writes the rest. |
+| `build/` | The work files of `stitch`: `concat.txt`, the list of the parts for ffmpeg; `video.part.mp4`, the joined file before its check; and `hub-sections.html`, the chapter sections of the hub. |
+| `video.mp4` | The movie: the artifact. |
+| `chapters.json` | The `id`, the `title` and the `start` of each chapter: the second at which it starts in `video.mp4`. |
+| `index.html` | The transcript hub, which `stitch` writes. It has the meta `<meta name="explain-rung" content="movie">`. |
+| `review/viewer-transcript.html` | The viewer page: the title, the question texts and the transcript of each chapter, without the `ask` and `answer` scenes, the answers and the cites. |
+| `review/viewer-stills/<k>-<id>.png` | The still of chapter `<id>`, chapter number `<k>` of the film: the last frame of its last body scene. |
+| `review/viewer-round-<k>.md` | The report of round `<k>` of the viewer gate, with your `## Author` block at its end. |
+| `review/viewer-round-<k>.stale-<n>.md` | The report of a round that stopped before its `## Author` block, moved aside. |
 
 ## 12. Costs
 
-Task 2 writes this section.
+The live run of the movie rung measures these costs. Until then, this section gives no number:
+
+- Lines of scene code for each second of a chapter: not yet measured.
+- Render runs for each chapter: not yet measured.
+- Tokens and rounds of the viewer gate: not yet measured.
+- Wall time of one movie: not yet measured.
+- The budget of narration words that this file recommends for each chapter: not yet measured.
+
+A chapter is a film. For the cost of the first render of a chapter and of its workspace, see
+`rungs/video.md` "First-run costs".
