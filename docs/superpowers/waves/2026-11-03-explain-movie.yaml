@@ -37,6 +37,7 @@ waves:
       - skills/explain/video/src/bridge/ (new), skills/explain/templates/movie-bridge-script.json (new)
       - skills/explain/templates/movie.html (new)
       - skills/explain/scripts/verify.sh (the rung value and the media check only)
+      - skills/explain/scripts/bpmn.py and skills/explain/tests/test_bpmn_check.py (`movie` in the rung list; verify.sh runs `bpmn.py check --rung movie`)
       - skills/explain/tests/test_movie.py (new), skills/explain/tests/test_movie_e2e.py (new), skills/explain/tests/fixtures/movie/ (new), skills/explain/tests/test_verify.py (movie cases)
     risk: high
     plan: docs/superpowers/plans/2026-11-03-explain-movie-w1.md

@@ -42,7 +42,7 @@ Success means:
 | D4 | Who writes the chapters | The author plans the movie and writes `movie.json`. One fresh subagent builds each chapter from a brief, in the background, as the course rung does for lessons. The brief carries the questions the chapter answers and the picture it starts from. Rejected: one author for all chapters (eight chapters of scene code do not fit one context). |
 | D5 | Continuity between chapters | Each chapter is its own picture, so no object persists across the cut. The brief gives the subagent the end picture of the previous chapter in words, and the chapter opens on that arrangement. A bridge card between chapters shows the question just answered and the next question. This is the accepted loss of D2. |
 | D6 | Stitching | The ffmpeg of the Remotion CLI (`remotion ffmpeg`, as `check_render.sh` already runs it), with the concat demuxer and stream copy. No new dependency. Checked at the base: the binary has the `concat` demuxer and the `mp4` muxer, and not the `ffmetadata` demuxer, so the mp4 carries no chapter markers. Chapter navigation lives in the transcript hub (4.6), from `chapters.json`. Every render encodes AAC at 48 kHz, so stream copy holds across engines; `stitch` still probes each part and refuses a mismatch. |
-| D7 | Limits | A chapter keeps the film limits (3 to 30 scenes, 150 s). A bridge keeps the clip limits, so it has 3 scenes. A movie has 4 to 10 chapters and runs 4 to 15 minutes: each chapter carries a `seconds` target, `check` sums the targets against 240 to 900 s at plan time, and `stitch` checks the real total. The limits live in `movie.py`, not in `formats.json`. |
+| D7 | Limits | A chapter keeps the film limits (3 to 30 scenes, 150 s). A bridge keeps the clip limits, so it has 3 scenes. A movie has 4 to 10 chapters and runs 4 to 15 minutes: each chapter carries a `seconds` target, `check` sums the targets with the bridges budgeted at plan time (the sum plus 8 s per bridge must reach 240 s, the sum plus 15 s per bridge must stay within 900 s; amended at wave 1 close, since the bridges are part of the film the viewer watches), and `stitch` checks the real total. The limits live in `movie.py`, not in `formats.json`. |
 | D8 | Subjects | `topic`, `file` and `directory`, by the resolution rules of `SKILL.md`. `conversation` is refused. A topic that is not about repo code uses model knowledge and the web, as the video rung does. |
 | D9 | Output | A directory `out/YYYY-MM-DD-HHMMSS-movie-<slug>/`. `video.mp4` is the artifact. `index.html` is the transcript hub. |
 | D10 | What the cold viewer sees | The transcript without the `ask` and `answer` scenes of every chapter, plus one still per chapter: the `-end` still of the last body scene. The viewer must derive each answer from the body. Rejected: all stills (a subagent stalls on many images; `lesson.md` caps a reviewer at five); the full transcript (the gate could only fail on a paraphrase). |
@@ -156,11 +156,16 @@ whether the body made those answers visible.
 
 `bridges/<n>/` for `n` from 1 to the number of chapters minus 1 is a generated `clip` film.
 `movie.py bridges` writes its `script.json` and `scene/` from `movie.json` and the bridge
-template. It is 8 to 15 s and has three scenes, the minimum of a clip: `done` names the question
-just answered as a label and draws a green check, `sofar` speaks its answer in one sentence, and
-`next` brings the next chapter's question in as the yellow label. A bridge has no cites. It is a
-clip because the clip limits (60 s, text floor 19 px) fit a card better than the film limits.
-For `ru`, the bridge script carries the `pronounce` map of `movie.json`.
+template. It is 8 to 15 s and has three scenes, the minimum of a clip: `done` names the viewer question
+just answered (the first entry of the chapter's `answers`) as a label and draws a green check,
+`sofar` speaks that question's answer in one sentence, and `next` brings the next chapter's
+question in as the yellow label. A bridge has no cites, so its script's subject is
+`{"text": <the movie's subject text>, "kind": "topic"}` whatever the movie's subject kind (the
+frozen timeline check allows a cite-less scene only under `topic`; amended at wave 1 close). It
+is a clip because the clip limits (60 s, text floor 19 px) fit a card better than the film
+limits. For `ru`, the bridge script carries the `pronounce` map of `movie.json`. Each question
+text, each answer and each chapter question is at most 20 words (the STE-80 sentence cap), which
+keeps a bridge inside its 8 to 15 s.
 
 The generated scene is TypeScript rendered through the same `scene` stage, so `tsc` and the
 guard check the bridge text as they check any film.
@@ -174,7 +179,7 @@ second in the movie. The mp4 has no chapter markers (D6).
 
 ### 4.6 `index.html`
 
-The transcript hub, from `templates/movie.html`. It holds a `<video>` of `video.mp4`, a
+The transcript hub, from `templates/movie.html`, written by `stitch` (never filled by hand). It holds a `<video>` of `video.mp4`, a
 chapter list from `chapters.json` whose entries seek the video to the chapter start, the title,
 the question, the viewer questions with their answers and cites, then one `<section>` per
 chapter with the chapter's transcript body (the narration and the `div.cites` block of each
@@ -224,7 +229,10 @@ lines of section 5, step 8, then the handoff.
    its chapter back to step 5 with an amended brief, then steps 6 to 8 run again. Two rounds at
    most; after the second, a question still missed goes to `not_covered` as
    `viewer missed: <question>`.
-9. Write `index.html` from the template. Run `verify.sh`. Set `state` to `stitched`.
+9. `stitch` already wrote `index.html` at step 7. If `movie.json` changed after the gate (a
+   `viewer missed` entry in `not_covered`), run `movie.py stitch <dir>` again (stream copy, a
+   few seconds) so the hub carries it; never fill `movie.html` by hand. Run `verify.sh`. Set
+   `state` to `stitched`.
 10. Handoff: print the path, run `open video.mp4` when run for the user directly, print the
     narrator, and print `viewer: <n> of <m> understood`.
 
@@ -242,7 +250,7 @@ exits 0 on all ok, 1 on a FAIL, 2 on usage or unreadable JSON. It follows the sh
 
 | Command | Does |
 |---|---|
-| `check` | Validates `movie.json` by 4.2, the `seconds` sum included. When a chapter directory exists, also validates its `script.json` by 4.3 (`ask` first, `answer` last, title match, format `film`). Prints `plan: ok (<q> questions, <c> chapters, <s> s target)`. |
+| `check` | Validates `movie.json` by 4.2, the `seconds` sum with the bridges budgeted (D7) and the 20-word caps of 4.4 included. When a chapter directory exists, also validates its `script.json` by 4.3 (`ask` first, `answer` last, title match, format `film`, the movie's root and lang). Prints `plan: ok (<q> questions, <c> chapters, <lo>..<hi> s with bridges)`. The module docstring of `movie.py` lists every printed line and is the source the drift test pins. |
 | `bridges` | Writes `bridges/<n>/script.json` and `bridges/<n>/scene/` from the template for each gap. Prints `bridges: ok (<n>)`. Idempotent. |
 | `stitch` | Refuses unless every chapter is `built` and every chapter and bridge has `video.mp4`. Probes each part: codecs, frame size, frame rate and audio sample rate must agree, else `parts: FAIL <part> <what> differs`. Writes `build/concat.txt`, runs the Remotion ffmpeg with the concat demuxer and stream copy, probes the result, writes `chapters.json`, `review/viewer-transcript.html` and the chapter transcript sections for `index.html`. Prints `parts: ok (<n>)`, `concat: ok (<s> s)`, `container: ok (<s> s)` and `length: ok (<s> s)` or `length: FAIL <s> s (min 240, max 900)`. |
 | `status` | Prints one line per chapter with its status, and the state. For the resume. |
