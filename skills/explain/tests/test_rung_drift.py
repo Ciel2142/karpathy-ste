@@ -52,7 +52,15 @@ HtmlLangCase pins the step of "Fill the template" in page.md and sheet.md that s
 
 OnboardRungCase ties rungs/onboard.md to scripts/onboard.py: the six level-2 titles (ONBOARD_TITLES), the kinds
 table to the keys of PATTERNS, the map skeleton to TITLES, the prefix table to the twelve failure prefixes of
-`check`, the section plan of spec 9.1, the page-rung overrides and the output directory; the file lints clean."""
+`check`, the section plan of spec 9.1, the page-rung overrides and the output directory; the file lints clean.
+
+MovieRungCase ties rungs/movie.md to scripts/movie.py: the twelve level-2 titles (MOVIE_TITLES), each line that the
+rung quotes and that starts with a line name of movie.py (MOVIE_ORDER) to the statement that prints it
+(MOVIE_PRINTED; its evidence is verbatim text of one code line of movie.py, and the printf text of that statement
+matches the sample), the prefix table of "Check and stop" to the seven failure prefixes of `check`
+(MOVIE_PREFIXES), and the command, the rung line, the build cap and the result lines of the chapter subagents.
+The result lines are printed by the rung, not by movie.py (MOVIE_RUNG_LINES), and a prefix is the head of a
+failure line, not a line: neither has an entry. The file lints clean."""
 
 import ast
 import json
@@ -321,36 +329,40 @@ def stage_of(line):
     return STAGE_START.match(line).group(1)
 
 
-def span_lines(paragraph):
-    """The quoted lines of the inline code spans of `paragraph` (lines outside fenced blocks), in order. A
-    line break in a span reads as one space, and one space at each end goes when both ends have one."""
+def span_lines(paragraph, start=STAGE_START):
+    """The quoted lines of the inline code spans of `paragraph` (lines outside fenced blocks), in order: the
+    spans that `start` matches. A line break in a span reads as one space, and one space at each end goes
+    when both ends have one."""
     found = []
     for match in SPAN.finditer("\n".join(paragraph)):
         content = re.sub(r"\n[ \t]*", " ", match.group(2))
         if len(content) > 2 and content.startswith(" ") and content.endswith(" ") and content.strip():
             content = content[1:-1]
-        if STAGE_START.match(content):
+        if start.match(content):
             found.append(content)
     return found
 
 
-def quoted_lines(text):
-    """The quoted lines of `text` (module docstring), in the order of the text, repeats included."""
+def quoted_lines(text, order=FILM_ORDER):
+    """The quoted lines of `text` (module docstring), in the order of the text, repeats included. A quoted
+    line starts with one of the names of `order` (the stage names of a film run by default) followed
+    directly by ":" or " ("."""
+    start = re.compile(r"(%s)(?::| \()" % "|".join(order))
     found, paragraph, fenced = [], [], False
     for line in text.split("\n"):
         if FENCE.match(line):
-            found += span_lines(paragraph)
+            found += span_lines(paragraph, start)
             paragraph = []
             fenced = not fenced
         elif fenced:
-            if STAGE_START.match(line.strip()):
+            if start.match(line.strip()):
                 found.append(line.strip())
         elif line.strip() == "":
-            found += span_lines(paragraph)
+            found += span_lines(paragraph, start)
             paragraph = []
         else:
             paragraph.append(line)
-    return found + span_lines(paragraph)
+    return found + span_lines(paragraph, start)
 
 
 def line_pattern(quoted):
@@ -1218,6 +1230,133 @@ class OnboardRungCase(unittest.TestCase):
     def test_onboard_md_lints_clean(self):
         """Red when a sentence of onboard.md breaks the STE profile."""
         run = lint(ONBOARD_MD)
+        self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
+
+
+MOVIE_MD = EXPLAIN / "rungs" / "movie.md"
+MOVIE_PY = "scripts/movie.py"
+MOVIE_TITLES = ("When a movie", "Write the viewer questions", "Plan the chapters", "Check and stop", "Build the chapters",
+                "Bridges", "Stitch", "The viewer gate", "Verify and handoff", "Resume", "Output directory", "Costs")
+# The line names that movie.py prints (module docstring): a quoted line of movie.md starts with one of them
+# followed by ":" or " (".
+MOVIE_ORDER = ("plan", "bridges", "parts", "concat", "container", "transcript", "hub", "length", "chapter", "stray",
+               "state")
+# The failure prefixes of `movie.py check`, as its module docstring fixes them.
+MOVIE_PREFIXES = ("schema:", "id:", "question <id>:", "chapter <id>:", "cite <question-id>#<n>:", "prose:", "state:")
+# The result lines of a chapter subagent, which the rung prints as they come back: no code of movie.py prints
+# them, so they have no entry in MOVIE_PRINTED.
+MOVIE_RUNG_LINES = ("chapter: <id> built", "chapter: <id> failed <reason>")
+# One entry for each line that movie.md quotes. The sample is a line as `movie.py check` prints it for the
+# plan of tests/fixtures/movie (three questions, four chapters of 60 s, three bridges). The evidence is the
+# text of the statement that prints the line, up to the end of its string literal, on one code line.
+MOVIE_PRINTED: tuple[Printed, ...] = (
+    Printed("plan: ok (<q> questions, <c> chapters, <lo>..<hi> s with bridges)",
+            "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)",
+            ((MOVIE_PY, 'sys.stdout.write("plan: ok (%d questions, %d chapters, %d..%d s with bridges)\\n"'),)),
+    Printed("plan: <n> failures", "plan: 2 failures",
+            ((MOVIE_PY, 'sys.stdout.write("plan: %d failures\\n" % len(failures))'),)),
+)
+# The first string literal of an evidence: the printf text of the statement.
+PRINTF_TEXT = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def printf_pattern(evidence: str) -> re.Pattern:
+    """The pattern of the lines that the statement `evidence` prints, for fullmatch: its first string literal,
+    without a trailing `\\n`, with each `%s` or `%d` field as ".*" and every other character literal."""
+    found = PRINTF_TEXT.search(evidence)
+    if found is None:
+        raise AssertionError("no string literal in %r" % evidence)
+    text = found.group(1)
+    text = text[:-2] if text.endswith("\\n") else text
+    return re.compile(".*".join(re.escape(part) for part in re.split(r"%[sd]", text)))
+
+
+class MovieRungCase(unittest.TestCase):
+    """rungs/movie.md (spec 4.1, 4.2, 4.7, 5 and 7): when the rung applies, the viewer questions, the plan in
+    movie.json, its check and the stop, and the build of the chapters. The lines that the rung quotes from
+    scripts/movie.py are tied to the code that prints them. Each section is read as one line of words, because
+    the rung wraps its lines."""
+
+    def words(self, title):
+        return " ".join(section(read(MOVIE_MD), title).split())
+
+    def assert_phrases(self, title, phrases):
+        text = self.words(title)
+        for phrase in phrases:
+            with self.subTest(section=title, phrase=phrase):
+                self.assertIn(phrase, text)
+
+    # red: a level-2 section is gone, renamed or moved
+    def test_the_headings_of_movie_md(self):
+        text = read(MOVIE_MD)
+        self.assertEqual([title for level, title in headings(text) if level == 2], list(MOVIE_TITLES))
+
+    # red: movie.md quotes a line of movie.py with no entry, or an entry stays for a line that it no longer quotes
+    def test_every_quoted_line_has_one_entry(self):
+        quoted = set(quoted_lines(read(MOVIE_MD), MOVIE_ORDER)) - set(MOVIE_RUNG_LINES) - set(MOVIE_PREFIXES)
+        entries = [entry.quoted for entry in MOVIE_PRINTED]
+        self.assertTrue(entries, "MOVIE_PRINTED is empty")
+        self.assertEqual(sorted(quoted), sorted(set(entries)))
+        self.assertEqual(len(entries), len(set(entries)), "two entries share a quoted line")
+
+    # red: a quoted line reworded so that it no longer describes what movie.py prints
+    def test_each_quoted_line_matches_its_sample(self):
+        self.assertTrue(MOVIE_PRINTED, "MOVIE_PRINTED is empty")
+        for entry in MOVIE_PRINTED:
+            with self.subTest(quoted=entry.quoted):
+                self.assertIsNotNone(line_pattern(entry.quoted).fullmatch(entry.sample), entry.sample)
+
+    # red: movie.py rewords the statement, or the evidence is taken from its docstring or a comment
+    def test_each_evidence_is_code_of_movie_py(self):
+        self.assertTrue(MOVIE_PRINTED, "MOVIE_PRINTED is empty")
+        lines = code_lines(EXPLAIN / MOVIE_PY)
+        for entry in MOVIE_PRINTED:
+            for path, text in entry.evidence:
+                with self.subTest(quoted=entry.quoted, evidence=text):
+                    self.assertEqual(path, MOVIE_PY)
+                    self.assertTrue(any(text in line for line in lines), "not in a code line")
+
+    # red: an entry whose evidence is the statement of another line (plan: ok for plan: <n> failures)
+    def test_each_sample_holds_its_evidence(self):
+        self.assertTrue(MOVIE_PRINTED, "MOVIE_PRINTED is empty")
+        for entry in MOVIE_PRINTED:
+            for _, text in entry.evidence:
+                with self.subTest(quoted=entry.quoted, evidence=text):
+                    self.assertIsNotNone(printf_pattern(text).fullmatch(entry.sample), entry.sample)
+
+    # red: "When a movie" loses the command, the rung line, the topic kind, the refusal of a conversation
+    # with its offer of `video`, or the resume rule
+    def test_when_section_holds_the_command_the_rung_line_and_the_refusals(self):
+        self.assert_phrases("When a movie", (
+            "/explain <subject> --as movie [--review]",
+            "Rung: movie (forced) — <reason> — subject: <subject> (<kind>)",
+            "(topic)",
+            "Say that the movie rung takes no conversation subject. Stop. Offer `video`.",
+            "If the subject is one directory that holds `movie.json`, the run is a resume"))
+
+    # red: the prefix table of "Check and stop" drops a prefix of `check`, or the section loses a plan: line
+    def test_check_and_stop_names_every_prefix(self):
+        lines = section(read(MOVIE_MD), "Check and stop").split("\n")
+        for prefix in MOVIE_PREFIXES:
+            with self.subTest(prefix=prefix):
+                self.assertTrue(any(line.startswith("| `%s` |" % prefix) for line in lines), prefix)
+        self.assert_phrases("Check and stop", (
+            "`plan: ok (<q> questions, <c> chapters, <lo>..<hi> s with bridges)`", "`plan: <n> failures`",
+            "Build nothing before the user approves the plan."))
+
+    # red: "Build the chapters" loses the one workspace run, the cap of 3, a result line, or the rule for a
+    # chapter subagent that does not return (a weak model then waits forever or builds every chapter again)
+    def test_build_names_the_workspace_once_and_the_cap(self):
+        self.assert_phrases("Build the chapters", (
+            "video-workspace.sh --engine <engine>", "set up the workspace once yourself",
+            "At most 3 chapter subagents", "`chapter: <id> built`", "`chapter: <id> failed <reason>`",
+            "A chapter subagent that does not return stops the run.",
+            "Print the id of the chapter and the path of `<movie-dir>`.",
+            "Never build a `built` chapter again"))
+
+    # red: a sentence of movie.md breaks the STE profile (a contraction such as "don't")
+    def test_movie_md_lints_clean(self):
+        run = lint(MOVIE_MD)
         self.assertEqual((run.returncode, run.stdout), (0, "0 errors, 0 warnings\n"), run.stderr)
 
 
