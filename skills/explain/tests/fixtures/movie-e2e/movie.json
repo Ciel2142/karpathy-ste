@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "title": "How explain checks an artifact",
+  "question": "What must an artifact pass before handoff?",
+  "lang": "en",
+  "pronounce": {},
+  "review": false,
+  "subject": {"text": "the checks of explain", "kind": "topic"},
+  "provenance": {
+    "root": ".",
+    "commit": "none",
+    "dirty": "no",
+    "date": "2026-11-03",
+    "source": "skills/explain/scripts/verify.sh",
+    "not_covered": "none"
+  },
+  "state": "building",
+  "questions": [
+    {
+      "id": "q-1",
+      "text": "Which checks must an artifact pass?",
+      "answer": "It must pass four checks before handoff.",
+      "cites": []
+    },
+    {
+      "id": "q-2",
+      "text": "In which order do the checks run?",
+      "answer": "Self-contained comes first, then render, citations and prose.",
+      "cites": []
+    },
+    {
+      "id": "q-3",
+      "text": "What happens after a check fails?",
+      "answer": "The other checks run too.",
+      "cites": []
+    }
+  ],
+  "chapters": [
+    {
+      "id": "checks",
+      "title": "The four checks",
+      "question": "Which checks must an artifact pass?",
+      "answers": ["q-1", "q-2"],
+      "seconds": 30,
+      "picture": "The prompt types a subject. A line of four checks leads to the handoff.",
+      "ends_with": "The artifact card stands at the start of the line.",
+      "status": "built",
+      "reason": ""
+    },
+    {
+      "id": "failure",
+      "title": "When a check fails",
+      "question": "What happens after a check fails?",
+      "answers": ["q-3"],
+      "seconds": 30,
+      "picture": "The same line of checks. The card moves along it.",
+      "ends_with": "The card passes the handoff.",
+      "status": "built",
+      "reason": ""
+    }
+  ]
+}
