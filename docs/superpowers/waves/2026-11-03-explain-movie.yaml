@@ -30,7 +30,7 @@ waves:
       `stitch` writes `video.mp4` whose probed length is the sum of the parts within 0.5 s, `chapters.json`
       and `review/viewer-transcript.html` without the `ask` and `answer` scenes, and the hub passes
       `verify.sh`; the frozen pipeline files are unchanged against the merge base with `main`.
-    status: pending
+    status: done
     depends_on: []
     owns:
       - skills/explain/scripts/movie.py (new)
