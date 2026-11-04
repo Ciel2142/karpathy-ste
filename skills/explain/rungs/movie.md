@@ -29,10 +29,6 @@ one context.
 In this file, `movie.py <command>` is short for `python3 <skill-dir>/scripts/movie.py <command>`.
 Each command takes `<movie-dir>`, the output directory of the movie ("Plan the chapters" makes it).
 
-No command of `movie.py` writes `movie.json`. You write it. Change it with the Edit tool, one field
-at a time. After each edit, run `movie.py check <movie-dir>`. Thus each failure line comes from one
-edit.
-
 Start each subagent in the background. In Claude Code, use the Agent tool. In OpenCode, use the
 `task` tool with the `general` agent.
 
@@ -59,6 +55,25 @@ Rung: movie (forced) â€” --as movie; a hash map lookup is a sequence of steps â€
 After the rung line and the `review` line, print one result line for each chapter as its subagent
 returns. Then print the lines of `movie.py stitch`, then the lines of the viewer gate, and then the
 handoff.
+
+### Edit the plan
+
+No command of `movie.py` writes `movie.json`. You write it. Change it with the Edit tool, one field
+at a time. After each edit, run `movie.py check <movie-dir>`. Thus each failure line comes from one
+edit.
+
+Each text that you put in `movie.json` is a JSON string between two `"`. Escape each text before
+you put it there:
+
+1. Write each `\` of the text as `\\`.
+2. Then write each `"` of the text as `\"`.
+
+A `reason` or a `disputed:` line can quote a script line. A `"` without its `\` ends the string
+early, and `movie.json` is then not valid JSON.
+
+If `check` exits with 2 after an edit, that edit broke the JSON. `check` then prints no failure
+line. Undo the edit. Make it again, with the text escaped. After the user approves the plan, never
+write the whole file again: it holds the `status` and the `reason` of each chapter.
 
 ## 2. Write the viewer questions
 
@@ -209,7 +224,8 @@ python3 <skill-dir>/scripts/movie.py check <movie-dir>
    `plan: ok (<q> questions, <c> chapters, <lo>..<hi> s with bridges)` or `plan: <n> failures`.
    `<lo>` is the length of the movie with each bridge at 8 s, and `<hi>` with each bridge at 15 s.
 3. If `check` exits with 2, it cannot read `movie.json`: the file does not exist, or it is not
-   valid JSON. Write the file again.
+   valid JSON. After an edit, do as "Edit the plan" says. Before the first edit, write the file
+   again.
 4. Fix `movie.json` for each failure line. The table below tells where each fault is. Then run
    `check` again. Repeat until it exits with 0, or until the stop rule below applies.
 5. Print the plan as a list, in the form below. Then print the last line of `check`.
@@ -291,14 +307,15 @@ Thus keep a list of the chapters whose subagents run now. Do this loop:
 6. When a chapter subagent returns, read only the last line of its reply. It is
    `chapter: <id> built` or `chapter: <id> failed <reason>`. Print it.
 7. For `chapter: <id> built`, set `status` to `built` and `reason` to `""` in `movie.json`.
-8. For `chapter: <id> failed <reason>`, set `status` to `failed` and `reason` to `<reason>`. In
-   `reason`, write each `"` as `\"`, because `reason` is a JSON string.
+8. For `chapter: <id> failed <reason>`, set `status` to `failed` and `reason` to `<reason>`.
+   Escape `<reason>` as "Edit the plan" says.
 9. If the last line is not one of these two lines, set `status` to `failed` and `reason` to
    `no result line`.
 10. If the reply holds `disputed:` lines before its last line, write them into `movie.json`, as "The
     chapter gate" below says.
-11. Run `movie.py check <movie-dir>` after each edit. Fix each failure line about the field that you
-    changed.
+11. Run `movie.py check <movie-dir>` after each edit. If it exits with 2, the edit broke the JSON.
+    Undo the edit. Make it again, with the text escaped ("Edit the plan"). Never write the whole file
+    again in the build. Fix each failure line about the field that you changed.
 12. Go to step 1. Stop the loop when no chapter is `pending` and no chapter subagent runs.
 
 Never read the files of a chapter directory. The chapter subagent checks its own render and its
@@ -348,11 +365,14 @@ last line, the reply holds one `disputed: <finding>` line for each such finding.
 
 Write each `disputed:` line into `provenance.not_covered`:
 
-1. If `not_covered` is `none`, replace `none` with the line. Else add the line at the end, after one
+1. Escape the line as "Edit the plan" says. A finding often quotes the narration.
+2. If `not_covered` is `none`, replace `none` with the line. Else add the line at the end, after one
    space.
-2. End the line with a period.
-3. Run `movie.py check <movie-dir>`. For a `prose:` line about `provenance.not_covered`, write the
-   finding again under the STE profile. Keep the `disputed:` start.
+3. End the line with a period.
+4. Run `movie.py check <movie-dir>`. If it exits with 2, the edit broke the JSON. Undo the edit. Do
+   steps 1 to 3 again. Never write the whole file again in the build.
+5. For a `prose:` line about `provenance.not_covered`, write the finding again under the STE profile.
+   Keep the `disputed:` start.
 
 ## 6. Bridges
 
