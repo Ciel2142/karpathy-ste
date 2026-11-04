@@ -18,12 +18,17 @@ You review. You change no file except your report. Write your report to {report}
 
 ## Inputs
 
+Read only the files listed below, the files under the root and the pages of the URL cites. The directory of the
+movie is the directory that holds `chapters/{chapter_id}/`. Under the directory of the movie, and under its
+parent, read no file except the files listed below and the report that Round 2 names. Thus do not read
+`movie.json`, the scene code of the chapter, another chapter, a bridge or an earlier run. This holds when those
+directories are under the root.
+
 The files, one absolute path per line:
 
 {files}
 
-It is the `script.json` of the chapter. Its path ends in `chapters/{chapter_id}/script.json`. The directory that
-holds `chapters/` is the directory of the movie.
+It is the `script.json` of the chapter. Its path ends in `chapters/{chapter_id}/script.json`.
 
 These are the viewer questions that the chapter answers, with their answers and their cites, as JSON:
 
@@ -39,11 +44,6 @@ This is the question of the chapter, which its `ask` scene poses:
 The root is `{root}`. Each cite of `script.json` and of the questions has a `path` that is relative to the root, a
 `line` and a `snippet`. Read the cited file under the root, not a copy. A cite whose `path` starts with `http://`
 or `https://` has no `line`. Read that page, and find the snippet in it.
-
-Read only the files above, the files under the root and the pages of the URL cites. Under the directory of the
-movie, read no file except the files above and the report that Round 2 names. Thus do not read `movie.json`, the
-scene code of the chapter, another chapter or a bridge. This holds when the directory of the movie is under the
-root.
 
 ## Hunt
 

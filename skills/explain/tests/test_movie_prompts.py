@@ -131,6 +131,11 @@ REVIEW_TEXTS = (
     "This is the question of the chapter, which its `ask` scene poses: {question}",
     "The `ask` scene poses the question of the chapter above.",
     "never a different question",
+    # fix round 2 (task 5 review): the closure of the model, also on the parent of the movie directory; the runs
+    # live in ~/karpathy/out/, under the root, and the gate reports of an earlier run would warm the reviewer (the
+    # model's "its parent directory" is "its parent" here: the model's sentence has 26 words, over the lint's 25)
+    "Under the directory of the movie, and under its parent, read no file except the files listed below and the "
+    "report that Round 2 names.",
     "verdict: ok",
     "verdict: fix",
     "resolved",
@@ -192,8 +197,9 @@ class MoviePromptCase(unittest.TestCase):
         self.assertEqual([want for want in VIEWER_TEXTS if squash(want) not in text], [])
 
     # red: the `answer` scene allowed to say something else than the answers, the check of the `ask` scene left
-    # out or made against the viewer questions instead of {question}, the rulings or the verification read of
-    # round 2 left out, or the report without its last line
+    # out or made against the viewer questions instead of {question}, the parent of the movie directory left open
+    # (then the gate reports of an earlier run are in reach), the rulings or the verification read of round 2 left
+    # out, or the report without its last line
     def test_review_chapter_checks_the_answer_scene(self):
         text = squash(prompt(REVIEW))
         self.assertEqual([want for want in REVIEW_TEXTS if squash(want) not in text], [])

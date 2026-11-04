@@ -422,10 +422,10 @@ The reports are `chapters/<id>/gate/gate-round-<k>.md`, with `<k>` from 1 to 4. 
 `chapters/<id>/review/`, because `render.sh` empties that directory on each render.
 
 The prompt tells the reviewer to read only the script, the files under the root and the pages of
-its URL cites. It closes the directory of the movie, except the script and the report of
-`{previous}`. Thus `movie.json`, the other chapters and the reports of the viewer are outside what a
-reviewer reads. This is an instruction, not a sandbox. A reviewer can read any file, so write no
-hint of a fault in a file that it reads.
+its URL cites. It closes the directory of the movie and its parent directory, except the script
+and the report of `{previous}`. Thus `movie.json`, the other chapters, the reports of the viewer and
+the directories of earlier runs are outside what a reviewer reads. This is an instruction, not a
+sandbox. A reviewer can read any file, so write no hint of a fault in a file that it reads.
 
 The chapter subagent fills the prompt. `review-chapter.md` is a template. Read it. Replace each name
 in braces with the text of the table below. A JSON text is plain text too: put it in the prompt as it is. The chapter prompt in
