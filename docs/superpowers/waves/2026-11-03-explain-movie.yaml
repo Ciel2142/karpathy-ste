@@ -60,7 +60,7 @@ waves:
       `movie.py` line it quotes, and the `--as` lists of `SKILL.md`, `README.md` and the argument-hint;
       `test_movie_prompts.py` ties each `{name}` of the three prompts to a fill row; `rungs/movie.md` and
       the prompts lint clean under `ste_lint.py`; the whole explain suite passes.
-    status: pending
+    status: done
     depends_on: [movie-tooling]
     owns:
       - skills/explain/rungs/movie.md (new), skills/explain/movie/ (new)
@@ -84,7 +84,7 @@ waves:
     status: pending
     depends_on: [movie-procedure]
     owns:
-      - skills/explain/rungs/movie.md (the costs section)
+      - skills/explain/rungs/movie.md (the costs section, and any step the live run proves wrong), skills/explain/movie/ (the prompts, likewise), with their tests
     risk: low
     plan: null
     acceptance:

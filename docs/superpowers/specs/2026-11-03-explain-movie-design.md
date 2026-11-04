@@ -212,8 +212,13 @@ lines of section 5, step 8, then the handoff.
    `render.sh` until all eleven stage lines are `ok`, reads its own stills by section 6 of
    `video.md`, and returns one line: `chapter: <id> built` or `chapter: <id> failed <reason>`.
    Under `--review` the subagent also runs `movie/review-chapter.md` as its gate before the
-   render, with the rounds and the `## Author` block of `lesson.md` section 5, and the open
-   finding rule of D12. It writes the reports to `chapters/<id>/review/`. Record each result
+   render, with the rounds and the `## Author` block of `lesson.md` section 6, and the open
+   finding rule of D12. It writes the reports to `chapters/<id>/gate/` (not `review/`, which
+   `render.sh` empties on every render; amended at wave 2). A narration that changes after the
+   gate's last read (the length loop, a still fix) is not reviewed again; the chapter reply
+   discloses it as `disputed: <id>: narration changed after the gate in <scenes>`, and every
+   `disputed:` line carries its chapter id, so a rebuild can drop the chapter's stale entries
+   from `not_covered` before it starts (amended at wave 2). Record each result
    in `movie.json`.
 6. Run `movie.py bridges <dir>` and then `render.sh` on each bridge directory.
 7. Run `movie.py stitch <dir>`. It refuses while any chapter is not `built`.
@@ -262,7 +267,9 @@ The ffmpeg binary is found as `check_render.sh` finds it: the Remotion CLI in
 
 `/explain <movie-dir> --as movie` on a directory holding `movie.json` resumes. `movie.py status`
 tells the author what remains: `pending` and `failed` chapters go to step 5, a complete set goes
-to step 6. The author never rebuilds a `built` chapter unless the viewer gate names it.
+to step 6. The author never rebuilds a `built` chapter unless the viewer gate names it. After a
+run that stopped between round 1's `## Author` block and the rebuilds, a chapter a `missed:` line
+names is rebuilt only when its `video.mp4` is older than that round's report (amended at wave 2).
 
 ## 8. Tests
 
@@ -271,7 +278,7 @@ to step 6. The author never rebuilds a `built` chapter unless the viewer gate na
   sum out of range; a duplicate id), `bridges` output shape and its `pronounce` copy for `ru`,
   `stitch` refusal when a chapter is not built, the `chapters.json` and the viewer transcript
   for a three-chapter fixture. The concat run itself is in the gated E2E.
-- `test_movie_prompts.py`: each `{name}` of the two prompt files has a fill in the rung's table,
+- `test_movie_prompts.py`: each `{name}` of the three prompt files has a fill in the rung's table,
   as `test_course_prompts.py` does.
 - `test_rung_drift.py`: a `MovieRungCase` that pins the rung's level-2 titles, the `movie.py`
   lines it quotes to the code that prints them, and the `--as` list of `SKILL.md`, `README.md`
