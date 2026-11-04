@@ -438,7 +438,9 @@ class StitchCase(MovieCase):
         code, out, err = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(out.splitlines(), ["parts: ok (7)", "concat: ok (270.0 s)",
-                                            "container: ok (270.0 s)", "length: ok (270.0 s)"])
+                                            "container: ok (270.0 s)",
+                                            "transcript: ok (4 chapters)",
+                                            "length: ok (270.0 s)"])
         chapters = json.loads(Path(self.dir, "chapters.json").read_text(encoding="utf-8"))
         self.assertEqual(chapters, [
             {"id": "members", "title": "The members", "start": 0.0},
@@ -501,6 +503,75 @@ class StitchCase(MovieCase):
         path = os.path.join(empty.name, "app", "node_modules", ".bin", "remotion")
         with mock.patch.dict(os.environ, {"EXPLAIN_VIDEO_WORKSPACE": empty.name}):
             self.assertEqual(run_cli("stitch", self.dir), (2, "", "no Remotion CLI at %s\n" % path))
+
+    # the viewer transcript and the hub sections (spec 4.5)
+
+    def sections(self, ident="members"):
+        return movie.chapter_sections(self.dir, self.chapter(ident))
+
+    def test_chapter_sections_keys_are_the_scene_ids(self):
+        sections = self.sections()
+        self.assertEqual(list(sections), ["ask", "body", "answer"])
+        self.assertIn('class="cites"', sections["body"])
+        self.assertNotIn("<h2>", sections["body"])
+
+    def test_hub_section_keeps_every_scene(self):
+        out = movie.hub_section(self.chapter("members"), self.sections())
+        self.assertIn('<section id="ch-members"><h2>The members</h2>', out)
+        for text in ("Who is in a group?", "Three consumers share six partitions.",
+                     "Each consumer owns two partitions."):
+            self.assertIn("<p>%s</p>" % text, out)
+        self.assertIn('class="cites"', out)
+        self.assertNotIn("<h2>ask</h2>", out)
+
+    def test_viewer_section_drops_ask_and_answer(self):
+        out = movie.viewer_section(self.chapter("members"), self.sections())
+        self.assertIn("Three consumers share six partitions.", out)
+        self.assertNotIn("Who is in a group?", out)
+        self.assertNotIn("Each consumer owns two partitions.", out)
+        self.assertNotIn('class="cites"', out)
+        self.assertNotIn("notes.md", out)
+
+    def test_viewer_section_keeps_inline_code(self):
+        sections = {"ask": "<p>q</p>", "answer": "<p>a</p>", "body": "<p>Call <code>poll()</code>.</p>"}
+        out = movie.viewer_section(self.chapter("members"), sections)
+        self.assertIn("<code>poll()</code>", out)
+
+    def test_viewer_transcript_fails_without_an_answer_section(self):
+        self.build_all()
+        path = Path(self.dir, "chapters", "members", "index.html")
+        text = path.read_text(encoding="utf-8")
+        path.write_text(re.sub(r'<section id="answer">.*?</section>', "", text, flags=re.S),
+                        encoding="utf-8")
+        code, out, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1],
+                         "transcript: FAIL chapter members: transcript has no section answer")
+
+    def test_viewer_transcript_fails_without_a_transcript(self):
+        self.build_all()
+        os.remove(os.path.join(self.dir, "chapters", "split", "index.html"))
+        code, out, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "transcript: FAIL chapter split: no transcript")
+
+    def test_viewer_transcript_lists_questions_without_answers(self):
+        self.build_all()
+        code, _, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 0)
+        page = Path(self.dir, "review", "viewer-transcript.html").read_text(encoding="utf-8")
+        self.assertTrue(page.startswith("<!doctype html>"))
+        self.assertIn('<html lang="en">', page)
+        self.assertIn("<h1>How a consumer group rebalances</h1>", page)
+        for question in self.movie["questions"]:
+            self.assertIn("<li>%s</li>" % question["text"], page)
+            self.assertNotIn(question["answer"], page)
+        self.assertNotIn('class="cites"', page)
+        self.assertNotIn("notes.md", page)
+        self.assertIn('<section id="ch-pause">', page)
+        hub = Path(self.dir, "build", "hub-sections.html").read_text(encoding="utf-8")
+        self.assertEqual(hub.count("<section id=\"ch-"), 4)
+        self.assertIn('class="cites"', hub)
 
 
 class SaveCase(MovieCase):

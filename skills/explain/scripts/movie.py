@@ -40,7 +40,15 @@ codec, width, height, frame rate, audio rate. `<part>` is the path under `<dir>`
 `build/video.part.mp4`; its seconds are the sum of the parts. `container` probes that file:
 one video and one audio stream, a duration within 0.5 s of the sum; then it replaces
 `video.mp4` with it and writes `chapters.json`, so a stitch that fails earlier leaves the old
-`video.mp4`. `length` is last and only sets the exit code, on the container's duration.
+`video.mp4`. `transcript` follows `container`: it reads each chapter's `chapters/<id>/index.html`
+(`transcript: ok (<n> chapters)` | `FAIL chapter <id>: no transcript` | `FAIL chapter <id>:
+transcript has no section <ask|answer>`) and writes `build/hub-sections.html` (a section per
+chapter, with narration and cites) and `review/viewer-transcript.html` (the title, the question
+texts, a section per chapter without `ask`, `answer` and cites). The transcript markup is read
+with a section regex over the text between `<main>` and `</main>`, not an HTML parser: the
+markup is the one `video/transcript.py` writes (a `<section id>` holding `<h2>`, `<p>` and an
+optional `div.cites`, none of them nested), and the regex keeps inline tags as written.
+`length` is last and only sets the exit code, on the container's duration.
 Seconds print with one decimal. ffprobe (`-of json`) and ffmpeg are those of the Remotion CLI,
 `<ws>/app/node_modules/.bin/remotion` with `<ws>` from `$EXPLAIN_VIDEO_WORKSPACE`, else
 `~/karpathy/video-workspace`; they run with cwd `<ws>/app` and stdin from /dev/null, as
@@ -709,8 +717,72 @@ def _stage_container(job):
     return "(%.1f s)" % duration, {"duration": duration, "starts": starts}
 
 
+TRANSCRIPT_FILE = "index.html"
+VIEWER_FILE = os.path.join("review", "viewer-transcript.html")
+HUB_FILE = os.path.join(BUILD_DIR, "hub-sections.html")
+VIEWER_HIDDEN = ("ask", "answer")  # scenes the viewer must not see
+MAIN_TEXT = re.compile(r"<main>(.*?)</main>", re.S)
+SECTION_TEXT = re.compile(r'<section id="([^"]+)">\s*<h2>.*?</h2>\s*(.*?)\s*</section>', re.S)
+CITES_TEXT = re.compile(r'\s*<div class="cites"[^>]*>.*?</div>', re.S)
+
+
+def chapter_sections(movie_dir, chapter):
+    """{scene id: the section's inner HTML without its `<h2>`} of the chapter's transcript, in
+    document order. StitchError when it is missing or has no `ask` or `answer` section."""
+    ident = chapter.get("id")
+    path = os.path.join(movie_dir, "chapters", str(ident), TRANSCRIPT_FILE)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        raise StitchError("chapter %s: no transcript" % ident)
+    found = MAIN_TEXT.search(text)
+    sections = dict(SECTION_TEXT.findall(found.group(1) if found else ""))
+    for scene in VIEWER_HIDDEN:
+        if scene not in sections:
+            raise StitchError("chapter %s: transcript has no section %s" % (ident, scene))
+    return sections
+
+
+def _chapter_html(chapter, bodies):
+    return '<section id="ch-%s"><h2>%s</h2>\n%s\n</section>\n' % (
+        chapter.get("id"), html.escape(str(chapter.get("title"))), "\n".join(bodies))
+
+
+def hub_section(chapter, sections):
+    """The chapter's section for the hub: every scene's narration and cites, in order."""
+    return _chapter_html(chapter, list(sections.values()))
+
+
+def viewer_section(chapter, sections):
+    """The same without the `ask` and `answer` scenes and without any cites block."""
+    return _chapter_html(chapter, [CITES_TEXT.sub("", body) for scene, body in sections.items()
+                                   if scene not in VIEWER_HIDDEN])
+
+
+def _viewer_page(movie, chapter_html):
+    questions = "".join("<li>%s</li>\n" % html.escape(str(q.get("text")))
+                        for q in _objects(movie.get("questions")))
+    title = html.escape(str(movie.get("title")))
+    return ('<!doctype html>\n<html lang="%s">\n<head>\n<meta charset="utf-8">\n'
+            "<title>%s</title>\n</head>\n<body>\n<h1>%s</h1>\n<ul>\n%s</ul>\n%s"
+            "</body>\n</html>\n" % (html.escape(str(movie.get("lang"))), title, title,
+                                      questions, "".join(chapter_html)))
+
+
+def _stage_transcript(job):
+    chapters = _objects(job["movie"].get("chapters"))
+    all_sections = [(chapter, chapter_sections(job["dir"], chapter)) for chapter in chapters]
+    _write_atomic(os.path.join(job["dir"], HUB_FILE),
+                  "".join(hub_section(c, s) for c, s in all_sections))
+    os.makedirs(os.path.join(job["dir"], "review"), exist_ok=True)
+    _write_atomic(os.path.join(job["dir"], VIEWER_FILE), _viewer_page(
+        job["movie"], [viewer_section(c, s) for c, s in all_sections]))
+    return "(%d chapters)" % len(chapters), {}
+
+
 STITCH_STAGES = (("parts", _stage_parts), ("concat", _stage_concat),
-                 ("container", _stage_container))
+                 ("container", _stage_container), ("transcript", _stage_transcript))
 
 
 def _print_length(duration):
