@@ -80,7 +80,7 @@ new build writes again each entry that still holds. Do these steps:
 
 1. Find each entry of the chapter. An entry of chapter `<id>` starts with `disputed: <id>:`. It ends
    before the next `disputed:` or `viewer missed:` entry, or at the end of `not_covered`.
-2. Remove the entry and the space before it. Make one edit for each entry.
+2. Remove the entry and one space next to it. Make one edit for each entry.
 3. If no text remains, write `none`.
 4. Run `movie.py check <movie-dir>` after each edit.
 
@@ -238,7 +238,8 @@ Write the fields by these rules:
   - `dirty`: `dirty` or `no`.
   - `date`: the date as `YYYY-MM-DD`.
   - `source`: the files or the repo root that you read, `model knowledge`, or the URLs that you read.
-  - `not_covered`: `none`, or one sentence for each facet that the movie does not explain.
+  - `not_covered`: `none`, or one sentence for each facet that the movie does not explain. Write a
+    facet before the first `disputed:` entry, also on a later change of the plan.
 - `state`: `planned`.
 - `status` of each chapter: `pending`. `reason` of each chapter: an empty string, `""`.
 
@@ -313,7 +314,7 @@ Start this section only after the user approves the plan, or on a resume.
 
 1. Set `state` to `building` in `movie.json`. Run `movie.py check <movie-dir>`. The state
    `building` records the approval of the user. Thus a resume does not stop for the approval again.
-   On a resume with `state` `building`, skip this step.
+   If `state` is already `building`, skip this step: for example on a resume, or on a rebuild.
 2. Find the engine from `lang`, as in `rungs/video.md`: `kokoro` for `en`, and `silero` for `ru`.
 3. The chapters share one video workspace, and a first install must not run two times. Thus, before
    the first chapter subagent starts, set up the workspace once yourself. Run this command:
@@ -818,7 +819,8 @@ viewer: <n> of <m> understood
 line of the block.
 
 Never ask the viewer to try again in the same round. A second try on the same film tests the guess
-of the viewer, not the film. The fix is in the film.
+of the viewer, not the film. The fix is in the film. Step 5 of "Run a round" is no second try: it
+starts a new viewer only when the round has no answers.
 
 ### After a round
 

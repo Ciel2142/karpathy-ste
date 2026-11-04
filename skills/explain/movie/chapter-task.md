@@ -146,8 +146,8 @@ and end with `chapter: {chapter_id} built`. Before that line, write one `dispute
 line for each such finding. `<finding>` is the finding and your reason to keep the text, in STE, on one
 line. The orchestrator writes these lines into `movie.json`.
 
-The gate reads the narration before your first render. The loop of "Length" and a fix after the stills can
-change the narration of a scene after the last read of the gate. No reviewer reads that change. Then write
+If the review flag is `on`, the gate reads the narration before your first render. The loop of "Length" and
+a fix after the stills can change the narration of a scene after the last read of the gate. No reviewer reads that change. Then write
 the line `disputed: {chapter_id}: narration changed after the gate in <scene ids>` before the result line.
 `<scene ids>` lists the id of each such scene, as `body, detail`. Start no new reviewer for it.
 
@@ -188,7 +188,7 @@ Your reply ends with one line. Write nothing after it. These lines come before i
 - the `narration` stage line of your last render, when it names a fallback:
   `narration (say): ok (fallback: <cause>)`.
 
-The orchestrator reads only these lines and the result line.
+The orchestrator reads only these lines and the result line. The result line is one of these two lines:
 
 - When the chapter is complete: `chapter: {chapter_id} built`. Its render shows eleven `ok` lines, its
   length is within a fifth of `seconds`, and its stills have no fault. A chapter that stays off its target
