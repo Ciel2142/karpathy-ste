@@ -9,8 +9,12 @@ found, 2 on a usage error, unreadable JSON or (for `stitch`) no Remotion CLI.
 or relative to `<dir>` (the test fixture uses `.`). Every write is atomic: a temporary file in
 the same directory, then `os.replace` (`save` writes `movie.json` that way).
 
-`check` prints one failure per line, then `plan: ok (<q> questions, <c> chapters, <s> s target)`
-or `plan: <n> failures`. Failure prefixes are fixed: `schema:`, `id:`, `question <id>:`,
+`check` prints one failure per line, then
+`plan: ok (<q> questions, <c> chapters, <lo>..<hi> s with bridges)` or `plan: <n> failures`.
+`<lo>` and `<hi>` are the sum of the chapter `seconds` plus a bridge of 8 s, then of 15 s, in
+each gap (spec 4.4); `<lo>` must be at least 240 and `<hi>` at most 900, else
+`schema: seconds sum <s>, <lo>..<hi> s with bridges (min 240, max 900)`.
+Failure prefixes are fixed: `schema:`, `id:`, `question <id>:`,
 `chapter <id>:`, `cite <question-id>#<n>:` (the rules of `cite_check`), `prose:` (an
 `ste_lint.py --html` error line) and `state:`.
 
@@ -92,6 +96,7 @@ MIN_QUESTIONS, MAX_QUESTIONS = 3, 5
 MIN_CHAPTERS, MAX_CHAPTERS = 4, 10
 MIN_SECONDS, MAX_SECONDS = 30, 150
 MIN_TOTAL, MAX_TOTAL = 240, 900
+MIN_BRIDGE, MAX_BRIDGE = 8, 15  # seconds of a bridge (spec 4.4)
 MAX_ANSWERS = 2
 STATES = ("planned", "building", "stitched")
 STATUSES = ("pending", "built", "failed")
@@ -306,9 +311,19 @@ def _check_chapters(movie):
             failures.append("chapter %s: seconds must be an integer from %d to %d"
                             % (label, MIN_SECONDS, MAX_SECONDS))
             all_valid = False
-    if all_valid and not MIN_TOTAL <= seconds <= MAX_TOTAL:
-        failures.append("schema: seconds sum %d (min %d, max %d)" % (seconds, MIN_TOTAL, MAX_TOTAL))
+    if all_valid:
+        low, high = _with_bridges(seconds, len(chapters))
+        if low < MIN_TOTAL or high > MAX_TOTAL:
+            failures.append("schema: seconds sum %d, %d..%d s with bridges (min %d, max %d)"
+                            % (seconds, low, high, MIN_TOTAL, MAX_TOTAL))
     return failures
+
+
+def _with_bridges(seconds, chapters):
+    """(low, high): the seconds of `chapters` chapters that sum to `seconds`, plus a bridge of
+    MIN_BRIDGE, then of MAX_BRIDGE seconds in each gap between two chapters."""
+    gaps = max(chapters - 1, 0)
+    return seconds + gaps * MIN_BRIDGE, seconds + gaps * MAX_BRIDGE
 
 
 def _check_chapter_fields(chapter, label, known):
@@ -982,9 +997,10 @@ def _command_check(args):
     failures = check(args[0], movie)
     if failures:
         return _print_failures(failures)
-    sys.stdout.write("plan: ok (%d questions, %d chapters, %d s target)\n" % (
-        len(movie["questions"]), len(movie["chapters"]),
-        sum(chapter["seconds"] for chapter in movie["chapters"])))
+    low, high = _with_bridges(sum(chapter["seconds"] for chapter in movie["chapters"]),
+                              len(movie["chapters"]))
+    sys.stdout.write("plan: ok (%d questions, %d chapters, %d..%d s with bridges)\n" % (
+        len(movie["questions"]), len(movie["chapters"]), low, high))
     return 0
 
 

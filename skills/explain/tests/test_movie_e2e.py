@@ -3,10 +3,11 @@ spec 4.4 to 4.6, the done_when of wave 1).
 
 FIXTURE/movie.json is a movie of two chapters, both built, 30 s each. It is for the render only and is not a
 valid plan: `movie.py check` refuses it on two lines, `schema: chapters has 2 entries (min 4, max 10)` and
-`schema: seconds sum 60 (min 240, max 900)`. So the test writes the bridges with movie.bridges() directly
-(`movie.py bridges <dir>` refuses a plan that fails check), and stitches with `movie.py stitch <dir>`, which
-runs no check. Its subject is a topic and its questions cite nothing; movie_output() roots it at REPO, so
-the cites of the chapter transcripts, which the hub sections copy, resolve.
+`schema: seconds sum 60, 68..75 s with bridges (min 240, max 900)`. So the test writes the bridges with
+movie.bridges() directly (`movie.py bridges <dir>` refuses a plan that fails check), and stitches with
+`movie.py stitch <dir>`, which runs no check. Its subject is a topic and its questions cite nothing;
+movie_output() roots it at REPO, so the cites of the chapter transcripts, which the hub sections copy,
+resolve.
 
 A chapter is the clip of the lesson E2E (tests/fixtures/lesson-e2e/, three scenes subject, gates and
 handoff), made a chapter by chapter_from_clip(out, chapter_id): the format is film, the title is the title
@@ -167,7 +168,8 @@ class MovieRenderCase(unittest.TestCase):
         viewer = (out / "review" / "viewer-transcript.html").read_text(encoding="utf-8")
         for number, ident in enumerate(ids, start=1):
             name = "viewer-stills/%d-%s.png" % (number, ident)
-            copy, still = out / "review" / name, out / "chapters" / ident / "review" / "still-02-gates-end.png"
+            copy = out / "review" / name
+            still = out / "chapters" / ident / "review" / "still-02-gates-end.png"
             self.assertTrue(copy.is_file(), "%s\n%s" % (out, name))
             self.assertEqual(copy.read_bytes(), still.read_bytes(), "%s\n%s" % (out, name))
             self.assertIn('<p class="still">still: %s</p>' % name, viewer)

@@ -61,7 +61,7 @@ class CheckCase(MovieCase):
     def test_good_plan_prints_plan_ok(self):
         code, out, err = run_cli("check", self.dir)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 240 s target)")
+        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)")
 
     def test_a_question_no_chapter_answers(self):
         for chapter in self.movie["chapters"]:
@@ -83,7 +83,17 @@ class CheckCase(MovieCase):
     def test_seconds_sum_out_of_range(self):
         for chapter in self.movie["chapters"]:
             chapter["seconds"] = 30
-        self.assertEqual(self.failures(), ["schema: seconds sum 120 (min 240, max 900)"])
+        self.assertEqual(self.failures(),
+                         ["schema: seconds sum 120, 144..165 s with bridges (min 240, max 900)"])
+
+    def test_seconds_sum_with_the_longest_bridges_over_the_max(self):
+        # six chapters of 150 s sum to 900, the max, but five bridges of up to 15 s make 975
+        for n in (1, 2):
+            self.movie["chapters"].append(dict(self.chapter("pause"), id="extra-%d" % n))
+        for chapter in self.movie["chapters"]:
+            chapter["seconds"] = 150
+        self.assertEqual(self.failures(),
+                         ["schema: seconds sum 900, 940..975 s with bridges (min 240, max 900)"])
 
     def test_seconds_not_an_integer(self):
         self.chapter("split")["seconds"] = "60"
@@ -168,7 +178,7 @@ class ChapterScriptCase(MovieCase):
     def test_a_chapter_script_with_ask_and_answer_passes(self):
         code, out, err = run_cli("check", self.dir)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 240 s target)")
+        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)")
 
     def test_first_scene_must_be_ask(self):
         self.edit_script(lambda s: s["scenes"][0].update(id="intro"))
