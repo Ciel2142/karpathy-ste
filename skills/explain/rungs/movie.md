@@ -52,9 +52,9 @@ For example, for a topic:
 Rung: movie (forced) — --as movie; a hash map lookup is a sequence of steps — subject: hash map lookup (topic)
 ```
 
-After the rung line and the `review` line, print one result line for each chapter as its subagent
-returns. Then print the lines of `movie.py stitch`, then the lines of the viewer gate, and then the
-handoff.
+After the rung line and the `review` line, print the lines of each chapter as its subagent returns.
+Step 6 of the loop of "Build the chapters" names them. Then print the lines of `movie.py stitch`,
+then the lines of the viewer gate, and then the handoff.
 
 ### Edit the plan
 
@@ -74,6 +74,20 @@ early, and `movie.json` is then not valid JSON.
 If `check` exits with 2 after an edit, that edit broke the JSON. `check` then prints no failure
 line. Undo the edit. Make it again, with the text escaped. After the user approves the plan, never
 write the whole file again: it holds the `status` and the `reason` of each chapter.
+
+### When the run stops
+
+The run stops for the approval of the plan, at a fault, or by the stop rule of "Check and stop".
+Each time the run stops, print these two lines last:
+
+```
+<movie-dir>
+/explain <movie-dir> --as movie
+```
+
+The first line is the absolute path of `<movie-dir>`. The second line is the command that resumes
+the movie ("Resume"). The user can type it in a new session. A stop before "Plan the chapters" makes
+`<movie-dir>` prints neither line.
 
 ## 2. Write the viewer questions
 
@@ -122,7 +136,14 @@ to answer its questions.
 8. Count the bridges: one in each gap between two chapters. A bridge is 8 to 15 s. The sum of
    `seconds` plus 8 s for each bridge must be at least 240 s. The sum plus 15 s for each bridge
    must be at most 900 s.
-9. Write `<movie-dir>/movie.json`.
+9. Plan a margin inside these limits. The sum plus 8 s for each bridge must be at least 300 s. The
+   sum plus 15 s for each bridge must be at most 750 s.
+10. Write `<movie-dir>/movie.json`.
+
+The margin of step 9 has a reason. A chapter can come out a fifth shorter or longer than its
+`seconds`. A plan of 300 s is still at least 240 s when each chapter is a fifth short. A plan of
+750 s is still at most 900 s when each chapter is a fifth long. `check` tests only the limits of
+step 8, not the margin.
 
 This is the shape of `movie.json`, version 1. The example has two questions and two chapters. A
 real plan has 3 to 5 questions and 4 to 10 chapters.
@@ -239,8 +260,8 @@ Chapters:
 - <chapter-id> (<seconds> s): <question> (answers: <question-id>, <question-id>)
 ```
 
-6. Stop. Ask the user to approve the plan, or to say what to change. Build nothing before the user
-   approves the plan.
+6. Ask the user to approve the plan, or to say what to change. Stop ("When the run stops"). Build
+   nothing before the user approves the plan.
 7. For each change that the user asks for, edit `movie.json`. Then do steps 1 to 6 again.
 8. When the user approves the plan, go to "Build the chapters".
 
@@ -267,10 +288,15 @@ Some faults are not in `movie.json`, and an edit of `movie.json` cannot fix them
   fails;
 - a `chapter <id>:` line about `chapters/<id>/script.json` of a chapter that is `built`.
 
+A round of a fix loop is one edit for each failure line of the last full `check`. That is the run of
+`check` before the first edit of the round. A failure line comes back when `check` prints it again
+after the edit that was to fix it. In a fix loop of another command, such as `bridges`, `stitch` or
+`verify.sh`, read that command for `check`.
+
 Stop a fix loop after 3 rounds in which the same failure lines come back. Also stop it at once for a
 fault that is not in `movie.json`. This rule applies to each fix loop of this file. Then print each
-line that remains, and what it means. Stop the run. Do not change `state`: a resume continues from
-it.
+line that remains, and what it means. Stop the run ("When the run stops"). Do not change `state`: a
+resume continues from it.
 
 ## 5. Build the chapters
 
@@ -288,35 +314,42 @@ Start this section only after the user approves the plan, or on a resume.
 ```
 
 4. Read its last line. It is `workspace: ok <ws>` or `workspace: FAIL <step> …`. On a
-   `workspace: FAIL` line, print that line. Stop the run. This is a fault of the environment.
-   Change no chapter. A resume continues.
+   `workspace: FAIL` line, print that line. This is a fault of the environment. Change no chapter.
+   Stop the run ("When the run stops"). A resume continues.
 
 At most 3 chapter subagents run at the same time. The renders and the narration share one computer.
 A chapter stays `pending` while its subagent runs: `movie.json` has no status for a running chapter.
-Thus keep a list of the chapters whose subagents run now. Do this loop:
+Thus keep a list of the chapters whose subagents run now: the running list. Do this loop:
 
-1. Find the `pending` chapters in `movie.json`, in the order of the plan. Skip each chapter whose
-   subagent runs now.
-2. Count the free slots: 3, less the number of chapter subagents that run now.
+1. Find the `pending` chapters in `movie.json`, in the order of the plan. Skip each chapter of the
+   running list.
+2. Count the free slots: 3, less the number of chapters in the running list.
 3. For each chapter that remains, up to the number of free slots, do steps 4 and 5.
 4. If `<movie-dir>/chapters/<id>/` exists, move it to `chapters/<id>.stale-<n>/`. `<n>` is the first
    number from 1 that no directory has. An earlier build stopped in that directory, and a new build
    starts in an empty one. Never delete a chapter directory.
-5. Fill `<skill-dir>/movie/chapter-task.md` as the table at the end of this section says. Start the
-   chapter subagent with the result, in the background.
-6. When a chapter subagent returns, read only the last line of its reply. It is
-   `chapter: <id> built` or `chapter: <id> failed <reason>`. Print it.
+5. Fill `<skill-dir>/movie/chapter-task.md` as "The chapter prompt" below says. Start the chapter
+   subagent with the result, in the background. Add the id of the chapter to the running list.
+6. When a chapter subagent returns, remove the id of its chapter from the running list. Read only
+   these lines of its reply, and print them in this order:
+   - The result line: the last line that starts with `chapter: <id>` and a space. `<id>` is the id of
+     that chapter. The line is `chapter: <id> built` or `chapter: <id> failed <reason>`.
+   - Each line before the result line that starts with `disputed:` or `off target:`.
+   - The narration fallback line before the result line, if the reply has one. Its form is
+     `narration (say): ok (fallback: <cause>)`.
 7. For `chapter: <id> built`, set `status` to `built` and `reason` to `""` in `movie.json`.
 8. For `chapter: <id> failed <reason>`, set `status` to `failed` and `reason` to `<reason>`.
-   Escape `<reason>` as "Edit the plan" says.
-9. If the last line is not one of these two lines, set `status` to `failed` and `reason` to
-   `no result line`.
-10. If the reply holds `disputed:` lines before its last line, write them into `movie.json`, as "The
-    chapter gate" below says.
+   Escape `<reason>` as "Edit the plan" says. If `<reason>` names a `workspace`, `narration` or
+   `container` `FAIL`, do steps 10 to 12. Then go to "A fault of the environment" below.
+9. If the reply has no result line, set `status` to `failed` and `reason` to `no result line`. A
+   harness error or a stop is no reply. For it, go to "A chapter that does not return" below.
+10. Write each `disputed:` line of the reply into `movie.json`, as "The chapter gate" below says.
 11. Run `movie.py check <movie-dir>` after each edit. If it exits with 2, the edit broke the JSON.
     Undo the edit. Make it again, with the text escaped ("Edit the plan"). Never write the whole file
     again in the build. Fix each failure line about the field that you changed.
-12. Go to step 1. Stop the loop when no chapter is `pending` and no chapter subagent runs.
+12. Keep each narration fallback line, with the id of its chapter, for "The handoff". A fallback
+    line and an `off target:` line do not fail a chapter: the chapter ships as `built`.
+13. Go to step 1. Stop the loop when no chapter is `pending` and the running list is empty.
 
 Never read the files of a chapter directory. The chapter subagent checks its own render and its
 own stills. In the loop, `check` also reads the `script.json` of each chapter directory. A
@@ -324,28 +357,36 @@ own stills. In the loop, `check` also reads the `script.json` of each chapter di
 file. Leave such a line while its subagent runs, or when its chapter is `failed`. Never edit a
 `script.json` yourself.
 
-A chapter subagent that does not return stops the run. The harness reports an error or a stop, and
-no reply comes. Then do these steps:
-
-1. Let the other chapter subagents that run now finish. Record their lines.
-2. Start no new chapter.
-3. Print the id of the chapter and the path of `<movie-dir>`. Stop.
-4. Do not change the `status` of that chapter. It stays `pending`, and a resume builds it again.
+When the loop stops, look at the `status` of each chapter. If each chapter is `built`, go to
+"Bridges". If a chapter is `failed`, the movie cannot stitch, because `movie.py stitch` refuses a
+chapter that is not `built`. Print the line of each `failed` chapter. Stop the run ("When the run
+stops"). A resume builds the failed chapters again.
 
 A resume builds only the chapters that are not `built`. Never build a `built` chapter again, unless
 "Stitch" or "The viewer gate" sends it back.
 
+### A chapter that does not return
+
+A chapter subagent that does not return stops the run. The harness reports an error or a stop, and
+no reply comes. Then do these steps:
+
+1. Start no new chapter.
+2. Let the other chapter subagents of the running list finish. For each reply, do steps 6 to 12 of
+   the loop.
+3. Do not change the `status` of that chapter. It stays `pending`, and a resume builds it again.
+4. Print the id of the chapter and the path of `<movie-dir>`. Stop the run ("When the run stops").
+
+### A fault of the environment
+
 A fault of the environment also stops the run. If a `reason` names a `workspace`, `narration` or
 `container` `FAIL`, the next chapters fail too. Then do these steps:
 
-1. Let the chapter subagents that run now finish. Record their lines.
-2. Start no new chapter.
-3. Print the line. Stop the run. A resume continues.
+1. Start no new chapter.
+2. Let the chapter subagents of the running list finish. For each reply, do steps 6 to 12 of the
+   loop. Do not come back to this subsection for their lines.
+3. Print the `FAIL` line. Stop the run ("When the run stops"). A resume continues.
 
-When the loop stops, look at the `status` of each chapter. If each chapter is `built`, go to
-"Bridges". If a chapter is `failed`, the movie cannot stitch, because `movie.py stitch` refuses a
-chapter that is not `built`. Print the line of each `failed` chapter. Stop the run. A resume
-builds the failed chapters again.
+### The chapter prompt
 
 The prompt `chapter-task.md` is a template. Read it. Replace each name in braces with the text of
 the table below. A JSON text is plain text too: put it in the prompt as it is. Give the result to the
@@ -468,7 +509,7 @@ of the first question that chapter `<n>` answers, and the `question` of the next
 4. Else its line is `bridges: ok (<n>)`, and `<n>` is the number of bridges. `bridges` wrote the
    `script.json` and the `scene/Film.tsx` of each bridge. It rendered nothing.
 5. If `bridges` exits with 2, it cannot read `movie.json`, or it cannot write a file. Print its line.
-   Stop the run.
+   Stop the run ("When the run stops").
 6. Render the bridges one at a time, in the order of their numbers. The engine is the engine of
    "Build the chapters". For each bridge, run this command:
 
@@ -490,11 +531,16 @@ A `FAIL` line of a bridge render has its cause in a label or in the tooling. Fin
   the `text` or the `answer` of a question, or the `question` of a chapter. Write it again with
   shorter words, as "Edit the plan" says. Keep its meaning: the questions and the answers are the
   contract of the movie. Then run `bridges` again, and do steps 6 to 8 again for each bridge.
+- For `ru`, a label can have a token that the voice cannot speak. The line is then
+  `script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)`. Add each token `<t>` to the
+  `pronounce` of `movie.json`, with its spoken Russian form, as "Edit the plan" says. Or write the
+  label again in Russian words, as the bullet above says. Then run `bridges` again: it copies
+  `pronounce` into each bridge script. Do steps 6 to 8 again for each bridge.
 - Never edit a file in `bridges/<n>/`. `bridges` writes these files again from `movie.json`, over each
   edit that you make there.
 - Else the cause is in the tooling or in the environment, for example a `workspace`, `narration` or
-  `container` `FAIL` line. Print the line. Stop the run by the stop rule of "Check and stop". A resume
-  renders the bridges again.
+  `container` `FAIL` line. Print the line. Stop the run by the stop rule of "Check and stop", and print
+  the lines of "When the run stops". A resume renders the bridges again.
 
 When the render of each bridge shows eleven `ok` lines, go to "Stitch".
 
@@ -572,7 +618,7 @@ This is a fix loop, and the stop rule of "Check and stop" applies. A
 
 A short movie whose chapters cannot grow needs one more chapter. That is a change of the plan, and
 the user approves each plan. A plan has at most 10 chapters: if it has 10, stop by the stop rule of
-"Check and stop".
+"Check and stop" ("When the run stops").
 
 1. Set `state` to `planned`. Run `movie.py check <movie-dir>`.
 2. Add the new chapter at the end of `chapters` as "Edit the plan" says. Make one edit for each
@@ -607,11 +653,11 @@ After the approval, "Build the chapters" builds only the new chapter. The new ga
 - `parts: FAIL <part> <probe cause>`: ffprobe cannot read the part. `<probe cause>` is
   `ffprobe exit <n>` or `ffprobe output unreadable`. Make that part again.
 - `concat: FAIL ffmpeg exit <n>`: ffmpeg cannot join the parts. The fault is in the tooling or on the
-  disk, not in `movie.json`. Print the line. Stop the run.
+  disk, not in `movie.json`. Print the line. Stop the run ("When the run stops").
 - `container: FAIL streams <types> (expected one video and one audio)`,
   `container: FAIL duration <d> s, expected <s> s` and `container: FAIL <probe cause>`: the joined
   file is not correct. `video.mp4` stays the file of an earlier stitch, if one exists. The fault is in
-  the tooling. Print the line. Stop the run.
+  the tooling. Print the line. Stop the run ("When the run stops").
 - `transcript: FAIL chapter <id>: no transcript`: the chapter has no `chapters/<id>/index.html`. Its
   render did not come to its last stage. Build the chapter again.
 - `transcript: FAIL chapter <id>: transcript has no section <ask|answer>`: the transcript of the
@@ -631,7 +677,7 @@ Make a part again in one of two ways:
   builds only that chapter. Then do "Bridges" and "Stitch" again.
 
 If the same line comes back after you make the part again, the fault is in the tooling. Stop by the
-stop rule of "Check and stop".
+stop rule of "Check and stop" ("When the run stops").
 
 ### Exit 2
 
@@ -640,7 +686,7 @@ If `stitch` exits with 2, it prints one line on stderr:
 - `no Remotion CLI at <path>`: the video workspace does not exist. Run `video-workspace.sh` as step 3
   of "Build the chapters" says. Then run `stitch` again.
 - Another line: `stitch` cannot read `movie.json`, or it cannot read or write a file. Print the line.
-  Stop the run. A resume continues.
+  Stop the run ("When the run stops"). A resume continues.
 
 ## 8. The viewer gate
 
@@ -668,11 +714,24 @@ is the number of the round. In the name of a still, it is the place of the chapt
 4. If two rounds are complete, the gate is complete too. Make sure that `not_covered` has a
    `viewer missed: <question>` line for each question that the `## Author` block of round 2 marks
    `missed`. Then go to "Verify and handoff".
-5. If `review/viewer-round-<k>.md` exists, an earlier run stopped in this round. Move the report to
+5. If round 1 is complete and its `## Author` block has a `missed:` line, look for
+   `review/viewer-round-2.md`. If it does not exist, an earlier run possibly stopped before the
+   rebuild. Then the film is possibly the film of round 1. For each chapter that a `missed:` line
+   names, run this command:
+
+```
+test <movie-dir>/chapters/<id>/video.mp4 -nt <movie-dir>/review/viewer-round-1.md
+```
+
+6. The command fails with exit 1 when `video.mp4` is older than the report, or when it does not
+   exist. Then that chapter has no new film. Do the steps of "After round 1" below only for each
+   chapter for which the command fails. If it passes for each named chapter, continue to step 7.
+   Then run round 2.
+7. If `review/viewer-round-<k>.md` exists, an earlier run stopped in this round. Move the report to
    `review/viewer-round-<k>.stale-<n>.md`. `<n>` is the first number from 1 that no file has. Never
    delete a report.
 
-Steps 3 to 5 apply only when an earlier run stopped in the gate, and a resume starts the gate
+Steps 3 to 7 apply only when an earlier run stopped in the gate, and a resume starts the gate
 again.
 
 ### Run a round
@@ -683,7 +742,8 @@ again.
 3. When the viewer returns, read only the last line of its reply. It is `viewer: done` or
    `viewer: failed <reason>`. Print it.
 4. If the line is not `viewer: done`, or if `review/viewer-round-<k>.md` does not exist, the round has
-   no answers. Stop the run. A resume starts this round again, with a new viewer.
+   no answers. Stop the run ("When the run stops"). A resume starts this round again, with a new
+   viewer.
 5. Read `review/viewer-round-<k>.md`. For each question, it gives the answer of the viewer or
    `cannot answer`, and what in the film the viewer used.
 
@@ -706,10 +766,14 @@ other words than `movie.json`. A check of the words fails a correct answer.
 Give each question one of two results:
 
 - `understood`: the answer has the meaning of the `answer` in `movie.json`. It can use other words,
-  and it can add facts that are correct.
+  and it can add facts that are correct. Also, one `used:` line of the entry shows that meaning. Its
+  quoted sentence states it, or the still that it names shows it. To judge a still, read it in
+  `review/viewer-stills/`.
 - `missed: <what the film did not show>`: the answer is wrong, it gives only a part of the meaning,
   or it is `cannot answer`. A `cannot answer` is `missed`, because the film did not show the answer.
-  A question that the report does not answer is `missed` too.
+  A question that the report does not answer is `missed` too. A correct answer without a `used:` line
+  that shows it is `missed` too. The viewer then possibly knew the answer from before, not from the
+  film.
 
 For each `missed` question, write what the film did not show, in your words. Name the chapter that
 fixes it: the chapter that has the question in its `answers`. If two chapters have it, choose the
@@ -810,7 +874,8 @@ bpmn: ok
 
 6. For a `FAIL` line, read the detail lines under it. If a detail line names a cite or a text of
    `movie.json`, fix that field. Edit it as "Edit the plan" says. Then do steps 1 to 5 again.
-7. Else the fault is not in `movie.json`. Stop by the stop rule of "Check and stop".
+7. Else the fault is not in `movie.json`. Stop by the stop rule of "Check and stop" ("When the run
+   stops").
 8. Set `state` to `stitched` in `movie.json`. Run `movie.py check <movie-dir>`. A resume then knows
    that the movie is complete.
 
@@ -825,9 +890,13 @@ link of the hub to `video.mp4` or to `chapters/<id>/index.html` that names no fi
 3. Print the narrator, as `rungs/video.md` "Handoff" names it: Kokoro `af_heart` for `en`, or `Silero`
    `xenia` for `ru`. If the `narration` line of a bridge render showed a fallback, print the fallback
    and its cause.
-4. Print the line `viewer: <n> of <m> understood`, from the `## Author` block of the last round.
-5. Print each sentence of `provenance.not_covered` on its own line. For `none`, print nothing.
-6. If the harness has a tool that sends a desktop notification, send one. The user is possibly away.
+4. After the narrator, print each narration fallback line that step 12 of the loop of "Build the
+   chapters" kept. Use the form `chapter <id>: narration (say): ok (fallback: <cause>)`. A resume
+   keeps the lines only of the chapters that it built. A chapter of an earlier run printed its line
+   in that run.
+5. Print the line `viewer: <n> of <m> understood`, from the `## Author` block of the last round.
+6. Print each sentence of `provenance.not_covered` on its own line. For `none`, print nothing.
+7. If the harness has a tool that sends a desktop notification, send one. The user is possibly away.
 
 The sentences of `not_covered` are the `disputed:` lines, the `viewer missed:` lines and each facet
 that the movie does not explain.
@@ -845,8 +914,8 @@ the gates of that value, and one movie has one value. If the arguments hold `--r
    kind is `directory`.
 2. Print `review: on` or `review: off`, from `review` in `movie.json`.
 3. Run `movie.py status <movie-dir>`. Print each line of its output.
-4. If `status` exits with 2, it cannot read `movie.json`. Print its line. Stop: a resume needs a
-   `movie.json` that it can read.
+4. If `status` exits with 2, it cannot read `movie.json`. Print its line. Stop ("When the run
+   stops"): a resume needs a `movie.json` that it can read.
 5. For each `pending` or `failed` chapter, look for `<movie-dir>/chapters/<id>/`. If it exists, move
    it to `chapters/<id>.stale-<n>/`. `<n>` is the first number from 1 that no directory has.
 6. Never delete a chapter directory. The new build starts in an empty directory, and the old one

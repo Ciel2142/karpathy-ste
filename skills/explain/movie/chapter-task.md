@@ -158,12 +158,22 @@ Stop a fix loop after 3 rounds in which the same `FAIL` line comes back. Also st
 the environment, such as a `workspace`, `narration` or `container` `FAIL` line that your files did not
 cause. Then stop the chapter with the `FAIL` line as the reason.
 
+A narration fallback is not a fault. If Kokoro or `Silero` cannot run, the narration changes to `say`, and
+the `narration` stage line names the fallback: `narration (say): ok (fallback: <cause>)`. Ship the chapter
+with that narration. Copy that line of your last render before the result line, as "Result" says.
+
 Never run `open`. The orchestrator joins your `video.mp4` into the movie.
 
 ## Result
 
-Your reply ends with one line. Write nothing after it. The `disputed:` lines and the `off target:` line
-come before it.
+Your reply ends with one line. Write nothing after it. These lines come before it, each on its own line:
+
+- each `disputed: {chapter_id}: …` line;
+- the `off target:` line, when the length stays outside the range of "Length";
+- the `narration` stage line of your last render, when it names a fallback:
+  `narration (say): ok (fallback: <cause>)`.
+
+The orchestrator reads only these lines and the result line.
 
 - When the chapter is complete: `chapter: {chapter_id} built`. Its render shows eleven `ok` lines, its
   length is within a fifth of `seconds`, and its stills have no fault. A chapter that stays off its target

@@ -74,10 +74,17 @@ the list in the transcript. Each entry has this form:
 ```
 1. "<the question, as the transcript gives it>"
    answer: <your answer, or cannot answer>
-   used: <chapter title>: "<the sentence, as the transcript gives it>", or still <k>-<id>.png: <what it shows>
+   used: <chapter title>: "<sentence>"
+   used: <chapter title>: still <k>-<id>.png: <what it shows>
 ```
 
-An entry can have more than one `used:` line. For `cannot answer`, write `used: nothing`.
+A `used:` line has one of these two forms. The first form quotes a sentence of the chapter: `<sentence>` is
+that sentence, as the transcript gives it. The second form names the still of the chapter and tells what it
+shows. An entry can have more than one `used:` line, of one form or of the two forms. For `cannot answer`,
+write `used: nothing`.
+
+The author reads your `used:` lines. An answer that no `used:` line shows counts as an answer that the film
+did not give.
 
 Write the words of the form in English, as this file gives them: `answer:`, `used:`, `cannot answer` and
 `used: nothing`. Write the answers in the language `{lang}`, and quote the transcript as it is.

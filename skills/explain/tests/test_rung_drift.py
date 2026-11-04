@@ -1247,9 +1247,9 @@ MOVIE_ORDER = ("plan", "bridges", "parts", "concat", "container", "transcript", 
                "state")
 # The failure prefixes of `movie.py check`, as its module docstring fixes them.
 MOVIE_PREFIXES = ("schema:", "id:", "question <id>:", "chapter <id>:", "cite <question-id>#<n>:", "prose:", "state:")
-# The result lines of a chapter subagent, which the rung prints as they come back: no code of movie.py prints
-# them, so they have no entry in MOVIE_PRINTED.
-MOVIE_RUNG_LINES = ("chapter: <id> built", "chapter: <id> failed <reason>")
+# The result lines of a chapter subagent, which the rung prints as they come back, and their head, which step 6 of
+# the loop finds: no code of movie.py prints them, so they have no entry in MOVIE_PRINTED.
+MOVIE_RUNG_LINES = ("chapter: <id> built", "chapter: <id> failed <reason>", "chapter: <id>")
 # The statements of movie.py that print the lines of `stitch` and `status`. Each stage of `stitch` prints its
 # ok line and its FAIL line through one statement; the cause text of a FAIL line comes from a StitchError, and
 # docstring_forms ties the quoted text to the module docstring.
@@ -1374,7 +1374,27 @@ def fenced_lines(text: str) -> list[list[str]]:
 MOVIE_RUNG_TEXTS = ("Build nothing before the user approves the plan.", "At most 3 chapter subagents",
                     "never fill `movie.html` by hand", "A chapter is never dropped", "disputed: <finding>",
                     "viewer missed: <question>", "still: viewer-stills/<k>-<id>.png", "A movie commits nothing.",
-                    "not yet measured")
+                    "not yet measured",
+                    # final review I1: a resume after round 1 rebuilds each missed chapter whose film is older than
+                    # the report of round 1 (a stop between the `## Author` block and the rebuild)
+                    "test <movie-dir>/chapters/<id>/video.mp4 -nt <movie-dir>/review/viewer-round-1.md",
+                    'Do the steps of "After round 1" below only for each chapter for which the command fails.',
+                    # final review I3: the stop rule counts rounds, so a round and "comes back" are defined
+                    "A round of a fix loop is one edit for each failure line of the last full `check`.",
+                    "A failure line comes back when `check` prints it again after the edit that was to fix it.",
+                    # final review I5: a `ru` bridge label that the voice cannot speak goes to `pronounce` of movie.json
+                    '`script: FAIL unspoken text: <scene>: "<t>", … (add to pronounce)`. Add each token `<t>` to the '
+                    '`pronounce` of `movie.json`',
+                    # final review I6: the chapter fallbacks reach the handoff, after the narrator line
+                    "After the narrator, print each narration fallback line that step 12 of the loop of \"Build the "
+                    "chapters\" kept.",
+                    "A fallback line and an `off target:` line do not fail a chapter: the chapter ships as `built`.",
+                    # final review I7: the author checks the evidence of the viewer, not the answer alone
+                    "Also, one `used:` line of the entry shows that meaning.",
+                    "A correct answer without a `used:` line that shows it is `missed` too.",
+                    # final review I8: the plan keeps a margin of a fifth inside the limits of the movie
+                    "The sum plus 8 s for each bridge must be at least 300 s. The sum plus 15 s for each bridge must "
+                    "be at most 750 s.")
 # A length in seconds or minutes, or a count of tokens: a measured cost, which the live run adds.
 COST_NUMBER = re.compile(r"\d{2,}(?: s\b| min\b| ?tokens)")
 
@@ -1463,6 +1483,22 @@ class MovieRungCase(unittest.TestCase):
             "Print the id of the chapter and the path of `<movie-dir>`.",
             "Never build a `built` chapter again"))
 
+    # red (final review I2): the loop reads only the very last line again (a weak model then fails a chapter for a
+    # trailing word), a harness error is read as a reply without a result line (then a running chapter is marked
+    # `failed`), an environment FAIL goes on to start chapters, or the running list is not kept on start and return
+    def test_build_loop_reads_the_result_line_and_routes_the_faults(self):
+        self.assert_phrases("Build the chapters", (
+            "the last line that starts with `chapter: <id>` and a space",
+            "Each line before the result line that starts with `disputed:` or `off target:`.",
+            "`narration (say): ok (fallback: <cause>)`",
+            "Add the id of the chapter to the running list.",
+            "remove the id of its chapter from the running list.",
+            'Then go to "A fault of the environment" below.',
+            'A harness error or a stop is no reply. For it, go to "A chapter that does not return" below.'))
+        titles = [title for level, title in headings(section(read(MOVIE_MD), "Build the chapters")) if level == 3]
+        self.assertEqual(titles, ["A chapter that does not return", "A fault of the environment",
+                                  "The chapter prompt", "The chapter gate"])
+
     # red: the rung quotes a line of `bridges` or `stitch` that the docstring of movie.py does not give (a cause
     # reworded), or a stage of them that the rung does not quote
     def test_bridges_and_stitch_lines_are_the_docstring_forms(self):
@@ -1500,6 +1536,18 @@ class MovieRungCase(unittest.TestCase):
     # red: the media or the bpmn line left out of the verify block of the hub, or a line reworded
     def test_verify_block_matches_the_hub_lines(self):
         self.assertIn(HUB_LINES, fenced_lines(section(read(MOVIE_MD), "Verify and handoff")))
+
+    # red (final review I4): a stop that prints no path and no resume command (the user then cannot find the run), or
+    # the two lines of "When the run stops" reworded
+    def test_each_stop_prints_the_resume_lines(self):
+        block = fenced_lines(section(read(MOVIE_MD), "When the run stops"))
+        self.assertIn(["<movie-dir>", "/explain <movie-dir> --as movie"], block)
+        text = " ".join(read(MOVIE_MD).split())
+        stops = list(re.finditer(r"\b(?:Stop the run|[Ss]top by the stop rule)\b", text))
+        self.assertGreaterEqual(len(stops), 12)
+        for found in stops:
+            with self.subTest(at=text[found.start():found.start() + 60]):
+                self.assertIn('"When the run stops"', text[found.start():found.start() + 120])
 
     # red: a rule that no code pins is gone from the rung or reworded
     def test_rung_holds_its_rules(self):

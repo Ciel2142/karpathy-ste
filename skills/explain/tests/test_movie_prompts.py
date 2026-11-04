@@ -96,6 +96,11 @@ CHAPTER_OVERRIDES = (
     "{skill_dir}/movie/review-chapter.md",
     "The chapter ships: render it, and end with `chapter: {chapter_id} built`.",
     "Before that line, write one `disputed: <finding>` line for each such finding.",
+    # final review I6: the fallback ships, and the reply carries its stage line before the result line
+    "A narration fallback is not a fault.",
+    "- the `narration` stage line of your last render, when it names a fallback: "
+    "`narration (say): ok (fallback: <cause>)`.",
+    "- the `off target:` line, when the length stays outside the range of \"Length\";",
 )
 # The closure of the cold viewer (D10, spec 5 step 8), as review-viewer.md words it: the viewer page and the
 # stills that it names, no other file of the run, an answer in its own words or `cannot answer`, no guess, a part
@@ -114,6 +119,9 @@ VIEWER_TEXTS = (
     "If you know a part only from before, not from the film, do not write it as your answer. Name it as the part "
     "that you could not find in the film.",
     "If you know all of the answer only from before, write `cannot answer`.",
+    # final review I7: the two forms of the evidence, one on each line, which the author checks
+    'used: <chapter title>: "<sentence>"',
+    "used: <chapter title>: still <k>-<id>.png: <what it shows>",
     "viewer: done",
     "## Author",
 )
