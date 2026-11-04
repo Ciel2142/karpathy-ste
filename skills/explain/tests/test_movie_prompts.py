@@ -60,6 +60,13 @@ CHAPTER_OVERRIDES = (
     "`provenance.root` is `{root}`, and `lang` is `{lang}`.",
     # the remedy of "Stitch" relies on this tolerance
     "The length target of the film is the `seconds` of the chapter, within a fifth either way.",
+    # fix round 1 (task 3 review): the tolerance is a condition of `built`, with a bound on the renders
+    "A length outside that range is a fault, also when the eleven stage lines show `ok`.",
+    "After 3 renders in which the length stays outside the range, ship the chapter.",
+    "`off target: <s> s, target <seconds> s`",
+    "Do this until its eleven stage lines show `ok` and the length is in the range of \"Length\".",
+    "Its render shows eleven `ok` lines, its length is within a fifth of `seconds`, and its stills have no "
+    "fault.",
     # the cites: copied from the questions, or read from the disk; no .bpmn (verify.sh would fail the hub)
     "Copy a cite of the questions above where the narration makes the claim of that cite.",
     "Cite no `.bpmn` file.",

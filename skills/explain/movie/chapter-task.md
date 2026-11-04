@@ -86,6 +86,11 @@ chapter of 70 s gives a film of 56 to 84 s. The limits of a film in `video.md` s
 most. Come near the target as "Write the script" of `video.md` says. The stage line of `timeline` gives
 the real length.
 
+A length outside that range is a fault, also when the eleven stage lines show `ok`. For a short film, add
+words or a scene. For a long film, remove words or a scene. Then render again. After 3 renders in which the
+length stays outside the range, ship the chapter. Before the result line, write one line with the real
+length and the target: `off target: <s> s, target <seconds> s`.
+
 ### The picture
 
 The `picture` of the chapter is the stage at the first frame of the film. The `ends_with` of the chapter is
@@ -147,7 +152,7 @@ Run this command, as "Build and check" of `video.md` says:
 ```
 
 Fix the cause of each `FAIL` line, and run the command again. Do this until its eleven stage lines show
-`ok`. Then read the stills as "Read the stills" of `video.md` says. Fix each fault, and render again.
+`ok` and the length is in the range of "Length". Then read the stills as "Read the stills" of `video.md` says. Fix each fault, and render again.
 
 Stop a fix loop after 3 rounds in which the same `FAIL` line comes back. Also stop at once for a fault of
 the environment, such as a `workspace`, `narration` or `container` `FAIL` line that your files did not
@@ -157,9 +162,11 @@ Never run `open`. The orchestrator joins your `video.mp4` into the movie.
 
 ## Result
 
-Your reply ends with one line. Write nothing after it. The `disputed:` lines come before it.
+Your reply ends with one line. Write nothing after it. The `disputed:` lines and the `off target:` line
+come before it.
 
-- When the chapter is complete: `chapter: {chapter_id} built`. Its render shows eleven `ok` lines, and its
-  stills have no fault.
+- When the chapter is complete: `chapter: {chapter_id} built`. Its render shows eleven `ok` lines, its
+  length is within a fifth of `seconds`, and its stills have no fault. A chapter that stays off its target
+  after 3 renders also ships as `built`, with its `off target:` line.
 - When you stop the chapter: `chapter: {chapter_id} failed <reason>`. The reason is one line, such as the
   `FAIL` line of the render.
