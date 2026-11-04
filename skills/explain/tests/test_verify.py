@@ -594,6 +594,49 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.stdout, LESSON_PASS + BPMN_NONE)
         self.assert_no_chrome_left()
 
+    # --- movie rung: the transcript hub (movie spec 4.6) -------------------------------
+
+    def write_movie_parts(self, *chapters):
+        """Create video.mp4 and chapters/<id>/index.html under the work directory, one byte each."""
+        for name in ["video.mp4"] + ["chapters/%s/index.html" % ident for ident in chapters]:
+            path = os.path.join(self.work, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+
+    def test_movie_rung_renders_the_page_viewports(self):
+        """Red on the old script: exit 2, unknown rung "movie". Red when the movie rung gets the
+        sheet viewport, has no media check or no bpmn line: the seven lines compare in order."""
+        self.write_movie_parts("members", "trigger", "split", "pause")
+        proc, _ = self.verify_fixture("verify-movie.html")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, LESSON_PASS + "media: ok\n" + BPMN_NONE)
+        self.assert_no_chrome_left()
+
+    def test_movie_missing_chapter_transcript_fails_media(self):
+        """Red when the chapters/ links of a movie hub are not collected (media: ok)."""
+        self.write_movie_parts("trigger", "split", "pause")
+        proc, _ = self.verify_fixture("verify-movie.html")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS + "media: FAIL 1 missing\n  a href=chapters/members/index.html\n" + BPMN_NONE)
+        self.assert_no_chrome_left()
+
+    def test_movie_media_counts_a_bridge_link(self):
+        """Red when the bridges/ links of a movie hub are not collected (media: ok)."""
+        self.write_movie_parts("members", "trigger", "split", "pause")
+        proc, _ = self.verify_fixture(
+            "verify-movie.html",
+            edit=lambda html: replace_once(
+                self, html, 'href="chapters/members/index.html"', 'href="bridges/1/index.html"'),
+        )
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout,
+            LESSON_PASS + "media: FAIL 1 missing\n  a href=bridges/1/index.html\n" + BPMN_NONE)
+        self.assert_no_chrome_left()
+
     # --- the bpmn line (the BPMN coverage check, last) ---------------------------------
 
     def test_page_without_bpmn_prints_bpmn_none_last(self):
@@ -688,18 +731,18 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
         self.assertIn("poster", proc.stderr)
-        self.assertIn("(expected sheet, page, video, lesson, course or onboard)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson, course, onboard or movie)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_unknown_rung_message_lists_lesson(self):
-        """Red on the old text: the usage line omits the onboard rung."""
+        """Red on the old text: the usage line omits the movie rung."""
         proc, _ = self.verify_fixture(
             "verify-good.html",
             edit=lambda html: replace_once(self, html, 'content="sheet"', 'content="poster"'),
         )
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
-        self.assertIn("(expected sheet, page, video, lesson, course or onboard)", proc.stderr)
+        self.assertIn("(expected sheet, page, video, lesson, course, onboard or movie)", proc.stderr)
         self.assertEqual(os.listdir(self.tmp), [], "Chrome must not start")
 
     def test_no_argument_or_unreadable_file_is_a_usage_error(self):

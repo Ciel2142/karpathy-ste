@@ -294,13 +294,15 @@ class CheckCase(unittest.TestCase):
         self.assertEqual(run(["check", "--rung", "onboard", str(onboard_page(self.out))])[:2], (0, "bpmn: none\n"))
 
     def test_unknown_rung_is_usage(self):
-        """Red when check accepts a rung that is not sheet, page, lesson, course or onboard, or --rung without a value."""
+        """Red when check accepts a rung that is not sheet, page, lesson, course, onboard or movie, or --rung
+        without a value. Red when --rung movie is a usage error: verify.sh runs it on a movie hub."""
         page = bpmn_page(self.out)
         code, _out, err = run(["check", "--rung", "video", str(page)])
         self.assertEqual(code, 2)
-        self.assertIn("--rung sheet|page|lesson|course|onboard", err)
+        self.assertIn("--rung sheet|page|lesson|course|onboard|movie]", err)
         self.assertEqual(run(["check", "--rung", str(page)])[0], 2)
         self.assertEqual(run(["check", "--rung", "lesson", str(page)])[:2], (0, "bpmn: ok\n"))
+        self.assertEqual(run(["check", "--rung", "movie", str(page)])[:2], (0, "bpmn: ok\n"))
 
     def test_internal_error_is_one_line_and_exit_2(self):
         """Red when an unexpected exception escapes main as a traceback, or exits with a code other than 2."""

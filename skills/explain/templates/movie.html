@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<script>
+/* Guard, part 1 of 2: count script errors from the first line on. Keep this block first. */
+window.explainJsErrors = 0;
+window.onerror = function () { window.explainJsErrors += 1; };
+</script>
+<meta name="explain-rung" content="movie">
+<title>{{title}}</title>
+<!--
+  explain / rung movie: the transcript hub. Nobody edits this file by hand.
+  movie.py stitch fills each marker (a name in double braces) and writes <movie-dir>/index.html.
+  - Escaped text: lang, title, question; the footer markers root, kind, subject, source, date,
+    commit, dirty, not_covered (from movie.json).
+  - Prebuilt HTML: questions (a dl of each viewer question, its answer and its cites),
+    chapters (ol#chapters, one link per chapter with its start second from chapters.json),
+    sections (build/hub-sections.html: one section per chapter, ending in its transcript link).
+  verify.sh runs the page checks on the result, and media checks the chapters/ links.
+-->
+<style>
+/* Palette copied from page.html (see its note on the copies): a change there is a change here. */
+:root {
+  --bg: #faf9f5;
+  --fill: #f0eee6;
+  --ink: #1f1d1a;
+  --muted: #6b6a64;
+  --line: #d4d0c6;
+  --accent: #c2613f;
+  --blue: #1d5fc2;
+  --red: #c42f2a;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+/* Type: every element has an explicit font-size of 14px or more (page.html). */
+html, body, div, section, header, nav, main, footer, p, ul, ol, li, dl, dd, figure { font-size: 16px; }
+span, strong, em, b, i, a, q, mark { font-size: inherit; }
+h1 { font-size: 30px; }
+h2 { font-size: 22px; }
+h3 { font-size: 18px; }
+h1 code, h2 code { font-size: inherit; }
+code, pre, input, nav a, nav label { font-size: 15px; }
+dt, cite, figcaption { font-size: 14px; }
+
+html, body { margin: 0; padding: 0; background: var(--bg); }
+/* Measure: about 72 ch on wide screens; 16 px side margins on narrow ones. */
+body {
+  max-width: 72ch; margin: 0 auto; padding: 0 16px 32px; color: var(--ink);
+  font-family: var(--sans); line-height: 1.5; overflow-wrap: break-word;
+}
+h1, h2, h3, p, ul, ol, dl, dd, figure, pre { margin: 0; }
+h1, h2, h3 { line-height: 1.25; }
+code, pre { font-family: var(--mono); }
+:not(pre) > code { padding: 0 3px; background: var(--fill); }
+a { color: var(--accent); }
+cite { font-family: var(--mono); font-style: normal; color: var(--accent); }
+/* Cites: one block under the element it supports (a sibling of a p, the last child of a dd).
+   name:line in the accent, the snippet as code. The reading view hides them; the Sources
+   switch in the nav shows them, and print shows them. */
+.cites {
+  display: none; margin-top: 6px; padding: 6px 10px; background: var(--fill);
+  border-left: 3px solid var(--line);
+}
+.cites cite { display: block; font-family: var(--sans); font-style: normal; color: var(--accent); }
+.cites cite + cite { margin-top: 4px; }
+.cites code { display: block; padding: 0; background: none; color: var(--ink); font-family: var(--mono);
+  font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+body:has(#show-sources:checked) .cites { display: block; }
+@media print { .cites { display: block; } }
+
+header { padding: 32px 0 16px; }
+/* The movie breaks out of the 72ch column as figure.clip of page.html does: at 1440 px it is
+   960 px wide, at 500 px it is the column, and it never widens the page. */
+#movie {
+  --movie-w: max(100%, min(960px, 100vw - 64px));
+  display: block; width: var(--movie-w); margin-left: calc((100% - var(--movie-w)) / 2);
+  aspect-ratio: 16 / 9; background: var(--ink);
+}
+/* The sticky navigation: the chapter list, then the Sources switch. It wraps; it never
+   scrolls sideways. */
+nav#toc {
+  position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 4px 18px; margin-top: 16px; padding: 10px 0; background: var(--bg);
+  border-bottom: 1.5px solid var(--ink);
+}
+nav#toc a { color: var(--accent); font-weight: 600; text-decoration: none; }
+nav#toc a:hover { text-decoration: underline; }
+nav#toc .sources { margin-left: auto; color: var(--muted); cursor: pointer; }
+body:not(:has(.cites)) nav#toc .sources { display: none; }
+#chapters {
+  display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 0; list-style: none;
+  counter-reset: chapter;
+}
+#chapters li { counter-increment: chapter; }
+#chapters li::before { content: counter(chapter) ". "; color: var(--muted); }
+
+/* Sections: the viewer questions, then one per chapter. scroll-margin keeps the <h2> clear of
+   the sticky nav; the guard sets --nav-h to the real nav height in "load". */
+section { padding: 28px 0 8px; scroll-margin-top: var(--nav-h, 64px); }
+section + section { border-top: 1px solid var(--line); }
+section > * + * { margin-top: 14px; }
+section > .cites { margin-top: 6px; }
+section > a { display: inline-block; }
+/* Viewer questions: each question, then its answer and the answer's cites. */
+.questions dt { font-size: 16px; font-weight: 700; }
+.questions dd { margin: 4px 0 0; }
+.questions dd + dt { margin-top: 14px; }
+
+/* Footer: provenance cells. The fill and the border are on the cells, not on the
+   grid, so an empty grid track shows the page background. */
+footer { margin-top: 28px; padding-top: 16px; border-top: 2px solid var(--ink); }
+#provenance dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px;
+}
+#provenance dl > div {
+  min-width: 0; padding: 4px 10px 6px; background: var(--fill); border: 1px solid var(--line);
+}
+#provenance dl > div.wide { grid-column: 1 / -1; }
+#provenance dt { color: var(--muted); }
+#provenance dd { overflow-wrap: anywhere; }
+.not-covered { margin-top: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{title}}</h1>
+</header>
+
+<video id="movie" controls src="video.mp4"></video>
+
+<nav id="toc">
+{{chapters}}
+  <label class="sources"><input type="checkbox" id="show-sources"> Sources</label>
+</nav>
+
+<main>
+<section id="questions">
+<h2>{{question}}</h2>
+{{questions}}
+</section>
+
+{{sections}}
+</main>
+
+<footer>
+  <div id="provenance" data-root="{{root}}" data-kind="{{kind}}">
+    <dl data-ste="skip">
+      <div class="wide"><dt>Subject</dt><dd>{{subject}}</dd></div>
+      <div><dt>Source</dt><dd>{{source}}</dd></div>
+      <div><dt>Date</dt><dd>{{date}}</dd></div>
+      <div><dt>Commit</dt><dd>{{commit}}</dd></div>
+      <div><dt>Dirty</dt><dd>{{dirty}}</dd></div>
+    </dl>
+  </div>
+  <p class="not-covered">Not covered: {{not_covered}}</p>
+</footer>
+<script>
+/* Chapters: a click on a chapter link seeks the movie to the chapter start and plays it; the
+   link then jumps to the chapter's section as any anchor does. A play() that the browser
+   refuses leaves the movie paused at that start: the reader presses play. */
+(function () {
+  var movie = document.getElementById("movie");
+  var links = document.querySelectorAll("#chapters a[data-start]");
+  if (!movie) { window.explainJsErrors += 1; return; }
+  function seek(event) {
+    movie.currentTime = parseFloat(event.currentTarget.getAttribute("data-start"));
+    var played = movie.play();
+    if (played && played.catch) played.catch(function () {});
+  }
+  for (var i = 0; i < links.length; i++) links[i].addEventListener("click", seek);
+})();
+</script>
+<script>
+/* Guard, part 2 of 2 (page.html, without the player, Play all and answer box checks): runs
+   once, synchronously, in "load". No timers. */
+window.addEventListener("load", function () {
+  var MIN_PX = 14, fails = [], doc = document.documentElement;
+  var nav = document.getElementById("toc");   /* scroll-margin of sections = real nav height */
+  if (nav) doc.style.setProperty("--nav-h", nav.offsetHeight + "px");
+  /* HSCROLL and SMALLTEXT. An element with no layout box is skipped, so a hidden cite block
+     escapes one measure: measure the reading view, then the view with Sources on. */
+  function measure() {
+    var small = Infinity, all = document.body.getElementsByTagName("*");
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j], own = false;
+      for (var n = el.firstChild; n && !own; n = n.nextSibling) {
+        own = n.nodeType === 3 && n.nodeValue.trim() !== "";
+      }
+      if (!own || !el.getClientRects().length) continue;
+      small = Math.min(small, parseFloat(getComputedStyle(el).fontSize));
+    }
+    return { wide: doc.scrollWidth > window.innerWidth, small: small };
+  }
+  var view = measure(), sources = document.getElementById("show-sources");
+  if (sources) {   /* a restored switch is on at "load": put it back as it was, not to off */
+    var was = sources.checked, shown;
+    sources.checked = true;
+    shown = measure();
+    sources.checked = was;
+    view = { wide: view.wide || shown.wide, small: Math.min(view.small, shown.small) };
+  }
+  if (view.wide) fails.push("HSCROLL");
+  if (view.small < MIN_PX) fails.push("SMALLTEXT:" + Math.round(view.small * 100) / 100);
+  /* Sources: a page with a cite block needs the switch in the nav, else the cites hide for good. */
+  if (document.querySelector(".cites") && !document.querySelector('nav#toc input#show-sources[type="checkbox"]')) fails.push("NOSOURCES");
+  if (window.explainJsErrors > 0) fails.push("JSERROR");
+  doc.setAttribute("data-verify", fails.length ? fails.join(";") : "OK");
+});
+</script>
+</body>
+</html>

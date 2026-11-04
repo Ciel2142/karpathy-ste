@@ -440,6 +440,7 @@ class StitchCase(MovieCase):
         self.assertEqual(out.splitlines(), ["parts: ok (7)", "concat: ok (270.0 s)",
                                             "container: ok (270.0 s)",
                                             "transcript: ok (4 chapters)",
+                                            "hub: ok index.html",
                                             "length: ok (270.0 s)"])
         chapters = json.loads(Path(self.dir, "chapters.json").read_text(encoding="utf-8"))
         self.assertEqual(chapters, [
@@ -572,6 +573,58 @@ class StitchCase(MovieCase):
         hub = Path(self.dir, "build", "hub-sections.html").read_text(encoding="utf-8")
         self.assertEqual(hub.count("<section id=\"ch-"), 4)
         self.assertIn('class="cites"', hub)
+
+    # the hub page (spec 4.6)
+
+    def stitched(self):
+        """A stitch of the copy with every part built: it writes `build/hub-sections.html`."""
+        self.build_all()
+        code, _, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 0)
+
+    def test_hub_holds_the_chapter_list_and_sections(self):
+        self.stitched()
+        page = movie.hub(self.dir, self.movie, [0.0, 70.0, 140.0, 210.0])
+        self.assertIn('<li><a href="#ch-members" data-start="0.0">The members</a></li>', page)
+        self.assertIn('<li><a href="#ch-trigger" data-start="70.0">The trigger</a></li>', page)
+        self.assertIn('<section id="ch-members"><h2>The members</h2>', page)
+        self.assertIn('<meta name="explain-rung" content="movie">', page)
+        self.assertIn('<video id="movie" controls src="video.mp4">', page)
+        self.assertIn('data-root="%s"' % os.path.abspath(self.dir), page)
+        self.assertIn('<html lang="en">', page)
+        for ident in ("members", "trigger", "split", "pause"):
+            self.assertIn('<a href="chapters/%s/index.html" data-ste="skip">transcript</a>\n'
+                          "</section>" % ident, page)
+        self.assertNotIn("{{", page)
+
+    def test_hub_lists_the_questions_with_answers_and_cites(self):
+        self.stitched()
+        self.movie["questions"][0]["cites"] = [{"path": "src/group.py", "line": 3,
+                                                "snippet": "def join(member):"}]
+        page = movie.hub(self.dir, self.movie, [0.0, 70.0, 140.0, 210.0])
+        self.assertIn("<dt>What starts a rebalance?</dt>\n<dd>A member joins, leaves, or misses its"
+                      ' heartbeat.<div class="cites" data-ste="skip"><cite data-path="src/group.py"'
+                      ' data-line="3" data-snippet="def join(member):">group.py:3 <code>def'
+                      " join(member):</code></cite></div></dd>", page)
+        self.assertIn("<dt>Who decides the new split?</dt>\n<dd>The group leader decides the"
+                      " split. The coordinator sends it out.</dd>", page)
+
+    def test_hub_escapes_plan_text_in_one_pass(self):
+        self.stitched()
+        self.movie["title"] = "Groups & <members> {{sections}}"
+        page = movie.hub(self.dir, self.movie, [0.0, 70.0, 140.0, 210.0])
+        self.assertIn("<h1>Groups &amp; &lt;members&gt; {{sections}}</h1>", page)
+        self.assertEqual(page.count('<section id="ch-members">'), 1)
+
+    def test_stitch_writes_index_html(self):
+        self.build_all()
+        code, out, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines()[-2:], ["hub: ok index.html", "length: ok (270.0 s)"])
+        page = Path(self.dir, "index.html").read_text(encoding="utf-8")
+        self.assertIn("<title>How a consumer group rebalances</title>", page)
+        self.assertIn("<h1>How a consumer group rebalances</h1>", page)
+        self.assertIn('data-start="210.0"', page)
 
 
 class SaveCase(MovieCase):

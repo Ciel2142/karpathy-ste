@@ -1,12 +1,12 @@
 #!/bin/bash
-# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5), plus bpmn and, for a lesson or a
-# course, media.
+# verify.sh: the four checks an explain artifact must pass before handoff (spec 5.5), plus bpmn and, for a lesson, a
+# course or a movie, media.
 #
 #   verify.sh <index.html>
 #   env VERIFY_TIMEOUT   seconds to wait for each Chrome DOM dump (default 60)
 #
 #   exit 0  all checks of the rung passed (sheet: five lines; page: six; lesson: seven; course: seven;
-#           onboard: six; video: three)
+#           onboard: six; movie: seven; video: three)
 #   exit 1  at least one check failed
 #   exit 2  usage: no argument, unreadable file, no or unknown <meta name="explain-rung">
 #
@@ -17,15 +17,15 @@
 #                      | FAIL data-verify preset in source
 #   citations: ok | FAIL <n> failure(s) | FAIL cite_check exit <code>
 #   prose: ok | FAIL <n> error(s) | FAIL lint usage error (exit 2) | FAIL lint exit <code>
-#   media: ok | FAIL <n> missing   (a lesson or a course; after prose)
+#   media: ok | FAIL <n> missing   (a lesson, a course or a movie; after prose)
 #   bpmn: ok | none | FAIL <n> failure(s) | FAIL bpmn exit <code>   (not a video; the last line; a sheet skips conditions 1, 2)
 # Detail lines follow a failing check, indented by two spaces: each remote reference as "<tag> <attr>=<value>" (for CSS:
 # "<tag> style=<fragment>" for a style attribute, "style css=<fragment>" for <style> text), each cite_check failure, each
 # lint error, each missing media reference as "<tag> <attr>=<value>" (the value as written), each bpmn.py check failure.
-# The media check counts each local video src or poster and each <a href> into clips/ that names no file; for a course
-# (the hub) it also counts each <a href> into lessons/ that names no file, once per distinct value: the hub links one
-# lesson from its diagram boxes and from its lesson list, and one missing lesson is one fault.
-# A sheet has one render line (1920x1080); a page, a lesson, a course or an onboarding page two (1440x900, 500x844); a video none.
+# The media check counts each local video src or poster and each <a href> into clips/ (for a movie hub, chapters/ or
+# bridges/ too) that names no file; for a course hub, each <a href> into lessons/ that names no file, once per distinct
+# value: the hub links one lesson from its diagram boxes and from its lesson list, and one missing lesson is one fault.
+# A sheet has one render line (1920x1080); every other rung but a video two (1440x900, 500x844); a video none.
 # Every check runs even after an earlier one failed.
 #
 # Only the guard may write data-verify. If the source <html> start tag already carries
@@ -128,7 +128,8 @@ indent() {
 # data-verify attribute, else "preset=no". Then one line per remote reference
 # (check 1), then one line "media-missing <tag> <attr>=<value>" per local media
 # reference that names no file inside the directory of index.html (check 5; only a
-# lesson or a course reports them; the lessons/ links count for a course only).
+# lesson, a course or a movie reports them; the lessons/ links count for a course only, the
+# chapters/ and bridges/ links for a movie only).
 scan() {
     python3 - "$1" <<'PY'
 import os
@@ -152,8 +153,8 @@ def remote(value):
 
 
 def local_href(value, folder):
-    """True for an <a href> into `folder` ("clips/" or "lessons/"): leading whitespace and
-    "./" are ignored."""
+    """True for an <a href> into `folder` ("clips/", "lessons/", "chapters/" or "bridges/"):
+    leading whitespace and "./" are ignored."""
     value = value.lstrip()
     if value.startswith("./"):
         value = value[2:]
@@ -175,6 +176,7 @@ class Scanner(HTMLParser):
         self.refs = []
         self.media = []      # (tag, attr, value): local video src, poster and clips/ links
         self.lessons = []    # (tag, attr, value): lessons/ links (a course hub only)
+        self.parts = []      # (tag, attr, value): chapters/ and bridges/ links (a movie hub only)
         self.in_style = False
 
     def handle_starttag(self, tag, attrs):
@@ -203,6 +205,9 @@ class Scanner(HTMLParser):
             elif tag == "a" and name == "href" and local_href(value, "lessons/"):
                 if (tag, name, value.strip()) not in self.lessons:
                     self.lessons.append((tag, name, value.strip()))
+            elif tag == "a" and name == "href" and (
+                    local_href(value, "chapters/") or local_href(value, "bridges/")):
+                self.parts.append((tag, name, value.strip()))
         if tag == "style":
             self.in_style = True
 
@@ -235,7 +240,8 @@ for ref in scanner.refs:
 # relative path inside the directory of index.html counts (spec 3.4): an absolute path,
 # or one that leaves the directory after normalization, is missing even if it exists.
 base = os.path.dirname(sys.argv[1])
-media = scanner.media + (scanner.lessons if scanner.rung == "course" else [])
+media = scanner.media + (scanner.lessons if scanner.rung == "course" else []) + (
+    scanner.parts if scanner.rung == "movie" else [])
 for tag, attr, value in media:
     path = urllib.parse.unquote(re.split(r"[#?]", value, maxsplit=1)[0])
     inside = not os.path.isabs(path) and os.path.normpath(path).split(os.sep)[0] != os.pardir
@@ -323,9 +329,10 @@ case "$rung_line" in
     rung=lesson) viewports="1440x900 500x844" ;;
     rung=course) viewports="1440x900 500x844" ;;   # the hub of a course: a page
     rung=onboard) viewports="1440x900 500x844" ;;   # an onboarding page: a page
+    rung=movie) viewports="1440x900 500x844" ;;   # the transcript hub of a movie: a page
     rung=video) viewports="" ;;   # a transcript: no viewport render, check 2 is skipped
     rung-missing) usage "no <meta name=\"explain-rung\"> in $input_abs" ;;
-    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video, lesson, course or onboard)" ;;
+    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video, lesson, course, onboard or movie)" ;;
 esac
 
 # --- check 1: self-containment -------------------------------------------------
@@ -402,9 +409,9 @@ case "$lint_status" in
         ;;
 esac
 
-# --- check 5: media (a lesson or a course) -------------------------------------
+# --- check 5: media (a lesson, a course or a movie) ----------------------------
 
-if [ "$rung_line" = "rung=lesson" ] || [ "$rung_line" = "rung=course" ]; then
+if [ "$rung_line" = "rung=lesson" ] || [ "$rung_line" = "rung=course" ] || [ "$rung_line" = "rung=movie" ]; then
     if [ -z "$media_missing" ]; then
         echo "media: ok"
     else

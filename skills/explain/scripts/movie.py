@@ -43,11 +43,14 @@ one video and one audio stream, a duration within 0.5 s of the sum; then it repl
 `video.mp4`. `transcript` follows `container`: it reads each chapter's `chapters/<id>/index.html`
 (`transcript: ok (<n> chapters)` | `FAIL chapter <id>: no transcript` | `FAIL chapter <id>:
 transcript has no section <ask|answer>`) and writes `build/hub-sections.html` (a section per
-chapter, with narration and cites) and `review/viewer-transcript.html` (the title, the question
-texts, a section per chapter without `ask`, `answer` and cites). The transcript markup is read
-with a section regex over the text between `<main>` and `</main>`, not an HTML parser: the
-markup is the one `video/transcript.py` writes (a `<section id>` holding `<h2>`, `<p>` and an
-optional `div.cites`, none of them nested), and the regex keeps inline tags as written.
+chapter, with narration, cites and a link to the chapter's transcript) and
+`review/viewer-transcript.html` (the title, the question texts, a section per chapter without
+`ask`, `answer`, cites and link). The transcript markup is read with a section regex over the
+text between `<main>` and `</main>`, not an HTML parser: the markup is the one
+`video/transcript.py` writes (a `<section id>` holding `<h2>`, `<p>` and an optional
+`div.cites`, none of them nested), and the regex keeps inline tags as written.
+`hub` follows `transcript`: it fills `templates/movie.html` from `movie.json`, the chapter
+starts and `build/hub-sections.html`, and writes `index.html` (`hub: ok index.html`).
 `length` is last and only sets the exit code, on the container's duration.
 Seconds print with one decimal. ffprobe (`-of json`) and ffmpeg are those of the Remotion CLI,
 `<ws>/app/node_modules/.bin/remotion` with `<ws>` from `$EXPLAIN_VIDEO_WORKSPACE`, else
@@ -63,6 +66,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 
 from cite_check import fact_problems
 from course import _find_ste_lint
@@ -750,8 +754,11 @@ def _chapter_html(chapter, bodies):
 
 
 def hub_section(chapter, sections):
-    """The chapter's section for the hub: every scene's narration and cites, in order."""
-    return _chapter_html(chapter, list(sections.values()))
+    """The chapter's section for the hub: every scene's narration and cites, in order, then the
+    link to the chapter's own transcript."""
+    link = '<a href="chapters/%s/index.html" data-ste="skip">transcript</a>' % html.escape(
+        str(chapter.get("id")))
+    return _chapter_html(chapter, list(sections.values()) + [link])
 
 
 def viewer_section(chapter, sections):
@@ -781,8 +788,80 @@ def _stage_transcript(job):
     return "(%d chapters)" % len(chapters), {}
 
 
+HUB_TEMPLATE = os.path.join(SKILL_DIR, "templates", "movie.html")
+HUB_PAGE = "index.html"
+HUB_MARKER = re.compile(r"\{\{([a-z_]+)\}\}")
+
+
+def _hub_cite(cite):
+    """One `<cite>` of a viewer question, as `page.html` writes it: `<name>:<line>` and the
+    snippet as code; a URL cite shows its host and has no line."""
+    path, snippet = str(cite.get("path")), str(cite.get("snippet"))
+    if path.startswith(("http://", "https://")):
+        return '<cite data-path="%s" data-snippet="%s">%s <code>%s</code></cite>' % (
+            html.escape(path), html.escape(snippet),
+            html.escape(urllib.parse.urlsplit(path).netloc or path), html.escape(snippet))
+    line = html.escape(str(cite.get("line")))
+    return '<cite data-path="%s" data-line="%s" data-snippet="%s">%s:%s <code>%s</code></cite>' % (
+        html.escape(path), line, html.escape(snippet), html.escape(os.path.basename(path)), line,
+        html.escape(snippet))
+
+
+def _hub_questions(movie):
+    """The `<dl>` of the viewer questions: each text, then its answer, the answer's cites block
+    as its last child (none for a question without cites)."""
+    items = []
+    for question in _objects(movie.get("questions")):
+        cites = "".join(_hub_cite(cite) for cite in _objects(question.get("cites")))
+        block = '<div class="cites" data-ste="skip">%s</div>' % cites if cites else ""
+        items.append("<dt>%s</dt>\n<dd>%s%s</dd>\n" % (html.escape(str(question.get("text"))),
+                                                       html.escape(str(question.get("answer"))),
+                                                       block))
+    return '<dl class="questions">\n%s</dl>' % "".join(items)
+
+
+def _hub_chapters(movie, starts):
+    """The `<ol id="chapters">`: one link per chapter to its section, with its start second."""
+    items = ['<li><a href="#ch-%s" data-start="%.1f">%s</a></li>\n' % (
+        html.escape(str(chapter.get("id"))), start, html.escape(str(chapter.get("title"))))
+        for chapter, start in zip(_objects(movie.get("chapters")), starts)]
+    return '<ol id="chapters">\n%s</ol>' % "".join(items)
+
+
+def hub(movie_dir: str, movie: dict, starts: list[float]) -> str:
+    """The text of the hub `index.html` (spec 4.6): `templates/movie.html` with each marker
+    filled in one pass, so a filled-in value is not read again for markers. Every value is
+    escaped except the prebuilt `questions`, `chapters` and `sections`; `sections` is the text of
+    `build/hub-sections.html`, which the transcript stage writes. OSError when either file
+    cannot be read."""
+    with open(HUB_TEMPLATE, encoding="utf-8") as handle:
+        template = handle.read()
+    with open(os.path.join(movie_dir, HUB_FILE), encoding="utf-8") as handle:
+        sections = handle.read()
+    subject = movie.get("subject") if isinstance(movie.get("subject"), dict) else {}
+    provenance = movie.get("provenance") if isinstance(movie.get("provenance"), dict) else {}
+    values = {key: html.escape(str(value)) for key, value in (
+        ("lang", movie.get("lang")), ("title", movie.get("title")),
+        ("question", movie.get("question")),
+        ("root", resolve_root(movie_dir, str(provenance.get("root")))),
+        ("kind", subject.get("kind")),
+        ("subject", "%s (%s)" % (subject.get("text"), subject.get("kind"))),
+        ("source", provenance.get("source")), ("date", provenance.get("date")),
+        ("commit", provenance.get("commit")), ("dirty", provenance.get("dirty")),
+        ("not_covered", provenance.get("not_covered")))}
+    values.update(questions=_hub_questions(movie), chapters=_hub_chapters(movie, starts),
+                  sections=sections.rstrip("\n"))
+    return HUB_MARKER.sub(lambda found: values[found.group(1)], template)
+
+
+def _stage_hub(job):
+    _write_atomic(os.path.join(job["dir"], HUB_PAGE), hub(job["dir"], job["movie"], job["starts"]))
+    return HUB_PAGE, {}
+
+
 STITCH_STAGES = (("parts", _stage_parts), ("concat", _stage_concat),
-                 ("container", _stage_container), ("transcript", _stage_transcript))
+                 ("container", _stage_container), ("transcript", _stage_transcript),
+                 ("hub", _stage_hub))
 
 
 def _print_length(duration):
