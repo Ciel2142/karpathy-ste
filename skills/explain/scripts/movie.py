@@ -14,6 +14,10 @@ the same directory, then `os.replace` (`save` writes `movie.json` that way).
 `<lo>` and `<hi>` are the sum of the chapter `seconds` plus a bridge of 8 s, then of 15 s, in
 each gap (spec 4.4); `<lo>` must be at least 240 and `<hi>` at most 900, else
 `schema: seconds sum <s>, <lo>..<hi> s with bridges (min 240, max 900)`.
+A question's `text` and `answer` and a chapter's `question` hold at most 20 words (a word is a
+whitespace-separated token; 20 is the STE-80 sentence cap, which keeps a bridge within 8 to
+15 s), else `question <id>: text has <n> words (max 20)`,
+`question <id>: answer has <n> words (max 20)` or `chapter <id>: question has <n> words (max 20)`.
 Failure prefixes are fixed: `schema:`, `id:`, `question <id>:`,
 `chapter <id>:`, `cite <question-id>#<n>:` (the rules of `cite_check`), `prose:` (an
 `ste_lint.py --html` error line) and `state:`.
@@ -100,6 +104,7 @@ MIN_SECONDS, MAX_SECONDS = 30, 150
 MIN_TOTAL, MAX_TOTAL = 240, 900
 MIN_BRIDGE, MAX_BRIDGE = 8, 15  # seconds of a bridge (spec 4.4)
 MAX_ANSWERS = 2
+MAX_WORDS = 20  # of a question text, an answer, a chapter question: the STE-80 sentence cap
 STATES = ("planned", "building", "stitched")
 STATUSES = ("pending", "built", "failed")
 KINDS = ("topic", "file", "directory")
@@ -260,6 +265,8 @@ def _check_questions(movie):
         for key in ("text", "answer"):
             if not isinstance(question.get(key), str):
                 failures.append("question %s: %s must be a string" % (label, key))
+            else:
+                failures += _check_words("question %s: %s" % (label, key), question[key])
         cites = question.get("cites")
         if not isinstance(cites, list):
             failures.append("question %s: cites must be a list" % label)
@@ -269,6 +276,13 @@ def _check_questions(movie):
                 failures.append("question %s: a file or directory subject needs at least"
                                 " one cite" % label)
     return failures
+
+
+def _check_words(what, text):
+    """`<what> has <n> words (max 20)` when `text` holds more than MAX_WORDS whitespace-separated
+    words; a bridge speaks the question and the answer, and this keeps it within 8 to 15 s."""
+    words = len(text.split())
+    return ["%s has %d words (max %d)" % (what, words, MAX_WORDS)] if words > MAX_WORDS else []
 
 
 def _check_id(what, item, label):
@@ -331,6 +345,8 @@ def _with_bridges(seconds, chapters):
 def _check_chapter_fields(chapter, label, known):
     failures = ["chapter %s: %s must be a string" % (label, key)
                 for key in CHAPTER_TEXT if not isinstance(chapter.get(key), str)]
+    if isinstance(chapter.get("question"), str):
+        failures += _check_words("chapter %s: question" % label, chapter["question"])
     if chapter.get("status") not in STATUSES:
         failures.append("chapter %s: status must be one of %s" % (label, ", ".join(STATUSES)))
     if not isinstance(chapter.get("reason"), str):

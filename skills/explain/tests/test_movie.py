@@ -101,6 +101,30 @@ class CheckCase(MovieCase):
             self.failures(),
             ["chapter split: seconds must be an integer from 30 to 150"])
 
+    # a question text, an answer and a chapter question hold at most 20 words (two sentences here,
+    # so that the prose check passes them and the cap alone refuses them)
+
+    def test_a_question_text_over_20_words(self):
+        self.movie["questions"][0]["text"] = ("Who joins the group and who leaves it? Which consumer"
+                                              " then keeps which of the six partitions of the old topic?")
+        self.assertEqual(self.failures(), ["question q-1: text has 21 words (max 20)"])
+
+    def test_an_answer_over_20_words(self):
+        self.movie["questions"][0]["answer"] = ("A member joins or leaves. A member misses its heartbeat."
+                                                " The coordinator then stops the work of each member of"
+                                                " the group.")
+        self.assertEqual(self.failures(), ["question q-1: answer has 22 words (max 20)"])
+
+    def test_a_chapter_question_over_20_words(self):
+        self.chapter("members")["question"] = ("Which consumers are in the group now? Which of them"
+                                               " reads which of the six partitions of the old topic today?")
+        self.assertEqual(self.failures(), ["chapter members: question has 21 words (max 20)"])
+
+    def test_20_words_pass(self):
+        self.movie["questions"][0]["text"] = ("Who joins the group and who leaves it? Which consumer"
+                                              " then keeps which of the six partitions of the topic?")
+        self.assertEqual(self.failures(), [])
+
     def test_a_duplicate_id(self):
         self.chapter("split")["id"] = "q-1"
         self.assertIn("id: q-1 is used twice", self.failures())
@@ -660,7 +684,7 @@ class StitchCase(MovieCase):
                       ' data-line="3" data-snippet="def join(member):">group.py:3 <code>def'
                       " join(member):</code></cite></div></dd>", page)
         self.assertIn("<dt>Who decides the new split?</dt>\n<dd>The group leader decides the"
-                      " split. The coordinator sends it out.</dd>", page)
+                      " split, and the coordinator sends it out.</dd>", page)
 
     def test_hub_escapes_plan_text_in_one_pass(self):
         self.stitched()
