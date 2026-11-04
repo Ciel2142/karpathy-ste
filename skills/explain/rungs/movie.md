@@ -495,13 +495,18 @@ the user approves each plan. A plan has at most 10 chapters: if it has 10, stop 
 "Check and stop".
 
 1. Set `state` to `planned`. Run `movie.py check <movie-dir>`.
-2. Add the new chapter at the end of `chapters`, with `status` `pending` and `reason` `""`. Write its
-   fields by the rules of "Plan the chapters".
-3. Start its `picture` from the `ends_with` of the chapter before it. Thus no `built` chapter changes.
-4. Give it one or two questions in `answers`. Choose the questions that a new chapter can show in
+2. Add the new chapter at the end of `chapters` as "Edit the plan" says. Make one edit for each
+   field, escape each text, and run `check` after each edit.
+3. The first edit adds the object with its `id`, `status` `pending` and `reason` `""`. Until the
+   object has all its fields, `check` prints a `chapter <id>:` line for each field that is not there
+   yet.
+4. Never write the whole file again: it holds the `status` and the `reason` of each chapter. The rules
+   of "Plan the chapters" give the contents of the fields, not the way to write the file.
+5. Start its `picture` from the `ends_with` of the chapter before it. Thus no `built` chapter changes.
+6. Give it one or two questions in `answers`. Choose the questions that a new chapter can show in
    more depth.
-5. Give it a `seconds` of at least the gap times 1.25, and at most 150.
-6. Run `movie.py check <movie-dir>`. Then go to step 1 of "Check and stop".
+7. Give it a `seconds` of at least the gap times 1.25, and at most 150.
+8. When `check` prints no line about the new chapter, go to step 1 of "Check and stop".
 
 After the approval, "Build the chapters" builds only the new chapter. The new gap adds a bridge.
 "Bridges" writes and renders each bridge again.
@@ -581,8 +586,8 @@ is the number of the round. In the name of a still, it is the place of the chapt
 3. If the last complete round marks each question `understood`, the gate is complete. Go to "Verify
    and handoff".
 4. If two rounds are complete, the gate is complete too. Make sure that `not_covered` has a
-   `viewer missed: <question>` line for each `missed` question of round 2. Then go to "Verify and
-   handoff".
+   `viewer missed: <question>` line for each question that the `## Author` block of round 2 marks
+   `missed`. Then go to "Verify and handoff".
 5. If `review/viewer-round-<k>.md` exists, an earlier run stopped in this round. Move the report to
    `review/viewer-round-<k>.stale-<n>.md`. `<n>` is the first number from 1 that no file has. Never
    delete a report.
@@ -668,8 +673,9 @@ short, and each bridge then comes from the current `movie.json`.
 
 After round 2, do these steps:
 
-1. For each question that the viewer missed again, write `viewer missed: <question>` into
-   `provenance.not_covered`. `<question>` is the `text` of the question in `movie.json`.
+1. For each question that the `## Author` block of round 2 marks `missed`, write
+   `viewer missed: <question>` into `provenance.not_covered`. `<question>` is the `text` of the
+   question in `movie.json`.
 2. Write the line as "The chapter gate" says for a `disputed:` line. The `text` of a question ends
    with `?`: add no period after it.
 3. For a `prose:` line about `provenance.not_covered`, write the line again under the STE profile.
