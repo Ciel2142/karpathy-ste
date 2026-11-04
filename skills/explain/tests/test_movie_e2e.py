@@ -122,16 +122,18 @@ def printed(function, *args):
 
 
 class MovieChapterCase(unittest.TestCase):
-    # red: chapter_from_clip keeps "format": "clip", keeps the clip's title, or misses the rename of the
-    # last scene (chapter <id>: last scene is handoff, not answer); or a scene file keeps at("subject"
+    # red: chapter_from_clip keeps "format": "clip", keeps the clip's title or the clip's root ".", or
+    # misses the rename of the last scene (chapter <id>: last scene is handoff, not answer); or a scene
+    # file keeps at("subject"
     def test_the_fixture_chapters_pass_check_chapter_script(self):
         out = movie_output()
-        for chapter in movie.load(str(out))["chapters"]:
+        plan = movie.load(str(out))
+        for chapter in plan["chapters"]:
             with self.subTest(chapter=chapter["id"]):
                 directory = chapter_from_clip(out, chapter["id"])
                 # check_chapter_script passes a chapter with no script: the script must be there
                 self.assertTrue((directory / "script.json").is_file())
-                self.assertEqual(movie.check_chapter_script(str(out), chapter), [])
+                self.assertEqual(movie.check_chapter_script(str(out), chapter, plan), [])
                 left = ['%s: at("%s"' % (path.name, old) for path in sorted((directory / "scene").glob("*.tsx"))
                         for old in RENAMES if 'at("%s"' % old in path.read_text(encoding="utf-8")]
                 self.assertEqual(left, [])

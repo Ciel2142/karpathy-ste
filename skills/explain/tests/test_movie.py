@@ -241,6 +241,20 @@ class ChapterScriptCase(MovieCase):
         self.edit_script(lambda s: s.update(format="clip"))
         self.assertEqual(self.failures(), ["chapter members: format is clip, not film"])
 
+    def test_script_root_must_match(self):
+        # red: the roots are not compared, or compared as written rather than resolved
+        self.edit_script(lambda s: s["provenance"].update(root="/elsewhere"))
+        self.assertEqual(self.failures(), ["chapter members: root /elsewhere differs from the"
+                                           " movie's %s" % os.path.abspath(self.dir)])
+        self.edit_script(lambda s: s["provenance"].update(root=os.path.abspath(self.dir) + "/"))
+        self.assertEqual(self.failures(), [])
+
+    def test_script_lang_must_match(self):
+        self.edit_script(lambda s: s.update(lang="ru"))
+        self.assertEqual(self.failures(), ["chapter members: lang ru differs from the movie's en"])
+        self.edit_script(lambda s: s.pop("lang"))  # a script without lang is en, as narrate.py reads it
+        self.assertEqual(self.failures(), [])
+
     def test_script_failures_count_in_the_plan_line(self):
         self.edit_script(lambda s: s.update(format="clip", title="X"))
         code, out, _ = run_cli("check", self.dir)

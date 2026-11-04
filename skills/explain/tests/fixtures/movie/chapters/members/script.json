@@ -2,6 +2,15 @@
   "format": "film",
   "title": "The members",
   "lang": "en",
+  "subject": {"text": "consumer group rebalance", "kind": "topic"},
+  "provenance": {
+    "root": ".",
+    "commit": "none",
+    "dirty": "no",
+    "date": "2026-11-03",
+    "source": "model knowledge",
+    "not_covered": "none"
+  },
   "scenes": [
     {"id": "ask", "narration": "Who is in a group?"},
     {"id": "body", "narration": "Three consumers share six partitions."},

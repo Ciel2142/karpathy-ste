@@ -21,7 +21,11 @@ whitespace-separated token; 20 is the STE-80 sentence cap, which keeps a bridge 
 `lang` is `en` or `ru`, else `schema: lang must be en or ru`. A cite needs `path`, `line` (an
 integer from 1) and `snippet`, else `question <id>: cite <n> needs path, line and snippet`; a
 URL cite (its `path` starts with `http://` or `https://`) needs no `line`, else
-`question <id>: cite <n> needs path and snippet`. Failure prefixes are fixed:
+`question <id>: cite <n> needs path and snippet`. When `chapters/<id>/script.json` exists,
+`check` tests it by spec 4.3 and compares it with the movie:
+`chapter <id>: root <r> differs from the movie's <m>` (both roots resolved as above, absolute or
+relative to `<dir>`) and `chapter <id>: lang <l> differs from the movie's <m>` (a script without
+`lang` is `en`, as narrate.py reads it). Failure prefixes are fixed:
 `schema:`, `id:`, `question <id>:`, `chapter <id>:`, `cite <question-id>#<n>:` (the rules of
 `cite_check`), `prose:` (an `ste_lint.py --html` error line) and `state:`.
 
@@ -476,8 +480,9 @@ def _check_prose(movie):
     return errors
 
 
-def check_chapter_script(movie_dir, chapter):
-    """Failures of `chapters/<id>/script.json` against spec 4.3; empty when there is no script."""
+def check_chapter_script(movie_dir, chapter, movie):
+    """Failures of `chapters/<id>/script.json` against spec 4.3 and of its root and lang against
+    those of `movie`; empty when there is no script."""
     ident = chapter.get("id")
     if not isinstance(ident, str):
         return []
@@ -498,12 +503,32 @@ def check_chapter_script(movie_dir, chapter):
     title = chapter.get("title")
     if script.get("title") != title:
         failures.append(prefix + 'script title "%s" differs from "%s"' % (script.get("title"), title))
+    failures += [prefix + failure for failure in _script_against_movie(movie_dir, script, movie)]
     scenes = _objects(script.get("scenes"))
     if not scenes:
         return failures + [prefix + "script has no scenes"]
     for position, name, scene in (("first", "ask", scenes[0]), ("last", "answer", scenes[-1])):
         if scene.get("id") != name:
             failures.append(prefix + "%s scene is %s, not %s" % (position, scene.get("id"), name))
+    return failures
+
+
+def _script_against_movie(movie_dir, script, movie):
+    """`root <r> differs from the movie's <m>` when the resolved roots differ (each read as
+    `provenance.root` of movie.json is: absolute, or relative to `<dir>`), and `lang <l> differs
+    from the movie's <m>` (a script without `lang` is `en`, as narrate.py reads it). A root that
+    is not a string is not compared (the render's script stage refuses it), nor a lang of the
+    movie that `check` already refuses."""
+    failures = []
+    roots = [provenance.get("root") if isinstance(provenance, dict) else None
+             for provenance in (script.get("provenance"), movie.get("provenance"))]
+    if all(isinstance(root, str) for root in roots):
+        mine, theirs = (resolve_root(movie_dir, root) for root in roots)
+        if mine != theirs:
+            failures.append("root %s differs from the movie's %s" % (mine, theirs))
+    lang = script.get("lang", "en")
+    if movie.get("lang") in LANGS and lang != movie["lang"]:
+        failures.append("lang %s differs from the movie's %s" % (lang, movie["lang"]))
     return failures
 
 
@@ -518,7 +543,7 @@ def check(movie_dir, movie):
     failures += _check_prose(movie)
     failures += _check_state(movie)
     for chapter in _objects(movie.get("chapters")):
-        failures += check_chapter_script(movie_dir, chapter)
+        failures += check_chapter_script(movie_dir, chapter, movie)
     return failures
 
 
