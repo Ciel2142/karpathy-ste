@@ -1,5 +1,6 @@
-"""The subagent prompts of the movie rung (spec sections 4.3, 5 and D12): movie/chapter-task.md, the brief of
-one chapter subagent. Tasks 4 and 5 of wave 2 add movie/review-viewer.md and movie/review-chapter.md.
+"""The subagent prompts of the movie rung (spec sections 4.3, 5 and D10 to D12): movie/chapter-task.md, the brief
+of one chapter subagent, and movie/review-viewer.md, the brief of the cold viewer. Task 5 of wave 2 adds
+movie/review-chapter.md.
 
 Each prompt is a template. The orchestrator fills it by plain text replacement of {name}, so a prompt holds
 the placeholders of PLACEHOLDERS and no other word in braces (every {name} counts, name = letters and "_").
@@ -9,10 +10,13 @@ output directory instead of convention 5, no write of movie.json, the `ask` scen
 scene last (movie.py check tests the ids, the prompt says what they speak), the root and the lang of the
 movie, the length target with its tolerance of a fifth (the remedy of "Stitch" relies on it), no `.bpmn`
 cite, the check before the first render, no `open`, the amendment that changes the picture and never the
-answers (Review Focus 5), and the `disputed:` lines of D12 before the result line.
+answers (Review Focus 5), and the `disputed:` lines of D12 before the result line. The viewer prompt holds the
+closure of D10 and spec 5 step 8 (VIEWER_TEXTS): the viewer reads the viewer page and the stills that it names,
+and no other file of the run, answers in its own words or with `cannot answer`, and guesses nothing.
 
 The rung ties back: the {name} set of rungs/movie.md is the union of PLACEHOLDERS (its fill tables), the fill
-table of "Build the chapters" has one row for each placeholder of the chapter prompt, and each key of
+table of "Build the chapters" has one row for each placeholder of the chapter prompt, the fill table of "The
+viewer gate" has one row for each placeholder of the viewer prompt, and each key of
 PLACEHOLDERS is a file in MOVIE_DIR that the rung names as `<skill-dir>/movie/<file>`. The prompts pass the
 STE lint.
 
@@ -36,10 +40,12 @@ CHAPTER, VIEWER, REVIEW = "chapter-task.md", "review-viewer.md", "review-chapter
 PLACEHOLDERS = {
     CHAPTER: frozenset({"skill_dir", "movie_dir", "chapter_id", "chapter_json", "questions_json", "other_chapters",
                         "subject_json", "root", "lang", "review", "amendment"}),
+    VIEWER: frozenset({"transcript", "stills_dir", "report", "movie_dir", "lang"}),
 }
 # The one line that each subagent ends its reply with; the orchestrator reads it, not the work.
 RESULT_LINES = {
     CHAPTER: ("chapter: {chapter_id} built", "chapter: {chapter_id} failed <reason>"),
+    VIEWER: ("viewer: done", "viewer: failed <reason>"),
 }
 # The overrides of the movie, as chapter-task.md words them.
 CHAPTER_OVERRIDES = (
@@ -82,6 +88,21 @@ CHAPTER_OVERRIDES = (
     "The chapter ships: render it, and end with `chapter: {chapter_id} built`.",
     "Before that line, write one `disputed: <finding>` line for each such finding.",
 )
+# The closure of the cold viewer (D10, spec 5 step 8), as review-viewer.md words it: the viewer page and the
+# stills that it names, no other file of the run, an answer in its own words or `cannot answer`, no guess, the
+# last line of the report, and the `## Author` block that the author appends.
+VIEWER_TEXTS = (
+    "{transcript}",
+    "still: viewer-stills/",
+    "not `movie.json`",
+    "no `script.json`",
+    "no other still",
+    "cannot answer",
+    "in your own words",
+    "guess nothing",
+    "viewer: done",
+    "## Author",
+)
 # A row of a fill table: `| `{name}` | ... |`.
 FILL_ROW = re.compile(r"^\| `\{([A-Za-z_]+)\}` \|", re.MULTILINE)
 
@@ -118,6 +139,13 @@ class MoviePromptCase(unittest.TestCase):
         text = squash(prompt(CHAPTER))
         self.assertEqual([want for want in CHAPTER_OVERRIDES if squash(want) not in text], [])
 
+    # red: the viewer may read `movie.json`, a `script.json` or another still (then it can always answer), the
+    # still name of the viewer page left out, `cannot answer` or `guess nothing` left out (then it guesses), or
+    # the report without its last line
+    def test_viewer_reads_only_the_transcript_and_its_stills(self):
+        text = squash(prompt(VIEWER))
+        self.assertEqual([want for want in VIEWER_TEXTS if squash(want) not in text], [])
+
     # red: a placeholder of a prompt that the fill tables of the rung leave out, or a word in braces in the rung
     # that no prompt has
     def test_rung_names_every_placeholder(self):
@@ -128,6 +156,12 @@ class MoviePromptCase(unittest.TestCase):
     def test_build_section_fills_each_chapter_placeholder(self):
         rows = FILL_ROW.findall(section(read(MOVIE_MD), "Build the chapters"))
         self.assertEqual(sorted(rows), sorted(PLACEHOLDERS[CHAPTER]))
+
+    # red: a row of the fill table of the viewer prompt left out of "The viewer gate", put in another section, or
+    # written two times
+    def test_viewer_section_fills_each_viewer_placeholder(self):
+        rows = FILL_ROW.findall(section(read(MOVIE_MD), "The viewer gate"))
+        self.assertEqual(sorted(rows), sorted(PLACEHOLDERS[VIEWER]))
 
     # red: a prompt file renamed on disk or in the rung, a prompt of PLACEHOLDERS that the rung never names, or a
     # prompt named that is none of the three of the movie rung (Task 5 adds the equality of the full set)

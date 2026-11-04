@@ -702,6 +702,11 @@ Give the result to the subagent as its prompt. Fill its names as the table below
 
 | Name | Fill with |
 |---|---|
+| `{transcript}` | The absolute path of `<movie-dir>/review/viewer-transcript.html`. |
+| `{stills_dir}` | The absolute path of `<movie-dir>/review/viewer-stills`. |
+| `{report}` | The absolute path of `<movie-dir>/review/viewer-round-<k>.md`. `<k>` is the number of the round, from "Find the round". |
+| `{movie_dir}` | The absolute path of `<movie-dir>`. |
+| `{lang}` | The `lang` of `movie.json`: `en` or `ru`. |
 
 ## 9. Verify and handoff
 
