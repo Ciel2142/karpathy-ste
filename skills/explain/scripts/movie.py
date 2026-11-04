@@ -61,9 +61,9 @@ one video and one audio stream, a duration within 0.5 s of the sum; then it repl
 `review/viewer-transcript.html` and `review/viewer-stills/` of an earlier stitch, where present,
 so a stitch that fails from here on leaves no stale hub or viewer input (one that fails before
 `container` passes keeps them, with the old `video.mp4`). Then it reads each chapter's
-`chapters/<id>/index.html` and finds the chapter's viewer still, the `-end` still of the last scene before `answer` other
-than `ask`, as the render names it: `chapters/<id>/review/still-NN-<scene>-end.png`, NN the
-1-based place of the scene. Its lines:
+`chapters/<id>/index.html` and finds the chapter's viewer still, the `-end` still of the last
+scene before `answer` other than `ask`, as the render names it:
+`chapters/<id>/review/still-NN-<scene>-end.png`, NN the 1-based place of the scene. Its lines:
   transcript: ok (<n> chapters) | FAIL chapter <id>: no transcript
          | FAIL chapter <id>: transcript has no section <ask|answer>
          | FAIL chapter <id>: transcript has no section before answer
@@ -932,7 +932,8 @@ def _stage_transcript(job):
     stills = []
     for number, (chapter, source) in enumerate(zip(chapters, sources), start=1):
         name = "%d-%s.png" % (number, chapter.get("id"))
-        _copy_atomic(os.path.join(job["dir"], source), os.path.join(job["dir"], VIEWER_STILLS, name))
+        _copy_atomic(os.path.join(job["dir"], source),
+                     os.path.join(job["dir"], VIEWER_STILLS, name))
         stills.append("%s/%s" % (os.path.basename(VIEWER_STILLS), name))
     _write_atomic(os.path.join(job["dir"], VIEWER_FILE), _viewer_page(
         job["movie"], [viewer_section(c, s, still)

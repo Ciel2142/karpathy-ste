@@ -61,7 +61,8 @@ class CheckCase(MovieCase):
     def test_good_plan_prints_plan_ok(self):
         code, out, err = run_cli("check", self.dir)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)")
+        self.assertEqual(out.splitlines()[-1],
+                         "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)")
 
     def test_a_question_no_chapter_answers(self):
         for chapter in self.movie["chapters"]:
@@ -105,24 +106,27 @@ class CheckCase(MovieCase):
     # so that the prose check passes them and the cap alone refuses them)
 
     def test_a_question_text_over_20_words(self):
-        self.movie["questions"][0]["text"] = ("Who joins the group and who leaves it? Which consumer"
-                                              " then keeps which of the six partitions of the old topic?")
+        self.movie["questions"][0]["text"] = ("Who joins the group and who leaves it? Which"
+                                              " consumer then keeps which of the six partitions"
+                                              " of the old topic?")
         self.assertEqual(self.failures(), ["question q-1: text has 21 words (max 20)"])
 
     def test_an_answer_over_20_words(self):
-        self.movie["questions"][0]["answer"] = ("A member joins or leaves. A member misses its heartbeat."
-                                                " The coordinator then stops the work of each member of"
-                                                " the group.")
+        self.movie["questions"][0]["answer"] = ("A member joins or leaves. A member misses its"
+                                                " heartbeat. The coordinator then stops the work of"
+                                                " each member of the group.")
         self.assertEqual(self.failures(), ["question q-1: answer has 22 words (max 20)"])
 
     def test_a_chapter_question_over_20_words(self):
-        self.chapter("members")["question"] = ("Which consumers are in the group now? Which of them"
-                                               " reads which of the six partitions of the old topic today?")
+        self.chapter("members")["question"] = ("Which consumers are in the group now? Which of"
+                                               " them reads which of the six partitions of the old"
+                                               " topic today?")
         self.assertEqual(self.failures(), ["chapter members: question has 21 words (max 20)"])
 
     def test_20_words_pass(self):
-        self.movie["questions"][0]["text"] = ("Who joins the group and who leaves it? Which consumer"
-                                              " then keeps which of the six partitions of the topic?")
+        self.movie["questions"][0]["text"] = ("Who joins the group and who leaves it? Which"
+                                              " consumer then keeps which of the six partitions"
+                                              " of the topic?")
         self.assertEqual(self.failures(), [])
 
     def test_a_duplicate_id(self):
@@ -222,7 +226,8 @@ class ChapterScriptCase(MovieCase):
     def test_a_chapter_script_with_ask_and_answer_passes(self):
         code, out, err = run_cli("check", self.dir)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines()[-1], "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)")
+        self.assertEqual(out.splitlines()[-1],
+                         "plan: ok (3 questions, 4 chapters, 264..285 s with bridges)")
 
     def test_first_scene_must_be_ask(self):
         self.edit_script(lambda s: s["scenes"][0].update(id="intro"))
@@ -692,13 +697,24 @@ class StitchCase(MovieCase):
         self.assertEqual([name for name in outputs if not self.exists(name)], [])
         os.remove(os.path.join(self.dir, "chapters", "pause", "index.html"))
         code, out, _ = self.stitch(self.probes(durations))
-        self.assertEqual((code, out.splitlines()[-1]), (1, "transcript: FAIL chapter pause: no transcript"))
+        self.assertEqual((code, out.splitlines()[-1]),
+                         (1, "transcript: FAIL chapter pause: no transcript"))
         self.assertEqual([name for name in outputs if self.exists(name)], [])
 
     def test_the_still_is_of_the_last_scene_before_answer(self):
         sections = {"ask": "<p>q</p>", "one": "<p>1</p>", "two": "<p>2</p>", "answer": "<p>a</p>"}
         self.assertEqual(movie.still_source(self.chapter("pause"), sections),
                          "chapters/pause/review/still-03-two-end.png")
+
+    def test_viewer_transcript_fails_without_a_scene_before_answer(self):
+        self.build_all()
+        path = Path(self.dir, "chapters", "trigger", "index.html")
+        text = path.read_text(encoding="utf-8")
+        path.write_text(re.sub(r'<section id="body">.*?</section>', "", text, flags=re.S),
+                        encoding="utf-8")
+        code, out, _ = self.stitch(self.probes([60, 10, 60, 10, 60, 10, 60]))
+        self.assertEqual((code, out.splitlines()[-1]), (1, "transcript: FAIL chapter trigger:"
+                                                            " transcript has no section before answer"))
 
     # the hub page (spec 4.6)
 
