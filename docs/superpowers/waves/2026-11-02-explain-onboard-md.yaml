@@ -36,7 +36,7 @@ coverage: waived
 # `plantuml: ok 23 diagrams`, `page: ok`, `0 errors, 59 warnings`. Fixes at 7a6be5f: the check reports
 # `if without else` (eleven unlabelled fall-through edges in the run), the renderer lifts the 4096 px
 # clip, the rung gets the catch cite, the plain action for an outside wait and the fork of several
-# entries. Status stays pending until the user reads the page and the PNGs; leftovers: kp-5y4d.
+# entries. The user read the page and the PNGs and accepted them on 2026-11-05; leftovers: kp-5y4d.
 waves:
   - id: onboard-puml
     slice: vertical
@@ -133,7 +133,7 @@ waves:
       every flow of the map has a section and a picture, and the user has read the page and
       accepts it. Fixes to the rung or the scripts that the run shows are committed to the branch
       before finishing-a-development-branch.
-    status: pending
+    status: done
     depends_on: [onboard-md-page]
     owns:
       - out/ (discardable, never committed)
