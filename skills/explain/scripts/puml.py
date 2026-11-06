@@ -1,0 +1,294 @@
+"""PlantUML support for the `explain` onboard rung (spec sections 7 and 8).
+
+Reads the text of a `plantuml` fence, without the `@startuml` wrapper, and reports its kind, its nodes,
+its diagram faults and its node faults. Fence lines are numbered from 1, blank lines counted. This
+module holds the activity (spec 7.2), component (7.3) and state (7.4) forms; the parser is tolerant: a
+line that is none of the forms and none of the forbidden lines is ignored. `render` draws every `.puml`
+of a directory to PNG with one PlantUML run (spec 8) and `failed_lines` reads PlantUML's stderr; both are
+the CLI `puml.py render <diagrams-dir>`. Standard library only.
+"""
+
+import glob
+import os
+import re
+import shutil
+import subprocess
+import sys
+from typing import NamedTuple
+
+KINDS = ("activity", "component", "state")
+STYLE_LINES = re.compile(r"(?:skinparam|!pragma|!include|<style>|split|@startuml|@enduml)(?:\s|$)|backward:")
+COLOUR_PREFIX = re.compile(r"#\w+:")
+PREAMBLE = re.compile(r"(?:title|hide|scale)\b|left to right direction|top to bottom direction")
+CONDITION = re.compile(r"(?:if|elseif|while|repeat\s+while|switch)\s*\(")
+IF_OPEN = re.compile(r"if\s*\(")
+ELSE_LINE = re.compile(r"else(?:\s|\(|$)")  # a final `else`; an `elseif` leaves the fall-through unlabelled
+ENDIF = re.compile(r"end\s*if(?:\s|'|$)")
+HOP = re.compile(r"see\s+(\S+)")
+COMPONENT_ID = re.compile(r"[a-z][a-z0-9_]*")
+STATE_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+PARTS = ("component", "queue", "database", "cloud", "node", "rectangle", "interface", "actor")
+PART_DECLARATION = re.compile(r'(?:%s)\s+"[^"]*"\s+as\s+(\S+)' % "|".join(PARTS))
+BRACKET_DECLARATION = re.compile(r"\[([^\]]+)\]\s+as\s+(\S+)")
+BRACKET_ENDPOINT = re.compile(r"\[([^\]]+)\]")
+STATE_ALIAS = re.compile(r'state\s+"[^"]*"\s+as\s+([^\s:{]+)')
+STATE_DECLARATION = re.compile(r'state\s+([^\s{"][^\s{]*)')
+_ARROW_BODY = r"[-.]+(?:(?:\[[^\]]*\]|[a-z]+)[-.]*)?"
+ARROW = re.compile(rf"<{_ARROW_BODY}>?|{_ARROW_BODY}>")  # `->`, `-->`, `..>`, `-left->`, `-d->`, `-[hidden]->`, `<--`
+NOTE_OPEN = re.compile(r"(?:floating\s+)?note\s+(?:left|right|top|bottom|over)\b[^:]*$")
+NOTE_CLOSE = re.compile(r"end\s*note$")
+STAR = "[*]"
+STYLE = ("-Sdpi=144", "-SbackgroundColor=white", "-Sshadowing=false", "-SdefaultFontSize=14")
+ERROR_LINE = re.compile(r"Error line (\d+) in file: (.+)")
+
+
+class Parsed(NamedTuple):
+    kind: str | None  # one of KINDS, or None
+    nodes: list[str]  # distinct, in order of first appearance
+    faults: list[str]  # diagram faults without the `diagram <where>: ` prefix
+    node_faults: list[tuple[str, str]]  # (node, fault) without the `node <where>/` prefix
+    hops: list[str]  # the <flow-id> of each `:see <flow-id>;` action
+
+
+def _statements(block: str):
+    """Yield (fence line number, stripped text) for each line that is not blank, not a `'` comment and
+    not part of a multi-line `note ... end note` block."""
+    in_note = False
+    for number, line in enumerate(block.splitlines(), 1):
+        text = line.strip()
+        if not text or text.startswith("'"):
+            continue
+        if in_note:
+            in_note = NOTE_CLOSE.match(text) is None
+        elif NOTE_OPEN.match(text):
+            in_note = True
+        else:
+            yield number, text
+
+
+def _edge(text: str) -> tuple[str, str] | None:
+    """The two endpoints of an edge line, or None. The label is cut at the first `:` after the arrow, so
+    `a --> b: go` and `a --> b : go -> c` both end at `b`; an endpoint never holds a colon."""
+    arrow = ARROW.search(text)
+    if not arrow or text.startswith("note "):
+        return None
+    left, right = text[:arrow.start()].strip(), text[arrow.end():].split(":", 1)[0].strip()
+    return (left, right) if left and right and ":" not in left else None
+
+
+def _part_declaration(text: str) -> tuple[str | None, str] | None:
+    """(name or None, alias) when the line declares a component-form part, else None."""
+    part = PART_DECLARATION.match(text)
+    if part:
+        return None, part.group(1)
+    bracket = BRACKET_DECLARATION.match(text)
+    return (bracket.group(1), bracket.group(2)) if bracket else None
+
+
+def kind(block: str) -> str | None:
+    """The kind of the fence: `activity` when its first statement after the preamble is `start`; else
+    `state` when a line starts with `[*]` or `state `; else `component` when a line declares a part or
+    draws an edge; else None."""
+    texts = [text for _, text in _statements(block)]
+    first = next((text for text in texts if not PREAMBLE.match(text) and not text.startswith("@startuml")), None)
+    if first == "start":
+        return "activity"
+    if any(text.startswith((STAR, "state ")) for text in texts):
+        return "state"
+    if any(_part_declaration(text) or _edge(text) for text in texts):
+        return "component"
+    return None
+
+
+def _is_style(text: str) -> bool:
+    return STYLE_LINES.match(text) is not None or COLOUR_PREFIX.match(text) is not None
+
+
+def _condition(text: str) -> str | None:
+    """The stripped text inside the first parentheses of a branch or loop line, or None."""
+    opening = CONDITION.match(text)
+    if not opening:
+        return None
+    depth = 1
+    for position in range(opening.end(), len(text)):
+        depth += {"(": 1, ")": -1}.get(text[position], 0)
+        if depth == 0:
+            return text[opening.end():position].strip()
+    return None
+
+
+def parse(block: str) -> Parsed:
+    """Parse a fence by its kind. A fence of no kind keeps only its `style line` faults."""
+    found = kind(block)
+    statements = list(_statements(block))
+    if found == "activity":
+        return _parse_activity(block, statements)
+    if found == "component":
+        return _parse_component(statements)
+    if found == "state":
+        return _parse_state(statements)
+    return Parsed(None, [], [f"style line {n}" for n, text in statements if _is_style(text)], [], [])
+
+
+def _parse_activity(block: str, statements: list[tuple[int, str]]) -> Parsed:
+    last_line = len(block.splitlines())
+    nodes: list[str] = []
+    faults: list[str] = []
+    node_faults: list[tuple[str, str]] = []
+    hops: list[str] = []
+
+    def add_node(label: str) -> None:
+        if not label or label in nodes:
+            return
+        nodes.append(label)
+        if "`" in label:
+            node_faults.append((label, "bad id"))
+
+    open_ifs: list[list] = []  # [fence line of the `if`, whether it has an else], innermost last
+    no_else: list[int] = []  # fence lines of the `if`s that closed or ended the fence with no else
+    skip_to = 0
+    for number, text in statements:
+        if number <= skip_to:
+            continue
+        if IF_OPEN.match(text):
+            open_ifs.append([number, False])
+        elif ELSE_LINE.match(text) and open_ifs:
+            open_ifs[-1][1] = True
+        elif ENDIF.match(text) and open_ifs:
+            opened, has_else = open_ifs.pop()
+            if not has_else:
+                no_else.append(opened)
+        if _is_style(text):
+            faults.append(f"style line {number}")
+        elif text.startswith(":"):
+            if ";" in text:
+                label = text[1:text.index(";")].strip()
+                add_node(label)
+                hop = HOP.fullmatch(label)
+                if hop:
+                    hops.append(hop.group(1))
+            else:
+                closing = next((n for n, later in statements if n > number and ";" in later), last_line)
+                faults.append(f"action over lines {number}-{closing}")
+                skip_to = closing
+        else:
+            condition = _condition(text)
+            if condition is not None:
+                add_node(condition)
+    no_else.extend(opened for opened, has_else in open_ifs if not has_else)
+    faults.extend(f"if without else line {n}" for n in sorted(no_else))  # after the other faults, by `if` line
+    return Parsed("activity", nodes, faults, node_faults, hops)
+
+
+def _parse_component(statements: list[tuple[int, str]]) -> Parsed:
+    nodes: list[str] = []
+    faults: list[str] = []
+    node_faults: list[tuple[str, str]] = []
+    alias_of: dict[str, str] = {}  # the name of a `[Name] as id` part -> its id
+    edges: list[tuple[str, str]] = []
+    for number, text in statements:
+        declaration = _part_declaration(text)
+        edge = _edge(text)
+        if _is_style(text):
+            faults.append(f"style line {number}")
+        elif declaration:
+            name, alias = declaration
+            if name is not None:
+                alias_of[name] = alias
+            if alias not in nodes:
+                nodes.append(alias)
+                if not COMPONENT_ID.fullmatch(alias):
+                    node_faults.append((alias, "bad id"))
+        elif edge:
+            edges.append(edge)
+    declared = list(nodes)
+    for endpoint in (end for edge in edges for end in edge):
+        bracket = BRACKET_ENDPOINT.fullmatch(endpoint)
+        node = alias_of.get(bracket.group(1), bracket.group(1)) if bracket else endpoint
+        if node not in nodes:
+            nodes.append(node)
+        if node not in declared and (node, "not declared") not in node_faults:
+            node_faults.append((node, "not declared"))
+    return Parsed("component", nodes, faults, node_faults, [])
+
+
+def _parse_state(statements: list[tuple[int, str]]) -> Parsed:
+    nodes: list[str] = []
+    faults: list[str] = []
+    node_faults: list[tuple[str, str]] = []
+
+    def add_state(state: str) -> None:
+        if state == STAR or state in nodes:
+            return
+        nodes.append(state)
+        if not STATE_ID.fullmatch(state):
+            node_faults.append((state, "bad id"))
+
+    for number, text in statements:
+        declaration = STATE_ALIAS.match(text) or STATE_DECLARATION.match(text.split(":", 1)[0])
+        edge = _edge(text)
+        if _is_style(text):
+            faults.append(f"style line {number}")
+        elif declaration:
+            add_state(declaration.group(1))
+        elif edge:
+            for end in edge:
+                add_state(end)
+    return Parsed("state", nodes, faults, node_faults, [])
+
+
+def failed_lines(stderr: str) -> list[tuple[str, int]]:
+    """(diagram id, fence line) for each `Error line` of PlantUML's stderr, in stderr order. PlantUML
+    counts the `@startuml` wrapper as line 1, so the fence line is one less."""
+    return [(_diagram_id(match.group(2)), int(match.group(1)) - 1) for match in ERROR_LINE.finditer(stderr)]
+
+
+def _diagram_id(path: str) -> str:
+    return os.path.splitext(os.path.basename(path.strip()))[0]
+
+
+def render(directory: str) -> tuple[list[str], int]:
+    """Draw every `.puml` of `directory` to a `.png` beside it in one PlantUML run; return the output
+    lines and the exit code. The PNG of a diagram PlantUML rejected is removed (it is an error picture)."""
+    plantuml = shutil.which("plantuml")
+    if plantuml is None:
+        return ["plantuml: FAIL plantuml not found"], 2
+    if not os.path.isdir(directory):
+        return [f"plantuml: FAIL cannot read {directory}"], 2
+    sources = sorted(glob.glob(os.path.join(directory, "*.puml")))
+    if not sources:
+        return ["plantuml: ok 0 diagrams"], 0
+    target = os.path.abspath(directory)
+    run = subprocess.run([plantuml, "-DPLANTUML_LIMIT_SIZE=16384", "-tpng", "-charset", "UTF-8", "-o", target, *STYLE, *sources],
+                         capture_output=True, text=True)
+    failures = failed_lines(run.stderr)
+    lines = [f"plantuml: FAIL {name} line {number}" for name, number in failures]
+    failed = {name for name, _ in failures}
+    for name in failed:
+        png = os.path.join(target, f"{name}.png")
+        if os.path.exists(png):
+            os.remove(png)
+    if run.returncode != 0 and not failures:
+        lines.append(f"plantuml: FAIL exit {run.returncode}")
+    for source in sources:
+        name = _diagram_id(source)
+        if name not in failed and not os.path.exists(os.path.join(target, f"{name}.png")):
+            lines.append(f"plantuml: FAIL {name} no png")
+    if not lines:
+        lines.append(f"plantuml: ok {len(sources)} diagrams")
+    return lines, 1 if lines[0].startswith("plantuml: FAIL") else 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[0] != "render":
+        print("usage: puml.py render <diagrams-dir>", file=sys.stderr)
+        return 2
+    lines, code = render(argv[1])
+    print("\n".join(lines))
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+
+

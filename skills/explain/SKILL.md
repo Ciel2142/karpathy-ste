@@ -66,7 +66,7 @@ section on a page.
 | `brainrot` (vertical narrated mp4) | Forced only: a vertical narrated short for a phone; never chosen from content | Any subject that the user wants as a phone short |
 | `lesson` (page with clips, directory output) | Forced only (`--as lesson`). A page whose sections carry short narrated clips where motion explains better than a still | A subsystem with two to four moving parts |
 | `course` (hub page and a lesson for each subsystem, directory output) | Forced only (`--as course`). A system of several services or repos that one message passes through | One message through several services |
-| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). A service to onboard to: its architecture and every flow | One service directory |
+| `onboard` (Markdown page from a checked map, directory output) | Forced only (`--as onboard`). A service to onboard to: its architecture and every flow | One service directory |
 
 Read the subject before you choose the rung: the file, the directory, or the repo code of
 a topic. A model-knowledge topic has no source to read. Before you build, print this line,
@@ -84,8 +84,8 @@ names the flag and tells if the content fits the rung. Then follow these rules:
   rung is English or Russian.
 - The `course` rung builds a set of lessons and a hub page. Only `--as course` selects it. The
   course rung is English or Russian.
-- The `onboard` rung builds one page for one service from its map. Only `--as onboard` selects it.
-  The onboard rung is English or Russian.
+- The `onboard` rung builds one Markdown page for one service from its map, with PlantUML
+  diagrams rendered to PNG. Only `--as onboard` selects it. The onboard rung is English or Russian.
 - If `rungs/<rung>.md` does not exist for the chosen rung, print the rung line. Say that the
   rung is not available yet. Stop. Offer `sheet` or `ste`.
 - A forced rung can be too small for the content, for example a sheet for more than 6
@@ -101,7 +101,8 @@ names the flag and tells if the content fits the rung. Then follow these rules:
 These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brainrot`, `lesson`, `course`, `onboard`).
 
 1. Prose: follow the STE profile. For a non-English artifact, follow convention 7. The final
-   `index.html` passes `ste_lint.py --html` with 0 errors.
+   `index.html` passes `ste_lint.py --html` with 0 errors. For the `onboard` rung, the page is
+   `page.md` and passes `ste_lint.py` without `--html`.
 2. Grounded: read the real source of the subject first. Every claim carries a citation:
    `<cite data-path="…" data-line="…" data-snippet="…">name:line <code>snippet</code></cite>`.
    The snippet has at most 12 words, copied verbatim from that line, set in `<code>` with no
@@ -130,13 +131,16 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
    Source are that repo root, not "model knowledge". Each claim about a file carries a `<cite>`.
    A topic without files has `data-root` set to the current directory, Commit `none`, Dirty `no`
    and Source "model knowledge" (or the URLs). This rule applies also inside a repository. Mark a
-   "conversation" subject "unverified", and re-read and cite each file that it mentions.
+   "conversation" subject "unverified", and re-read and cite each file that it mentions. For the
+   `onboard` rung, the cites live in the map and the page holds none.
 3. One self-contained file: inline CSS and JS, system fonts, no CDN, no build step. It
    opens from `file://` offline. For the `lesson` rung, the artifact is the output directory.
    Its `index.html` keeps this rule. It links to other files only through
    `clips/<id>/video.mp4`, `clips/<id>/poster.png` and `clips/<id>/index.html`.
    For the `course` rung, the hub links to other files only through `lessons/<id>/index.html`.
-4. Check the artifact before handoff, in two layers (see Build procedure).
+   For the `onboard` rung, the artifact is the output directory (`page.md` and `diagrams/*.png`).
+4. Check the artifact before handoff, in two layers (see Build procedure). For the `onboard` rung,
+   the checks are `onboard.py check`, `puml.py render`, `onboard.py page` and the lint.
 5. Discardable output: `~/karpathy/out/YYYY-MM-DD-HHMMSS-<rung>-<slug>/`. The time stamp is local
    time. Make the `<slug>` from the subject in four steps. For a path subject, start from its
    basename (for a file, without the extension). Change it to lowercase. Change each run of
@@ -147,7 +151,7 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
    the sources, joined with `-`, as `rungs/course.md` says. Git ignores `out/`. Never commit it.
 6. Handoff: print the path. When you run for the user directly, run `open index.html`
    (sheet, page, lesson or course) or `open video.mp4` (video or brainrot). Inside a subagent, do not
-   run `open`.
+   run `open`. For the `onboard` rung, the handoff opens the output directory.
 7. Language: write the artifact in English, unless the user asks for another language. For a
    non-English artifact, apply only the structural rules of the STE profile. These rules are
    sentence length, paragraph length, active voice, and one instruction in each sentence. The
@@ -164,6 +168,7 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
    the scene directory `scene/`, run `render.sh`, read the stills. For a brainrot short, the
    rung file replaces them too. Write `script.json`, run `render.sh`, read the stills. For a
    lesson, the rung file replaces steps 3 to 6. For a course, the rung file replaces steps 3 to 6.
+   For an onboarding page, the rung file replaces steps 3 to 6.
 3. Write `index.html` in the output directory.
 4. Run `<skill-dir>/scripts/verify.sh <output-dir>/index.html`. It must exit 0.
 5. Run `<skill-dir>/scripts/snapshot.sh` as the rung file shows. Read the
@@ -187,4 +192,5 @@ These seven rules apply to every artifact rung (`sheet`, `page`, `video`, `brain
 - `<skill-dir>/rungs/course.md`: the course rung (the plan in `course.json`, the stop for approval,
   one subagent for each lesson, the hub page and the resume).
 - `<skill-dir>/rungs/onboard.md`: the onboard rung (the onboarding rules, the inventory, the map and
-  its check, the Mermaid flows, the section plan and the output directory).
+  its check, the PlantUML diagrams, the Markdown page `page.md` and its check, and the output
+  directory).

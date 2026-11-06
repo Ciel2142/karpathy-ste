@@ -1,0 +1,15 @@
+[*] --> Pending
+Pending --> Paid : pay
+Pending --> Cancelled : timeout -> cancel
+state "On hold" as Held
+Pending --> Held : hold
+Held -left-> Pending : release
+state Shipped {
+  [*] --> Packed
+  Packed --> InTransit
+  InTransit --> [*]
+}
+Paid --> Shipped
+note right of Paid : card charged
+Shipped --> [*]
+Cancelled --> [*]

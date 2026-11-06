@@ -1026,7 +1026,35 @@ class OnboardRungCase(unittest.TestCase):
             "/explain <service-dir> --as onboard",
             "Rung: onboard (forced) — <reason> — subject: <path> (directory)",
             "Only `--as onboard` selects it", "one directory", "Offer `page`", "--review: no effect on onboard",
-            "English or Russian", "git rev-parse --show-toplevel"))
+            "English or Russian", "git rev-parse --show-toplevel", "plantuml -version",
+            "brew install plantuml"))
+
+    def test_when_section_runs_the_plantuml_precheck_and_keeps_no_data_root(self):
+        """Red when "When an onboarding page" loses the PlantUML precheck (the command, the install hint, the stop
+        and the offer of `page`), the order (the check follows the rung line), or still names the `data-root` of the
+        page that the onboard rung no longer writes."""
+        text = self.words("When an onboarding page")
+        for phrase in ("run `plantuml -version`", "If the command fails, say that the onboard rung needs PlantUML "
+                       "(`brew install plantuml`). Stop. Offer `page`.",
+                       "`<root>` is the `--root` of both `onboard.py` commands."):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        self.assertLess(text.index("Rung: onboard (forced)"), text.index("`plantuml -version`"))
+        self.assertNotIn("data-root", text)
+
+    def test_when_section_runs_the_onboard_py_commands_in_the_output_directory(self):
+        """Red when "When an onboarding page" counts the `onboard.py` commands again (the rung runs four)."""
+        self.assert_phrases("When an onboarding page", (
+            "Run the `onboard.py` commands in the output directory.",))
+        self.assertNotIn("the two `onboard.py` commands", self.words("When an onboarding page"))
+
+    def test_explore_expands_both_script_shorthands(self):
+        """Red when "Explore the service" expands `onboard.py <command>` and leaves `puml.py render` unexpanded,
+        so that a session runs `puml.py render diagrams` as a command that does not exist."""
+        self.assert_phrases("Explore the service", (
+            "In this file, `onboard.py <command>` is short for `python3 <skill-dir>/scripts/onboard.py <command>`, "
+            "and `puml.py render` is short for `python3 <skill-dir>/scripts/puml.py render`.",))
+        self.assertTrue((EXPLAIN / "scripts" / "puml.py").is_file())
 
     def test_explore_runs_the_inventory_and_lists_the_kinds_of_onboard_py(self):
         """Red when "Explore the service" loses the inventory command or its summary line, or when the kinds
@@ -1047,6 +1075,35 @@ class OnboardRungCase(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertTrue(finds)
                 self.assertNotIn("\\", finds)
+
+    def test_explore_names_both_notations(self):
+        """Red when "Explore the service" loses the opening paragraph (PlantUML for an onboard run, Mermaid for a
+        course map), the component form of rule 3, the activity form of rule 4, the state form of rule 5, the
+        clause of a course map in each of the three rules, the backtick-keyed node fact or the 25-node cap."""
+        self.assert_phrases("Explore the service", (
+            "An onboard run draws each diagram in PlantUML, in a `plantuml` fence.",
+            "A course map draws each diagram in Mermaid, in a `mermaid` fence.",
+            "The rules below name both forms.",
+            # rule 3, the component form
+            'Declare each part once, with an alias: `component "<name>" as <id>`.',
+            "An id matches `[a-z][a-z0-9_]*`.", "`package \"<name>\" {`", "fails as `not declared`",
+            "A course map draws the parts as one `flowchart LR` in a `mermaid` fence.",
+            # rule 4, the activity form
+            "The fence starts with `start` and ends with `stop` or `end`.", "One action is one line: `:<label>;`.",
+            "The same label in two places of one diagram is the same node",
+            "`if (<condition>) then (<outcome>)`", "`while (<condition>) is (<outcome>)`",
+            "`switch (<condition>)`", "`repeat while (<condition>) is (<outcome>)`",
+            "the action `:see <flow-id>;` followed by `detach`", "`fork`, `fork again` and `end fork`",
+            "`-> <label>;`", "Never write `skinparam`, `!pragma`, `!include`, `<style>`",
+            "Put at most 25 nodes in one diagram.",
+            "The fence holds the body of the diagram only. Never write `@startuml` or `@enduml` in it",
+            "`onboard.py diagrams` adds them when it writes the `.puml` file.",
+            "A course map draws each flow as one `flowchart TD` in a `mermaid` fence.",
+            "- `total over limit?`: the total is checked against the limit | ",
+            # rule 5, the state form
+            "`[*] --> <STATE>` enters", "`<STATE> --> [*]` ends", 'a label: `state "<label>" as <STATE>`',
+            "An id matches `[A-Za-z_][A-Za-z0-9_]*`.",
+            "A course map draws the states as one `stateDiagram-v2` in a `mermaid` fence."))
 
     def test_explore_holds_the_nine_rules_in_order(self):
         """Red when a rule of spec 5, 15 or 16 is gone, out of order or not numbered, the words of onboard.SHAPE_KEYS,
@@ -1097,10 +1154,33 @@ class OnboardRungCase(unittest.TestCase):
         self.assertIn("- <key>: <fact> | <path>:<line> | <snippet>", lines)
         self.assertEqual(len(onboard.TITLES), 13)
 
+    def test_the_map_skeleton_draws_in_plantuml(self):
+        """Red when a diagram fence of the skeleton opens with another info string than `plantuml` (a `mermaid`
+        fence is for a course map), the sketch of a kind is gone, or the flow fact line loses its backtick key."""
+        lines = skeleton_lines(section(read(ONBOARD_MD), "The map"))
+        opens = [index for index, line in enumerate(lines) if line.startswith("```") and line != "```"]
+        self.assertEqual([lines[index] for index in opens], ["```plantuml"] * 3)
+        sketches = [lines[index + 1:lines.index("```", index)] for index in opens]
+        self.assertEqual(sketches, [['component "<name>" as <id>'], ["start", ":<label>;", "stop"],
+                                    ["[*] --> <STATE>"]])
+        self.assertIn("- `<label>`: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertIn("- <id>: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertIn("- <state>: <fact> | <path>:<line> | <snippet>", lines)
+        self.assertFalse(any("mermaid" in line for line in lines))
+        self.assert_phrases("The map", (
+            "In an activity diagram the key is the label in backticks, verbatim: "
+            "`` - `<label>`: <fact> | <path>:<line> | <snippet> ``.",
+            "In an onboard map its info string is `plantuml`. In a course map its info string is `mermaid`",
+            "The key of a fact line that starts with a backtick is the text up to the closing backtick."))
+
     def test_the_map_runs_the_check_and_names_its_prefixes(self):
         """Red when "The map" loses the check command or a summary line, or the prefix table drops, adds or
         reorders one of the twelve prefixes of spec 7 and 16.3."""
-        self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt",
+        self.assert_phrases("The map", ("onboard.py check map.md --root <root> --inventory inventory.txt "
+                                        "--notation plantuml",
+                                        "A course map passes `--notation mermaid`.",
+                                        "A flowchart or an activity diagram has at most 25 nodes. In an activity "
+                                        "diagram the nodes are the distinct labels of its actions and conditions.",
                                         "onboard: ok", "onboard: <n> failures",
                                         "The path is relative to `<root>`, and it is the first text in backticks of "
                                         "the line.",
@@ -1118,6 +1198,19 @@ class OnboardRungCase(unittest.TestCase):
         for key, start in zip(prefixes, starts):
             with self.subTest(prefix=start):
                 self.assertTrue(key.startswith(start), key)
+        diagram = next(key for key in prefixes if key.startswith("`diagram "))
+        for form in ("`diagram <where>: not plantuml`", "`diagram <where>: not mermaid`",
+                     "`diagram <where>: not a PlantUML kind`", "`diagram <where>: not activity`",
+                     "`diagram <where>: not component`", "`diagram <where>: not state`",
+                     "`diagram <where>: action over lines <n>-<m>`", "`diagram <where>: style line <n>`",
+                     "`diagram <where>: if without else line <n>`"):
+            with self.subTest(form=form):
+                self.assertIn(form, diagram)
+        node = next(key for key in prefixes if key.startswith("`node "))
+        for form in ("`node <where>/<label>: flow <id> not in Flows`", "`node architecture/<id>: not declared`",
+                     "`node <where>/<id>: bad id`"):
+            with self.subTest(form=form):
+                self.assertIn(form, node)
         entry = next(key for key in prefixes if key.startswith("`entry "))
         self.assertIn("`entry #<n>: unknown kind <kind>`", entry)
         # Spec 16.3: the seven `event` forms, the dismissal form and the inventory form of the Events floor.
@@ -1153,67 +1246,125 @@ class OnboardRungCase(unittest.TestCase):
             "When two names give the same `<slug>`, the second gets `-2` at its end and the third gets `-3`",
             "A name with no character in `[a-z0-9]` has the slug `e<n>`"))
 
-    def test_plan_the_sections_follows_spec_9_1(self):
-        """Red when "Plan the sections" loses a section id (`#run`, `#conventions` and `#where` of spec 15.4
-        too), the `figure.code` of a command, the rule that omits an empty `#conventions` or `#where`, a diagram file, the never-merge rule, the footer, the cite rule
-        or the rule that drops the clip line."""
+    def test_plan_the_sections_follows_spec_10_2(self):
+        """Red when "Plan the sections" loses a rule of spec 10.1, a heading of the fourteen-item plan of spec
+        10.2, the order of the plan, the never-merge rule, the gaps column or the image line, or keeps a word
+        of the HTML page."""
         self.assert_phrases("Plan the sections", (
-            "#whole", "#entry", "flow-<flow-id>", "#state", "#events", "#formats", "#config", "#errors", "#systems", "#terms",
-            "`figure.code`", ".table-wrap > table", "diagrams/architecture.mmd",
-            "diagrams/flow-<flow-id>.mmd", "diagrams/state.mmd",
-            "see <flow-id>", "none found", "never merge flows", "Not covered", "at least one `<cite>`",
-            "is not printed"))
-        # A section id is also named in other sentences, so the test reads the start of each bullet and the order.
+            "ATX headings", "One line is one paragraph", "pipe table", "info string", "Bold is only for the label",
+            "no HTML", "no link inside the page",
+            "**Short answer.**", "two to four sentences", "at most 70 words",
+            "What is <service> made of?", "How do I build, test and run it?", "Where does a message enter?",
+            "Which states does a message go through?", "Which events move through <service>?",
+            "Which formats and transforms does it use?", "Which config routes a message?",
+            "What happens on an error?", "Which other systems does it talk to?", "How is the code written?",
+            "Where do I look to change something?", "`E`, `C`, `E C` or `(C)`",
+            "a last column `gaps` when a `none found` line exists",
+            "never merge flows", "![<caption>](diagrams/<id>.png)", "convention 7 of `SKILL.md`"))
+        # A heading is also named in other sentences, so the test reads the start of each item and the order.
         text = self.words("Plan the sections")
-        starts = ('- `#whole`, "What is', '- `#run`, "How do I build, test and run it?"', '- `#entry`, "Where does',
-                  '- `#state`, "Which states', '- `#events`, "Which events move through',
-                  '- `#formats`, `#config`', '- `#conventions`, "How is the code written?"',
-                  '- `#where`, "Where do I look to change something?"', '- `#terms`:')
+        starts = ("1. `# <question>`", "2. The short answer", "3. `## What is <service> made of?`",
+                  "4. `## How do I build, test and run it?`", "5. `## Where does a message enter?`",
+                  "6. One section for each flow", "7. `## Which states does a message go through?`",
+                  "8. `## Which events move through <service>?`", "9. `## Which formats and transforms does it use?`",
+                  "10. `## How is the code written?`", "11. `## Where do I look to change something?`",
+                  "12. `## Terms`", "13. `## Not covered`", "14. `## About this page`")
         for start in starts:
-            with self.subTest(bullet=start):
+            with self.subTest(item=start):
                 self.assertEqual(text.count(start), 1, start)
         positions = [text.index(start) for start in starts]
-        self.assertEqual(positions, sorted(positions), "the plan bullets are out of order")
-        for phrase in ("one row for each `language` and `framework` line", "the name and the version",
-                       "the map found no such command", "one `figure.code`", "The `figcaption > code` of the figure holds",
-                       "the key (`build`, `test` or `run`)", "Its `pre > code` holds the command alone",
-                       "A `div.cites` after the table holds the cites of these lines",
-                       "A `div.cites` after the figure holds the cite of the command",
-                       "Omit the section when each `Conventions` line is `none found`",
-                       "Omit the section when `Where to look` is `none found`",
-                       # spec 16.5: the matrix, its marks and links, the gaps column, the details and the cites
-                       ".table-wrap > table.matrix", "`E` (emits), `C` (consumes) or both", "`(C)`",
-                       "a link to `#flow-<flow-id>`", "`title`", "`aria-label`", "`role=\"img\"`", "`<wbr>` after each `.` and each `-`", "gaps", "`details.walk`", "`event-<slug>`",
-                       "`div.cites` after the table", "Omit the section when `Events` has no entry",
-                       "The nav has a link for each of `#run`, `#events`, `#conventions` and `#where`",
-                       "aggregate, event store, stream, projection and saga"):
+        self.assertEqual(positions, sorted(positions), "the plan items are out of order")
+        for word in ("#whole", ".table-wrap", "figure.code", "div.cites", "details.walk", "<wbr>", "aria-label",
+                     "data-root", ".mmd", "<cite>"):
+            with self.subTest(gone=word):
+                self.assertNotIn(word, text)
+
+    def test_plan_translates_the_label_of_the_short_answer(self):
+        """Red when "Plan the sections" lets a Russian page keep the English label of the short answer, or does not
+        say that the page check accepts any bold start."""
+        self.assert_phrases("Plan the sections", (
+            "A Russian page also translates this label. The page check accepts any bold text at the start of the "
+            "paragraph.",))
+
+    def test_write_the_page_reruns_step_1_and_step_2_after_a_fence_fix(self):
+        """Red when step 2 goes back to "run both commands again": a fence fix changes the nodes and the fact
+        lines, so the map check of step 1 runs again before step 2."""
+        text = self.words("Write the page")
+        self.assertNotIn("run both commands again", text)
+        self.assertEqual(text.count("Then run step 1 and step 2 again."), 2)
+
+    PAGE_PREFIXES = (
+        "page: no title", "page: second title", "page: no short answer", "diagram <id>: no image line",
+        "diagram <id>: image line twice", "image <path>: no file", "image <path>: not under diagrams/",
+        "image <path>: not in the map", "png <id>: no image line", "diagram <id>: differs from the map",
+        "diagram <id>: no puml", "puml <id>: not in the map", "flow <id>: no section",
+        "flow <id>: image outside its section", "flows: out of map order", "entry <name>: not on the page",
+        "event <name>: not on the page", "not covered #<n>: not on the page", "command <key>: not in a code block",
+        "paragraph <line>: two lines", "html <line>: tag outside code", "cite <line>: map line on the page")
+
+    def test_write_the_page_gives_the_name_rule_and_the_page_prefixes(self):
+        """Red when step 5 of "Write the page" goes back to "ties each name of the map to the page", loses a form of
+        the name rule, or its prefix table drops, adds or repeats a prefix of the spec 9 table, or loses a fix."""
+        text = self.words("Write the page")
+        self.assertNotIn("ties each name of the map to the page", text)
+        self.assert_phrases("Write the page", (
+            "The check finds these names of the map on the page, verbatim and in any place: - the name of each "
+            "traced or not traced entry point; - the name of each event: its `### ` heading in the map; - the "
+            "directory or the module before the first `:` of each `Not covered` line.",
+            "Each failure line of the check starts with one of these prefixes:",
+            "Run step 2 again. Never edit a `.puml` file.",
+            "Put each command alone in a fence. Never put it in backticks in the prose."))
+        body = section(read(ONBOARD_MD), "Write the page").split("\n")
+        header = [index for index, line in enumerate(body) if line.strip() == "| Prefix | Fix |"]
+        self.assertEqual(len(header), 1)
+        rows = []
+        for line in body[header[0] + 2:]:
+            if not line.strip().startswith("|"):
+                break
+            rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+        self.assertTrue(all(len(row) == 2 and row[1] for row in rows), rows)
+        self.assertLessEqual(len(rows), 7, "one row for each fix, not one for each prefix")
+        forms = [form for row in rows for form in re.findall(r"`([^`]+)`", row[0])]
+        self.assertEqual(sorted(forms), sorted(self.PAGE_PREFIXES))
+        self.assertEqual(rows[0][0].split(" / ")[0], "`page: no title`")
+
+    def test_write_the_page_runs_the_eight_steps_in_order(self):
+        """Red when "Write the page" loses a command, an expected last line, a read or the handoff of the eight
+        steps of spec 10.3, or puts one out of order."""
+        text = self.words("Write the page")
+        steps = ("--notation plantuml", "onboard: ok", "onboard.py diagrams map.md --out diagrams",
+                 "puml.py render diagrams", "plantuml: ok <n> diagrams", "plantuml: FAIL", "Read tool",
+                 "onboard.py page page.md --map map.md", "page: ok", "ste_lint.py page.md", "0 errors",
+                 "inventory.txt", "open <output-dir>", "Never run `open` inside a subagent")
+        for phrase in steps:
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+        # `inventory.txt` is also in the check command of step 1, so each phrase is searched after the last one.
+        at = 0
+        for phrase in steps:
+            with self.subTest(order=phrase):
+                at = text.find(phrase, at)
+                self.assertGreaterEqual(at, 0, "%r is missing or out of order" % phrase)
+        for number in range(1, 9):
+            with self.subTest(step=number):
+                self.assertEqual(text.count("%d. " % number), 1, "step %d" % number)
+        for phrase in ("never in the `.puml` file", "a cut label", "a label over a line",
+                       "a condition without an outcome label", "an empty branch", "a false picture"):
+            with self.subTest(read=phrase):
+                self.assertIn(phrase, text)
+        for word in ("index.html", "page.html", "snapshot", "review/", ".mmd", "mermaid", "verify.sh"):
+            with self.subTest(gone=word):
+                self.assertNotIn(word, text)
 
-    def test_write_the_page_reuses_page_md_and_the_two_scripts(self):
-        """Red when "Write the page" stops pointing at the four sections of page.md, or loses the meta, the
-        provenance kind, the Mermaid command and its line, `bpmn: none`, the inventory compare or the handoff."""
-        self.assert_phrases("Write the page", (
-            '"Fill the template"', '"Provenance"', '"Write the prose"', '"Verify and export"',
-            '<meta name="explain-rung" content="onboard">', 'data-kind="directory"', "mermaid_svg.py inline index.html",
-            "mermaid: ok <n> diagrams", "bpmn: none", "inventory.txt", "open index.html",
-            "Never run `open` inside a subagent"))
-
-    def test_write_the_page_points_at_titles_that_page_md_has(self):
-        """Red when page.md loses, renames or repeats one of the six headings that onboard.md points at: each
-        title must be exactly one heading of page.md."""
-        for title in ("Plan the sections", "Fill the template", "Diagram patterns", "Provenance",
-                      "Write the prose", "Verify and export"):
-            with self.subTest(title=title):
-                section(read(PAGE_MD), title)
-
-    def test_output_directory_lists_the_rows_of_spec_4(self):
-        """Red when "Output directory" loses the directory name, or its table drops, adds or reorders a row of
-        spec 4."""
-        self.assert_phrases("Output directory", ("~/karpathy/out/YYYY-MM-DD-HHMMSS-onboard-<slug>/",))
+    def test_output_directory_lists_the_rows_of_spec_6(self):
+        """Red when "Output directory" loses the directory name or the closing sentence, or its table drops,
+        adds or reorders a row of spec 6."""
+        self.assert_phrases("Output directory", (
+            "~/karpathy/out/YYYY-MM-DD-HHMMSS-onboard-<slug>/",
+            "`<id>` is `architecture`, `flow-<flow-id>` or `state`.",
+            "No `index.html`, no snapshots, no `review/`."))
         self.assertEqual(list(limits_table(ONBOARD_MD, "| Path | Holds |")), [
-            "`map.md`", "`inventory.txt`", "`diagrams/<id>.mmd`", "`diagrams/<id>.svg`", "`index.html`",
-            "`page.png`, `narrow.png`, `review/`"])
+            "`map.md`", "`inventory.txt`", "`diagrams/<id>.puml`", "`diagrams/<id>.png`", "`page.md`"])
 
     def test_onboard_md_lints_clean(self):
         """Red when a sentence of onboard.md breaks the STE profile."""
@@ -1233,7 +1384,7 @@ COURSE_ROW = ("| `course` (hub page and a lesson for each subsystem, directory o
 AS_NAMES = "ste|sheet|page|video|brainrot|lesson|course|onboard"
 
 # The row of the onboard rung in the rung table of SKILL.md, word for word.
-ONBOARD_ROW = ("| `onboard` (page from a checked map, directory output) | Forced only (`--as onboard`). "
+ONBOARD_ROW = ("| `onboard` (Markdown page from a checked map, directory output) | Forced only (`--as onboard`). "
                "A service to onboard to: its architecture and every flow | One service directory |")
 
 
@@ -1365,15 +1516,18 @@ class SkillMdCase(unittest.TestCase):
     # red: the argument-hint or the syntax line of the Contract without `onboard`, step 4 naming the rungs in
     # another order or without backticks, the onboard row missing, reworded or chosen from content, the rule
     # bullet without "Only `--as onboard` selects it." or without the languages, the review sentence back to
-    # the lesson and the course only, the Rung files bullet that leaves out the map, the inventory or the
-    # check, or the rung file missing
+    # the lesson and the course only, a Conventions sentence of the onboard page, its cites, its artifact, its
+    # checks or its handoff reworded or given twice, the Rung files bullet that leaves out the map and its
+    # check, the PlantUML diagrams or `page.md` and its check, or the rung file missing
     def test_skill_md_routes_the_onboard_rung(self):
         text = read(SKILL_MD)
         self.assertIn('argument-hint: "<subject> [--as %s] [--review]"' % AS_NAMES, text)
         flat = " ".join(text.split())
         for sentence in ("Syntax: `/explain <subject> [--as %s] [--review]`." % AS_NAMES,
-                         "The `onboard` rung builds one page for one service from its map. Only `--as onboard` "
-                         "selects it. The onboard rung is English or Russian.",
+                         "The `onboard` rung builds one Markdown page for one service from its map, with PlantUML "
+                         "diagrams rendered to PNG. Only `--as onboard` selects it. The onboard rung is English "
+                         "or Russian.",
+                         "For an onboarding page, the rung file replaces steps 3 to 6.",
                          "Only the `lesson` and `course` rungs have a review."):
             self.assertIn(sentence, flat)
         contract = " ".join(section(text, "Contract").split())
@@ -1381,9 +1535,18 @@ class SkillMdCase(unittest.TestCase):
         self.assertEqual(re.findall(r"`([^`]+)`", names), AS_NAMES.split("|"))
         rows = [line for line in text.split("\n") if line.startswith("| `onboard` ")]
         self.assertEqual(rows, [ONBOARD_ROW])
+        conventions = " ".join(section(text, "Conventions").split())
+        for sentence in ("For the `onboard` rung, the page is `page.md` and passes `ste_lint.py` without `--html`.",
+                         "For the `onboard` rung, the cites live in the map and the page holds none.",
+                         "For the `onboard` rung, the artifact is the output directory (`page.md` and "
+                         "`diagrams/*.png`).",
+                         "For the `onboard` rung, the checks are `onboard.py check`, `puml.py render`, "
+                         "`onboard.py page` and the lint.",
+                         "For the `onboard` rung, the handoff opens the output directory."):
+            self.assertEqual(conventions.count(sentence), 1, sentence)
         onboard = self.bullets()["<skill-dir>/rungs/onboard.md"]
-        for word in ("map", "inventory", "check"):
-            self.assertIn(word, onboard)
+        for phrase in ("the map and its check", "the PlantUML diagrams", "`page.md` and its check"):
+            self.assertIn(phrase, onboard)
         self.assertTrue((EXPLAIN / "rungs" / "onboard.md").is_file(), "rungs/onboard.md does not exist")
 
     # red: a second `$ARGUMENTS` in SKILL.md, or the line that holds it reworded. OpenCode replaces each
@@ -1416,13 +1579,16 @@ class SkillMdCase(unittest.TestCase):
         self.assertIn("tests.test_lesson_e2e", readme)
 
     # red: the README without `--as onboard`, the Requirements row of `onboard` missing or reworded, or the
-    # layout block without scripts/{onboard,mermaid_svg}.py
+    # layout block without scripts/{onboard,onboard_page,puml,mermaid_svg}.py
     def test_readme_names_the_onboard_rung(self):
         readme = read(README_MD)
         self.assertIn("`--as onboard`", readme)
         rows = [line for line in readme.split("\n") if line.startswith("| `onboard` |")]
-        self.assertEqual(rows, ["| `onboard` | the needs of `page` |"])
-        self.assertIn("scripts/{onboard,mermaid_svg}.py", readme)
+        self.assertEqual(rows, ["| `onboard` | `python3`, and `plantuml` on `PATH` (Homebrew); no Chrome |"])
+        self.assertIn("scripts/{onboard,onboard_page,puml,mermaid_svg}.py", readme)
+        self.assertIn("then a Markdown page for Confluence with its architecture, every entry point and every "
+                      "flow as PlantUML diagrams rendered to PNG; the page holds no cites, the map does)",
+                      " ".join(readme.split()))
 
 
 class HtmlLangCase(unittest.TestCase):

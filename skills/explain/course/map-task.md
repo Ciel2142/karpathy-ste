@@ -23,6 +23,9 @@ Follow "Explore the service" and then "The map" of `{skill_dir}/rungs/onboard.md
 - The map file is `{course_dir}/map/{source_id}.md`, in place of `map.md`. The inventory file is
   `{course_dir}/map/{source_id}.inventory.txt`, in place of `inventory.txt`.
 - The first line of the map is `# Map: {source_id}`.
+- Draw each diagram as Mermaid, in a `mermaid` fence: `flowchart LR`, `flowchart TD` and `stateDiagram-v2`,
+  as "Explore the service" says for a course map. The PlantUML rules of an onboard run do not apply: the
+  lessons render Mermaid.
 - Run the inventory with this command:
 
   ```
@@ -32,7 +35,7 @@ Follow "Explore the service" and then "The map" of `{skill_dir}/rungs/onboard.md
 - Run the check with this command:
 
   ```
-  python3 {skill_dir}/scripts/onboard.py check {course_dir}/map/{source_id}.md --root {root} --inventory {course_dir}/map/{source_id}.inventory.txt
+  python3 {skill_dir}/scripts/onboard.py check {course_dir}/map/{source_id}.md --root {root} --inventory {course_dir}/map/{source_id}.inventory.txt --notation mermaid
   ```
 
 - Write `none found` under `Architecture`, `Flows`, `State` and `Events` when the source has no code to trace.

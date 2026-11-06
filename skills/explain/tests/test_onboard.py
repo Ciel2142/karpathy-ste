@@ -545,7 +545,7 @@ class InventoryCase(unittest.TestCase):
 MAP = read("map.md")
 
 
-def check(text=MAP, edits=(), inventory=None):
+def check(text=MAP, edits=(), inventory=None, notation=None):
     """Run check on `text` after each (old, new) edit, applied once; return the exit code, stdout and stderr."""
     for old, new in edits:
         text = replace_once(text, old, new)
@@ -555,6 +555,8 @@ def check(text=MAP, edits=(), inventory=None):
         argv = ["check", path, "--root", str(TREE)]
         if inventory is not None:
             argv += ["--inventory", str(inventory)]
+        if notation is not None:
+            argv += ["--notation", notation]
         return run(argv)
 
 
@@ -605,6 +607,15 @@ def with_part(line, index, new):
     return " | ".join(parts[:index] + [new] + parts[index + 1 :])
 
 
+MAP_PUML = read("map-puml.md")
+
+
+def puml_block(anchor):
+    """The plantuml block of MAP_PUML, fences and the line break after them included, that first follows `anchor`."""
+    start = MAP_PUML.index("```plantuml\n", MAP_PUML.index(anchor))
+    return MAP_PUML[start : MAP_PUML.index("```\n", start + 3) + 4]
+
+
 class CheckCase(unittest.TestCase):
     def only(self, *expected, **kw):
         """check(**kw) prints exactly the `expected` failures, then their count, and exits 1."""
@@ -635,6 +646,11 @@ class CheckCase(unittest.TestCase):
             "entry #13: flow cancel not in Flows",
             edits=[("### cancel: How is an order cancelled?", "### Cancel flow")],
         )
+
+    def test_repeated_flow_id_is_reported(self):
+        _, out, _ = check(edits=[("### cancel: How is an order cancelled?", "### order: How is an order cancelled?")])
+        self.assertIn("section: Flows id order twice", failures(out))
+        self.assertEqual(failures(out).count("section: Flows id order twice"), 1)
 
     def test_diagram_none(self):
         nodes = ("api", "repo", "listener", "payments", "kafka")
@@ -1123,6 +1139,146 @@ class CheckCase(unittest.TestCase):
         missing = self.tmp("none.txt")
         code, out, err = run(["check", str(FIXTURES / "map.md"), "--root", str(TREE), "--inventory", missing])
         self.assertEqual((code, out, err), (2, "", "onboard: cannot read inventory %s\n" % missing))
+
+
+class PlantumlMapCase(unittest.TestCase):
+    def only(self, text, *expected):
+        """check(text) prints exactly the `expected` failure lines."""
+        code, out, err = check(text)
+        self.assertEqual((failures(out), err), (list(expected), ""))
+        self.assertEqual(code, 1)
+
+    def test_fixture_map_passes_the_check(self):
+        self.assertEqual(check(MAP_PUML), OK)
+
+    def test_plantuml_fence_becomes_a_diagram(self):
+        diagram = onboard.parse_map(MAP_PUML).section("Architecture").diagrams[0]
+        self.assertEqual((diagram.notation, diagram.kind), ("plantuml", "component"))
+
+    def test_backtick_key_is_the_label(self):
+        self.assertEqual(onboard._key(onboard.Fact(1, 1, "`see order`: the row is saved", None)), "see order")
+
+    def test_russian_label_matches_its_fact(self):
+        edits = [(":charge the payment;", ":принять заказ;"), ("`charge the payment`:", "`принять заказ`:")]
+        self.assertEqual(check(MAP_PUML, edits), OK)
+
+    def test_activity_in_architecture_is_not_component(self):
+        self.only(replace_once(MAP_PUML, puml_block("## Architecture"), puml_block("### order:")),
+                  "diagram architecture: not component")
+
+    def test_component_in_a_flow_is_not_activity(self):
+        self.only(replace_once(MAP_PUML, puml_block("### order:"), puml_block("## Architecture")),
+                  "diagram order: not activity")
+
+    def test_state_place_needs_a_state_diagram(self):
+        self.only(replace_once(MAP_PUML, puml_block("## State"), puml_block("## Architecture")),
+                  "diagram state: not state")
+
+    def test_plain_text_fence_is_not_a_plantuml_kind(self):
+        self.only(replace_once(MAP_PUML, puml_block("## Architecture"), "```plantuml\nword\n```\n"),
+                  "diagram architecture: not a PlantUML kind")
+
+    def test_repeated_label_is_one_node_with_one_fact(self):
+        self.assertEqual(check(MAP_PUML), OK)
+        fact = next(line for line in MAP_PUML.splitlines() if line.startswith("- `400 over the limit`:"))
+        self.only(replace_once(MAP_PUML, fact + "\n", fact + "\n" + fact + "\n"),
+                  "fact order/400 over the limit: two lines")
+
+    def test_twenty_six_labels_are_too_many(self):
+        cite = " | src/main/java/shop/OrderController.java:15 | public ResponseEntity<String> create(@RequestBody Order order) {"
+        labels = ["step %d" % n for n in range(26)]
+        flow = "```plantuml\nstart\n" + "".join(":%s;\n" % label for label in labels) + "stop\n```\n"
+        facts = "".join("- `%s`: a step%s\n" % (label, cite) for label in labels)
+        start = MAP_PUML.index("```plantuml", MAP_PUML.index("### order:"))
+        end = MAP_PUML.index("\n### cancel:")
+        self.only(MAP_PUML[:start] + flow + facts + MAP_PUML[end:], "diagram order: 26 nodes, more than 25")
+
+    def test_mermaid_fixture_still_passes(self):
+        self.assertEqual(check(MAP), OK)
+
+    def test_flow_nodes_returns_labels(self):
+        self.assertIn("see order", onboard.flow_nodes(onboard.parse_map(MAP_PUML))["cancel"])
+
+
+class PlantumlFaultCase(unittest.TestCase):
+    def lines(self, edits):
+        """The failure lines of MAP_PUML after the `edits`."""
+        code, out, err = check(MAP_PUML, edits)
+        self.assertEqual((code, err), (1, ""))
+        return failures(out)
+
+    def test_action_over_lines(self):
+        lines = self.lines([(":save the order row;", ":save the\norder row;")])
+        self.assertIn("diagram order: action over lines 14-15", lines)
+
+    def test_if_without_else(self):
+        lines = self.lines([("else (no)\nendif\n:charge the payment;", "endif\n:charge the payment;")])
+        self.assertEqual(lines, ["diagram order: if without else line 3"])
+
+    def test_style_line(self):
+        cloud = 'cloud "Payments API" as payments\n'
+        self.assertEqual(self.lines([(cloud, cloud + "skinparam monochrome true\n")]),
+                         ["diagram architecture: style line 7"])
+
+    def test_see_of_an_unknown_flow(self):
+        edits = [(":see order;", ":see refund;"), ("`see order`:", "`see refund`:")]
+        self.assertEqual(self.lines(edits), ["node cancel/see refund: flow refund not in Flows"])
+
+    def test_repeated_see_hop_prints_one_line(self):
+        edits = [(":see order;\ndetach", ":see refund;\ndetach\n:see refund;\ndetach"), ("`see order`:", "`see refund`:")]
+        self.assertEqual(self.lines(edits), ["node cancel/see refund: flow refund not in Flows"])
+
+    def test_undeclared_component_on_an_edge(self):
+        lines = self.lines([("api --> kafka\n", "api --> kafka\napi --> cache\n")])
+        self.assertEqual(lines, ["node architecture/cache: not declared", "node architecture/cache: no fact line"])
+
+    def test_hyphen_component_alias_is_a_bad_id(self):
+        listener = '  component "cancel listener" as listener\n'
+        lines = self.lines([(listener, listener + '  component "my db" as my-db\n')])
+        self.assertEqual(lines, ["node architecture/my-db: bad id", "node architecture/my-db: no fact line"])
+
+    def test_bad_state_id(self):
+        lines = self.lines([("NEW --> PAID\n", "NEW --> PAID\nNEW --> new-order\n")])
+        self.assertEqual(lines, ["node state/new-order: bad id", "node state/new-order: no fact line"])
+
+    def test_fault_order_is_diagram_then_node_then_fact(self):
+        edits = [("api --> kafka\n", "api --> kafka\napi --> cache\nskinparam monochrome true\n"),
+                 ("- api: the order controller", "- gone: the order controller")]
+        self.assertEqual(self.lines(edits), ["diagram architecture: style line 13",
+                                             "node architecture/api: no fact line",
+                                             "node architecture/cache: not declared",
+                                             "node architecture/cache: no fact line",
+                                             "fact architecture/gone: not a node"])
+
+
+class NotationCase(unittest.TestCase):
+    def test_mermaid_map_passes_as_mermaid(self):
+        self.assertEqual(check(MAP, notation="mermaid"), OK)
+
+    def test_mermaid_map_fails_as_plantuml(self):
+        code, out, err = check(MAP, notation="plantuml")
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(failures(out), ["diagram architecture: not plantuml", "diagram order: not plantuml",
+                                         "diagram cancel: not plantuml", "diagram state: not plantuml"])
+        self.assertEqual(out.splitlines()[-1], "onboard: 4 failures")
+
+    def test_plantuml_map_passes_as_plantuml(self):
+        self.assertEqual(check(MAP_PUML, notation="plantuml"), OK)
+
+    def test_plantuml_map_fails_as_mermaid(self):
+        code, out, err = check(MAP_PUML, notation="mermaid")
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(failures(out)[0], "diagram architecture: not mermaid")
+        self.assertTrue(all(line.startswith("diagram ") and line.endswith(": not mermaid") for line in failures(out)))
+
+    def test_without_the_flag_both_pass(self):
+        self.assertEqual((check(MAP), check(MAP_PUML)), (OK, OK))
+
+    def test_unknown_notation_is_the_usage(self):
+        code, out, err = check(MAP, notation="dot")
+        self.assertEqual((code, out), (2, ""))
+        self.assertTrue(err.startswith("usage:"), err)
+        self.assertIn("--notation plantuml|mermaid", err)
 
 
 class CliCase(unittest.TestCase):
