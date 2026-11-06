@@ -81,7 +81,7 @@ waves:
       `video.mp4` of the run plays as one film with the hub's chapter list; the viewer gate line reads
       `viewer: <m> of <m> understood` or each miss is in `not_covered`; the cost section of
       `rungs/movie.md` carries the measured numbers; the user has watched it.
-    status: pending
+    status: done
     depends_on: [movie-procedure]
     owns:
       - skills/explain/rungs/movie.md (the costs section, and any step the live run proves wrong), skills/explain/movie/ (the prompts, likewise), with their tests

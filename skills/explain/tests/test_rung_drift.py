@@ -1374,7 +1374,11 @@ def fenced_lines(text: str) -> list[list[str]]:
 MOVIE_RUNG_TEXTS = ("Build nothing before the user approves the plan.", "At most 3 chapter subagents",
                     "never fill `movie.html` by hand", "A chapter is never dropped", "disputed: <id>: <finding>",
                     "viewer missed: <question>", "still: viewer-stills/<k>-<id>.png", "A movie commits nothing.",
-                    "not yet measured",
+                    # wave 3 (the live run): a lost reply is asked for once, a filled prompt can travel as a file,
+                    # and a source that moves under the build re-points the cites of the plan
+                    "Then send the subagent one message that asks for the lines of its \"Result\", one time.",
+                    "You can also write the result to a file outside `<movie-dir>`.",
+                    "`cite <question-id>#<n>: snippet not found on that line` for a cite that passed",
                     # final review I1: a resume after round 1 rebuilds each missed chapter whose film is older than
                     # the report of round 1 (a stop between the `## Author` block and the rebuild)
                     "test <movie-dir>/chapters/<id>/video.mp4 -nt <movie-dir>/review/viewer-round-1.md",
@@ -1506,7 +1510,7 @@ class MovieRungCase(unittest.TestCase):
             'A harness error or a stop is no reply. For it, go to "A chapter that does not return" below.'))
         titles = [title for level, title in headings(section(read(MOVIE_MD), "Build the chapters")) if level == 3]
         self.assertEqual(titles, ["A chapter that does not return", "A fault of the environment",
-                                  "The chapter prompt", "The chapter gate"])
+                                  "A source that moves", "The chapter prompt", "The chapter gate"])
 
     # red: the rung quotes a line of `bridges` or `stitch` that the docstring of movie.py does not give (a cause
     # reworded), or a stage of them that the rung does not quote
@@ -1581,11 +1585,15 @@ class MovieRungCase(unittest.TestCase):
         text = " ".join(read(MOVIE_MD).split())
         self.assertEqual([want for want in MOVIE_RUNG_TEXTS if want not in text], [])
 
-    # red: "Costs" gives a number before the live run measures it, or loses its pointer to the film costs
-    def test_costs_holds_no_number_yet(self):
+    # red: "Costs" loses the numbers of the live run (wave 3), one of its five measures, or its pointer to the film
+    # costs
+    def test_costs_holds_the_measured_numbers(self):
         text = self.words("Costs")
-        self.assertIsNone(COST_NUMBER.search(text), text)
-        self.assert_phrases("Costs", ("not yet measured", '"First-run costs"'))
+        self.assertIsNotNone(COST_NUMBER.search(text), text)
+        self.assertNotIn("not yet measured", text)
+        self.assert_phrases("Costs", ("Lines of scene code for each second of a chapter:", "Render runs for each chapter:",
+                                      "Tokens and rounds of the viewer gate:", "Wall time of one movie:",
+                                      "The budget of narration words for each chapter:", '"First-run costs"'))
 
     # red: a sentence of movie.md breaks the STE profile (a contraction such as "don't")
     def test_movie_md_lints_clean(self):

@@ -353,6 +353,9 @@ Thus keep a list of the chapters whose subagents run now: the running list. Do t
    `container` `FAIL`, do steps 10 to 12. Then go to "A fault of the environment" below.
 9. If the reply has no result line, set `status` to `failed` and `reason` to `no result line`. A
    harness error or a stop is no reply. For it, go to "A chapter that does not return" below.
+   A harness can also say that the subagent ended and sent no report. Then send the subagent one
+   message that asks for the lines of its "Result", one time. Read its answer as the reply. In
+   the first live run, three chapters of five came back that way.
 10. Write each `disputed:` line of the reply into `movie.json`, as "The chapter gate" below says.
 11. Run `movie.py check <movie-dir>` after each edit. If it exits with 2, the edit broke the JSON.
     Undo the edit. Make it again, with the text escaped ("Edit the plan"). Never write the whole file
@@ -396,11 +399,32 @@ A fault of the environment also stops the run. If a `reason` names a `workspace`
    loop. Do not come back to this subsection for their lines.
 3. Print the `FAIL` line. Stop the run ("When the run stops"). A resume continues.
 
+### A source that moves
+
+The source can change while the chapters build: a commit, a merge or a pull under the root. Then
+`check` prints `cite <question-id>#<n>: snippet not found on that line` for a cite that passed
+before, and the number of the line is stale. The fault is in `movie.json`, so the stop rule does
+not apply. Do these steps:
+
+1. For each such line, find the snippet in the file again: `grep -nF '<snippet>' <root>/<path>`.
+2. Set the `line` of that cite to the new number, as "Edit the plan" says: one edit, then
+   `check`.
+3. Set `provenance.commit` to the current short hash, and `dirty` to its current value.
+4. Change no chapter. A chapter subagent reads each cited line from the disk, and it cites the
+   line that it read. A `built` chapter keeps its cites.
+
+In the first live run, a merge under the root moved the source by 7 to 68 lines during the
+build. The ten cites of the plan took ten edits. Each chapter cited the current lines by itself.
+
 ### The chapter prompt
 
 The prompt `chapter-task.md` is a template. Read it. Replace each name in braces with the text of
 the table below. A JSON text is plain text too: put it in the prompt as it is. Give the result to the
 subagent as its prompt.
+
+You can also write the result to a file outside `<movie-dir>`. Then give the subagent a short prompt
+that names that file, and that tells it to read the file first. The text reaches the subagent as it
+is, and it does not fill your context. A filled chapter prompt has about 1900 words.
 
 | Name | Fill with |
 |---|---|
@@ -746,8 +770,8 @@ test <movie-dir>/chapters/<id>/video.mp4 -nt <movie-dir>/review/viewer-round-1.m
 
 6. The command fails with exit 1 when `video.mp4` is older than the report, or when it does not
    exist. Then that chapter has no new film. Do the steps of "After round 1" below only for each
-   chapter for which the command fails. If it passes for each named chapter, continue to step 7.
-   Then run round 2.
+   chapter for which the command fails. If it passes for each named chapter, continue to step 7,
+   and then run round 2.
 7. If `review/viewer-round-<k>.md` exists, an earlier run stopped in this round. Move the report to
    `review/viewer-round-<k>.stale-<n>.md`. `<n>` is the first number from 1 that no file has. Never
    delete a report.
@@ -859,7 +883,8 @@ The movie then ships with the miss. The hub and the handoff report it, and the u
 answer the film does not show.
 
 The prompt `review-viewer.md` is a template. Read it. Replace each name in braces with plain text.
-Give the result to the subagent as its prompt. Fill its names as the table below says.
+Give the result to the subagent as its prompt, or write it to a file outside `<movie-dir>` as "The
+chapter prompt" says. Fill its names as the table below says.
 
 | Name | Fill with |
 |---|---|
@@ -1004,13 +1029,28 @@ The directory is `~/karpathy/out/YYYY-MM-DD-HHMMSS-movie-<slug>/`. A movie commi
 
 ## 12. Costs
 
-The live run of the movie rung measures these costs. Until then, this section gives no number:
+The first live run measured these costs on 2026-11-06. The movie was English, with 5 chapters, 4
+bridges and the review off. It ran on one Apple computer with the Kokoro voice. Its film is 451 s
+long, from a plan of 420 s of chapters.
 
-- Lines of scene code for each second of a chapter: not yet measured.
-- Render runs for each chapter: not yet measured.
-- Tokens and rounds of the viewer gate: not yet measured.
-- Wall time of one movie: not yet measured.
-- The budget of narration words that this file recommends for each chapter: not yet measured.
+- Lines of scene code for each second of a chapter: 3 to 6. A chapter of 70 to 100 s had 250 to
+  450 lines of `.tsx` in `scene/`. A later chapter carries the stage of the chapters before it,
+  so its count grows along the film.
+- Render runs for each chapter: 1 to 4, and 2 as the median. The reads of the stills are most of
+  the work of a chapter. One chapter read 33 to 56 stills, in 43 to 86 tool uses. One chapter
+  subagent used 210k to 290k tokens and 13 to 22 min of wall time. Three chapters at a time took
+  22 min, and the last two took 16 min.
+- Tokens and rounds of the viewer gate: one round, 100k tokens, 8 tool uses and 1 min. The viewer
+  understood each of the 5 questions in round 1.
+- Wall time of one movie: 66 min from the start of the plan to the hub, without the stop for the
+  approval. The plan took 6 min, the chapters 38 min, the bridges 1 min, the stitch 12 s, the
+  viewer 1 min and the check of the hub 1 min. Each bridge was 11 to 14 s long, and its render took 15 s.
+- The budget of narration words for each chapter: 3 words for each second. The five chapters had
+  206 to 287 words for 67 to 95 s of film: 3.0 to 3.1 words each second. A chapter came out 1 to
+  7 % shorter than its `seconds`, never longer. Thus a movie comes out near the `<lo>` of
+  `check`, and a plan near 240 s of chapters is too short.
+- `check` never exited with 2 in the run: about 30 edits of `movie.json`, each by a JSON library,
+  broke the file no time. Thus `movie.py` has no `mark` command for the status of a chapter.
 
 A chapter is a film. For the cost of the first render of a chapter and of its workspace, see
 `rungs/video.md` "First-run costs".
