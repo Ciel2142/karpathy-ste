@@ -17,8 +17,9 @@ kept in one repository and linked into each tool's skills directory:
   list of sources, a lesson for each subsystem along one message flow, and a hub page; it stops
   for your approval of the plan, and a rerun on its directory resumes), or an onboarding page
   (`--as onboard`: one service directory, explored by the onboarding rules into a map that
-  `onboard.py check` verifies, then a page with its architecture, every entry point and every flow
-  as Mermaid diagrams), or a movie (`--as movie`: one theme as one film cut into chapters, with
+  `onboard.py check` verifies, then a Markdown page for Confluence with its architecture, every
+  entry point and every flow as PlantUML diagrams rendered to PNG; the page holds no cites, the
+  map does), or a movie (`--as movie`: one theme as one film cut into chapters, with
   generated bridges between them and a cold-viewer gate that checks the film can be understood; it
   stops for your approval of the plan, and a rerun on its directory resumes). Every artifact is grounded: each
   claim carries a `<cite>` to a real `path:line` and a verbatim snippet, and `verify.sh` fails
@@ -69,7 +70,7 @@ and the `general` agent.
 | `video` | `node` (proven on 25.9; an LTS is fine), `npm`, `uv`, `rsync`, `curl`, `shasum`; macOS `say` and `afinfo` |
 | `lesson` | the needs of `page` and of `video` together |
 | `course` | the needs of `lesson` |
-| `onboard` | the needs of `page` |
+| `onboard` | `python3`, and `plantuml` on `PATH` (Homebrew); no Chrome |
 | `movie` | the needs of `lesson` |
 | `sdr` | the needs of `page`, and the web tools of your session for the web searchers |
 
@@ -103,7 +104,7 @@ skills/explain/    SKILL.md (router + conventions), rungs/{sheet,page,video,brai
                    movie/ (the chapter and viewer prompts), templates/,
                    scripts/{verify,snapshot,render,narrate,video-workspace}.sh,
                    scripts/cite_check.py, scripts/course{,_hub,_hub_text,_discover}.py,
-                   scripts/{onboard,mermaid_svg}.py,
+                   scripts/{onboard,onboard_page,puml,mermaid_svg}.py,
                    video/ (Remotion app + pipeline; video/src/kit/ is the film kit,
                    video/src/film/ the worked example), tests/
 skills/sdr/        SKILL.md (the review procedure), prompts/ (the searcher and reviewer prompts),

@@ -2,12 +2,14 @@
 """Onboarding map tool for `explain`: lists the entry points of a service and checks a map.
 
 Usage: onboard.py inventory <source-dir> --root <root> [--out <file>]
-       onboard.py check <map.md> --root <root> [--inventory <file>]
+       onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]
+       onboard.py diagrams <map.md> --out <dir>      (see onboard_page.py)
+       onboard.py page <page.md> --map <map.md>      (see onboard_page.py)
 inventory prints one tab-separated `<path>:<line> <kind> <text>` line per entry point and per event
 type, then `inventory: <n> entry points, <m> event types`. check prints one failure per line, then
 `onboard: ok` or `onboard: <n> failures`.
 Exit 0 on success, 1 on failures found, 2 on a usage error or an unreadable source, map, root or
-inventory file. `map: cannot read ...` goes to stdout; every other exit-2 line goes to stderr.
+inventory file. `map: cannot read ...` and `page: cannot read ...` go to stdout; every other exit-2 line goes to stderr.
 """
 
 import argparse
@@ -17,10 +19,13 @@ import sys
 from typing import NamedTuple, NoReturn
 
 import cite_check
+import puml
 
 USAGE = (
     "usage: onboard.py inventory <source-dir> --root <root> [--out <file>]\n"
-    "       onboard.py check <map.md> --root <root> [--inventory <file>]\n"
+    "       onboard.py check <map.md> --root <root> [--inventory <file>] [--notation plantuml|mermaid]\n"
+    "       onboard.py diagrams <map.md> --out <dir>\n"
+    "       onboard.py page <page.md> --map <map.md>\n"
 )
 TITLES = (
     "Shape",
@@ -54,6 +59,9 @@ TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 MAX_NODES = 25
 FLOWCHART = "flowchart"
 STATE = "stateDiagram-v2"
+MERMAID = "mermaid"
+PLANTUML = "plantuml"
+NOTATIONS = (PLANTUML, MERMAID)
 HEADERS = {"flowchart TD": FLOWCHART, "flowchart LR": FLOWCHART, "stateDiagram-v2": STATE}
 FLOW_STATEMENTS = ("subgraph", "end", "direction", "classDef", "class", "style", "linkStyle", "click")
 STATE_STATEMENTS = ("direction", "note", "classDef", "class")
@@ -160,6 +168,10 @@ class Diagram(NamedTuple):
     kind: str | None
     nodes: list[str]
     text: str
+    notation: str = MERMAID
+    faults: tuple[str, ...] = ()  # puml.Parsed.faults; empty for Mermaid
+    node_faults: tuple[tuple[str, str], ...] = ()
+    hops: tuple[str, ...] = ()
 
 
 class Flow(NamedTuple):
@@ -216,11 +228,18 @@ def _flow(text: str, line: int) -> Flow:
 
 
 def _close_fence(fence: tuple, scope: Flow | Section | None) -> None:
-    """A closed ```mermaid block becomes a Diagram of its flow or section; other blocks are dropped."""
+    """A closed ```mermaid or ```plantuml block becomes a Diagram of its flow or section; other blocks are dropped."""
     line, info, body = fence
-    if info == "mermaid" and scope is not None:
-        block = "\n".join(body)
-        scope.diagrams.append(Diagram(line, mermaid_kind(block), mermaid_nodes(block), block))
+    if info not in NOTATIONS or scope is None:
+        return
+    block = "\n".join(body)
+    if info == PLANTUML:
+        parsed = puml.parse(block)
+        diagram = Diagram(line, parsed.kind, parsed.nodes, block, PLANTUML, tuple(parsed.faults),
+                          tuple(parsed.node_faults), tuple(parsed.hops))
+    else:
+        diagram = Diagram(line, mermaid_kind(block), mermaid_nodes(block), block)
+    scope.diagrams.append(diagram)
 
 
 def parse_map(text: str) -> MapDoc:
@@ -509,39 +528,55 @@ def _section_lines(doc: MapDoc) -> list[str]:
         highest = max(highest, index)
         lines.extend("section: Flows heading %s has no flow id" % flow.heading for flow in section.flows
                      if flow.ident is None)
+        idents = [flow.ident for flow in section.flows if flow.ident is not None]
+        lines.extend("section: Flows id %s twice" % ident
+                     for ident in dict.fromkeys(idents) if idents.count(ident) > 1)
     return lines
 
 
-def _places(doc: MapDoc) -> list[tuple[str, Section | Flow, str]]:
-    """(where, scope, the diagram kind it needs) of each place to check, in output order; `none found` skips."""
+NEEDS = {"architecture": {MERMAID: FLOWCHART, PLANTUML: "component"},
+         "flow": {MERMAID: FLOWCHART, PLANTUML: "activity"},
+         "state": {MERMAID: STATE, PLANTUML: "state"}}
+
+
+def _places(doc: MapDoc) -> list[tuple[str, Section | Flow, dict[str, str]]]:
+    """(where, scope, the diagram kind it needs by notation) of each place to check, in output order; `none found`
+    skips."""
     architecture, flows, state = (doc.section(title) for title in ("Architecture", "Flows", "State"))
     places = []
     if architecture and not architecture.none_found:
-        places.append(("architecture", architecture, FLOWCHART))
+        places.append(("architecture", architecture, NEEDS["architecture"]))
     if flows and not flows.none_found:
-        places.extend((flow.ident, flow, FLOWCHART) for flow in flows.flows if flow.ident)
+        places.extend((flow.ident, flow, NEEDS["flow"]) for flow in flows.flows if flow.ident)
     if state and not state.none_found:
-        places.append(("state", state, STATE))
+        places.append(("state", state, NEEDS["state"]))
     return places
 
 
 def _key(fact: Fact) -> str:
-    """The node a fact names: the text before its first `:` when that is one token, else its first word."""
+    """The node a fact names: the text between its first two backticks when it starts with one, else the text
+    before its first `:` when that is one token, else its first word."""
+    if fact.fact.startswith("`"):
+        return fact.fact[1:].partition("`")[0]
     head, colon, _ = fact.fact.partition(":")
     if colon and TOKEN.fullmatch(head):
         return head
     return (fact.fact.split() or [""])[0]
 
 
-def _node_lines(where: str, diagram: Diagram, facts: list[Fact]) -> list[str]:
-    """The `node` lines in diagram order, then the `fact` lines in bullet order."""
+def _node_lines(where: str, diagram: Diagram, facts: list[Fact], flow_ids: set[str]) -> list[str]:
+    """The `diagram` lines of the parser faults, the `node` lines in diagram order (a node's parser faults, then
+    its missing fact line), the `see` hops into no flow, then the `fact` lines in bullet order."""
     keys = [_key(fact) for fact in facts]
-    lines = []
+    lines = ["diagram %s: %s" % (where, fault) for fault in diagram.faults]
     for node in diagram.nodes:
         if diagram.kind == FLOWCHART and not ID.fullmatch(node):
             lines.append("node %s/%s: bad id" % (where, node))
+        lines.extend("node %s/%s: %s" % (where, name, fault) for name, fault in diagram.node_faults if name == node)
         if node not in keys:
             lines.append("node %s/%s: no fact line" % (where, node))
+    lines.extend("node %s/see %s: flow %s not in Flows" % (where, hop, hop) for hop in dict.fromkeys(diagram.hops)
+                 if hop not in flow_ids)
     for index, key in enumerate(keys):
         if key not in diagram.nodes:
             lines.append("fact %s/%s: not a node" % (where, key))
@@ -550,20 +585,25 @@ def _node_lines(where: str, diagram: Diagram, facts: list[Fact]) -> list[str]:
     return lines
 
 
-def _place_lines(where: str, scope: Section | Flow, needs: str) -> list[str]:
-    """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind."""
+def _place_lines(where: str, scope: Section | Flow, needs: dict[str, str], flow_ids: set[str],
+                 notation: str | None = None) -> list[str]:
+    """The `diagram` lines of one place, then its node rules unless its first diagram has the wrong kind or,
+    with `notation`, the wrong notation (then the one line `diagram <where>: not <notation>`)."""
     if not scope.diagrams:
         return ["diagram %s: none" % where] + ["fact %s/%s: not a node" % (where, _key(f)) for f in scope.facts]
     diagram = scope.diagrams[0]
+    if notation is not None and diagram.notation != notation:
+        return ["diagram %s: not %s" % (where, notation)]
     lines = []
     if len(scope.diagrams) > 1:
         lines.append("diagram %s: %d blocks, more than 1" % (where, len(scope.diagrams)))
-    if diagram.kind != needs:
-        fault = "not flowchart or stateDiagram-v2" if diagram.kind is None else "not " + needs
-        return lines + ["diagram %s: %s" % (where, fault)]
-    if diagram.kind == FLOWCHART and len(diagram.nodes) > MAX_NODES:
+    needed = needs[diagram.notation]
+    if diagram.kind != needed:
+        none = "not flowchart or stateDiagram-v2" if diagram.notation == MERMAID else "not a PlantUML kind"
+        return lines + ["diagram %s: %s" % (where, none if diagram.kind is None else "not " + needed)]
+    if diagram.kind in (FLOWCHART, "activity") and len(diagram.nodes) > MAX_NODES:
         lines.append("diagram %s: %d nodes, more than %d" % (where, len(diagram.nodes), MAX_NODES))
-    return lines + _node_lines(where, diagram, scope.facts)
+    return lines + _node_lines(where, diagram, scope.facts, flow_ids)
 
 
 def _facts(doc: MapDoc, title: str) -> list[Fact]:
@@ -793,13 +833,16 @@ def _unlisted_lines(doc: MapDoc, inventory_lines: list[str]) -> list[str]:
     return lines
 
 
-def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None) -> list[str]:
+def check_map(doc: MapDoc, root: str, inventory: list[str] | None = None, notation: str | None = None) -> list[str]:
     """The failure lines of a map, in order: sections, each place (architecture, the flows, state), entry
     lines, event lines, Other systems handles, Shape keys, Conventions topics, Where to look keys and paths,
-    cites, then the inventory lines that no entry line cites."""
+    cites, then the inventory lines that no entry line cites. `notation` makes every place whose first
+    diagram is of the other notation one `not <notation>` line."""
     lines = _section_lines(doc)
+    flows = doc.section("Flows")
+    flow_ids = {flow.ident for flow in flows.flows if flow.ident} if flows else set()
     for where, scope, needs in _places(doc):
-        lines.extend(_place_lines(where, scope, needs))
+        lines.extend(_place_lines(where, scope, needs, flow_ids, notation=notation))
     lines.extend(_entry_lines(doc) + _event_lines(doc) + _handle_lines(doc) + _shape_lines(doc))
     lines.extend(_convention_lines(doc) + _where_lines(doc, root) + _cite_lines(doc, root))
     return lines + _unlisted_lines(doc, inventory or [])
@@ -814,11 +857,13 @@ def _inventory_lines(path: str) -> list[str]:
 
 
 def cmd_check(argv: list[str]) -> int:
-    args = _Parser("map", "--inventory").parse_args(argv)
+    parser = _Parser("map", "--inventory")
+    parser.add_argument("--notation", choices=NOTATIONS)
+    args = parser.parse_args(argv)
     if not os.path.isdir(args.root):
         raise OnboardError("onboard: cannot read root %s" % args.root, 2)
     inventory_lines = None if args.inventory is None else _inventory_lines(args.inventory)
-    failures = check_map(read_map(args.map), args.root, inventory_lines)
+    failures = check_map(read_map(args.map), args.root, inventory_lines, args.notation)
     summary = "onboard: %d failures\n" % len(failures) if failures else "onboard: ok\n"
     sys.stdout.write("".join(line + "\n" for line in failures) + summary)
     return 1 if failures else 0
@@ -830,17 +875,24 @@ def _usage() -> int:
 
 
 def main(argv: list[str]) -> int:
-    command = {"inventory": cmd_inventory, "check": cmd_check}.get(argv[0]) if argv else None
+    import onboard_page  # here, not at the top: onboard_page imports this module
+
+    command = {"inventory": cmd_inventory, "check": cmd_check, "diagrams": onboard_page.cmd_diagrams,
+               "page": onboard_page.cmd_page}.get(argv[0]) if argv else None
     if command is None:
         return _usage()
     try:
         return command(argv[1:])
     except OnboardError as error:
         line = str(error)
-        stream = sys.stdout if line.startswith("map:") else sys.stderr
+        on_stdout = (line.startswith(("map:", "page:")) or (line.startswith("diagrams:") and error.code == 1))
+        stream = sys.stdout if on_stdout else sys.stderr
         stream.write(line if line.endswith("\n") else line + "\n")
         return error.code
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # Run the module under its own name, so onboard_page and this file share one OnboardError class.
+    import onboard
+
+    sys.exit(onboard.main(sys.argv[1:]))

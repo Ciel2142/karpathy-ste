@@ -1,0 +1,39 @@
+title Login callback
+' a comment line
+start
+:read the request;
+if (pending states at capacity?) then (yes)
+  :refuse the login;
+  stop
+elseif (state known?) then (no)
+  :reply with an error;
+  stop
+else (known)
+  :exchange the code;
+endif
+note right: the code is single use
+while (more pages?) is (yes)
+  :fetch a page;
+endwhile (no)
+repeat
+  :retry the call;
+repeat while (still failing?) is (yes)
+switch (kind of token)
+case (access)
+  :store access;
+case (refresh)
+  :store refresh;
+endswitch
+fork
+  :send email;
+fork again
+  :reply with an error;
+end fork
+partition "Cleanup" {
+  -> ok;
+  :close session;
+}
+:see other;
+detach
+:reply with an error;
+stop

@@ -6,7 +6,7 @@
 #   env VERIFY_TIMEOUT   seconds to wait for each Chrome DOM dump (default 60)
 #
 #   exit 0  all checks of the rung passed (sheet: five lines; page: six; lesson: seven; course: seven;
-#           onboard: six; movie: seven; video: three)
+#           movie: seven; video: three)
 #   exit 1  at least one check failed
 #   exit 2  usage: no argument, unreadable file, no or unknown <meta name="explain-rung">
 #
@@ -328,11 +328,10 @@ case "$rung_line" in
     rung=page) viewports="1440x900 500x844" ;;
     rung=lesson) viewports="1440x900 500x844" ;;
     rung=course) viewports="1440x900 500x844" ;;   # the hub of a course: a page
-    rung=onboard) viewports="1440x900 500x844" ;;   # an onboarding page: a page
     rung=movie) viewports="1440x900 500x844" ;;   # the transcript hub of a movie: a page
     rung=video) viewports="" ;;   # a transcript: no viewport render, check 2 is skipped
     rung-missing) usage "no <meta name=\"explain-rung\"> in $input_abs" ;;
-    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video, lesson, course, onboard or movie)" ;;
+    *) usage "unknown rung \"${rung_line#rung=}\" in <meta name=\"explain-rung\"> (expected sheet, page, video, lesson, course or movie)" ;;
 esac
 
 # --- check 1: self-containment -------------------------------------------------

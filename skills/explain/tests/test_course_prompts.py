@@ -75,10 +75,14 @@ MAP_COMMANDS = (
     "python3 {skill_dir}/scripts/onboard.py inventory {source_path} --root {root} "
     "--out {course_dir}/map/{source_id}.inventory.txt",
     "python3 {skill_dir}/scripts/onboard.py check {course_dir}/map/{source_id}.md --root {root} "
-    "--inventory {course_dir}/map/{source_id}.inventory.txt",
+    "--inventory {course_dir}/map/{source_id}.inventory.txt --notation mermaid",
 )
 # The overrides of the course in the map prompt: what replaces the generic names of rungs/onboard.md.
 MAP_TEXTS = (
+    # spec section 11: the course keeps Mermaid, whatever "Explore the service" says of PlantUML for an onboard run
+    "Draw each diagram as Mermaid, in a `mermaid` fence: `flowchart LR`, `flowchart TD` and `stateDiagram-v2`, "
+    "as \"Explore the service\" says for a course map. The PlantUML rules of an onboard run do not apply: "
+    "the lessons render Mermaid.",
     "Write two files: `{course_dir}/map/{source_id}.md` and `{course_dir}/map/{source_id}.inventory.txt`.",
     "The first line of the map is `# Map: {source_id}`.",
     "`<service-dir>` is `{source_path}`.",
@@ -168,7 +172,8 @@ FLOW_TEXTS = (
     "cannot resume",
 )
 # The check that the orchestrator runs on each map, and what the rung says on which map counts.
-MAP_CHECK_COMMAND = "python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root>"
+MAP_CHECK_COMMAND = ("python3 <skill-dir>/scripts/onboard.py check <course-dir>/map/<source-id>.md --root <root> "
+                     "--notation mermaid")
 MAP_RUNG_TEXTS = (
     "The prompt points at \"Explore the service\" and \"The map\" of `<skill-dir>/rungs/onboard.md`.",
     "Each subagent writes `map/<source-id>.md` and `map/<source-id>.inventory.txt` in `<course-dir>`.",

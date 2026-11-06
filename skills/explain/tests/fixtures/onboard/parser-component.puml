@@ -1,0 +1,20 @@
+title Order service
+package "Order service" {
+  component "Order API" as api
+  queue "Order events" as events
+  database "Orders" as db
+  cloud "Payment provider" as pay
+  node "Worker host" as host
+  rectangle "Admin console" as admin
+  interface "Order port" as port
+  actor "Customer" as user
+  [Order Worker] as worker
+}
+' edges, one per arrow form
+user --> api : place an order
+api -> events : publish
+worker ..> db : reads
+api -left-> pay
+admin -[hidden]-> port
+api --> db : "write -> row"
+[Order Worker] --> events
